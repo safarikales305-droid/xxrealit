@@ -31,6 +31,7 @@ import {
 import { MetaCampaignDetailPanel, metaLaunchSummaryLines } from '@/components/meta-centrum/MetaCampaignDetailPanel';
 import { MetaLaunchDebugPanel } from '@/components/meta-centrum/MetaLaunchDebugPanel';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
+import { MetaCatalogAssetsVerifyPanel } from '@/components/meta-centrum/MetaCatalogAssetsVerifyPanel';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -77,6 +78,7 @@ import {
   nestAdminMetaCenterCreateCampaign,
   nestAdminMetaCenterPreviewCampaignPayloads,
   nestAdminMetaCenterProbeAdSetCreate,
+  nestAdminMetaCenterVerifyCatalogAssets,
   nestAdminMetaCenterUpdateCampaignDraft,
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
@@ -96,6 +98,7 @@ import {
   type MetaCampaignCreateResponse,
   type MetaCampaignPayloadPreviewResponse,
   type MetaAdSetProbeResult,
+  type MetaCatalogSalesAssetsVerification,
   type MetaLaunchSteps,
   type MetaCampaignProductItem,
   type MetaGeoLocationItem,
@@ -648,6 +651,7 @@ export default function MetaCentrumPage() {
     metaApiError?: MetaCampaignCreateResponse['metaApiError'];
     failedStep?: string | null;
     launchSteps?: MetaLaunchSteps | null;
+    assetsVerification?: MetaCatalogSalesAssetsVerification | null;
   } | null>(null);
   const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
   const [debugPayloadPreview, setDebugPayloadPreview] = useState(false);
@@ -657,6 +661,9 @@ export default function MetaCentrumPage() {
   const [payloadPreviewBusy, setPayloadPreviewBusy] = useState(false);
   const [adSetProbe, setAdSetProbe] = useState<MetaAdSetProbeResult | null>(null);
   const [adSetProbeBusy, setAdSetProbeBusy] = useState(false);
+  const [catalogAssetsVerify, setCatalogAssetsVerify] =
+    useState<MetaCatalogSalesAssetsVerification | null>(null);
+  const [catalogAssetsVerifyBusy, setCatalogAssetsVerifyBusy] = useState(false);
   const [expandedCampaignDetailId, setExpandedCampaignDetailId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -923,6 +930,16 @@ export default function MetaCentrumPage() {
     return buildMetaCampaignSubmitPayload(campaignDraft, campaignProducts);
   }
 
+  async function runCatalogAssetsVerify() {
+    if (!token) return;
+    setCatalogAssetsVerifyBusy(true);
+    setCatalogAssetsVerify(null);
+    const result = await nestAdminMetaCenterVerifyCatalogAssets(token);
+    setCatalogAssetsVerifyBusy(false);
+    setCatalogAssetsVerify(result);
+    setMsg(result.message);
+  }
+
   async function runAdSetProbe(options?: { draftId?: string; campaignId?: string }) {
     if (!token) return;
     const payload = buildCampaignPayload();
@@ -1094,6 +1111,7 @@ export default function MetaCentrumPage() {
           metaApiError: r.metaApiError,
           failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
           launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+          assetsVerification: r.assetsVerification ?? null,
         });
       }
       void refresh();
@@ -1120,6 +1138,7 @@ export default function MetaCentrumPage() {
         metaApiError: r.metaApiError,
         failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
         launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+        assetsVerification: r.assetsVerification ?? null,
       });
     }
     void refresh();
@@ -4244,7 +4263,12 @@ export default function MetaCentrumPage() {
               ) : null}
 
               {campaignsDebugMode || campaignsLiveEnabled ? (
-                <div className="mt-3">
+                <div className="mt-3 space-y-3">
+                  <MetaCatalogAssetsVerifyPanel
+                    verification={catalogAssetsVerify}
+                    busy={catalogAssetsVerifyBusy}
+                    onRun={() => void runCatalogAssetsVerify()}
+                  />
                   <MetaAdSetProbePanel
                     probe={adSetProbe}
                     busy={adSetProbeBusy}
@@ -4268,6 +4292,14 @@ export default function MetaCentrumPage() {
               {lastLaunchError ? (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950">
                   <p className="font-medium">{lastLaunchError.message}</p>
+                  {lastLaunchError.assetsVerification ? (
+                    <div className="mt-2">
+                      <MetaCatalogAssetsVerifyPanel
+                        verification={lastLaunchError.assetsVerification}
+                        compact
+                      />
+                    </div>
+                  ) : null}
                   <MetaLaunchStepsPanel
                     steps={lastLaunchError.launchSteps}
                     highlightStep={lastLaunchError.failedStep}

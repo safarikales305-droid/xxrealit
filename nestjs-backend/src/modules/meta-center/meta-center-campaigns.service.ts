@@ -32,6 +32,7 @@ import {
   buildMetaAdSetProbeSteps,
   buildProbeGraphUrl,
   buildSupportedCatalogAdSetPayload,
+  catalogSalesV25Validation,
   mapProbeGraphResult,
   summarizeProbeResult,
   type MetaAdSetProbeResult,
@@ -72,6 +73,10 @@ import {
   type MetaLaunchDebugTrace,
 } from './meta-launch-debug.util';
 import type { MetaGraphResult } from './meta-graph-client.service';
+import {
+  MetaCatalogSalesAssetsVerifyService,
+  type MetaCatalogSalesAssetsVerification,
+} from './meta-catalog-sales-assets-verify.service';
 
 const SETTINGS_ID = 'default';
 
@@ -95,6 +100,7 @@ export type MetaCampaignProductItem = {
 export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep, MetaLaunchPayloadSnapshot } from './meta-campaign-api-payload.util';
 export type { MetaLaunchDebugTrace } from './meta-launch-debug.util';
 export type { MetaAdSetProbeResult } from './meta-adset-probe.util';
+export type { MetaCatalogSalesAssetsVerification } from './meta-catalog-sales-assets-verify.service';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -141,6 +147,7 @@ export class MetaCenterCampaignsService {
     private readonly creative: MetaCenterCreativeService,
     private readonly posts: PostsService,
     private readonly fbConfig: FacebookConfigService,
+    private readonly catalogSalesAssetsVerify: MetaCatalogSalesAssetsVerifyService,
   ) {}
 
   private frontendBase(): string {
@@ -961,13 +968,14 @@ export class MetaCenterCampaignsService {
       debugEnabled,
       metaLaunchDebugDir(),
     );
-    const launchContextIds = () =>
+    const launchContextIds = (verifiedPixelId?: string | null) =>
       this.buildLaunchContextIds(ids, row, {
         draftId,
         campaignId: metaCampaignId,
         adSetId: metaAdSetId,
         creativeId: metaCreativeId,
         adId: metaAdId,
+        verifiedPixelId,
       });
     const persistDebug = () => tracer.getTrace();
     const payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
@@ -1098,6 +1106,41 @@ export class MetaCenterCampaignsService {
 
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
     launchPayloads.targeting = targeting;
+
+    let effectivePayloadContext = payloadContext;
+    let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
+    let verifiedPixelId: string | null = null;
+    if (metaSpec.mode === 'catalog_sales') {
+      assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
+      if (!assetsVerification.ok) {
+        const msg = assetsVerification.message;
+        launchSteps.adSet = { ok: false, error: msg };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          status: 'error',
+          errorMessage: msg,
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+          metaLaunchDebug: persistDebug(),
+        });
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: msg,
+          failedStep: 'adset' as const,
+          launchSteps,
+          assetsVerification,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+      verifiedPixelId = assetsVerification.verifiedPixelId;
+      effectivePayloadContext = {
+        ...payloadContext,
+        pixelId: verifiedPixelId,
+      };
+      tracer.updateContext({ pixelId: verifiedPixelId });
+    }
+
     const adSetBuild = this.buildAdSetLaunchPayload({
       dto,
       ids,
@@ -1109,7 +1152,7 @@ export class MetaCenterCampaignsService {
       dailyBudgetMinor,
       catalogId,
       metaSpec,
-      payloadContext,
+      payloadContext: effectivePayloadContext,
     });
 
     if (!adSetBuild.ok) {
@@ -1160,7 +1203,7 @@ export class MetaCenterCampaignsService {
           adSetRes,
           'adset',
           tracer,
-          launchContextIds(),
+          launchContextIds(verifiedPixelId),
           adSetBuild.metaForm,
           userMessage,
         );
@@ -1629,6 +1672,10 @@ export class MetaCenterCampaignsService {
     return geoBlock;
   }
 
+  async verifyCatalogSalesAssets(): Promise<MetaCatalogSalesAssetsVerification> {
+    return this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
+  }
+
   async probeAdSetCreate(
     dto: CreateMetaCampaignDto,
     options?: { draftId?: string; campaignId?: string | null },
@@ -1728,7 +1775,28 @@ export class MetaCenterCampaignsService {
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
     const catalogId = ids.catalogId?.replace(/^catalog_/i, '') ?? null;
-    const pixelId = ids.pixelId?.trim() || ids.datasetId?.trim() || null;
+    let pixelId: string | null = ids.pixelId?.trim() || null;
+    if (metaSpec.mode === 'catalog_sales') {
+      const assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
+      if (!assetsVerification.ok) {
+        return {
+          ok: false,
+          message: assetsVerification.message,
+          campaignId: metaCampaignId ?? '',
+          graphApiVersion: graphVersion,
+          graphPath: adSetPath,
+          steps: [],
+          failureStep: null,
+          lastSuccessStep: null,
+          recommendedPayload: null,
+          recommendedMetaForm: null,
+          v25Validation: catalogSalesV25Validation(metaSpec),
+        };
+      }
+      pixelId = assetsVerification.verifiedPixelId;
+    } else if (!pixelId) {
+      pixelId = ids.datasetId?.trim() || null;
+    }
     const dsaLabels = resolveDsaDisclosureLabels({
       pageName: row?.pageName,
       adAccountName: row?.adAccountName,
@@ -2279,14 +2347,18 @@ export class MetaCenterCampaignsService {
       adSetId?: string | null;
       creativeId?: string | null;
       adId?: string | null;
+      verifiedPixelId?: string | null;
     },
   ): Record<string, string | null> {
+    const promotedObjectPixelId =
+      extra.verifiedPixelId ?? ids.pixelId ?? ids.datasetId ?? null;
     return {
       businessId: ids.businessId,
       adAccountId: ids.adAccountId,
       pageId: row?.pageId ?? null,
       instagramBusinessId: row?.instagramBusinessId ?? null,
-      pixelId: ids.pixelId,
+      pixelId: extra.verifiedPixelId ?? ids.pixelId,
+      promotedObjectPixelId,
       catalogId: ids.catalogId,
       datasetId: ids.datasetId,
       campaignId: extra.campaignId ?? null,

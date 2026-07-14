@@ -6662,6 +6662,7 @@ export type MetaCampaignCreateResponse = {
   };
   failedStep?: 'campaign' | 'adset' | 'creative' | 'ad';
   launchSteps?: MetaLaunchSteps;
+  assetsVerification?: MetaCatalogSalesAssetsVerification | null;
   campaign: MetaCampaignDraft | null;
 };
 
@@ -6705,6 +6706,37 @@ export type MetaAdSetProbeResult = {
   recommendedPayload: Record<string, unknown> | null;
   recommendedMetaForm: Record<string, string> | null;
   v25Validation: MetaAdSetV25FieldValidation[];
+};
+
+export type MetaCatalogSalesAssetCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  graphPath: string;
+  graphUrl: string;
+  message: string;
+  requestId?: string | null;
+  fbtraceId?: string | null;
+  response?: unknown;
+};
+
+export type MetaCatalogSalesAssetsVerification = {
+  ok: boolean;
+  message: string;
+  verifiedPixelId: string | null;
+  configuredPixelId: string | null;
+  configuredDatasetId: string | null;
+  promotedObjectPixelId: string | null;
+  checks: MetaCatalogSalesAssetCheck[];
+  assets: {
+    business: { id?: string; name?: string } | null;
+    adAccount: { id?: string; name?: string; business?: { id?: string; name?: string } } | null;
+    catalog: { id?: string; name?: string; business?: { id?: string; name?: string } } | null;
+    dataset: { id?: string; name?: string } | null;
+    pixel: { id?: string; name?: string } | null;
+    page: { id?: string; name?: string } | null;
+    instagram: { id?: string; name?: string } | null;
+  };
 };
 
 export type MetaAdAccountListItem = {
@@ -7442,6 +7474,35 @@ export async function nestAdminMetaCenterProbeAdSetCreate(
         recommendedPayload: null,
         recommendedMetaForm: null,
         v25Validation: [],
+      };
+}
+
+export async function nestAdminMetaCenterVerifyCatalogAssets(
+  token: string | null,
+): Promise<MetaCatalogSalesAssetsVerification> {
+  const r = await metaCenterFetch<MetaCatalogSalesAssetsVerification>(
+    token,
+    '/campaigns/verify-catalog-assets',
+  );
+  return r.ok
+    ? r.data
+    : {
+        ok: false,
+        message: r.error,
+        verifiedPixelId: null,
+        configuredPixelId: null,
+        configuredDatasetId: null,
+        promotedObjectPixelId: null,
+        checks: [],
+        assets: {
+          business: null,
+          adAccount: null,
+          catalog: null,
+          dataset: null,
+          pixel: null,
+          page: null,
+          instagram: null,
+        },
       };
 }
 

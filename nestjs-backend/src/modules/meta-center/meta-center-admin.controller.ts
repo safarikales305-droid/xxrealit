@@ -32,6 +32,7 @@ import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { MetaCatalogSalesAssetsVerifyService } from './meta-catalog-sales-assets-verify.service';
 import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
@@ -62,6 +63,7 @@ export class MetaCenterAdminController {
     private readonly apiLog: MetaCenterApiLogService,
     private readonly marketingOAuthDiagnostics: MetaMarketingDiagnosticsService,
     private readonly campaigns: MetaCenterCampaignsService,
+    private readonly catalogSalesAssetsVerify: MetaCatalogSalesAssetsVerifyService,
     private readonly geo: MetaCenterGeoService,
     private readonly remarketing: MetaCenterRemarketingService,
   ) {}
@@ -726,6 +728,32 @@ export class MetaCenterAdminController {
       'campaigns/adset-payload',
       () => this.campaigns.previewAdSetPayload(body),
       (message) => emptyMetaCampaignAdSetPayloadPreviewResult(message),
+    );
+  }
+
+  @Get('campaigns/verify-catalog-assets')
+  verifyCatalogSalesAssets() {
+    return this.safeEndpoint(
+      'campaigns/verify-catalog-assets',
+      () => this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch(),
+      (message) => ({
+        ok: false,
+        message,
+        verifiedPixelId: null,
+        configuredPixelId: null,
+        configuredDatasetId: null,
+        promotedObjectPixelId: null,
+        checks: [],
+        assets: {
+          business: null,
+          adAccount: null,
+          catalog: null,
+          dataset: null,
+          pixel: null,
+          page: null,
+          instagram: null,
+        },
+      }),
     );
   }
 

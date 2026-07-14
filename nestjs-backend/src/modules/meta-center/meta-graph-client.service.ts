@@ -80,6 +80,14 @@ export class MetaGraphClientService {
   }
 
   async get<T>(path: string, accessToken: string, query?: Record<string, string>): Promise<MetaGraphResult<T>> {
+    return this.getWithResponseHeaders<T>(path, accessToken, query);
+  }
+
+  async getWithResponseHeaders<T>(
+    path: string,
+    accessToken: string,
+    query?: Record<string, string>,
+  ): Promise<MetaGraphResult<T> & { responseHeaders: Record<string, string> }> {
     const started = Date.now();
     const base = this.graphBase();
     const qs = new URLSearchParams({ access_token: accessToken, ...(query ?? {}) });
@@ -92,6 +100,10 @@ export class MetaGraphClientService {
 
     try {
       const res = await fetch(url);
+      const responseHeaders: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        responseHeaders[key.toLowerCase()] = value;
+      });
       const data = (await res.json().catch(() => ({}))) as T & GraphErrorBody;
       const durationMs = Date.now() - started;
 
@@ -115,6 +127,7 @@ export class MetaGraphClientService {
           data,
           requestUrl: redactToken(url),
           requestMethod: 'GET',
+          responseHeaders,
         };
       }
 
@@ -132,6 +145,7 @@ export class MetaGraphClientService {
         httpStatus: res.status,
         requestUrl: redactToken(url),
         requestMethod: 'GET',
+        responseHeaders,
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -151,6 +165,7 @@ export class MetaGraphClientService {
         data: null,
         requestUrl: redactToken(url),
         requestMethod: 'GET',
+        responseHeaders: {},
       };
     }
   }

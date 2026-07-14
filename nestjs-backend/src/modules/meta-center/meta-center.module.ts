@@ -23,6 +23,7 @@ import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
 import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
+import { MetaCatalogSalesAssetsVerifyService } from './meta-catalog-sales-assets-verify.service';
 import {
   MetaCampaignBodyPipe,
   OptionalMetaCampaignBodyPipe,
@@ -53,6 +54,7 @@ import {
     MetaCenterGeoService,
     MetaCenterLiveDiagnosticsService,
     MetaCenterRemarketingService,
+    MetaCatalogSalesAssetsVerifyService,
     MetaCampaignBodyPipe,
     OptionalMetaCampaignBodyPipe,
   ],
