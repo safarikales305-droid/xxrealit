@@ -1,6 +1,14 @@
+import {
+  DEFAULT_AD_PLACEMENT_SETTINGS,
+  normalizeAdPlacementSettings,
+  resolveEnabledPlacementPositions,
+  type MetaAdPlacementSettings,
+} from './meta-placements.util';
+
 export type MetaPlacementMode = 'FACEBOOK_AND_INSTAGRAM' | 'FACEBOOK_ONLY';
 
-export const META_FACEBOOK_PLACEMENT_POSITIONS = ['feed', 'marketplace', 'video_feeds'] as const;
+/** @deprecated použijte META_SUPPORTED_FACEBOOK_POSITIONS z meta-placements.util */
+export const META_FACEBOOK_PLACEMENT_POSITIONS = ['feed', 'marketplace'] as const;
 export const META_INSTAGRAM_PLACEMENT_POSITIONS = ['stream', 'story', 'reels'] as const;
 
 export const META_INSTAGRAM_IDENTITY_ERROR_SUBCODE = '1772103';
@@ -73,17 +81,18 @@ export function targetingIncludesInstagramPlacement(targeting: Record<string, un
 export function applyPlacementModeToTargeting(
   targeting: Record<string, unknown>,
   mode: MetaPlacementMode,
+  placementSettings?: MetaAdPlacementSettings | null,
 ): Record<string, unknown> {
+  const settings = normalizeAdPlacementSettings(placementSettings ?? DEFAULT_AD_PLACEMENT_SETTINGS);
+  const enabled = resolveEnabledPlacementPositions(settings, mode);
   const copy = { ...targeting };
-  if (mode === 'FACEBOOK_ONLY') {
-    copy.publisher_platforms = ['facebook'];
-    copy.facebook_positions = [...META_FACEBOOK_PLACEMENT_POSITIONS];
+  copy.publisher_platforms = [...enabled.publisherPlatforms];
+  copy.facebook_positions = [...enabled.facebookPositions];
+  if (enabled.instagramPositions.length > 0) {
+    copy.instagram_positions = [...enabled.instagramPositions];
+  } else {
     delete copy.instagram_positions;
-    return copy;
   }
-  copy.publisher_platforms = ['facebook', 'instagram'];
-  copy.facebook_positions = [...META_FACEBOOK_PLACEMENT_POSITIONS];
-  copy.instagram_positions = [...META_INSTAGRAM_PLACEMENT_POSITIONS];
   return copy;
 }
 
@@ -108,8 +117,13 @@ export function buildPlacementDiagnostics(input: {
   placementMode: MetaPlacementMode;
   facebookPageId: string | null;
   instagramBusinessId: string | null;
+  placementSettings?: MetaAdPlacementSettings | null;
 }): MetaPlacementDiagnostics {
-  const applied = applyPlacementModeToTargeting(input.targeting, input.placementMode);
+  const applied = applyPlacementModeToTargeting(
+    input.targeting,
+    input.placementMode,
+    input.placementSettings,
+  );
   const placements = readTargetingPlacements(applied);
   return {
     placementMode: input.placementMode,

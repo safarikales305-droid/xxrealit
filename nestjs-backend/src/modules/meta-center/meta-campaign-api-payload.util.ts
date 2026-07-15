@@ -184,6 +184,7 @@ export type MetaLaunchPayloadSnapshot = {
   placementDiagnostics?: import('./meta-instagram-placement.util').MetaPlacementDiagnostics | null;
   metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
   launchHistory?: string[] | null;
+  placementSanitizeWarnings?: string[] | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {

@@ -9,6 +9,7 @@ import type { UpdateMetaCenterSettingDto } from './dto/meta-center.dto';
 import {
   DEFAULT_AD_FORMAT_FLAGS,
   DEFAULT_AUTO_CAMPAIGN_RULES,
+  DEFAULT_AD_PLACEMENT_SETTINGS,
   DEFAULT_CAPI_TOGGLES,
   DEFAULT_PIXEL_MAPPING,
   DEFAULT_REMARKETING_AUDIENCES,
@@ -113,6 +114,7 @@ export class MetaCenterService {
         remarketingAudiences: this.toInputJsonValue(DEFAULT_REMARKETING_AUDIENCES),
         autoCampaignRules: this.toInputJsonValue(DEFAULT_AUTO_CAMPAIGN_RULES),
         adFormatFlags: this.toInputJsonValue(DEFAULT_AD_FORMAT_FLAGS),
+        adPlacementSettings: this.toInputJsonValue(DEFAULT_AD_PLACEMENT_SETTINGS),
         serviceStatus: this.toInputJsonValue({}),
       },
     });
@@ -172,6 +174,7 @@ export class MetaCenterService {
       catalogFeedEnabled: row.catalogFeedEnabled,
       campaignsLiveEnabled: row.campaignsLiveEnabled ?? false,
       campaignsDebugMode: row.campaignsDebugMode ?? false,
+      adPlacementSettings: this.parseJson(row.adPlacementSettings, DEFAULT_AD_PLACEMENT_SETTINGS),
       capiEventToggles: this.parseJson(row.capiEventToggles, DEFAULT_CAPI_TOGGLES),
       pixelMapping: this.parseJson(row.pixelMapping, DEFAULT_PIXEL_MAPPING),
       remarketingAudiences: this.parseJson(row.remarketingAudiences, DEFAULT_REMARKETING_AUDIENCES),
@@ -252,6 +255,9 @@ export class MetaCenterService {
     }
     if (dto.adFormatFlags !== undefined) {
       data.adFormatFlags = this.toNullableJsonUpdate(dto.adFormatFlags);
+    }
+    if (dto.adPlacementSettings !== undefined) {
+      data.adPlacementSettings = this.toNullableJsonUpdate(dto.adPlacementSettings);
     }
 
     const row = await this.prisma.metaCenterSetting.update({

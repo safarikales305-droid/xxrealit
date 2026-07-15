@@ -6064,6 +6064,11 @@ export type FacebookAppsConfig = {
   webhookUri: string | null;
 };
 
+export type MetaAdPlacementSettings = {
+  facebook: Record<string, boolean>;
+  instagram: Record<string, boolean>;
+};
+
 export type MetaCenterSettings = {
   id: string;
   facebookAppId: string | null;
@@ -6098,6 +6103,7 @@ export type MetaCenterSettings = {
   remarketingAudiences: unknown;
   autoCampaignRules: unknown;
   adFormatFlags: Record<string, boolean>;
+  adPlacementSettings?: MetaAdPlacementSettings;
   metaConnectedAt: string | null;
   metaConnectedUserId: string | null;
   metaConnectedUserName: string | null;
@@ -6586,6 +6592,7 @@ export type MetaLaunchPayloadSnapshot = {
   placementDiagnostics?: MetaPlacementDiagnostics | null;
   metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
   launchHistory?: string[] | null;
+  placementSanitizeWarnings?: string[] | null;
 };
 
 export type MetaPlacementDiagnostics = {

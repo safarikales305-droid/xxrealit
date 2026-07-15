@@ -125,6 +125,13 @@ import {
   META_ARCHIVED_CAMPAIGN_HISTORY_LINE,
   type MetaObjectLiveStatus,
 } from './meta-archived-object.util';
+import {
+  applyTargetingToAdSetPayload,
+  isMetaDeprecatedPlacementGraphError,
+  normalizeAdPlacementSettings,
+  sanitizeTargetingPlacements,
+  type MetaAdPlacementSettings,
+} from './meta-placements.util';
 
 const SETTINGS_ID = 'default';
 
@@ -1214,16 +1221,20 @@ export class MetaCenterCampaignsService {
       instagramIdentity.instagramBusinessId,
       placementPreference,
     );
-    targeting = applyPlacementModeToTargeting(
-      normalizeTargetingForMetaV25(targeting, metaSpec.advantageAudience),
+    const adPlacementSettings = this.resolveAdPlacementSettings(row);
+    targeting = this.prepareAdSetTargetingForMeta({
+      targeting: normalizeTargetingForMetaV25(targeting, metaSpec.advantageAudience),
       placementMode,
-    );
+      adPlacementSettings,
+      launchPayloads,
+    });
     launchPayloads.targeting = targeting;
     launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
       targeting,
       placementMode,
       facebookPageId: pageIdsForPlacement.pageId,
       instagramBusinessId: instagramIdentity.instagramBusinessId,
+      placementSettings: adPlacementSettings,
     });
     tracer.updateContext({ instagramBusinessId: instagramIdentity.instagramBusinessId });
     try {
@@ -1377,7 +1388,7 @@ export class MetaCenterCampaignsService {
       };
     }
 
-    let adSetPayload = adSetBuild.payload;
+    let adSetPayload = applyTargetingToAdSetPayload(adSetBuild.payload, targeting);
     const adSetSpec = adSetBuild.spec;
     launchPayloads.adSet = adSetPayload;
 
@@ -1398,7 +1409,13 @@ export class MetaCenterCampaignsService {
             dto.cityName,
           );
           if (converted) {
-            const retryTargeting = converted.targeting;
+            const retryTargeting = this.prepareAdSetTargetingForMeta({
+              targeting: converted.targeting,
+              placementMode,
+              adPlacementSettings,
+              launchPayloads,
+            });
+            targeting = retryTargeting;
             launchPayloads.targeting = retryTargeting;
             launchPayloads.housingGeoDebug = converted.housingGeoDebug;
             const retryBuild = this.buildAdSetLaunchPayload({
@@ -1415,7 +1432,7 @@ export class MetaCenterCampaignsService {
               payloadContext: effectivePayloadContext,
             });
             if (retryBuild.ok) {
-              adSetPayload = retryBuild.payload;
+              adSetPayload = applyTargetingToAdSetPayload(retryBuild.payload, retryTargeting);
               launchPayloads.adSet = adSetPayload;
               adSetRes = await this.graph.post<{ id?: string }>(
                 adSetPath,
@@ -1423,8 +1440,37 @@ export class MetaCenterCampaignsService {
                 adSetPayload,
               );
               adSetAttempts = 2;
-              targeting = retryTargeting;
             }
+          }
+        }
+      }
+
+      if (!adSetRes.ok || !adSetRes.data.id) {
+        if (!adSetRes.ok) {
+          const adSetErrorFields = extractMetaGraphErrorFields(adSetRes.data);
+          if (
+            isMetaDeprecatedPlacementGraphError({
+              errorCode: adSetRes.errorCode,
+              errorSubcode: adSetErrorFields.error_subcode,
+              message: adSetRes.errorMessage,
+              errorUserMsg: adSetErrorFields.error_user_msg,
+            })
+          ) {
+            targeting = this.prepareAdSetTargetingForMeta({
+              targeting,
+              placementMode,
+              adPlacementSettings,
+              launchPayloads,
+            });
+            launchPayloads.targeting = targeting;
+            adSetPayload = applyTargetingToAdSetPayload(adSetBuild.payload, targeting);
+            launchPayloads.adSet = adSetPayload;
+            adSetRes = await this.graph.post<{ id?: string }>(
+              adSetPath,
+              token,
+              adSetPayload,
+            );
+            adSetAttempts += 1;
           }
         }
       }
@@ -3198,6 +3244,44 @@ export class MetaCenterCampaignsService {
     }
 
     return { ok: true, metaCampaignId, metaAdSetId, targeting };
+  }
+
+  private resolveAdPlacementSettings(
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>,
+  ): MetaAdPlacementSettings {
+    return normalizeAdPlacementSettings(row?.adPlacementSettings);
+  }
+
+  private prepareAdSetTargetingForMeta(input: {
+    targeting: Record<string, unknown>;
+    placementMode: MetaPlacementMode;
+    adPlacementSettings: MetaAdPlacementSettings;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+  }): Record<string, unknown> {
+    const applied = applyPlacementModeToTargeting(
+      input.targeting,
+      input.placementMode,
+      input.adPlacementSettings,
+    );
+    const sanitized = sanitizeTargetingPlacements({
+      targeting: applied,
+      placementSettings: input.adPlacementSettings,
+      placementMode: input.placementMode,
+      onWarning: (message) => {
+        this.logger.warn(`[meta-campaign] ${message}`);
+        appendMetaLaunchHistory(input.launchPayloads, message);
+      },
+    });
+    if (sanitized.warnings.length) {
+      const existing = Array.isArray(input.launchPayloads.placementSanitizeWarnings)
+        ? [...input.launchPayloads.placementSanitizeWarnings]
+        : [];
+      input.launchPayloads.placementSanitizeWarnings = [
+        ...existing,
+        ...sanitized.warnings.filter((warning) => !existing.includes(warning)),
+      ];
+    }
+    return sanitized.targeting;
   }
 
   private async isLaunchDebugEnabled(): Promise<boolean> {

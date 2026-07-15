@@ -35,6 +35,7 @@ import {
   isPendingMetaVerificationError,
   MetaPendingVerificationCard,
 } from '@/components/meta-centrum/MetaPendingVerificationCard';
+import { MetaAdPlacementSettingsPanel } from '@/components/meta-centrum/MetaAdPlacementSettingsPanel';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 import { MetaCatalogAssetsVerifyPanel } from '@/components/meta-centrum/MetaCatalogAssetsVerifyPanel';
 import {
@@ -2695,6 +2696,26 @@ export default function MetaCentrumPage() {
                   </span>
                 </label>
               </div>
+              {dash?.settings.adPlacementSettings ? (
+                <MetaAdPlacementSettingsPanel
+                  value={dash.settings.adPlacementSettings}
+                  disabled={busy}
+                  onSave={async (adPlacementSettings) => {
+                    if (!token) return;
+                    setBusy(true);
+                    const r = await nestAdminMetaCenterPatchSettings(token, {
+                      adPlacementSettings,
+                    });
+                    setBusy(false);
+                    if (r.ok) {
+                      setMsg('Umístění reklam uložena.');
+                      void refresh();
+                    } else {
+                      setMsg(r.error ?? 'Uložení umístění selhalo.');
+                    }
+                  }}
+                />
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">

@@ -141,4 +141,6 @@ export const DEFAULT_AD_FORMAT_FLAGS = {
   remarketing: true,
 };
 
+export { DEFAULT_AD_PLACEMENT_SETTINGS } from './meta-placements.util';
+
 export const GRAPH_API_VERSION_DEFAULT = 'v21.0';
