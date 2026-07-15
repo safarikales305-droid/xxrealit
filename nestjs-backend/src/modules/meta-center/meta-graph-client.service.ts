@@ -30,6 +30,13 @@ export type MetaGraphResult<T> = {
   requestMethod: 'GET' | 'POST' | 'DELETE';
 };
 
+export function getMetaGraphResultErrorMessage(
+  result: MetaGraphResult<unknown>,
+): string | null {
+  if (result.ok) return null;
+  return result.errorMessage;
+}
+
 @Injectable()
 export class MetaGraphClientService {
   private readonly logger = new Logger(MetaGraphClientService.name);

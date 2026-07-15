@@ -7690,12 +7690,12 @@ export async function nestAdminMetaCenterInstagramIdentity(
 export async function nestAdminMetaCenterLaunchCampaignDraft(
   token: string | null,
   id: string,
-  body: MetaCampaignDraftBody,
+  body?: MetaCampaignDraftBody,
 ): Promise<MetaCampaignCreateResponse> {
   const r = await metaCenterFetch<MetaCampaignCreateResponse>(
     token,
     `/campaigns/drafts/${encodeURIComponent(id)}/launch`,
-    { method: 'POST', body: JSON.stringify(body) },
+    body ? { method: 'POST', body: JSON.stringify(body) } : { method: 'POST' },
   );
   return r.ok
     ? r.data

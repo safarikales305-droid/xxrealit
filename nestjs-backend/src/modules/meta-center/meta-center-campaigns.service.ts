@@ -100,7 +100,10 @@ import {
   writeMetaDebugJson,
   type MetaLaunchDebugTrace,
 } from './meta-launch-debug.util';
-import type { MetaGraphResult } from './meta-graph-client.service';
+import {
+  getMetaGraphResultErrorMessage,
+  type MetaGraphResult,
+} from './meta-graph-client.service';
 import { extractMetaGraphErrorFields } from './meta-graph-error.util';
 import {
   MetaCatalogSalesAssetsVerifyService,
@@ -2847,7 +2850,7 @@ export class MetaCenterCampaignsService {
     const pending = isMetaPendingVerificationError({
       errorCode: input.failure.detail.errorCode,
       errorUserTitle: input.failure.detail.errorUserTitle,
-      message: input.graphResult.errorMessage,
+      message: getMetaGraphResultErrorMessage(input.graphResult),
       response: input.failure.detail.response,
     });
 
@@ -2891,7 +2894,7 @@ export class MetaCenterCampaignsService {
 
       return {
         ok: false as const,
-        status: META_PENDING_VERIFICATION_DB_STATUS as const,
+        status: META_PENDING_VERIFICATION_DB_STATUS,
         message: userMessage,
         metaApiError: {
           ...detail,
