@@ -6585,6 +6585,7 @@ export type MetaLaunchPayloadSnapshot = {
   creativeDiagnostics?: MetaCatalogCreativeDiagnostics | null;
   placementDiagnostics?: MetaPlacementDiagnostics | null;
   metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
+  launchHistory?: string[] | null;
 };
 
 export type MetaPlacementDiagnostics = {

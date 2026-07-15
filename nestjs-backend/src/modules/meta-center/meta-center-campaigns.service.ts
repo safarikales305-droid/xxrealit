@@ -117,6 +117,14 @@ import {
   META_PENDING_VERIFICATION_DB_STATUS,
   META_PENDING_VERIFICATION_STATUS,
 } from './meta-pending-verification.util';
+import {
+  appendMetaLaunchHistory,
+  isMetaArchivedAdSetGraphError,
+  isMetaObjectUsableForLaunch,
+  META_ARCHIVED_AD_SET_HISTORY_LINES,
+  META_ARCHIVED_CAMPAIGN_HISTORY_LINE,
+  type MetaObjectLiveStatus,
+} from './meta-archived-object.util';
 
 const SETTINGS_ID = 'default';
 
@@ -811,6 +819,26 @@ export class MetaCenterCampaignsService {
     };
   }
 
+  private async fetchMetaObjectLiveStatus(
+    objectId: string,
+    token: string,
+  ): Promise<MetaObjectLiveStatus> {
+    const res = await this.graph.get<{
+      status?: string;
+      effective_status?: string;
+      name?: string;
+    }>(`/${objectId}`, token, { fields: 'status,effective_status,name' });
+    if (!res.ok) {
+      return { ok: false, status: null, effectiveStatus: null, name: null };
+    }
+    return {
+      ok: true,
+      status: res.data.status ?? null,
+      effectiveStatus: res.data.effective_status ?? null,
+      name: res.data.name ?? null,
+    };
+  }
+
   private async fetchMetaCampaignStatus(campaignId: string, token: string) {
     const res = await this.graph.get<{
       status?: string;
@@ -1020,6 +1048,34 @@ export class MetaCenterCampaignsService {
         verifiedPixelId,
       });
     const persistDebug = () => tracer.getTrace();
+
+    if (metaCampaignId || metaAdSetId) {
+      const resumeCheck = await this.verifyResumeMetaObjectStatuses(
+        token,
+        metaCampaignId,
+        metaAdSetId,
+        launchPayloads,
+      );
+      if (resumeCheck.campaignUnusable) {
+        metaCampaignId = null;
+        metaAdSetId = null;
+        metaAdId = null;
+        launchSteps.campaign = { ok: false };
+        launchSteps.adSet = { ok: false };
+        launchSteps.ad = { ok: false };
+      } else if (resumeCheck.adSetUnusable) {
+        metaAdSetId = null;
+        metaAdId = null;
+        launchSteps.adSet = { ok: false };
+        launchSteps.ad = { ok: false };
+      }
+      tracer.updateContext({
+        campaignId: metaCampaignId,
+        adSetId: metaAdSetId,
+        adId: metaAdId,
+      });
+    }
+
     let payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
     let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
     let verifiedPixelId: string | null = null;
@@ -1685,6 +1741,38 @@ export class MetaCenterCampaignsService {
     }
 
     if (!metaAdId) {
+      const parentsReady = await this.ensureUsableCampaignAndAdSetBeforeAd({
+        actId,
+        token,
+        draftId,
+        dto,
+        ids,
+        row,
+        metaCampaignId: metaCampaignId!,
+        metaAdSetId: metaAdSetId!,
+        targeting,
+        publishStatus,
+        budgetConfig,
+        dailyBudgetMinor,
+        catalogId,
+        metaSpec,
+        payloadContext: effectivePayloadContext,
+        launchPayloads,
+        launchSteps,
+        tracer,
+        persistDebug,
+        placementMode,
+        pageIdsForPlacement,
+        instagramBusinessId: instagramIdentity.instagramBusinessId,
+        metaProductSetId,
+      });
+      if (!parentsReady.ok) {
+        return parentsReady.response;
+      }
+      metaCampaignId = parentsReady.metaCampaignId;
+      metaAdSetId = parentsReady.metaAdSetId;
+      targeting = parentsReady.targeting;
+
       const consistency = await this.ensureInstagramConsistencyBeforeAd({
         actId,
         token,
@@ -1758,6 +1846,43 @@ export class MetaCenterCampaignsService {
           launchPayloads.targeting = targeting;
         }
         adRes = retried.adRes;
+        }
+      }
+
+      if (
+        !adRes.ok &&
+        isMetaArchivedAdSetGraphError({
+          errorCode: adRes.errorCode,
+          errorSubcode: extractMetaGraphErrorFields(adRes.data).error_subcode,
+          message: adRes.errorMessage,
+          errorUserMsg: extractMetaGraphErrorFields(adRes.data).error_user_msg,
+          response: adRes.data,
+        })
+      ) {
+        const recreatedAdSet = await this.recreateArchivedAdSet({
+          actId,
+          token,
+          draftId,
+          metaCampaignId: metaCampaignId!,
+          previousAdSetId: metaAdSetId!,
+          adSetPayload: launchPayloads.adSet ?? adSetPayload,
+          launchPayloads,
+          launchSteps,
+          tracer,
+          persistDebug,
+          metaProductSetId,
+        });
+        if (recreatedAdSet.ok) {
+          metaAdSetId = recreatedAdSet.metaAdSetId;
+          adPayload.adset_id = metaAdSetId;
+          launchPayloads.ad = adPayload;
+          adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+            adPath,
+            token,
+            adPayload,
+            { logLabel: `ads draft=${draftId} after-adset-recreate`, retryDelaysMs: [3000, 3000, 3000] },
+          );
+          tracer.recordResult('ad', adPath, adPayload, adRes);
         }
       }
 
@@ -2773,6 +2898,306 @@ export class MetaCenterCampaignsService {
       'creative',
     );
     return { ok: false, message: failure.message, metaApiError: failure.detail };
+  }
+
+  private async verifyResumeMetaObjectStatuses(
+    token: string,
+    metaCampaignId: string | null,
+    metaAdSetId: string | null,
+    launchPayloads: MetaLaunchPayloadSnapshot,
+  ): Promise<{ campaignUnusable: boolean; adSetUnusable: boolean }> {
+    let campaignUnusable = false;
+    let adSetUnusable = false;
+
+    if (metaCampaignId) {
+      const campaignLive = await this.fetchMetaObjectLiveStatus(metaCampaignId, token);
+      if (!isMetaObjectUsableForLaunch(campaignLive)) {
+        campaignUnusable = true;
+        appendMetaLaunchHistory(launchPayloads, META_ARCHIVED_CAMPAIGN_HISTORY_LINE);
+        this.logger.warn(
+          `[meta-campaign] resume verify: campaign ${metaCampaignId} unusable (status=${campaignLive.status}, effective=${campaignLive.effectiveStatus})`,
+        );
+      }
+    }
+
+    if (!campaignUnusable && metaAdSetId) {
+      const adSetLive = await this.fetchMetaObjectLiveStatus(metaAdSetId, token);
+      if (!isMetaObjectUsableForLaunch(adSetLive)) {
+        adSetUnusable = true;
+        appendMetaLaunchHistory(launchPayloads, ...META_ARCHIVED_AD_SET_HISTORY_LINES);
+        this.logger.warn(
+          `[meta-campaign] resume verify: ad set ${metaAdSetId} unusable (status=${adSetLive.status}, effective=${adSetLive.effectiveStatus})`,
+        );
+      }
+    }
+
+    return { campaignUnusable, adSetUnusable };
+  }
+
+  private async recreateMetaCampaignIfUnusable(input: {
+    actId: string;
+    token: string;
+    draftId: string;
+    metaCampaignId: string;
+    campaignPayload: Record<string, unknown>;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+    persistDebug: () => MetaLaunchDebugTrace;
+  }): Promise<{ ok: true; metaCampaignId: string; recreated: boolean } | { ok: false; message: string }> {
+    const live = await this.fetchMetaObjectLiveStatus(input.metaCampaignId, input.token);
+    if (isMetaObjectUsableForLaunch(live)) {
+      return { ok: true, metaCampaignId: input.metaCampaignId, recreated: false };
+    }
+
+    appendMetaLaunchHistory(input.launchPayloads, META_ARCHIVED_CAMPAIGN_HISTORY_LINE);
+    const campaignPath = `/act_${input.actId}/campaigns`;
+    const campaignRes = await this.graph.post<{ id?: string }>(
+      campaignPath,
+      input.token,
+      input.campaignPayload,
+    );
+    input.tracer.recordResult('campaign', campaignPath, input.campaignPayload, campaignRes);
+    if (!campaignRes.ok || !campaignRes.data.id) {
+      return {
+        ok: false,
+        message: campaignRes.ok
+          ? 'Campaign se nepodařilo znovu vytvořit.'
+          : campaignRes.errorMessage,
+      };
+    }
+
+    input.launchSteps.campaign = { ok: true, id: campaignRes.data.id };
+    input.tracer.updateContext({ campaignId: campaignRes.data.id });
+    input.launchPayloads.campaign = input.campaignPayload;
+    await this.persistLaunchState(input.draftId, {
+      metaCampaignId: campaignRes.data.id,
+      metaLaunchSteps: input.launchSteps,
+      metaLaunchPayloads: input.launchPayloads,
+      metaLaunchDebug: input.persistDebug(),
+    });
+
+    return { ok: true, metaCampaignId: campaignRes.data.id, recreated: true };
+  }
+
+  private async recreateArchivedAdSet(input: {
+    actId: string;
+    token: string;
+    draftId: string;
+    metaCampaignId: string;
+    previousAdSetId: string;
+    adSetPayload: Record<string, unknown>;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+    persistDebug: () => MetaLaunchDebugTrace;
+    metaProductSetId?: string | null;
+  }): Promise<{ ok: true; metaAdSetId: string } | { ok: false; message: string }> {
+    appendMetaLaunchHistory(input.launchPayloads, ...META_ARCHIVED_AD_SET_HISTORY_LINES);
+    const adSetPayload = {
+      ...input.adSetPayload,
+      campaign_id: input.metaCampaignId,
+    };
+    const adSetPath = `/act_${input.actId}/adsets`;
+    const adSetRes = await this.graph.post<{ id?: string }>(
+      adSetPath,
+      input.token,
+      adSetPayload,
+    );
+    input.tracer.recordResult('adSet', adSetPath, adSetPayload, adSetRes);
+    if (!adSetRes.ok || !adSetRes.data.id) {
+      return {
+        ok: false,
+        message: adSetRes.ok ? 'Ad Set se nepodařilo znovu vytvořit.' : adSetRes.errorMessage,
+      };
+    }
+
+    input.launchSteps.adSet = {
+      ok: true,
+      id: adSetRes.data.id,
+      error: `Nahrazuje archivovaný Ad Set ${input.previousAdSetId}`,
+    };
+    input.launchPayloads.adSet = adSetPayload;
+    input.tracer.updateContext({ adSetId: adSetRes.data.id });
+    await this.persistLaunchState(input.draftId, {
+      metaCampaignId: input.metaCampaignId,
+      metaAdSetId: adSetRes.data.id,
+      metaProductSetId: input.metaProductSetId,
+      metaLaunchSteps: input.launchSteps,
+      metaLaunchPayloads: input.launchPayloads,
+      metaLaunchDebug: input.persistDebug(),
+    });
+
+    this.logger.log(
+      `[meta-campaign] recreated ad set ${adSetRes.data.id} (was ${input.previousAdSetId}) draft=${input.draftId}`,
+    );
+
+    return { ok: true, metaAdSetId: adSetRes.data.id };
+  }
+
+  private async ensureUsableCampaignAndAdSetBeforeAd(input: {
+    actId: string;
+    token: string;
+    draftId: string;
+    dto: CreateMetaCampaignDto;
+    ids: ReturnType<typeof resolveMetaCenterIds>;
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>;
+    metaCampaignId: string;
+    metaAdSetId: string;
+    targeting: Record<string, unknown>;
+    publishStatus: 'ACTIVE' | 'PAUSED';
+    budgetConfig: ReturnType<typeof resolveBudgetConfig>;
+    dailyBudgetMinor: number;
+    catalogId: string | null;
+    metaSpec: MetaCampaignPayloadSpec;
+    payloadContext: ReturnType<MetaCenterCampaignsService['buildPayloadContext']>;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+    persistDebug: () => MetaLaunchDebugTrace;
+    placementMode: MetaPlacementMode;
+    pageIdsForPlacement: ReturnType<MetaCenterCreativeService['resolvePageIds']>;
+    instagramBusinessId: string | null;
+    metaProductSetId?: string | null;
+  }): Promise<
+    | {
+        ok: true;
+        metaCampaignId: string;
+        metaAdSetId: string;
+        targeting: Record<string, unknown>;
+      }
+    | {
+        ok: false;
+        response: {
+          ok: false;
+          status: 'error';
+          message: string;
+          launchSteps: MetaLaunchSteps;
+          campaign: Awaited<ReturnType<MetaCenterCampaignsService['loadSerializedDraft']>>;
+        };
+      }
+  > {
+    const campaignPayload =
+      (input.launchPayloads.campaign as Record<string, unknown> | null) ?? {
+        name: input.dto.name.trim(),
+        objective: input.metaSpec.campaignObjective,
+        status: input.publishStatus,
+        special_ad_categories: JSON.stringify(['HOUSING']),
+        is_adset_budget_sharing_enabled: input.budgetConfig.isAdsetBudgetSharingEnabled,
+      };
+
+    const campaignEnsure = await this.recreateMetaCampaignIfUnusable({
+      actId: input.actId,
+      token: input.token,
+      draftId: input.draftId,
+      metaCampaignId: input.metaCampaignId,
+      campaignPayload,
+      launchPayloads: input.launchPayloads,
+      launchSteps: input.launchSteps,
+      tracer: input.tracer,
+      persistDebug: input.persistDebug,
+    });
+    if (!campaignEnsure.ok) {
+      const message = `Campaign není použitelná a nepodařilo se vytvořit novou: ${campaignEnsure.message}`;
+      await this.markDraftError(input.draftId, message);
+      return {
+        ok: false,
+        response: {
+          ok: false,
+          status: 'error',
+          message,
+          launchSteps: input.launchSteps,
+          campaign: await this.loadSerializedDraft(input.draftId),
+        },
+      };
+    }
+
+    let metaCampaignId = campaignEnsure.metaCampaignId;
+    let metaAdSetId = input.metaAdSetId;
+    let targeting = input.targeting;
+    const adSetLive = await this.fetchMetaObjectLiveStatus(metaAdSetId, input.token);
+    const adSetUnusable = campaignEnsure.recreated || !isMetaObjectUsableForLaunch(adSetLive);
+
+    if (adSetUnusable) {
+      const adSetBuild = this.buildAdSetLaunchPayload({
+        dto: input.dto,
+        ids: input.ids,
+        row: input.row,
+        metaCampaignId,
+        targeting,
+        publishStatus: input.publishStatus,
+        budgetConfig: input.budgetConfig,
+        dailyBudgetMinor: input.dailyBudgetMinor,
+        catalogId: input.catalogId,
+        metaSpec: input.metaSpec,
+        payloadContext: input.payloadContext,
+      });
+      if (!adSetBuild.ok) {
+        const message = adSetBuild.blockers.map((b) => b.message).join(' ');
+        await this.markDraftError(input.draftId, message);
+        return {
+          ok: false,
+          response: {
+            ok: false,
+            status: 'error',
+            message,
+            launchSteps: input.launchSteps,
+            campaign: await this.loadSerializedDraft(input.draftId),
+          },
+        };
+      }
+
+      const recreatedAdSet = await this.recreateArchivedAdSet({
+        actId: input.actId,
+        token: input.token,
+        draftId: input.draftId,
+        metaCampaignId,
+        previousAdSetId: metaAdSetId,
+        adSetPayload: adSetBuild.payload,
+        launchPayloads: input.launchPayloads,
+        launchSteps: input.launchSteps,
+        tracer: input.tracer,
+        persistDebug: input.persistDebug,
+        metaProductSetId: input.metaProductSetId,
+      });
+      if (!recreatedAdSet.ok) {
+        const message = `Ad Set není použitelný a nepodařilo se vytvořit nový: ${recreatedAdSet.message}`;
+        await this.markDraftError(input.draftId, message);
+        return {
+          ok: false,
+          response: {
+            ok: false,
+            status: 'error',
+            message,
+            launchSteps: input.launchSteps,
+            campaign: await this.loadSerializedDraft(input.draftId),
+          },
+        };
+      }
+
+      metaAdSetId = recreatedAdSet.metaAdSetId;
+      input.launchPayloads.adSet = adSetBuild.payload;
+      const synced = await this.syncExistingAdSetPlacements({
+        metaAdSetId,
+        token: input.token,
+        placementMode: input.placementMode,
+        targeting,
+        tracer: input.tracer,
+      });
+      if (synced.updated) {
+        targeting = synced.targeting;
+        input.launchPayloads.targeting = targeting;
+        input.launchPayloads.adSet = synced.adSetPayload ?? input.launchPayloads.adSet;
+        input.launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
+          targeting,
+          placementMode: input.placementMode,
+          facebookPageId: input.pageIdsForPlacement.pageId,
+          instagramBusinessId: input.instagramBusinessId,
+        });
+      }
+    }
+
+    return { ok: true, metaCampaignId, metaAdSetId, targeting };
   }
 
   private async isLaunchDebugEnabled(): Promise<boolean> {

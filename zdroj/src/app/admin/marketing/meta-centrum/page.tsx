@@ -4522,6 +4522,11 @@ export default function MetaCentrumPage() {
                               {c.metaAdId ? ` · Ad ${c.metaAdId}` : ''}
                             </p>
                           ) : null}
+                          {c.metaLaunchPayloads?.launchHistory?.length ? (
+                            <p className="mt-1 whitespace-pre-wrap text-xs text-amber-800">
+                              {c.metaLaunchPayloads.launchHistory.join('\n')}
+                            </p>
+                          ) : null}
                           {isPendingMetaVerificationError(
                             undefined,
                             c.status,
