@@ -31,6 +31,10 @@ import {
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
 import { MetaCampaignDetailPanel, metaLaunchSummaryLines } from '@/components/meta-centrum/MetaCampaignDetailPanel';
 import { MetaLaunchDebugPanel } from '@/components/meta-centrum/MetaLaunchDebugPanel';
+import {
+  isPendingMetaVerificationError,
+  MetaPendingVerificationCard,
+} from '@/components/meta-centrum/MetaPendingVerificationCard';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 import { MetaCatalogAssetsVerifyPanel } from '@/components/meta-centrum/MetaCatalogAssetsVerifyPanel';
 import {
@@ -245,6 +249,7 @@ const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
   completed: 'Dokončeno',
   archived: 'Archivováno',
   error: 'Chyba – Ad Set nevytvořen',
+  pending_meta_verification: 'Čeká na ověření Meta účtu',
 };
 
 const META_STATUS_LABELS: Record<string, string> = {
@@ -660,11 +665,13 @@ export default function MetaCentrumPage() {
   const [metaHtmlPreview, setMetaHtmlPreview] = useState<MetaCampaignDraft | null>(null);
   const [lastLaunchError, setLastLaunchError] = useState<{
     message: string;
+    status?: string | null;
     metaApiError?: MetaCampaignCreateResponse['metaApiError'];
     failedStep?: string | null;
     launchSteps?: MetaLaunchSteps | null;
     assetsVerification?: MetaCatalogSalesAssetsVerification | null;
     housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
+    retryDraftId?: string | null;
   } | null>(null);
   const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
   const [debugPayloadPreview, setDebugPayloadPreview] = useState(false);
@@ -1133,14 +1140,25 @@ export default function MetaCentrumPage() {
       setMsg(translateMetaCampaignApiError(r.message ?? blockerText ?? 'Uložení kampaně selhalo.'));
       if (mode === 'launch') {
         setLaunchValidationHighlight(true);
+        const pendingVerification = isPendingMetaVerificationError(
+          r.metaApiError,
+          r.status ?? r.campaign?.status,
+        );
         setLastLaunchError({
-          message: translateMetaCampaignApiError(r.message ?? blockerText ?? 'Spuštění selhalo.'),
+          message: pendingVerification
+            ? (r.message ?? '')
+            : translateMetaCampaignApiError(r.message ?? blockerText ?? 'Spuštění selhalo.'),
+          status: r.status ?? null,
           metaApiError: r.metaApiError,
           failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
           launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
           assetsVerification: r.assetsVerification ?? null,
           housingGeoDebug: r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
+          retryDraftId: r.campaign?.id ?? editingCampaignId ?? null,
         });
+        if (pendingVerification) {
+          setMsg('Meta vyžaduje ověření reklamního účtu. Dokončete ověření a zkuste znovu vytvořit reklamu.');
+        }
       }
       void refresh();
     }
@@ -1167,14 +1185,25 @@ export default function MetaCentrumPage() {
     setBusy(false);
     setMsg(translateMetaCampaignApiError(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba')));
     if (!r.ok) {
+      const pendingVerification = isPendingMetaVerificationError(
+        r.metaApiError,
+        r.status ?? r.campaign?.status,
+      );
       setLastLaunchError({
-        message: translateMetaCampaignApiError(r.message ?? 'Spuštění selhalo.'),
+        message: pendingVerification
+          ? (r.message ?? '')
+          : translateMetaCampaignApiError(r.message ?? 'Spuštění selhalo.'),
+        status: r.status ?? null,
         metaApiError: r.metaApiError,
         failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
         launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
         assetsVerification: r.assetsVerification ?? null,
         housingGeoDebug: r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
+        retryDraftId: c.id,
       });
+      if (pendingVerification) {
+        setMsg('Meta vyžaduje ověření reklamního účtu. Dokončete ověření a zkuste znovu vytvořit reklamu.');
+      }
     }
     void refresh();
   }
@@ -4339,6 +4368,76 @@ export default function MetaCentrumPage() {
                 </p>
               )}
               {lastLaunchError ? (
+                isPendingMetaVerificationError(
+                  lastLaunchError.metaApiError,
+                  lastLaunchError.status ?? undefined,
+                ) ? (
+                  <div className="mt-4">
+                    <MetaLaunchStepsPanel
+                      steps={lastLaunchError.launchSteps}
+                      highlightStep={lastLaunchError.failedStep}
+                    />
+                    <MetaPendingVerificationCard
+                      message={lastLaunchError.message}
+                      technicalDetails={lastLaunchError.metaApiError}
+                      launchDebug={lastLaunchError.metaApiError?.launchDebug}
+                      retryBusy={busy}
+                      onRetry={
+                        lastLaunchError.retryDraftId
+                          ? () => {
+                              const draft = campaignDrafts.find(
+                                (item) => item.id === lastLaunchError.retryDraftId,
+                              );
+                              if (draft) {
+                                void launchCampaignDraftFromList(draft);
+                                return;
+                              }
+                              if (lastLaunchError.retryDraftId && token) {
+                                void (async () => {
+                                  setBusy(true);
+                                  setLastLaunchError(null);
+                                  const r = await nestAdminMetaCenterLaunchCampaignDraft(
+                                    token,
+                                    lastLaunchError.retryDraftId!,
+                                  );
+                                  setBusy(false);
+                                  setMsg(
+                                    translateMetaCampaignApiError(
+                                      r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'),
+                                    ),
+                                  );
+                                  if (!r.ok) {
+                                    const pending = isPendingMetaVerificationError(
+                                      r.metaApiError,
+                                      r.status ?? r.campaign?.status,
+                                    );
+                                    setLastLaunchError({
+                                      message: pending
+                                        ? (r.message ?? '')
+                                        : translateMetaCampaignApiError(
+                                            r.message ?? 'Spuštění selhalo.',
+                                          ),
+                                      status: r.status ?? null,
+                                      metaApiError: r.metaApiError,
+                                      failedStep:
+                                        r.failedStep ?? r.metaApiError?.launchStep ?? null,
+                                      launchSteps:
+                                        r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+                                      assetsVerification: r.assetsVerification ?? null,
+                                      housingGeoDebug:
+                                        r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
+                                      retryDraftId: lastLaunchError.retryDraftId,
+                                    });
+                                  }
+                                  void refresh();
+                                })();
+                              }
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                ) : (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950">
                   <p className="font-medium">{lastLaunchError.message}</p>
                   {lastLaunchError.assetsVerification ? (
@@ -4360,6 +4459,7 @@ export default function MetaCentrumPage() {
                     housingGeoDebug={lastLaunchError.housingGeoDebug}
                   />
                 </div>
+                )
               ) : null}
             </div>
 
@@ -4405,7 +4505,8 @@ export default function MetaCentrumPage() {
                             <MetaLaunchStepsPanel
                               steps={c.metaLaunchSteps}
                               highlightStep={
-                                c.status === 'error' && c.metaLaunchSteps
+                                (c.status === 'error' || c.status === 'pending_meta_verification') &&
+                                c.metaLaunchSteps
                                   ? (['ad', 'creative', 'adSet', 'campaign'] as const).find(
                                       (k) => !c.metaLaunchSteps?.[k]?.ok,
                                     ) ?? null
@@ -4421,12 +4522,32 @@ export default function MetaCentrumPage() {
                               {c.metaAdId ? ` · Ad ${c.metaAdId}` : ''}
                             </p>
                           ) : null}
-                          {c.errorMessage ? (
+                          {isPendingMetaVerificationError(
+                            undefined,
+                            c.status,
+                            c.metaLaunchPayloads?.metaVerificationStatus,
+                          ) ? (
+                            <div className="mt-2">
+                              <MetaPendingVerificationCard
+                                message={c.errorMessage}
+                                technicalDetails={c.metaLaunchDebug}
+                                launchDebug={c.metaLaunchDebug}
+                                compact
+                                retryBusy={busy}
+                                onRetry={() => void launchCampaignDraftFromList(c)}
+                              />
+                            </div>
+                          ) : c.errorMessage ? (
                             <p className="mt-1 whitespace-pre-wrap text-xs text-red-700">
                               {c.errorMessage}
                             </p>
                           ) : null}
-                          {c.metaLaunchDebug ? (
+                          {c.metaLaunchDebug &&
+                          !isPendingMetaVerificationError(
+                            undefined,
+                            c.status,
+                            c.metaLaunchPayloads?.metaVerificationStatus,
+                          ) ? (
                             <MetaLaunchDebugPanel
                               launchDebug={c.metaLaunchDebug}
                               combinationDiagnostics={c.metaLaunchPayloads?.combinationDiagnostics ?? null}
@@ -4544,6 +4665,8 @@ export default function MetaCentrumPage() {
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                             c.status === 'active'
                               ? 'bg-emerald-100 text-emerald-900'
+                              : c.status === 'pending_meta_verification'
+                                ? 'bg-amber-100 text-amber-900'
                               : c.status === 'error'
                                 ? 'bg-red-100 text-red-900'
                                 : 'bg-zinc-100 text-zinc-700'

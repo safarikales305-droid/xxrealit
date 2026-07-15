@@ -182,6 +182,7 @@ export type MetaLaunchPayloadSnapshot = {
   housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
   creativeDiagnostics?: import('./meta-catalog-creative.util').CatalogCreativeDiagnostics | null;
   placementDiagnostics?: import('./meta-instagram-placement.util').MetaPlacementDiagnostics | null;
+  metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {
@@ -213,6 +214,7 @@ export type MetaApiErrorDetail = {
   contextIds?: Record<string, string | null> | null;
   launchDebug?: import('./meta-launch-debug.util').MetaLaunchDebugTrace | null;
   adSetProbe?: import('./meta-adset-probe.util').MetaAdSetProbeResult | null;
+  pendingMetaVerification?: boolean;
 };
 
 export function validateGeoTargetingPayload(

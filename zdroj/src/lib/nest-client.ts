@@ -6584,6 +6584,7 @@ export type MetaLaunchPayloadSnapshot = {
   housingGeoDebug?: MetaHousingGeoDebug | null;
   creativeDiagnostics?: MetaCatalogCreativeDiagnostics | null;
   placementDiagnostics?: MetaPlacementDiagnostics | null;
+  metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
 };
 
 export type MetaPlacementDiagnostics = {
@@ -6737,6 +6738,7 @@ export type MetaCampaignCreateResponse = {
     contextIds?: Record<string, string | null> | null;
     launchDebug?: MetaLaunchDebugTrace | null;
     adSetProbe?: MetaAdSetProbeResult | null;
+    pendingMetaVerification?: boolean;
   };
   failedStep?: 'campaign' | 'adset' | 'creative' | 'ad';
   launchSteps?: MetaLaunchSteps;

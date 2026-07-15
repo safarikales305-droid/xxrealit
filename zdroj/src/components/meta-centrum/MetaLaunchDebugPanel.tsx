@@ -75,6 +75,10 @@ function buildMetaDebugExport(
 export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, creativeDiagnostics, placementDiagnostics, housingGeoDebug }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
+  const isPendingVerification =
+    error?.pendingMetaVerification === true ||
+    error?.errorCode === '31' ||
+    (error?.errorUserTitle ?? '').toLowerCase().includes('ověřte svůj účet');
   const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
   const failedRecord = useMemo(() => {
     if (!trace?.steps?.length) return null;
@@ -86,6 +90,7 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
   }, [trace, failedStep]);
 
   if (!error && !trace) return null;
+  if (isPendingVerification) return null;
 
   async function copyJson(data: unknown, label: string) {
     try {

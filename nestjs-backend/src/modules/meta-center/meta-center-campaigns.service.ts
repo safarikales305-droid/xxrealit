@@ -106,6 +106,14 @@ import {
   MetaCatalogSalesAssetsVerifyService,
   type MetaCatalogSalesAssetsVerification,
 } from './meta-catalog-sales-assets-verify.service';
+import { MetaCenterApiLogService } from './meta-center-api-log.service';
+import {
+  buildPendingVerificationLogEntry,
+  buildPendingVerificationUserMessage,
+  isMetaPendingVerificationError,
+  META_PENDING_VERIFICATION_DB_STATUS,
+  META_PENDING_VERIFICATION_STATUS,
+} from './meta-pending-verification.util';
 
 const SETTINGS_ID = 'default';
 
@@ -178,6 +186,7 @@ export class MetaCenterCampaignsService {
     private readonly fbConfig: FacebookConfigService,
     private readonly catalogSalesAssetsVerify: MetaCatalogSalesAssetsVerifyService,
     private readonly instagramIdentity: MetaInstagramIdentityService,
+    private readonly apiLog: MetaCenterApiLogService,
   ) {}
 
   private frontendBase(): string {
@@ -1240,23 +1249,16 @@ export class MetaCenterCampaignsService {
           launchContextIds(),
           serializePayloadForMetaApi(campaignPayload),
         );
-        launchSteps.campaign = { ok: false, error: failure.message };
-        await this.persistLaunchState(draftId, {
-          status: 'error',
-          errorMessage: failure.message,
-          metaLaunchSteps: launchSteps,
-          metaLaunchPayloads: launchPayloads,
-          metaLaunchDebug: persistDebug(),
-        });
-        return {
-          ok: false as const,
-          status: 'error' as const,
-          message: failure.message,
-          metaApiError: failure.detail,
-          failedStep: 'campaign' as const,
+        return this.finalizeLaunchGraphFailure({
+          draftId,
+          failure,
+          graphResult: campaignRes,
+          failedStep: 'campaign',
+          launchStepKey: 'campaign',
           launchSteps,
-          campaign: await this.loadSerializedDraft(draftId),
-        };
+          launchPayloads,
+          persistDebug,
+        });
       }
 
       metaCampaignId = campaignRes.data.id;
@@ -1432,23 +1434,18 @@ export class MetaCenterCampaignsService {
           }
         }
         launchSteps.adSet = { ok: false, error: failure.message };
-        await this.persistLaunchState(draftId, {
-          metaCampaignId,
-          status: 'error',
-          errorMessage: failure.message,
-          metaLaunchSteps: launchSteps,
-          metaLaunchPayloads: launchPayloads,
-          metaLaunchDebug: persistDebug(),
-        });
-        return {
-          ok: false as const,
-          status: 'error' as const,
-          message: failure.message,
-          metaApiError: { ...failure.detail, adSetProbe },
-          failedStep: 'adset' as const,
+        return this.finalizeLaunchGraphFailure({
+          draftId,
+          failure,
+          graphResult: adSetRes,
+          failedStep: 'adset',
+          launchStepKey: 'adSet',
           launchSteps,
-          campaign: await this.loadSerializedDraft(draftId),
-        };
+          launchPayloads,
+          persistDebug,
+          metaCampaignId,
+          adSetProbe,
+        });
       }
 
       metaAdSetId = adSetRes.data.id;
@@ -1644,26 +1641,21 @@ export class MetaCenterCampaignsService {
             : null,
         );
         launchSteps.creative = { ok: false, error: failure.message };
-        await this.persistLaunchState(draftId, {
+        return this.finalizeLaunchGraphFailure({
+          draftId,
+          failure,
+          graphResult: creativeRes,
+          failedStep: 'creative',
+          launchStepKey: 'creative',
+          launchSteps,
+          launchPayloads,
+          persistDebug,
           metaCampaignId,
           metaAdSetId,
           metaProductSetId,
-          status: 'error',
-          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, failure.message),
-          metaLaunchSteps: launchSteps,
-          metaLaunchPayloads: launchPayloads,
-          metaLaunchDebug: persistDebug(),
-        });
-        return {
-          ok: false as const,
-          status: 'error' as const,
-          message: failure.message,
-          metaApiError: failure.detail,
-          failedStep: 'creative' as const,
-          launchSteps,
+          metaCreativeId,
           assetsVerification,
-          campaign: await this.loadSerializedDraft(draftId),
-        };
+        });
       }
 
       metaCreativeId = creativeRes.data.id;
@@ -1780,27 +1772,21 @@ export class MetaCenterCampaignsService {
             : null,
         );
         launchSteps.ad = { ok: false, error: failure.message };
-        await this.persistLaunchState(draftId, {
+        return this.finalizeLaunchGraphFailure({
+          draftId,
+          failure,
+          graphResult: adRes,
+          failedStep: 'ad',
+          launchStepKey: 'ad',
+          launchSteps,
+          launchPayloads,
+          persistDebug,
           metaCampaignId,
           metaAdSetId,
           metaProductSetId,
           metaCreativeId,
-          status: 'error',
-          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, failure.message),
-          metaLaunchSteps: launchSteps,
-          metaLaunchPayloads: launchPayloads,
-          metaLaunchDebug: persistDebug(),
-        });
-        return {
-          ok: false as const,
-          status: 'error' as const,
-          message: failure.message,
-          metaApiError: failure.detail,
-          failedStep: 'ad' as const,
-          launchSteps,
           assetsVerification,
-          campaign: await this.loadSerializedDraft(draftId),
-        };
+        });
       }
 
       metaAdId = adRes.data.id;
@@ -1904,9 +1890,19 @@ export class MetaCenterCampaignsService {
     metaCreativeId?: string | null;
     metaAdId: string | null;
     metaLaunchSteps?: unknown;
+    metaLaunchPayloads?: unknown;
     status: string;
     metaEffectiveStatus?: string | null;
   }): string {
+    if (row.status === META_PENDING_VERIFICATION_DB_STATUS) {
+      return META_PENDING_VERIFICATION_DB_STATUS;
+    }
+    if (row.metaLaunchPayloads && typeof row.metaLaunchPayloads === 'object') {
+      const payloads = row.metaLaunchPayloads as MetaLaunchPayloadSnapshot;
+      if (payloads.metaVerificationStatus === META_PENDING_VERIFICATION_STATUS) {
+        return META_PENDING_VERIFICATION_DB_STATUS;
+      }
+    }
     if (row.metaAdId && row.metaCreativeId && row.metaAdSetId && row.metaCampaignId) {
       if (row.metaEffectiveStatus === 'ACTIVE' || row.status === 'active') {
         return 'active';
@@ -2830,6 +2826,115 @@ export class MetaCenterCampaignsService {
       launchDebug: tracer.getTrace(),
       userMessage,
     });
+  }
+
+  private async finalizeLaunchGraphFailure(input: {
+    draftId: string;
+    failure: { message: string; detail: MetaApiErrorDetail };
+    graphResult: MetaGraphResult<unknown> & { attempts?: number };
+    failedStep: 'campaign' | 'adset' | 'creative' | 'ad';
+    launchStepKey: 'campaign' | 'adSet' | 'creative' | 'ad';
+    launchSteps: MetaLaunchSteps;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    persistDebug: () => MetaLaunchDebugTrace;
+    metaCampaignId?: string | null;
+    metaAdSetId?: string | null;
+    metaCreativeId?: string | null;
+    metaProductSetId?: string | null;
+    assetsVerification?: MetaCatalogSalesAssetsVerification | null;
+    adSetProbe?: MetaAdSetProbeResult | null;
+  }) {
+    const pending = isMetaPendingVerificationError({
+      errorCode: input.failure.detail.errorCode,
+      errorUserTitle: input.failure.detail.errorUserTitle,
+      message: input.graphResult.errorMessage,
+      response: input.failure.detail.response,
+    });
+
+    if (pending) {
+      const userMessage = buildPendingVerificationUserMessage(input.launchSteps);
+      const detail: MetaApiErrorDetail = {
+        ...input.failure.detail,
+        pendingMetaVerification: true,
+      };
+      input.launchSteps[input.launchStepKey] = { ok: false, error: userMessage };
+      input.launchPayloads.metaVerificationStatus = META_PENDING_VERIFICATION_STATUS;
+
+      const logEntry = buildPendingVerificationLogEntry({
+        campaignId: input.metaCampaignId ?? null,
+        adSetId: input.metaAdSetId ?? null,
+        creativeId: input.metaCreativeId ?? null,
+        response: input.failure.detail.response,
+        errorCode: input.failure.detail.errorCode,
+        errorSubcode: input.failure.detail.errorSubcode,
+        traceId: input.failure.detail.traceId,
+      });
+
+      await this.apiLog.logPendingMetaVerification({
+        draftId: input.draftId,
+        failedStep: input.failedStep,
+        logEntry,
+        httpStatus: input.failure.detail.httpStatus,
+      });
+
+      await this.persistLaunchState(input.draftId, {
+        ...(input.metaCampaignId ? { metaCampaignId: input.metaCampaignId } : {}),
+        ...(input.metaAdSetId ? { metaAdSetId: input.metaAdSetId } : {}),
+        ...(input.metaCreativeId !== undefined ? { metaCreativeId: input.metaCreativeId } : {}),
+        ...(input.metaProductSetId !== undefined ? { metaProductSetId: input.metaProductSetId } : {}),
+        status: META_PENDING_VERIFICATION_DB_STATUS,
+        errorMessage: userMessage,
+        metaLaunchSteps: input.launchSteps,
+        metaLaunchPayloads: input.launchPayloads,
+        metaLaunchDebug: input.persistDebug(),
+      });
+
+      return {
+        ok: false as const,
+        status: META_PENDING_VERIFICATION_DB_STATUS as const,
+        message: userMessage,
+        metaApiError: {
+          ...detail,
+          ...(input.adSetProbe ? { adSetProbe: input.adSetProbe } : {}),
+        },
+        failedStep: input.failedStep,
+        launchSteps: input.launchSteps,
+        ...(input.assetsVerification ? { assetsVerification: input.assetsVerification } : {}),
+        campaign: await this.loadSerializedDraft(input.draftId),
+      };
+    }
+
+    const errorMessage =
+      input.failedStep === 'campaign' || input.launchStepKey === 'adSet'
+        ? input.failure.message
+        : this.formatPartialLaunchUserMessage(input.launchSteps, input.failure.message);
+    input.launchSteps[input.launchStepKey] = { ok: false, error: input.failure.message };
+
+    await this.persistLaunchState(input.draftId, {
+      ...(input.metaCampaignId ? { metaCampaignId: input.metaCampaignId } : {}),
+      ...(input.metaAdSetId ? { metaAdSetId: input.metaAdSetId } : {}),
+      ...(input.metaCreativeId !== undefined ? { metaCreativeId: input.metaCreativeId } : {}),
+      ...(input.metaProductSetId !== undefined ? { metaProductSetId: input.metaProductSetId } : {}),
+      status: 'error',
+      errorMessage,
+      metaLaunchSteps: input.launchSteps,
+      metaLaunchPayloads: input.launchPayloads,
+      metaLaunchDebug: input.persistDebug(),
+    });
+
+    return {
+      ok: false as const,
+      status: 'error' as const,
+      message: input.failure.message,
+      metaApiError: {
+        ...input.failure.detail,
+        ...(input.adSetProbe ? { adSetProbe: input.adSetProbe } : {}),
+      },
+      failedStep: input.failedStep,
+      launchSteps: input.launchSteps,
+      ...(input.assetsVerification ? { assetsVerification: input.assetsVerification } : {}),
+      campaign: await this.loadSerializedDraft(input.draftId),
+    };
   }
 
   private async fetchAdSetTargeting(

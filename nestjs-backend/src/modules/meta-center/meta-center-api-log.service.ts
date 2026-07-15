@@ -62,6 +62,33 @@ export class MetaCenterApiLogService {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
+  async logPendingMetaVerification(input: {
+    draftId: string;
+    failedStep: string;
+    logEntry: Record<string, unknown>;
+    httpStatus?: number | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.metaCenterApiLog.create({
+        data: {
+          endpoint: `campaign-launch:pending-verification:${input.failedStep}`,
+          method: 'POST',
+          request: this.toJson({ draftId: input.draftId, failedStep: input.failedStep }),
+          response: this.toJson(input.logEntry),
+          httpStatus: input.httpStatus ?? null,
+          errorCode:
+            input.logEntry.error_code != null ? String(input.logEntry.error_code) : '31',
+          errorMessage: 'PENDING_META_VERIFICATION',
+          durationMs: null,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Pending verification log write failed (draft=${input.draftId}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   async logCatalogGraphCall(input: {
     endpoint: string;
     query?: Record<string, string>;
