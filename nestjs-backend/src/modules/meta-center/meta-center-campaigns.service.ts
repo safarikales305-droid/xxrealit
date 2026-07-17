@@ -75,7 +75,13 @@ import {
   isMetaHousingTargetingError,
   type MetaHousingGeoDebug,
 } from './meta-housing-geo.util';
-import { validateCatalogCreativeBodyBeforeMetaApi } from './meta-catalog-creative.util';
+import { validateCatalogCreativeBodyBeforeMetaApi, planMetaLaunchResume } from './meta-catalog-creative.util';
+import { buildMetaAdCreatePayload } from './meta-ad-create-payload.util';
+import {
+  runMetaAdPreflightChecks,
+  summarizePreflightChecks,
+  type MetaPreflightCheck,
+} from './meta-ad-preflight.util';
 import {
   applyPlacementModeToTargeting,
   buildPlacementDiagnostics,
@@ -112,6 +118,7 @@ import {
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import {
   buildPendingVerificationLogEntry,
+  buildPendingVerificationSupportBox,
   buildPendingVerificationUserMessage,
   isMetaPendingVerificationError,
   META_PENDING_VERIFICATION_DB_STATUS,
@@ -188,6 +195,22 @@ export type MetaCreativeSourcePostItem = {
   source: string;
   facebookPostType: string | null;
   objectStoryId: string | null;
+};
+
+export type MetaAdProbeResult = {
+  ok: boolean;
+  message: string;
+  securityBlock: boolean;
+  launchSteps: MetaLaunchSteps | null;
+  preflightChecks?: MetaPreflightCheck[];
+  pendingMetaVerification?: boolean;
+  metaApiError?: {
+    errorCode: string | null;
+    errorSubcode: string | null;
+    response: unknown;
+  };
+  adPayload?: Record<string, unknown>;
+  adMetaForm?: Record<string, string>;
 };
 
 @Injectable()
@@ -613,6 +636,20 @@ export class MetaCenterCampaignsService {
     }
 
     const dto = body ?? this.draftRowToDto(current);
+    const resumePlan = planMetaLaunchResume({
+      metaCampaignId: current.metaCampaignId,
+      metaAdSetId: current.metaAdSetId,
+      metaCreativeId: current.metaCreativeId ?? null,
+      metaAdId: current.metaAdId,
+    });
+    const adOnlyResume =
+      resumePlan.createAd &&
+      !resumePlan.createCampaign &&
+      !resumePlan.createAdSet &&
+      !resumePlan.createCreative;
+    if (adOnlyResume) {
+      return this.completeAdOnly(id);
+    }
     const blockers = this.computeLaunchBlockersForMode(dto, settings, 'launch', true);
     if (blockers.length) {
       return {
@@ -1014,6 +1051,27 @@ export class MetaCenterCampaignsService {
     let metaProductSetId = draftRow?.metaProductSetId ?? null;
     let metaCreativeId = draftRow?.metaCreativeId ?? null;
     let metaAdId = draftRow?.metaAdId ?? null;
+    const resumePlan = planMetaLaunchResume({
+      metaCampaignId,
+      metaAdSetId,
+      metaCreativeId,
+      metaAdId,
+    });
+    const adOnlyResume =
+      resumePlan.createAd &&
+      !resumePlan.createCampaign &&
+      !resumePlan.createAdSet &&
+      !resumePlan.createCreative;
+    if (adOnlyResume && draftRow) {
+      return this.executeAdOnlyLaunch({
+        draftId,
+        dto,
+        ids,
+        draftRow,
+        launchSteps,
+        launchPayloads,
+      });
+    }
     let audienceMetaId: string | null = null;
     if (dto.audienceId?.trim()) {
       const audience = await this.prisma.metaRemarketingAudience
@@ -1841,13 +1899,15 @@ export class MetaCenterCampaignsService {
       targeting = consistency.targeting;
       launchPayloads.targeting = targeting;
 
-      const adPayload = {
+      const adBundle = buildMetaAdCreatePayload({
         name: `${dto.name.trim()} — reklama`,
-        adset_id: metaAdSetId,
-        creative: JSON.stringify({ creative_id: metaCreativeId }),
-        status: 'PAUSED' as const,
-      };
-      launchPayloads.ad = adPayload;
+        adSetId: metaAdSetId!,
+        creativeId: metaCreativeId!,
+        status: 'PAUSED',
+      });
+      const adPayload = adBundle.metaPostBody;
+      launchPayloads.ad = adBundle.logical;
+      launchPayloads.adMetaForm = adBundle.metaForm;
 
       const adPath = `/act_${actId}/ads`;
       let adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
@@ -2067,8 +2127,9 @@ export class MetaCenterCampaignsService {
     metaLaunchPayloads?: unknown;
     status: string;
     metaEffectiveStatus?: string | null;
+    pendingMetaVerification?: boolean;
   }): string {
-    if (row.status === META_PENDING_VERIFICATION_DB_STATUS) {
+    if (row.pendingMetaVerification || row.status === META_PENDING_VERIFICATION_DB_STATUS) {
       return META_PENDING_VERIFICATION_DB_STATUS;
     }
     if (row.metaLaunchPayloads && typeof row.metaLaunchPayloads === 'object') {
@@ -3358,6 +3419,7 @@ export class MetaCenterCampaignsService {
   }) {
     const pending = isMetaPendingVerificationError({
       errorCode: input.failure.detail.errorCode,
+      errorSubcode: input.failure.detail.errorSubcode,
       errorUserTitle: input.failure.detail.errorUserTitle,
       message: getMetaGraphResultErrorMessage(input.graphResult),
       response: input.failure.detail.response,
@@ -3389,12 +3451,33 @@ export class MetaCenterCampaignsService {
         httpStatus: input.failure.detail.httpStatus,
       });
 
+      const ctxIds = input.failure.detail.contextIds ?? {};
+      input.launchPayloads.pendingVerificationSupport = buildPendingVerificationSupportBox({
+        businessId: ctxIds.businessId ?? null,
+        adAccountId: ctxIds.adAccountId ?? null,
+        pageId: ctxIds.pageId ?? null,
+        catalogId: ctxIds.catalogId ?? null,
+        datasetId: ctxIds.datasetId ?? null,
+        traceId: input.failure.detail.traceId ?? null,
+        graphApiVersion: input.failure.detail.launchDebug?.context?.graphApiVersion,
+        failedEndpoint: input.failure.detail.requestUrl ?? undefined,
+      });
+
       await this.persistLaunchState(input.draftId, {
         ...(input.metaCampaignId ? { metaCampaignId: input.metaCampaignId } : {}),
         ...(input.metaAdSetId ? { metaAdSetId: input.metaAdSetId } : {}),
         ...(input.metaCreativeId !== undefined ? { metaCreativeId: input.metaCreativeId } : {}),
         ...(input.metaProductSetId !== undefined ? { metaProductSetId: input.metaProductSetId } : {}),
         status: META_PENDING_VERIFICATION_DB_STATUS,
+        launchStatus: META_PENDING_VERIFICATION_STATUS,
+        failedStep: input.failedStep,
+        metaErrorCode: input.failure.detail.errorCode ?? null,
+        metaErrorSubcode: input.failure.detail.errorSubcode ?? null,
+        metaErrorTitle: input.failure.detail.errorUserTitle ?? null,
+        metaErrorMessage:
+          input.failure.detail.errorUserMsg ?? input.failure.message ?? null,
+        metaTraceId: input.failure.detail.traceId ?? null,
+        pendingMetaVerification: true,
         errorMessage: userMessage,
         metaLaunchSteps: input.launchSteps,
         metaLaunchPayloads: input.launchPayloads,
@@ -3738,6 +3821,463 @@ export class MetaCenterCampaignsService {
     });
   }
 
+  private async acquireLaunchLock(
+    draftId: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({
+      where: { id: draftId },
+      select: { launchLockUntil: true },
+    });
+    if (!draft) {
+      return { ok: false, message: 'Koncept nenalezen.' };
+    }
+    if (draft.launchLockUntil && draft.launchLockUntil > new Date()) {
+      return {
+        ok: false,
+        message: 'Spuštění právě probíhá — počkejte několik sekund a zkuste znovu.',
+      };
+    }
+    const until = new Date(Date.now() + 45_000);
+    await this.prisma.metaMarketingCampaignDraft.update({
+      where: { id: draftId },
+      data: { launchLockUntil: until, lastLaunchAttemptAt: new Date() },
+    });
+    return { ok: true };
+  }
+
+  private async releaseLaunchLock(draftId: string): Promise<void> {
+    try {
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: { launchLockUntil: null },
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async runPreflightForDraft(draftId: string): Promise<{
+    ok: boolean;
+    message: string;
+    checks: MetaPreflightCheck[];
+    campaign: ReturnType<MetaCenterCampaignsService['serializeDraft']> | null;
+  }> {
+    if (!(await this.ensureCampaignTableReady())) {
+      return {
+        ok: false,
+        message: META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE,
+        checks: [],
+        campaign: null,
+      };
+    }
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    if (!draft) {
+      return { ok: false, message: 'Koncept nenalezen.', checks: [], campaign: null };
+    }
+    const settings = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(settings ?? ({} as never));
+    let token: string;
+    try {
+      token = await this.oauth.resolveMarketingAccessToken();
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Marketing token chybí.',
+        checks: [],
+        campaign: this.serializeDraft(draft),
+      };
+    }
+    const tokenDebug = await this.oauth.debugToken(token, 'marketing').catch(() => null);
+    const graphVersion = settings?.graphApiVersion || this.fbConfig.getGraphApiVersion();
+    const checks = await runMetaAdPreflightChecks({
+      graph: this.graph,
+      token,
+      ctx: {
+        adAccountId: ids.adAccountId ?? draft.adAccountId ?? '',
+        businessId: ids.businessId,
+        pageId: settings?.pageId ?? null,
+        catalogId: ids.catalogId ?? draft.catalogId,
+        productSetId: draft.metaProductSetId,
+        campaignId: draft.metaCampaignId,
+        adSetId: draft.metaAdSetId,
+        creativeId: draft.metaCreativeId ?? null,
+        graphApiVersion: graphVersion,
+      },
+      tokenDebug: tokenDebug
+        ? {
+            is_valid: tokenDebug.is_valid,
+            expires_at: tokenDebug.expires_at,
+            scopes: tokenDebug.scopes,
+          }
+        : null,
+    });
+    const summary = summarizePreflightChecks(checks);
+    const launchPayloads =
+      draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'
+        ? ({ ...(draft.metaLaunchPayloads as MetaLaunchPayloadSnapshot) } as MetaLaunchPayloadSnapshot)
+        : ({} as MetaLaunchPayloadSnapshot);
+    launchPayloads.preflightChecks = checks;
+    await this.prisma.metaMarketingCampaignDraft.update({
+      where: { id: draftId },
+      data: {
+        lastPreflightAt: new Date(),
+        metaLaunchPayloads: launchPayloads as Prisma.InputJsonValue,
+      },
+    });
+    const refreshed = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    return {
+      ok: summary.ok,
+      message: summary.message,
+      checks,
+      campaign: this.serializeDraft(refreshed ?? draft),
+    };
+  }
+
+  async completeAdOnly(draftId: string) {
+    if (!(await this.ensureCampaignTableReady())) {
+      return this.dbNotSyncedResponse();
+    }
+    if (!(await this.isLiveEnabled())) {
+      return {
+        ok: false as const,
+        status: 'draft_mode' as const,
+        message: 'Ostré spuštění je vypnuté. Zapněte v Nastavení Meta Centra.',
+        campaign: null,
+      };
+    }
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    if (!draft) {
+      return { ok: false as const, status: 'not_found' as const, message: 'Koncept nenalezen.', campaign: null };
+    }
+    if (draft.metaAdId) {
+      return {
+        ok: false as const,
+        status: 'already_live' as const,
+        message: 'Reklama již existuje v Meta.',
+        campaign: this.serializeDraft(draft),
+      };
+    }
+    if (!draft.metaCampaignId || !draft.metaAdSetId || !draft.metaCreativeId) {
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: 'Chybí Campaign, Ad Set nebo Creative ID — nelze dokončit pouze reklamu.',
+        campaign: this.serializeDraft(draft),
+      };
+    }
+    const settings = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(settings ?? ({} as never));
+    const dto = this.draftRowToDto(draft);
+    const launchSteps = this.parseLaunchSteps(draft.metaLaunchSteps) ?? emptyLaunchSteps();
+    const launchPayloads: MetaLaunchPayloadSnapshot =
+      draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'
+        ? (draft.metaLaunchPayloads as MetaLaunchPayloadSnapshot)
+        : {};
+    launchSteps.campaign = { ok: true, id: draft.metaCampaignId };
+    launchSteps.adSet = { ok: true, id: draft.metaAdSetId };
+    launchSteps.creative = { ok: true, id: draft.metaCreativeId };
+    return this.executeAdOnlyLaunch({
+      draftId,
+      dto,
+      ids,
+      draftRow: draft,
+      launchSteps,
+      launchPayloads,
+    });
+  }
+
+  async probeAdCreate(draftId: string): Promise<MetaAdProbeResult> {
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    if (!draft) {
+      return { ok: false as const, message: 'Koncept nenalezen.', securityBlock: false, launchSteps: null };
+    }
+    if (!draft.metaCampaignId || !draft.metaAdSetId || !draft.metaCreativeId) {
+      return {
+        ok: false as const,
+        message:
+          'Probe Ad: chybí uložená ID kampaně, Ad Setu nebo Creative — nejdřív dokončete předchozí kroky.',
+        securityBlock: false,
+        launchSteps: this.parseLaunchSteps(draft.metaLaunchSteps),
+      };
+    }
+    const preflight = await this.runPreflightForDraft(draftId);
+    if (!preflight.ok) {
+      return {
+        ok: false as const,
+        message: `Pre-flight selhala: ${preflight.message}`,
+        securityBlock: false,
+        preflightChecks: preflight.checks,
+        launchSteps: this.parseLaunchSteps(preflight.campaign?.metaLaunchSteps),
+      };
+    }
+    const settings = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(settings ?? ({} as never));
+    const actId = (ids.adAccountId ?? '').replace(/^act_/, '');
+    let token: string;
+    try {
+      token = await this.oauth.resolveMarketingAccessToken();
+    } catch (err) {
+      return {
+        ok: false as const,
+        message: err instanceof Error ? err.message : 'Marketing token chybí.',
+        securityBlock: false,
+        launchSteps: this.parseLaunchSteps(draft.metaLaunchSteps),
+      };
+    }
+    const adBundle = buildMetaAdCreatePayload({
+      name: `${draft.name.trim()} — probe ad`,
+      adSetId: draft.metaAdSetId,
+      creativeId: draft.metaCreativeId,
+      status: 'PAUSED',
+    });
+    const adPath = `/act_${actId}/ads`;
+    const adRes = await this.graph.post<{ id?: string }>(adPath, token, adBundle.metaPostBody);
+    if (!adRes.ok) {
+      const pending = isMetaPendingVerificationError({
+        errorCode: adRes.errorCode,
+        errorSubcode: extractMetaGraphErrorFields(adRes.data).error_subcode,
+        message: adRes.errorMessage,
+        response: adRes.data,
+      });
+      if (pending) {
+        return {
+          ok: false as const,
+          message:
+            'Meta bezpečnostní omezení potvrzeno. Payload byl přijat až do kroku vytvoření Ad. Campaign, Ad Set a Creative jsou validní. Akce musí být dokončena ve Správci reklam.',
+          securityBlock: true,
+          pendingMetaVerification: true,
+          metaApiError: {
+            errorCode: adRes.errorCode,
+            errorSubcode: extractMetaGraphErrorFields(adRes.data).error_subcode,
+            response: adRes.data,
+          },
+          launchSteps: {
+            campaign: { ok: true, id: draft.metaCampaignId },
+            adSet: { ok: true, id: draft.metaAdSetId },
+            creative: { ok: true, id: draft.metaCreativeId },
+            ad: { ok: false, error: adRes.errorMessage },
+          },
+          preflightChecks: preflight.checks,
+          adPayload: adBundle.logical,
+          adMetaForm: adBundle.metaForm,
+        };
+      }
+      return {
+        ok: false as const,
+        message: adRes.errorMessage,
+        securityBlock: false,
+        launchSteps: {
+          campaign: { ok: true, id: draft.metaCampaignId },
+          adSet: { ok: true, id: draft.metaAdSetId },
+          creative: { ok: true, id: draft.metaCreativeId },
+          ad: { ok: false, error: adRes.errorMessage },
+        },
+        preflightChecks: preflight.checks,
+      };
+    }
+    if (adRes.data.id) {
+      await this.graph.delete<{ success?: boolean }>(`/${adRes.data.id}`, token).catch(() => null);
+    }
+    return {
+      ok: true as const,
+      message: 'Probe Ad: vytvoření reklamy prošlo (testovací Ad bylo smazáno).',
+      securityBlock: false,
+      launchSteps: {
+        campaign: { ok: true, id: draft.metaCampaignId },
+        adSet: { ok: true, id: draft.metaAdSetId },
+        creative: { ok: true, id: draft.metaCreativeId },
+        ad: { ok: true, id: adRes.data.id ?? 'probe' },
+      },
+      preflightChecks: preflight.checks,
+    };
+  }
+
+  private async executeAdOnlyLaunch(input: {
+    draftId: string;
+    dto: CreateMetaCampaignDto;
+    ids: ReturnType<typeof resolveMetaCenterIds>;
+    draftRow: NonNullable<Awaited<ReturnType<typeof this.prisma.metaMarketingCampaignDraft.findUnique>>>;
+    launchSteps: MetaLaunchSteps;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+  }) {
+    const lock = await this.acquireLaunchLock(input.draftId);
+    if (!lock.ok) {
+      return {
+        ok: false as const,
+        status: 'busy' as const,
+        message: lock.message,
+        campaign: await this.loadSerializedDraft(input.draftId),
+      };
+    }
+    try {
+      const actId = (input.ids.adAccountId ?? '').replace(/^act_/, '');
+      if (!actId) {
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: 'Chybí reklamní účet.',
+          campaign: await this.loadSerializedDraft(input.draftId),
+        };
+      }
+      let token: string;
+      try {
+        token = await this.oauth.resolveMarketingAccessToken();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Marketing token chybí.';
+        return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+      }
+      const row = await this.getSettingsRow();
+      const preflight = await this.runPreflightForDraft(input.draftId);
+      input.launchPayloads.preflightChecks = preflight.checks;
+      if (!preflight.ok) {
+        await this.persistLaunchState(input.draftId, {
+          status: 'error',
+          errorMessage: preflight.message,
+          metaLaunchPayloads: input.launchPayloads,
+          launchStatus: 'PREFLIGHT_FAILED',
+        });
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: preflight.message,
+          preflightChecks: preflight.checks,
+          launchSteps: input.launchSteps,
+          campaign: preflight.campaign,
+        };
+      }
+      const metaCampaignId = input.draftRow.metaCampaignId!;
+      const metaAdSetId = input.draftRow.metaAdSetId!;
+      const metaCreativeId = input.draftRow.metaCreativeId!;
+      const debugEnabled = await this.isLaunchDebugEnabled();
+      const graphVersion = this.fbConfig.getGraphApiVersion();
+      const tracer = new MetaLaunchStepTracer(
+        {
+          graphApiVersion: graphVersion,
+          businessId: input.ids.businessId,
+          adAccountId: input.ids.adAccountId,
+          pageId: row?.pageId ?? null,
+          instagramBusinessId: row?.instagramBusinessId ?? null,
+          pixelId: input.ids.pixelId,
+          catalogId: input.ids.catalogId,
+          datasetId: input.ids.datasetId,
+          campaignId: metaCampaignId,
+          adSetId: metaAdSetId,
+          creativeId: metaCreativeId,
+          adId: null,
+          draftId: input.draftId,
+        },
+        this.graph.graphBase(graphVersion),
+        debugEnabled,
+        metaLaunchDebugDir(),
+      );
+      const persistDebug = () => tracer.getTrace();
+      const launchContextIds = this.buildLaunchContextIds(input.ids, row, {
+        draftId: input.draftId,
+        campaignId: metaCampaignId,
+        adSetId: metaAdSetId,
+        creativeId: metaCreativeId,
+        adId: null,
+      });
+      tracer.recordSkipped('campaign', `/act_${actId}/campaigns`, {}, `Campaign již existuje (${metaCampaignId})`);
+      tracer.recordSkipped('adSet', `/act_${actId}/adsets`, {}, `Ad Set již existuje (${metaAdSetId})`);
+      tracer.recordSkipped(
+        'creative',
+        `/act_${actId}/adcreatives`,
+        {},
+        `Creative již existuje (${metaCreativeId})`,
+      );
+      const adBundle = buildMetaAdCreatePayload({
+        name: `${input.dto.name.trim()} — reklama`,
+        adSetId: metaAdSetId,
+        creativeId: metaCreativeId,
+        status: 'PAUSED',
+      });
+      input.launchPayloads.ad = adBundle.logical;
+      input.launchPayloads.adMetaForm = adBundle.metaForm;
+      input.launchPayloads.launchPhase = 'AD_ONLY';
+      const adPath = `/act_${actId}/ads`;
+      const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+        adPath,
+        token,
+        adBundle.metaPostBody,
+        { logLabel: `complete-ad draft=${input.draftId}`, retryDelaysMs: [3000, 3000, 3000] },
+      );
+      tracer.recordResult('ad', adPath, adBundle.metaPostBody, adRes);
+      if (!adRes.ok || !adRes.data.id) {
+        const failure = this.formatLaunchApiFailure(
+          'Vytvoření reklamy',
+          adBundle.metaPostBody,
+          adRes,
+          'ad',
+          tracer,
+          launchContextIds,
+          adBundle.metaForm,
+        );
+        input.launchSteps.ad = { ok: false, error: failure.message };
+        return this.finalizeLaunchGraphFailure({
+          draftId: input.draftId,
+          failure,
+          graphResult: adRes,
+          failedStep: 'ad',
+          launchStepKey: 'ad',
+          launchSteps: input.launchSteps,
+          launchPayloads: input.launchPayloads,
+          persistDebug,
+          metaCampaignId,
+          metaAdSetId,
+          metaCreativeId,
+          metaProductSetId: input.draftRow.metaProductSetId,
+        });
+      }
+      const metaAdId = adRes.data.id;
+      input.launchSteps.ad = { ok: true, id: metaAdId };
+      input.launchPayloads.metaVerificationStatus = null;
+      input.launchPayloads.launchPhase = 'COMPLETED';
+      const creativePreviewUrl =
+        (await this.creative.fetchCreativeThumbnailUrl(metaCreativeId, token)) ?? null;
+      const previewHtml = (await this.creative.fetchAdPreviewHtml(metaAdId, token)) ?? null;
+      const statusData = await this.fetchMetaCampaignStatus(metaCampaignId, token);
+      const insights = await this.fetchMetaCampaignInsights(metaCampaignId, token);
+      const now = new Date();
+      const updated = await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: input.draftId },
+        data: {
+          metaAdId,
+          creativePreviewUrl,
+          previewHtml,
+          metaLaunchSteps: input.launchSteps as Prisma.InputJsonValue,
+          metaLaunchPayloads: input.launchPayloads as Prisma.InputJsonValue,
+          metaLaunchDebug: persistDebug() as Prisma.InputJsonValue,
+          metaStatus: statusData.status,
+          metaEffectiveStatus: statusData.effectiveStatus,
+          metaInsights: insights as Prisma.InputJsonValue,
+          metaLaunchedAt: now,
+          metaStatusSyncedAt: now,
+          status: 'paused',
+          launchStatus: 'COMPLETED',
+          failedStep: null,
+          metaErrorCode: null,
+          metaErrorSubcode: null,
+          metaErrorTitle: null,
+          metaErrorMessage: null,
+          metaTraceId: null,
+          pendingMetaVerification: false,
+          errorMessage: null,
+        },
+      });
+      return {
+        ok: true as const,
+        status: 'paused' as const,
+        message: `Reklama byla dokončena (PAUSED). Ad ID ${metaAdId}.`,
+        launchSteps: input.launchSteps,
+        preflightChecks: preflight.checks,
+        campaign: this.serializeDraft(updated),
+      };
+    } finally {
+      await this.releaseLaunchLock(input.draftId);
+    }
+  }
+
   private async persistLaunchState(
     draftId: string,
     data: {
@@ -3747,6 +4287,14 @@ export class MetaCenterCampaignsService {
       metaCreativeId?: string | null;
       metaAdId?: string | null;
       status?: string;
+      launchStatus?: string | null;
+      failedStep?: string | null;
+      metaErrorCode?: string | null;
+      metaErrorSubcode?: string | null;
+      metaErrorTitle?: string | null;
+      metaErrorMessage?: string | null;
+      metaTraceId?: string | null;
+      pendingMetaVerification?: boolean;
       errorMessage?: string;
       metaLaunchSteps?: MetaLaunchSteps;
       metaLaunchPayloads?: MetaLaunchPayloadSnapshot;
@@ -3763,6 +4311,16 @@ export class MetaCenterCampaignsService {
           ...(data.metaCreativeId !== undefined ? { metaCreativeId: data.metaCreativeId } : {}),
           ...(data.metaAdId !== undefined ? { metaAdId: data.metaAdId } : {}),
           ...(data.status ? { status: data.status } : {}),
+          ...(data.launchStatus !== undefined ? { launchStatus: data.launchStatus } : {}),
+          ...(data.failedStep !== undefined ? { failedStep: data.failedStep } : {}),
+          ...(data.metaErrorCode !== undefined ? { metaErrorCode: data.metaErrorCode } : {}),
+          ...(data.metaErrorSubcode !== undefined ? { metaErrorSubcode: data.metaErrorSubcode } : {}),
+          ...(data.metaErrorTitle !== undefined ? { metaErrorTitle: data.metaErrorTitle } : {}),
+          ...(data.metaErrorMessage !== undefined ? { metaErrorMessage: data.metaErrorMessage } : {}),
+          ...(data.metaTraceId !== undefined ? { metaTraceId: data.metaTraceId } : {}),
+          ...(data.pendingMetaVerification !== undefined
+            ? { pendingMetaVerification: data.pendingMetaVerification }
+            : {}),
           ...(data.errorMessage !== undefined ? { errorMessage: data.errorMessage } : {}),
           ...(data.metaLaunchSteps
             ? { metaLaunchSteps: data.metaLaunchSteps as Prisma.InputJsonValue }
@@ -3879,6 +4437,16 @@ export class MetaCenterCampaignsService {
     metaLaunchedAt?: Date | null;
     metaStatusSyncedAt?: Date | null;
     errorMessage: string | null;
+    launchStatus?: string | null;
+    failedStep?: string | null;
+    metaErrorCode?: string | null;
+    metaErrorSubcode?: string | null;
+    metaErrorTitle?: string | null;
+    metaErrorMessage?: string | null;
+    metaTraceId?: string | null;
+    pendingMetaVerification?: boolean;
+    lastPreflightAt?: Date | null;
+    lastLaunchAttemptAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -3931,6 +4499,16 @@ export class MetaCenterCampaignsService {
       metaInsights: this.parseInsights(row.metaInsights),
       metaLaunchedAt: row.metaLaunchedAt?.toISOString() ?? null,
       metaStatusSyncedAt: row.metaStatusSyncedAt?.toISOString() ?? null,
+      launchStatus: row.launchStatus ?? null,
+      failedStep: row.failedStep ?? null,
+      metaErrorCode: row.metaErrorCode ?? null,
+      metaErrorSubcode: row.metaErrorSubcode ?? null,
+      metaErrorTitle: row.metaErrorTitle ?? null,
+      metaErrorMessage: row.metaErrorMessage ?? null,
+      metaTraceId: row.metaTraceId ?? null,
+      pendingMetaVerification: row.pendingMetaVerification ?? false,
+      lastPreflightAt: row.lastPreflightAt?.toISOString() ?? null,
+      lastLaunchAttemptAt: row.lastLaunchAttemptAt?.toISOString() ?? null,
       errorMessage: row.errorMessage,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

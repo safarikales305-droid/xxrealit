@@ -4,6 +4,16 @@ import type { PrismaService } from './prisma.service';
 export const META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE =
   'Databáze není synchronizována. Je potřeba provést Prisma migrate.';
 
+export const META_CENTER_DB_SCHEMA_OUTDATED_MESSAGE =
+  'Databáze Meta Centra není aktuální — chybí sloupec pro nastavení umístění reklam (adPlacementSettings). Spusťte: npx prisma migrate deploy (vývoj: npx prisma db push).';
+
+/** Idempotentní DDL pro sloupce MetaCenterSetting — běží vždy při startu API. */
+const ENSURE_META_CENTER_SETTING_COLUMNS_SQL: string[] = [
+  `ALTER TABLE "MetaCenterSetting" ADD COLUMN IF NOT EXISTS "campaignsLiveEnabled" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "MetaCenterSetting" ADD COLUMN IF NOT EXISTS "campaignsDebugMode" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "MetaCenterSetting" ADD COLUMN IF NOT EXISTS "adPlacementSettings" JSONB`,
+];
+
 /** Idempotentní DDL — odpovídá prisma/migrations/20260706220000_ensure_meta_campaign_tables */
 const ENSURE_META_CAMPAIGN_TABLES_SQL: string[] = [
   `CREATE TABLE IF NOT EXISTS "MetaMarketingCampaignDraft" (
@@ -91,9 +101,69 @@ const ENSURE_META_CAMPAIGN_TABLES_SQL: string[] = [
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "locationTargetingMode" TEXT NOT NULL DEFAULT 'city'`,
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaLaunchPayloads" JSONB`,
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaLaunchDebug" JSONB`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "launchStatus" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "failedStep" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaErrorCode" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaErrorSubcode" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaErrorTitle" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaErrorMessage" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaTraceId" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "pendingMetaVerification" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "lastPreflightAt" TIMESTAMP(3)`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "lastLaunchAttemptAt" TIMESTAMP(3)`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "launchLockUntil" TIMESTAMP(3)`,
   `ALTER TABLE "MetaCenterSetting" ADD COLUMN IF NOT EXISTS "campaignsDebugMode" BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE "MetaCenterSetting" ADD COLUMN IF NOT EXISTS "adPlacementSettings" JSONB`,
 ];
+
+export function isMetaCenterSchemaDriftError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022') {
+    const msg = String(error.message ?? '');
+    return (
+      msg.includes('adPlacementSettings') ||
+      msg.includes('campaignsDebugMode') ||
+      msg.includes('campaignsLiveEnabled') ||
+      msg.includes('MetaCenterSetting')
+    );
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    /MetaCenterSetting/i.test(msg) &&
+    (/adPlacementSettings/i.test(msg) ||
+      /campaignsDebugMode/i.test(msg) ||
+      /campaignsLiveEnabled/i.test(msg)) &&
+    /does not exist/i.test(msg)
+  );
+}
+
+async function applyEnsureMetaCenterSettingColumnsSql(prisma: PrismaService): Promise<void> {
+  for (const sql of ENSURE_META_CENTER_SETTING_COLUMNS_SQL) {
+    await prisma.$executeRawUnsafe(sql);
+  }
+}
+
+/**
+ * Zajistí sloupce MetaCenterSetting (včetně adPlacementSettings) i když kampaně už existují.
+ */
+export async function ensureMetaCenterSettingColumns(prisma: PrismaService): Promise<boolean> {
+  try {
+    await applyEnsureMetaCenterSettingColumnsSql(prisma);
+    await prisma.metaCenterSetting.findFirst({
+      select: { id: true, adPlacementSettings: true },
+    });
+    return true;
+  } catch (err) {
+    if (isMetaCenterSchemaDriftError(err)) {
+      console.warn('[DB] MetaCenterSetting columns still missing after ensure DDL');
+      return false;
+    }
+    console.error(
+      '[DB] ensure MetaCenterSetting columns failed:',
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
 
 function isMissingTableError(error: unknown): boolean {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021') {
@@ -125,6 +195,8 @@ async function applyEnsureMetaCampaignTablesSql(prisma: PrismaService): Promise<
  * Ověří tabulku MetaMarketingCampaignDraft; při absenci ji vytvoří idempotentním SQL.
  */
 export async function ensureMetaCenterCampaignTables(prisma: PrismaService): Promise<boolean> {
+  await ensureMetaCenterSettingColumns(prisma);
+
   if (await probeCampaignDraftTable(prisma)) {
     return true;
   }

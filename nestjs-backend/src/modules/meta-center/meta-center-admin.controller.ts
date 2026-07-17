@@ -673,6 +673,43 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Post('campaigns/drafts/:id/complete-ad')
+  completeMetaCampaignAd(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/complete-ad',
+      () => this.campaigns.completeAdOnly(id),
+      (message) => ({
+        ok: false as const,
+        status: 'error' as const,
+        message,
+        campaign: null,
+      }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/preflight')
+  preflightMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/preflight',
+      () => this.campaigns.runPreflightForDraft(id),
+      (message) => ({ ok: false, message, checks: [], campaign: null }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/probe-ad')
+  probeMetaCampaignAd(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/probe-ad',
+      () => this.campaigns.probeAdCreate(id),
+      (message) => ({
+        ok: false as const,
+        message,
+        securityBlock: false,
+        launchSteps: null,
+      }),
+    );
+  }
+
   @Post('campaigns/drafts/:id/reset-meta-launch')
   resetMetaCampaignLaunch(@Param('id') id: string) {
     return this.safeEndpoint(

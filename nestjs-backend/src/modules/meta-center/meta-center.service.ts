@@ -1,6 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  isMetaCenterSchemaDriftError,
+  META_CENTER_DB_SCHEMA_OUTDATED_MESSAGE,
+} from '../../database/ensure-meta-center-schema';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { MetaCatalogService } from '../meta-catalog/meta-catalog.service';
 import { WhatsAppConfigService } from '../whatsapp/whatsapp-config.service';
@@ -101,23 +105,41 @@ export class MetaCenterService {
     return this.toInputJsonValue(value);
   }
 
+  private assertMetaCenterSchemaReady(): void {
+    if (!this.prisma.metaCenterSettingColumnsReady) {
+      throw new ServiceUnavailableException(META_CENTER_DB_SCHEMA_OUTDATED_MESSAGE);
+    }
+  }
+
+  private rethrowMetaCenterSchemaError(error: unknown): never {
+    if (isMetaCenterSchemaDriftError(error)) {
+      throw new ServiceUnavailableException(META_CENTER_DB_SCHEMA_OUTDATED_MESSAGE);
+    }
+    throw error;
+  }
+
   private async getOrCreateSettings() {
-    const existing = await this.prisma.metaCenterSetting.findUnique({
-      where: { id: SETTINGS_ID },
-    });
-    if (existing) return existing;
-    return this.prisma.metaCenterSetting.create({
-      data: {
-        id: SETTINGS_ID,
-        capiEventToggles: this.toInputJsonValue(DEFAULT_CAPI_TOGGLES),
-        pixelMapping: this.toInputJsonValue(DEFAULT_PIXEL_MAPPING),
-        remarketingAudiences: this.toInputJsonValue(DEFAULT_REMARKETING_AUDIENCES),
-        autoCampaignRules: this.toInputJsonValue(DEFAULT_AUTO_CAMPAIGN_RULES),
-        adFormatFlags: this.toInputJsonValue(DEFAULT_AD_FORMAT_FLAGS),
-        adPlacementSettings: this.toInputJsonValue(DEFAULT_AD_PLACEMENT_SETTINGS),
-        serviceStatus: this.toInputJsonValue({}),
-      },
-    });
+    this.assertMetaCenterSchemaReady();
+    try {
+      const existing = await this.prisma.metaCenterSetting.findUnique({
+        where: { id: SETTINGS_ID },
+      });
+      if (existing) return existing;
+      return await this.prisma.metaCenterSetting.create({
+        data: {
+          id: SETTINGS_ID,
+          capiEventToggles: this.toInputJsonValue(DEFAULT_CAPI_TOGGLES),
+          pixelMapping: this.toInputJsonValue(DEFAULT_PIXEL_MAPPING),
+          remarketingAudiences: this.toInputJsonValue(DEFAULT_REMARKETING_AUDIENCES),
+          autoCampaignRules: this.toInputJsonValue(DEFAULT_AUTO_CAMPAIGN_RULES),
+          adFormatFlags: this.toInputJsonValue(DEFAULT_AD_FORMAT_FLAGS),
+          adPlacementSettings: this.toInputJsonValue(DEFAULT_AD_PLACEMENT_SETTINGS),
+          serviceStatus: this.toInputJsonValue({}),
+        },
+      });
+    } catch (error) {
+      this.rethrowMetaCenterSchemaError(error);
+    }
   }
 
   private resolveUrls(row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>) {
@@ -210,8 +232,9 @@ export class MetaCenterService {
   }
 
   async updateSettings(dto: UpdateMetaCenterSettingDto) {
-    await this.getOrCreateSettings();
-    const data: Prisma.MetaCenterSettingUpdateInput = {};
+    try {
+      await this.getOrCreateSettings();
+      const data: Prisma.MetaCenterSettingUpdateInput = {};
     const assign = <K extends keyof UpdateMetaCenterSettingDto>(key: K) => {
       if (dto[key] !== undefined) (data as Record<string, unknown>)[key] = dto[key];
     };
@@ -270,6 +293,9 @@ export class MetaCenterService {
     }
 
     return { ok: true, settings: this.serializeSettings(row) };
+    } catch (error) {
+      this.rethrowMetaCenterSchemaError(error);
+    }
   }
 
   private serviceCardStatus(
@@ -952,7 +978,15 @@ export class MetaCenterService {
     const [settings, services, diagnostics, catalog, feedStats, catalogGraph, liveDiagnostics] =
       await Promise.all([
       this.getSettings().catch((err) => {
-        warnings.push(err instanceof Error ? err.message : 'Nastavení Meta Centra nelze načíst.');
+        const msg =
+          err instanceof ServiceUnavailableException
+            ? String(err.message)
+            : isMetaCenterSchemaDriftError(err)
+              ? META_CENTER_DB_SCHEMA_OUTDATED_MESSAGE
+              : err instanceof Error
+                ? err.message
+                : 'Nastavení Meta Centra nelze načíst.';
+        warnings.push(msg);
         return this.buildEmptySettings();
       }),
       this.buildServiceCards().catch(() => [] as Awaited<ReturnType<MetaCenterService['buildServiceCards']>>),
@@ -1073,6 +1107,9 @@ export class MetaCenterService {
       graphApiVersion: GRAPH_API_VERSION_DEFAULT,
       domainVerification: null,
       catalogFeedEnabled: true,
+      campaignsLiveEnabled: false,
+      campaignsDebugMode: false,
+      adPlacementSettings: DEFAULT_AD_PLACEMENT_SETTINGS,
       capiEventToggles: DEFAULT_CAPI_TOGGLES,
       pixelMapping: DEFAULT_PIXEL_MAPPING,
       remarketingAudiences: DEFAULT_REMARKETING_AUDIENCES,

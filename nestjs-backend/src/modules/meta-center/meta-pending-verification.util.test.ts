@@ -11,6 +11,10 @@ test('isMetaPendingVerificationError detects error_code 31', () => {
   assert.equal(isMetaPendingVerificationError({ errorCode: '31' }), true);
 });
 
+test('isMetaPendingVerificationError detects subcode 3858385', () => {
+  assert.equal(isMetaPendingVerificationError({ errorSubcode: '3858385' }), true);
+});
+
 test('isMetaPendingVerificationError detects Czech user title', () => {
   assert.equal(
     isMetaPendingVerificationError({ errorUserTitle: 'Ověřte svůj účet' }),

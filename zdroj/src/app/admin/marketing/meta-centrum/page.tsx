@@ -89,6 +89,8 @@ import {
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
   nestAdminMetaCenterLaunchCampaignDraft,
+  nestAdminMetaCenterCompleteCampaignAd,
+  nestAdminMetaCenterPreflightCampaignDraft,
   nestAdminMetaCenterResetMetaCampaignLaunch,
   nestAdminMetaCenterDuplicateCampaignDraft,
   nestAdminMetaCenterControlCampaign,
@@ -1206,6 +1208,45 @@ export default function MetaCentrumPage() {
         setMsg('Meta vyžaduje ověření reklamního účtu. Dokončete ověření a zkuste znovu vytvořit reklamu.');
       }
     }
+    void refresh();
+  }
+
+  async function completeCampaignAdFromList(c: MetaCampaignDraft) {
+    if (!token) return;
+    setBusy(true);
+    setLastLaunchError(null);
+    const r = await nestAdminMetaCenterCompleteCampaignAd(token, c.id);
+    setBusy(false);
+    setMsg(translateMetaCampaignApiError(r.message ?? (r.ok ? 'Reklama dokončena.' : 'Chyba')));
+    if (!r.ok) {
+      const pendingVerification = isPendingMetaVerificationError(
+        r.metaApiError,
+        r.status ?? r.campaign?.status,
+        r.campaign?.metaLaunchPayloads?.metaVerificationStatus,
+        r.campaign?.pendingMetaVerification,
+      );
+      setLastLaunchError({
+        message: pendingVerification
+          ? (r.message ?? '')
+          : translateMetaCampaignApiError(r.message ?? 'Dokončení reklamy selhalo.'),
+        status: r.status ?? null,
+        metaApiError: r.metaApiError,
+        failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? 'ad',
+        launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+        assetsVerification: r.assetsVerification ?? null,
+        housingGeoDebug: r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
+        retryDraftId: c.id,
+      });
+    }
+    void refresh();
+  }
+
+  async function verifyPreflightForDraft(c: MetaCampaignDraft) {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminMetaCenterPreflightCampaignDraft(token, c.id);
+    setBusy(false);
+    setMsg(r.message ?? (r.ok ? 'Pre-flight kontrola prošla.' : 'Pre-flight kontrola selhala.'));
     void refresh();
   }
 
@@ -4402,46 +4443,53 @@ export default function MetaCentrumPage() {
                       message={lastLaunchError.message}
                       technicalDetails={lastLaunchError.metaApiError}
                       launchDebug={lastLaunchError.metaApiError?.launchDebug}
+                      draft={
+                        campaignDrafts.find((item) => item.id === lastLaunchError.retryDraftId) ??
+                        null
+                      }
                       retryBusy={busy}
-                      onRetry={
+                      completeAdBusy={busy}
+                      verifyBusy={busy}
+                      onVerifyPreflight={
+                        lastLaunchError.retryDraftId
+                          ? () => {
+                              const draft = campaignDrafts.find(
+                                (item) => item.id === lastLaunchError.retryDraftId,
+                              );
+                              if (draft) void verifyPreflightForDraft(draft);
+                            }
+                          : undefined
+                      }
+                      onCompleteAd={
                         lastLaunchError.retryDraftId
                           ? () => {
                               const draft = campaignDrafts.find(
                                 (item) => item.id === lastLaunchError.retryDraftId,
                               );
                               if (draft) {
-                                void launchCampaignDraftFromList(draft);
+                                void completeCampaignAdFromList(draft);
                                 return;
                               }
-                              if (lastLaunchError.retryDraftId && token) {
+                              if (token) {
                                 void (async () => {
                                   setBusy(true);
                                   setLastLaunchError(null);
-                                  const r = await nestAdminMetaCenterLaunchCampaignDraft(
+                                  const r = await nestAdminMetaCenterCompleteCampaignAd(
                                     token,
                                     lastLaunchError.retryDraftId!,
                                   );
                                   setBusy(false);
                                   setMsg(
                                     translateMetaCampaignApiError(
-                                      r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'),
+                                      r.message ?? (r.ok ? 'Reklama dokončena.' : 'Chyba'),
                                     ),
                                   );
                                   if (!r.ok) {
-                                    const pending = isPendingMetaVerificationError(
-                                      r.metaApiError,
-                                      r.status ?? r.campaign?.status,
-                                    );
                                     setLastLaunchError({
-                                      message: pending
-                                        ? (r.message ?? '')
-                                        : translateMetaCampaignApiError(
-                                            r.message ?? 'Spuštění selhalo.',
-                                          ),
+                                      message: r.message ?? 'Dokončení reklamy selhalo.',
                                       status: r.status ?? null,
                                       metaApiError: r.metaApiError,
-                                      failedStep:
-                                        r.failedStep ?? r.metaApiError?.launchStep ?? null,
+                                      failedStep: r.failedStep ?? 'ad',
                                       launchSteps:
                                         r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
                                       assetsVerification: r.assetsVerification ?? null,
@@ -4558,9 +4606,12 @@ export default function MetaCentrumPage() {
                                 message={c.errorMessage}
                                 technicalDetails={c.metaLaunchDebug}
                                 launchDebug={c.metaLaunchDebug}
+                                draft={c}
                                 compact
-                                retryBusy={busy}
-                                onRetry={() => void launchCampaignDraftFromList(c)}
+                                completeAdBusy={busy}
+                                verifyBusy={busy}
+                                onVerifyPreflight={() => void verifyPreflightForDraft(c)}
+                                onCompleteAd={() => void completeCampaignAdFromList(c)}
                               />
                             </div>
                           ) : c.errorMessage ? (

@@ -174,6 +174,7 @@ export type MetaLaunchPayloadSnapshot = {
   adSet?: Record<string, unknown> | null;
   creative?: Record<string, unknown> | null;
   ad?: Record<string, unknown> | null;
+  adMetaForm?: Record<string, string> | null;
   productSetId?: string | null;
   combinationDiagnostics?: import('./meta-campaign-builder.util').MetaCampaignCombinationDiagnostics | null;
   catalogLaunchMode?: 'sales' | 'traffic' | null;
@@ -183,6 +184,14 @@ export type MetaLaunchPayloadSnapshot = {
   creativeDiagnostics?: import('./meta-catalog-creative.util').CatalogCreativeDiagnostics | null;
   placementDiagnostics?: import('./meta-instagram-placement.util').MetaPlacementDiagnostics | null;
   metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
+  pendingVerificationSupport?: import('./meta-pending-verification.util').MetaPendingVerificationSupportBox | null;
+  preflightChecks?: Array<{
+    key: string;
+    ok: boolean;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+    details?: Record<string, unknown>;
+  }> | null;
   launchHistory?: string[] | null;
   placementSanitizeWarnings?: string[] | null;
 };

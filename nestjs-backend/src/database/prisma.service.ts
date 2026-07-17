@@ -5,7 +5,10 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { ensureDevSeedIfEmpty } from './dev-seed';
-import { ensureMetaCenterCampaignTables } from './ensure-meta-center-schema';
+import {
+  ensureMetaCenterCampaignTables,
+  ensureMetaCenterSettingColumns,
+} from './ensure-meta-center-schema';
 
 const dotenvCandidates = [
   resolve(process.cwd(), '.env'),
@@ -26,6 +29,9 @@ export class PrismaService
   /** Tabulka MetaMarketingCampaignDraft je dostupná (po migrate / db push). */
   metaCampaignDraftTableReady = false;
 
+  /** Sloupce MetaCenterSetting (adPlacementSettings atd.) jsou synchronizované se schématem. */
+  metaCenterSettingColumnsReady = false;
+
   constructor() {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
@@ -45,6 +51,12 @@ export class PrismaService
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
+    this.metaCenterSettingColumnsReady = await ensureMetaCenterSettingColumns(this);
+    if (!this.metaCenterSettingColumnsReady) {
+      console.warn(
+        '[DB] MetaCenterSetting columns not ready — Meta Centrum zobrazí hlášku o nutnosti migrace.',
+      );
+    }
     this.metaCampaignDraftTableReady = await ensureMetaCenterCampaignTables(this);
     if (!this.metaCampaignDraftTableReady) {
       console.warn(

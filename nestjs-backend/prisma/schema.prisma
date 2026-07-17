@@ -2534,6 +2534,17 @@ model MetaMarketingCampaignDraft {
   metaLaunchedAt     DateTime?
   metaStatusSyncedAt DateTime?
   errorMessage       String?   @db.Text
+  launchStatus       String?
+  failedStep         String?
+  metaErrorCode      String?
+  metaErrorSubcode   String?
+  metaErrorTitle     String?   @db.Text
+  metaErrorMessage   String?   @db.Text
+  metaTraceId        String?
+  pendingMetaVerification Boolean @default(false)
+  lastPreflightAt    DateTime?
+  lastLaunchAttemptAt DateTime?
+  launchLockUntil    DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   @@index([status])

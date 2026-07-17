@@ -6591,6 +6591,28 @@ export type MetaLaunchPayloadSnapshot = {
   creativeDiagnostics?: MetaCatalogCreativeDiagnostics | null;
   placementDiagnostics?: MetaPlacementDiagnostics | null;
   metaVerificationStatus?: 'PENDING_META_VERIFICATION' | null;
+  pendingVerificationSupport?: {
+    businessId: string | null;
+    adAccountId: string | null;
+    pageId: string | null;
+    catalogId: string | null;
+    datasetId: string | null;
+    errorCode: string;
+    errorSubcode: string;
+    traceId: string | null;
+    graphApiVersion: string;
+    failedEndpoint: string;
+    supportText: string;
+    copyBlock: string;
+  } | null;
+  preflightChecks?: Array<{
+    key: string;
+    ok: boolean;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+    details?: Record<string, unknown>;
+  }> | null;
+  adMetaForm?: Record<string, string> | null;
   launchHistory?: string[] | null;
   placementSanitizeWarnings?: string[] | null;
 };
@@ -6715,6 +6737,16 @@ export type MetaCampaignDraft = {
   } | null;
   metaLaunchedAt?: string | null;
   metaStatusSyncedAt?: string | null;
+  launchStatus?: string | null;
+  failedStep?: string | null;
+  metaErrorCode?: string | null;
+  metaErrorSubcode?: string | null;
+  metaErrorTitle?: string | null;
+  metaErrorMessage?: string | null;
+  metaTraceId?: string | null;
+  pendingMetaVerification?: boolean;
+  lastPreflightAt?: string | null;
+  lastLaunchAttemptAt?: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -7708,6 +7740,50 @@ export async function nestAdminMetaCenterLaunchCampaignDraft(
   return r.ok
     ? r.data
     : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterCompleteCampaignAd(
+  token: string | null,
+  id: string,
+): Promise<MetaCampaignCreateResponse> {
+  const r = await metaCenterFetch<MetaCampaignCreateResponse>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(id)}/complete-ad`,
+    { method: 'POST' },
+  );
+  return r.ok
+    ? r.data
+    : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterPreflightCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<{
+  ok: boolean;
+  message?: string;
+  checks?: Array<{
+    key: string;
+    ok: boolean;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+    details?: Record<string, unknown>;
+  }>;
+  campaign?: MetaCampaignDraft | null;
+}> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    checks?: Array<{
+      key: string;
+      ok: boolean;
+      severity: 'info' | 'warning' | 'error';
+      message: string;
+      details?: Record<string, unknown>;
+    }>;
+    campaign?: MetaCampaignDraft | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(id)}/preflight`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, message: r.error, checks: [], campaign: null };
 }
 
 export async function nestAdminMetaCenterResetMetaCampaignLaunch(

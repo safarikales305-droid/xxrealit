@@ -6,20 +6,20 @@ import type { MetaLaunchSteps } from './meta-campaign-api-payload.util';
 
 export const META_PENDING_VERIFICATION_STATUS = 'PENDING_META_VERIFICATION' as const;
 export const META_PENDING_VERIFICATION_DB_STATUS = 'pending_meta_verification' as const;
+export const META_PENDING_VERIFICATION_SUBCODE = '3858385';
 
 export const META_ACCOUNT_QUALITY_URL = 'https://business.facebook.com/accountquality/';
 export const META_ADS_MANAGER_URL = 'https://adsmanager.facebook.com/';
+export const META_ADS_MANAGER_ACCOUNT_OVERVIEW_URL =
+  'https://adsmanager.facebook.com/adsmanager/manage/campaigns';
 
 export const META_PENDING_VERIFICATION_TITLE =
-  '⚠ Meta vyžaduje ověření reklamního účtu';
+  '⚠ Meta z bezpečnostních důvodů blokuje vytvoření reklamy';
 
 export const META_PENDING_VERIFICATION_BODY_AD_STEP = [
-  'Meta dočasně zablokovala vytváření nových reklam z bezpečnostních důvodů.',
-  '',
-  'Kampaň, Ad Set i Creative byly úspěšně vytvořeny.',
-  'Chybí pouze vytvoření samotné reklamy.',
-  '',
-  'Pro pokračování otevřete Správce reklam a dokončete ověření účtu.',
+  'Meta z bezpečnostních důvodů blokuje vytvoření nebo úpravu reklamy.',
+  'Campaign, sada reklam a kreativa jsou vytvořené správně.',
+  'Dokončete požadovanou kontrolu ve Správci reklam a potom klikněte na Dokončit reklamu.',
 ].join('\n');
 
 export const META_PENDING_VERIFICATION_BODY_GENERIC = [
@@ -49,11 +49,13 @@ export function extractFbTraceId(body: unknown): string | null {
 
 export function isMetaPendingVerificationError(input: {
   errorCode?: string | null;
+  errorSubcode?: string | null;
   errorUserTitle?: string | null;
   message?: string | null;
   response?: unknown;
 }): boolean {
   if (input.errorCode === '31') return true;
+  if (input.errorSubcode === META_PENDING_VERIFICATION_SUBCODE) return true;
 
   const title = (input.errorUserTitle ?? '').toLowerCase();
   if (title.includes('ověřte svůj účet')) return true;
@@ -66,6 +68,7 @@ export function isMetaPendingVerificationError(input: {
   if (input.response && typeof input.response === 'object') {
     const fields = extractMetaGraphErrorFields(input.response as MetaGraphErrorBody);
     if (fields.code === '31') return true;
+    if (fields.error_subcode === META_PENDING_VERIFICATION_SUBCODE) return true;
     if ((fields.error_user_title ?? '').toLowerCase().includes('ověřte svůj účet')) {
       return true;
     }
@@ -79,6 +82,69 @@ export function isMetaPendingVerificationError(input: {
   }
 
   return false;
+}
+
+export type MetaPendingVerificationSupportBox = {
+  businessId: string | null;
+  adAccountId: string | null;
+  pageId: string | null;
+  catalogId: string | null;
+  datasetId: string | null;
+  errorCode: string;
+  errorSubcode: string;
+  traceId: string | null;
+  graphApiVersion: string;
+  failedEndpoint: string;
+  supportText: string;
+  copyBlock: string;
+};
+
+export const META_PENDING_VERIFICATION_SUPPORT_TEXT =
+  'Meta Marketing API vrací OAuthException code 31, subcode 3858385 – This request requires the user to take a pending action. Campaign, Ad Set a Creative byly vytvořeny úspěšně, ale vytvoření objektu Ad je blokováno. V Account Quality není vidět žádné omezení. Prosíme o kontrolu a odstranění interní bezpečnostní akce na reklamním účtu.';
+
+export function buildPendingVerificationSupportBox(input: {
+  businessId?: string | null;
+  adAccountId?: string | null;
+  pageId?: string | null;
+  catalogId?: string | null;
+  datasetId?: string | null;
+  traceId?: string | null;
+  graphApiVersion?: string;
+  failedEndpoint?: string;
+}): MetaPendingVerificationSupportBox {
+  const adAccountRaw = (input.adAccountId ?? '').replace(/^act_/, '');
+  const failedEndpoint =
+    input.failedEndpoint ??
+    (adAccountRaw ? `POST /act_${adAccountRaw}/ads` : 'POST /act_{ad_account_id}/ads');
+  const copyBlock = [
+    `Business ID: ${input.businessId ?? '—'}`,
+    `Ad Account ID: ${adAccountRaw || '—'}`,
+    `Page ID: ${input.pageId ?? '—'}`,
+    `Catalog ID: ${input.catalogId ?? '—'}`,
+    `Dataset ID: ${input.datasetId ?? '—'}`,
+    `Error code: 31`,
+    `Error subcode: ${META_PENDING_VERIFICATION_SUBCODE}`,
+    `Trace ID: ${input.traceId ?? '—'}`,
+    `Graph API version: ${input.graphApiVersion ?? 'v25.0'}`,
+    `Failed endpoint: ${failedEndpoint}`,
+    '',
+    META_PENDING_VERIFICATION_SUPPORT_TEXT,
+  ].join('\n');
+
+  return {
+    businessId: input.businessId ?? null,
+    adAccountId: adAccountRaw || null,
+    pageId: input.pageId ?? null,
+    catalogId: input.catalogId ?? null,
+    datasetId: input.datasetId ?? null,
+    errorCode: '31',
+    errorSubcode: META_PENDING_VERIFICATION_SUBCODE,
+    traceId: input.traceId ?? null,
+    graphApiVersion: input.graphApiVersion ?? 'v25.0',
+    failedEndpoint,
+    supportText: META_PENDING_VERIFICATION_SUPPORT_TEXT,
+    copyBlock,
+  };
 }
 
 export function buildPendingVerificationUserMessage(launchSteps?: MetaLaunchSteps | null): string {
