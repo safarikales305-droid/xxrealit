@@ -3856,6 +3856,58 @@ export class MetaCenterCampaignsService {
     }
   }
 
+  async resumePendingAdsAfterMarketingOAuth(): Promise<{
+    attempts: Array<{
+      draftId: string;
+      draftName: string;
+      preflightOk: boolean;
+      preflightMessage: string;
+      adOk: boolean;
+      adMessage: string;
+    }>;
+  }> {
+    if (!(await this.ensureCampaignTableReady())) {
+      return { attempts: [] };
+    }
+    const drafts = await this.prisma.metaMarketingCampaignDraft.findMany({
+      where: {
+        metaCampaignId: { not: null },
+        metaAdSetId: { not: null },
+        metaCreativeId: { not: null },
+        metaAdId: null,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 3,
+    });
+    const attempts: Array<{
+      draftId: string;
+      draftName: string;
+      preflightOk: boolean;
+      preflightMessage: string;
+      adOk: boolean;
+      adMessage: string;
+    }> = [];
+    for (const draft of drafts) {
+      const preflight = await this.runPreflightForDraft(draft.id);
+      let adOk = false;
+      let adMessage = 'Ostré spuštění je vypnuté nebo preflight neproběhla.';
+      if (await this.isLiveEnabled()) {
+        const adResult = await this.completeAdOnly(draft.id);
+        adOk = adResult.ok === true;
+        adMessage = adResult.message ?? (adOk ? 'Reklama vytvořena.' : 'Vytvoření reklamy selhalo.');
+      }
+      attempts.push({
+        draftId: draft.id,
+        draftName: draft.name,
+        preflightOk: preflight.ok,
+        preflightMessage: preflight.message,
+        adOk,
+        adMessage,
+      });
+    }
+    return { attempts };
+  }
+
   async runPreflightForDraft(draftId: string): Promise<{
     ok: boolean;
     message: string;

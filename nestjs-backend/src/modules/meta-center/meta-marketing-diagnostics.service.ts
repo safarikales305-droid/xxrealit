@@ -16,9 +16,17 @@ import {
   parseMarketingGrantedScopes,
 } from './meta-marketing-token.util';
 import { REQUIRED_MARKETING_ADS_SCOPES } from './meta-connect.constants';
+import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import {
+  buildMarketingOAuthStatus,
+  type MarketingOAuthStatus,
+} from './meta-marketing-oauth-status.util';
 
 const SETTINGS_ID = 'default';
 const LOG_ENDPOINT = 'MARKETING APP';
+const MARKETING_OAUTH_SNAPSHOT_KEY = 'marketingOAuthStatus';
+
+export type { MarketingOAuthStatus };
 
 export type MarketingAppSnapshot = {
   section: 'MARKETING APP';
@@ -51,6 +59,8 @@ export class MetaMarketingDiagnosticsService {
     @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
+    @Inject(forwardRef(() => MetaCenterCampaignsService))
+    private readonly campaigns: MetaCenterCampaignsService,
   ) {}
 
   async buildAppSnapshot(adminUserId?: string): Promise<MarketingAppSnapshot> {
@@ -224,7 +234,154 @@ export class MetaMarketingDiagnosticsService {
     return result;
   }
 
-  async runFullMarketingDiagnostics(adminUserId: string) {
+  async getMarketingOAuthStatus(): Promise<MarketingOAuthStatus | null> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap = row?.diagnosticsSnapshot;
+    if (!snap || typeof snap !== 'object') return null;
+    const stored = (snap as Record<string, unknown>)[MARKETING_OAUTH_SNAPSHOT_KEY];
+    if (!stored || typeof stored !== 'object') return null;
+    return stored as MarketingOAuthStatus;
+  }
+
+  async probeMarketingOAuthStatus(input?: {
+    accessToken?: string;
+    trigger?: string;
+    adminUserId?: string;
+    persist?: boolean;
+    runPostConnect?: boolean;
+  }): Promise<MarketingOAuthStatus> {
+    const trigger = input?.trigger ?? 'manual_probe';
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const token =
+      input?.accessToken?.trim() ||
+      (await this.oauth.tryResolveMarketingAccessToken().catch(() => null));
+
+    if (!token) {
+      const empty = buildMarketingOAuthStatus({
+        trigger,
+        tokenDebug: { is_valid: false, expires_at: null, scopes: [], user_id: null, app_id: null },
+      });
+      if (input?.persist !== false) await this.persistMarketingOAuthStatus(empty);
+      await this.logMarketingOAuthSummary(empty, 'token_missing');
+      return empty;
+    }
+
+    const meRes = await this.graphGetWithMarketingLog<{ id?: string; name?: string }>(
+      input?.adminUserId,
+      `${trigger}:me`,
+      '/me',
+      token,
+      { fields: 'id,name' },
+    );
+
+    const permsRes = await this.graphGetWithMarketingLog<{
+      data?: Array<{ permission?: string; status?: string }>;
+    }>(input?.adminUserId, `${trigger}:permissions`, '/me/permissions', token, {
+      fields: 'permission,status',
+    });
+
+    const allPermissions = (permsRes.ok ? permsRes.data.data ?? [] : [])
+      .filter((p) => p.permission?.trim())
+      .map((p) => ({
+        permission: p.permission!.trim(),
+        status: p.status ?? 'unknown',
+      }));
+    const grantedPermissions = allPermissions
+      .filter((p) => p.status === 'granted')
+      .map((p) => p.permission);
+
+    const debugRaw = await this.oauth.debugToken(token, 'marketing');
+    const tokenDebug = {
+      is_valid: debugRaw.is_valid,
+      expires_at: debugRaw.expires_at || null,
+      scopes: debugRaw.scopes ?? [],
+      user_id: debugRaw.user_id ?? null,
+      app_id: debugRaw.app_id ?? null,
+    };
+
+    let postConnect: MarketingOAuthStatus['postConnect'] = null;
+    if (input?.runPostConnect) {
+      postConnect = await this.campaigns.resumePendingAdsAfterMarketingOAuth();
+    }
+
+    const status = buildMarketingOAuthStatus({
+      trigger,
+      userId: meRes.ok ? meRes.data.id ?? tokenDebug.user_id : tokenDebug.user_id,
+      userName: meRes.ok ? meRes.data.name ?? null : row?.metaConnectedUserName ?? null,
+      tokenExpiresAt: row?.marketingTokenExpiresAt ?? null,
+      grantedPermissions,
+      allPermissions,
+      tokenDebug,
+      postConnect,
+    });
+
+    if (input?.persist !== false) {
+      await this.persistMarketingOAuthStatus(status);
+    }
+    await this.logMarketingOAuthSummary(status, trigger);
+    return status;
+  }
+
+  private async persistMarketingOAuthStatus(status: MarketingOAuthStatus): Promise<void> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap =
+      row?.diagnosticsSnapshot && typeof row.diagnosticsSnapshot === 'object'
+        ? ({ ...(row.diagnosticsSnapshot as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    snap[MARKETING_OAUTH_SNAPSHOT_KEY] = status;
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, diagnosticsSnapshot: snap as Prisma.InputJsonValue },
+      update: { diagnosticsSnapshot: snap as Prisma.InputJsonValue },
+    });
+  }
+
+  private async logMarketingOAuthSummary(status: MarketingOAuthStatus, trigger: string): Promise<void> {
+    const userLabel =
+      status.userName && status.userId
+        ? `${status.userName} (${status.userId})`
+        : status.userId ?? status.userName ?? '—';
+    const permissionsLabel =
+      status.allPermissions.length > 0
+        ? status.allPermissions.map((p) => `${p.permission}:${p.status}`).join(', ')
+        : status.grantedPermissions.join(', ') || '—';
+
+    this.logger.log(
+      `[marketing-oauth] trigger=${trigger} ` +
+        `Current OAuth User=${userLabel} ` +
+        `Current Token Expiration=${status.tokenExpiresAt ?? '—'} ` +
+        `Current Permissions=${permissionsLabel} ` +
+        `Token Debug Result=${JSON.stringify(status.tokenDebug)}`,
+    );
+
+    await this.writeLog({
+      endpoint: 'MARKETING OAuth: diagnostics_summary',
+      method: 'DIAGNOSTICS',
+      request: { trigger },
+      response: {
+        currentOAuthUser: userLabel,
+        currentTokenExpiration: status.tokenExpiresAt,
+        currentPermissions: status.grantedPermissions,
+        allPermissions: status.allPermissions,
+        tokenDebugResult: status.tokenDebug,
+        needsReauthorization: status.needsReauthorization,
+        postConnect: status.postConnect,
+      },
+      httpStatus: status.needsReauthorization ? 424 : 200,
+      errorCode: status.needsReauthorization ? 'marketing_oauth_reauth' : null,
+      errorMessage: status.reauthorizationMessage,
+    });
+  }
+
+  async runFullMarketingDiagnostics(adminUserId: string, existingOAuthStatus?: MarketingOAuthStatus) {
+    const oauthStatus =
+      existingOAuthStatus ??
+      (await this.probeMarketingOAuthStatus({
+        trigger: 'runFullMarketingDiagnostics',
+        adminUserId,
+        persist: true,
+        runPostConnect: false,
+      }));
     const snapshot = await this.logMarketingAppSnapshot(adminUserId, 'runFullMarketingDiagnostics');
     const probes: Array<Record<string, unknown>> = [];
 
@@ -242,7 +399,13 @@ export class MetaMarketingDiagnosticsService {
         errorCode: 'no_marketing_token',
         errorMessage: 'Marketing access token není k dispozici.',
       });
-      return { ok: false, snapshot, probes, message: 'Token chybí — Graph API sondy přeskočeny.' };
+      return {
+        ok: false,
+        snapshot,
+        probes,
+        marketingOAuth: oauthStatus,
+        message: 'Token chybí — Graph API sondy přeskočeny.',
+      };
     }
 
     const paths: Array<{ path: string; query?: Record<string, string>; label: string }> = [
@@ -291,12 +454,15 @@ export class MetaMarketingDiagnosticsService {
     }
 
     return {
-      ok: allOk && snapshot.checks.every((c) => c.ok),
+      ok: allOk && snapshot.checks.every((c) => c.ok) && !oauthStatus.needsReauthorization,
       snapshot,
       probes,
-      message: allOk
-        ? 'Marketing diagnostika dokončena — viz Meta API logy.'
-        : 'Marketing diagnostika našla problémy — viz Meta API logy (plný JSON).',
+      marketingOAuth: oauthStatus,
+      message: oauthStatus.needsReauthorization
+        ? oauthStatus.reauthorizationMessage ?? 'Marketing OAuth je potřeba znovu autorizovat.'
+        : allOk
+          ? 'Marketing diagnostika dokončena — viz Meta API logy.'
+          : 'Marketing diagnostika našela problémy — viz Meta API logy (plný JSON).',
     };
   }
 

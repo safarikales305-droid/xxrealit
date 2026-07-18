@@ -268,7 +268,8 @@ export class MetaCenterAdminController {
     return this.safeEndpoint(
       'dashboard',
       async () => {
-        const [dash, oauthPreview, oauthLast, oauthCompleted, oauthFlows] = await Promise.all([
+        const [dash, oauthPreview, oauthLast, oauthCompleted, oauthFlows, marketingOAuthStatus] =
+          await Promise.all([
           this.service.getDashboard(),
           this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
           this.connectOAuth.getLastOAuthCallback().catch(() => null),
@@ -278,6 +279,7 @@ export class MetaCenterAdminController {
             at: null,
           })),
           this.connectOAuth.buildOAuthFlowsDiagnostics().catch(() => []),
+          this.marketingOAuthDiagnostics.getMarketingOAuthStatus().catch(() => null),
         ]);
         return {
           ...dash,
@@ -285,6 +287,7 @@ export class MetaCenterAdminController {
           lastOAuthCallback: oauthLast,
           oauthCompleted,
           oauthFlows,
+          marketingOAuthStatus,
         };
       },
       (message) => ({
@@ -293,6 +296,7 @@ export class MetaCenterAdminController {
         lastOAuthCallback: null,
         oauthCompleted: { completed: false, reason: message, at: null },
         oauthFlows: [] as Awaited<ReturnType<MetaConnectOAuthService['buildOAuthFlowsDiagnostics']>>,
+        marketingOAuthStatus: null,
       }),
     );
   }
@@ -505,6 +509,21 @@ export class MetaCenterAdminController {
       take: Number.isFinite(take) ? take : undefined,
       skip: Number.isFinite(skip) ? skip : undefined,
     });
+  }
+
+  @Get('marketing/oauth-status')
+  async getMarketingOAuthStatus(@CurrentUser() user: AuthUser) {
+    const cached = await this.marketingOAuthDiagnostics.getMarketingOAuthStatus();
+    if (cached) {
+      return { ok: true, status: cached };
+    }
+    const status = await this.marketingOAuthDiagnostics.probeMarketingOAuthStatus({
+      trigger: 'admin_oauth_status',
+      adminUserId: user.id,
+      persist: true,
+      runPostConnect: false,
+    });
+    return { ok: true, status };
   }
 
   @Post('marketing/diagnostics')

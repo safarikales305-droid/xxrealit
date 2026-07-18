@@ -78,6 +78,7 @@ import {
   nestAdminMetaCenterListAdAccounts,
   nestAdminMetaCenterSelectAdAccount,
   nestAdminMetaCenterMarketingDiagnostics,
+  nestAdminMetaCenterMarketingOAuthStatus,
   nestAdminMetaCenterCampaignProducts,
   nestAdminMetaCenterGeoSearch,
   nestAdminMetaCenterListCampaignDrafts,
@@ -123,6 +124,7 @@ import {
   type MetaDiagnosticLevel,
   type MetaLiveDiagnostics,
   type MetaOAuthDebugLogRow,
+  type MetaMarketingOAuthStatus,
   type MetaOAuthFlowKey,
   type MetaOAuthFlowDiagnostic,
   type MetaOAuthPreview,
@@ -688,6 +690,10 @@ export default function MetaCentrumPage() {
     useState<MetaCatalogSalesAssetsVerification | null>(null);
   const [catalogAssetsVerifyBusy, setCatalogAssetsVerifyBusy] = useState(false);
   const [expandedCampaignDetailId, setExpandedCampaignDetailId] = useState<string | null>(null);
+  const [marketingOAuthStatus, setMarketingOAuthStatus] = useState<MetaMarketingOAuthStatus | null>(
+    null,
+  );
+  const [marketingOAuthBusy, setMarketingOAuthBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -712,7 +718,10 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterRemarketingAudiences(token),
       nestAdminMetaCenterCampaignsOverview(token),
     ]);
-    if (d) setDash(d);
+    if (d) {
+      setDash(d);
+      if (d.marketingOAuthStatus) setMarketingOAuthStatus(d.marketingOAuthStatus);
+    }
     setLogs(l?.items ?? []);
     if (c) setConnection({ checklist: c.checklist, diagnostics: c.diagnostics });
     setApiLogs(api?.items ?? []);
@@ -747,11 +756,37 @@ export default function MetaCentrumPage() {
 
   useEffect(() => {
     const meta = params.get('meta');
+    const flow = params.get('flow');
+    if (meta === 'connected' && flow === 'marketing' && token) {
+      void (async () => {
+        setMarketingOAuthBusy(true);
+        const status = await nestAdminMetaCenterMarketingOAuthStatus(token);
+        if (status) setMarketingOAuthStatus(status);
+        setMarketingOAuthBusy(false);
+        const postAttempts = status?.postConnect?.attempts ?? [];
+        if (status?.needsReauthorization) {
+          setMsg(
+            status.reauthorizationMessage ?? 'Marketing OAuth je potřeba znovu autorizovat.',
+          );
+        } else if (postAttempts.length) {
+          const adOk = postAttempts.some((a) => a.adOk);
+          setMsg(
+            adOk
+              ? 'Marketing OAuth dokončeno — preflight proběhl a reklama byla znovu vytvořena.'
+              : `Marketing OAuth dokončeno. ${postAttempts.map((a) => a.adMessage).join(' ')}`,
+          );
+        } else {
+          setMsg('Marketing OAuth dokončeno — token, scopes a diagnostika byly aktualizovány.');
+        }
+        void refresh();
+      })();
+      return;
+    }
     if (meta === 'connected') {
-      const flow = params.get('flow');
+      const connectedFlow = params.get('flow');
       setMsg(
-        flow
-          ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
+        connectedFlow
+          ? `Meta OAuth (${connectedFlow}) dokončeno — oprávnění byla připojena.`
           : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
       );
     }
@@ -833,6 +868,7 @@ export default function MetaCentrumPage() {
     oauthFlows.find((f) => f.key === 'catalog')?.status === 'connected';
   const marketingOAuthConnected =
     oauthFlows.find((f) => f.key === 'marketing')?.status === 'connected';
+  const activeMarketingOAuthStatus = marketingOAuthStatus ?? dash?.marketingOAuthStatus ?? null;
   const hasCatalog = Boolean(catalogPanel?.catalogId ?? dash?.settings.catalogId);
   const catalogId = catalogPanel?.catalogId ?? dash?.settings.catalogId ?? null;
   const pixelId = dash?.pixel?.pixelId ?? dash?.settings?.pixelId ?? null;
@@ -1293,6 +1329,16 @@ export default function MetaCentrumPage() {
       ] as const,
     [],
   );
+
+  async function refreshMarketingOAuthDiagnostics() {
+    if (!token) return;
+    setMarketingOAuthBusy(true);
+    const r = await nestAdminMetaCenterMarketingDiagnostics(token);
+    setMarketingOAuthBusy(false);
+    if (r.marketingOAuth) setMarketingOAuthStatus(r.marketingOAuth);
+    setMsg(r.message ?? (r.ok ? 'Marketing diagnostika dokončena.' : 'Marketing diagnostika selhala.'));
+    void refresh();
+  }
 
   async function connectMeta() {
     await connectMetaFlow('pages');
@@ -2549,13 +2595,140 @@ export default function MetaCentrumPage() {
                 </p>
               )}
               <MetaApiErrorBlock error={adAccount?.error} className="mt-3 text-sm text-amber-800" />
+
+              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-blue-950">Marketing OAuth diagnostika</h3>
+                    <p className="mt-1 text-xs text-blue-900">
+                      Token, uživatel, expirace a scopes po přihlášení přes Marketing OAuth.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || marketingOAuthBusy}
+                      onClick={() => void refreshMarketingOAuthDiagnostics()}
+                      className="rounded-lg border border-blue-400 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      {marketingOAuthBusy ? 'Načítám…' : 'Obnovit diagnostiku'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || marketingOAuthBusy}
+                      onClick={() => void connectMetaFlow('marketing')}
+                      className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
+                    >
+                      {marketingOAuthConnected || dash?.settings.isMarketingAdsConnected
+                        ? 'Obnovit Marketing OAuth'
+                        : 'Připojit Marketing OAuth'}
+                    </button>
+                  </div>
+                </div>
+
+                {activeMarketingOAuthStatus?.needsReauthorization ? (
+                  <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {activeMarketingOAuthStatus.reauthorizationMessage ??
+                      'Marketing OAuth je potřeba znovu autorizovat.'}
+                  </p>
+                ) : null}
+
+                {activeMarketingOAuthStatus ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {[
+                      ['User ID', activeMarketingOAuthStatus.userId],
+                      ['Facebook jméno', activeMarketingOAuthStatus.userName],
+                      [
+                        'Expirace tokenu',
+                        activeMarketingOAuthStatus.tokenExpiresAt
+                          ? new Date(activeMarketingOAuthStatus.tokenExpiresAt).toLocaleString('cs-CZ')
+                          : '—',
+                      ],
+                      [
+                        'Je token platný?',
+                        activeMarketingOAuthStatus.tokenIsValid ? 'ano' : 'ne',
+                      ],
+                    ].map(([label, val]) => (
+                      <div
+                        key={String(label)}
+                        className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <p className="text-xs font-medium text-zinc-500">{label}</p>
+                        <SettingsValue value={val} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-blue-900">
+                    Marketing OAuth zatím nebyl ověřen — připojte nebo obnovte Marketing OAuth.
+                  </p>
+                )}
+
+                {activeMarketingOAuthStatus ? (
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {[
+                      ['ads_management', activeMarketingOAuthStatus.hasAdsManagement],
+                      ['business_management', activeMarketingOAuthStatus.hasBusinessManagement],
+                      ['pages_manage_ads', activeMarketingOAuthStatus.hasPagesManageAds],
+                      ['pages_read_engagement', activeMarketingOAuthStatus.hasPagesReadEngagement],
+                    ].map(([scope, ok]) => (
+                      <div
+                        key={String(scope)}
+                        className="flex items-center justify-between rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs"
+                      >
+                        <span className="font-mono">{scope}</span>
+                        <span className={ok ? 'font-semibold text-emerald-700' : 'font-semibold text-red-700'}>
+                          {ok ? '✓' : '✕'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {activeMarketingOAuthStatus?.allPermissions?.length ? (
+                  <details className="mt-4 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-semibold text-blue-950">
+                      Všechna oprávnění (/me/permissions)
+                    </summary>
+                    <ul className="mt-2 space-y-1 font-mono text-[11px] text-zinc-700">
+                      {activeMarketingOAuthStatus.allPermissions.map((p) => (
+                        <li key={`${p.permission}-${p.status}`}>
+                          {p.permission}: {p.status}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+
+                {activeMarketingOAuthStatus?.postConnect?.attempts?.length ? (
+                  <details className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-semibold text-emerald-950">
+                      Post-OAuth: preflight a vytvoření Ad
+                    </summary>
+                    <ul className="mt-2 space-y-2 text-emerald-900">
+                      {activeMarketingOAuthStatus.postConnect.attempts.map((attempt) => (
+                        <li key={attempt.draftId}>
+                          <span className="font-semibold">{attempt.draftName}</span>
+                          {' · preflight: '}
+                          {attempt.preflightOk ? '✓' : '✕'} {attempt.preflightMessage}
+                          {' · Ad: '}
+                          {attempt.adOk ? '✓' : '✕'} {attempt.adMessage}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </div>
+
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void connectMetaFlow('marketing')}
                 className="mt-4 rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2] hover:bg-blue-50"
               >
-                Připojit reklamní účet (Marketing OAuth)
+                {marketingOAuthConnected || dash?.settings.isMarketingAdsConnected
+                  ? 'Obnovit reklamní účet (Marketing OAuth)'
+                  : 'Připojit reklamní účet (Marketing OAuth)'}
               </button>
               <div className="mt-4 space-y-2">
                 {(adAccountList?.items ?? []).map((acc) => (

@@ -6359,6 +6359,41 @@ export type MetaCenterSafeResponse = {
   warning?: string | null;
 };
 
+export type MetaMarketingOAuthStatus = {
+  fetchedAt: string;
+  trigger: string | null;
+  userId: string | null;
+  userName: string | null;
+  tokenExpiresAt: string | null;
+  tokenIsValid: boolean;
+  needsReauthorization: boolean;
+  reauthorizationMessage: string | null;
+  grantedPermissions: string[];
+  allPermissions: Array<{ permission: string; status: string }>;
+  debugScopes: string[];
+  hasAdsManagement: boolean;
+  hasBusinessManagement: boolean;
+  hasPagesManageAds: boolean;
+  hasPagesReadEngagement: boolean;
+  tokenDebug: {
+    is_valid: boolean;
+    expires_at: number | null;
+    scopes: string[];
+    user_id: string | null;
+    app_id: string | null;
+  } | null;
+  postConnect?: {
+    attempts: Array<{
+      draftId: string;
+      draftName: string;
+      preflightOk: boolean;
+      preflightMessage: string;
+      adOk: boolean;
+      adMessage: string;
+    }>;
+  } | null;
+};
+
 export type MetaCenterDashboard = MetaCenterSafeResponse & {
   settings: MetaCenterSettings;
   services: MetaCenterServiceCard[];
@@ -6382,6 +6417,7 @@ export type MetaCenterDashboard = MetaCenterSafeResponse & {
   lastOAuthCallback?: MetaOAuthLastCallback | null;
   oauthCompleted?: MetaOAuthCompletedStatus | null;
   oauthFlows?: MetaOAuthFlowDiagnostic[];
+  marketingOAuthStatus?: MetaMarketingOAuthStatus | null;
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
@@ -7235,6 +7271,7 @@ export async function nestAdminMetaCenterApiLogs(token: string | null, take = 80
 export type MetaMarketingDiagnosticsResult = {
   ok: boolean;
   message: string;
+  marketingOAuth?: MetaMarketingOAuthStatus;
   snapshot?: {
     section: string;
     appId: string | null;
@@ -7251,6 +7288,14 @@ export type MetaMarketingDiagnosticsResult = {
   };
   probes?: Array<Record<string, unknown>>;
 };
+
+export async function nestAdminMetaCenterMarketingOAuthStatus(token: string | null) {
+  const r = await metaCenterFetch<{ ok: boolean; status: MetaMarketingOAuthStatus }>(
+    token,
+    '/marketing/oauth-status',
+  );
+  return r.ok ? r.data.status : null;
+}
 
 export async function nestAdminMetaCenterMarketingDiagnostics(token: string | null) {
   const r = await metaCenterFetch<MetaMarketingDiagnosticsResult>(token, '/marketing/diagnostics', {

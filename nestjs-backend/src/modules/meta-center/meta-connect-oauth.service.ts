@@ -126,7 +126,13 @@ type GraphPermissionsResponse = {
   data?: Array<{ permission?: string; status?: string }>;
 };
 type DebugTokenResponse = {
-  data?: { is_valid?: boolean; expires_at?: number; scopes?: string[] };
+  data?: {
+    is_valid?: boolean;
+    expires_at?: number;
+    scopes?: string[];
+    user_id?: string;
+    app_id?: string;
+  };
 };
 
 export type MetaOAuthUrlResult =
@@ -1154,7 +1160,18 @@ export class MetaConnectOAuthService {
         });
         discovered = marketingResult.discovered;
         grantedScopes = marketingResult.grantedScopes;
-        await this.marketingDiagnostics.runFullMarketingDiagnostics(session.userId);
+        await this.marketingDiagnostics.probeMarketingOAuthStatus({
+          accessToken: marketingResult.accessToken,
+          trigger: 'marketing_oauth_callback',
+          adminUserId: session.userId,
+          persist: true,
+          runPostConnect: true,
+        });
+        const oauthStatus = await this.marketingDiagnostics.getMarketingOAuthStatus();
+        await this.marketingDiagnostics.runFullMarketingDiagnostics(
+          session.userId,
+          oauthStatus ?? undefined,
+        );
       } else {
         const shortTokenResponse = await this.exchangeCodeForToken(code, oauthFlow);
         const shortToken = shortTokenResponse.access_token?.trim();
@@ -1533,6 +1550,8 @@ export class MetaConnectOAuthService {
       is_valid: res.data?.is_valid !== false,
       expires_at: res.data?.expires_at ?? 0,
       scopes: res.data?.scopes ?? [],
+      user_id: res.data?.user_id ?? null,
+      app_id: res.data?.app_id ?? null,
     };
   }
 
@@ -1647,6 +1666,7 @@ export class MetaConnectOAuthService {
   }): Promise<{
     discovered: Awaited<ReturnType<MetaConnectDiscoveryService['discoverMarketingAndPersist']>>;
     grantedScopes: string[];
+    accessToken: string;
   }> {
     const appId = this.fbConfig.getMarketingAppId();
     const appSecret = this.fbConfig.getMarketingAppSecret();
@@ -1724,7 +1744,13 @@ export class MetaConnectOAuthService {
       durationMs: Date.now() - input.exchangeStarted,
     });
 
-    let tokenDebug = { is_valid: true, expires_at: 0, scopes: [] as string[] };
+    let tokenDebug = {
+      is_valid: true,
+      expires_at: 0,
+      scopes: [] as string[],
+      user_id: null as string | null,
+      app_id: null as string | null,
+    };
     try {
       tokenDebug = await this.debugTokenMarketing(userToken, appId, appSecret);
     } catch (err) {
@@ -1735,6 +1761,18 @@ export class MetaConnectOAuthService {
         errorMessage: reason,
       });
     }
+
+    const meRes = await this.graph.get<{ id?: string; name?: string }>('/me', userToken, {
+      fields: 'id,name',
+    });
+    await this.apiLog.logMarketingOAuthStep({
+      step: '2_me',
+      request: { endpoint: '/me', fields: 'id,name' },
+      response: meRes.ok ? meRes.data : meRes.data,
+      httpStatus: meRes.httpStatus,
+      errorCode: meRes.ok ? null : meRes.errorCode,
+      errorMessage: meRes.ok ? null : meRes.errorMessage,
+    });
 
     const permissions = await this.fetchUserPermissions(userToken, 'marketing');
     await this.apiLog.logMarketingOAuthStep({
@@ -1861,14 +1899,20 @@ export class MetaConnectOAuthService {
         `Ad Account ID=${adAccountId ?? '—'}`,
     );
 
-    return { discovered, grantedScopes };
+    return { discovered, grantedScopes, accessToken: userToken };
   }
 
   private async debugTokenMarketing(
     accessToken: string,
     appId: string,
     appSecret: string,
-  ): Promise<{ is_valid: boolean; expires_at: number; scopes: string[] }> {
+  ): Promise<{
+    is_valid: boolean;
+    expires_at: number;
+    scopes: string[];
+    user_id: string | null;
+    app_id: string | null;
+  }> {
     const appToken = `${appId}|${appSecret}`;
     const url =
       `${this.graph.legacyGraphApi()}/debug_token?` +
@@ -1894,6 +1938,8 @@ export class MetaConnectOAuthService {
       is_valid: data.data?.is_valid !== false,
       expires_at: data.data?.expires_at ?? 0,
       scopes: data.data?.scopes ?? [],
+      user_id: data.data?.user_id ?? null,
+      app_id: data.data?.app_id ?? null,
     };
   }
 
