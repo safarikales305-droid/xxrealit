@@ -252,7 +252,7 @@ const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
   completed: 'Dokončeno',
   archived: 'Archivováno',
   error: 'Chyba – Ad Set nevytvořen',
-  pending_meta_verification: 'Čeká na ověření Meta účtu',
+  pending_meta_verification: 'Čeká na bezpečnostní ověření Meta účtu',
 };
 
 const META_STATUS_LABELS: Record<string, string> = {
@@ -1217,7 +1217,15 @@ export default function MetaCentrumPage() {
     setLastLaunchError(null);
     const r = await nestAdminMetaCenterCompleteCampaignAd(token, c.id);
     setBusy(false);
-    setMsg(translateMetaCampaignApiError(r.message ?? (r.ok ? 'Reklama dokončena.' : 'Chyba')));
+    setMsg(
+      r.ok
+        ? `Reklama dokončena (PAUSED). Ad ID: ${r.campaign?.metaAdId ?? '—'}${
+            r.campaign?.metaLaunchedAt
+              ? ` · ${new Date(r.campaign.metaLaunchedAt).toLocaleString('cs-CZ')}`
+              : ''
+          }`
+        : translateMetaCampaignApiError(r.message ?? 'Chyba'),
+    );
     if (!r.ok) {
       const pendingVerification = isPendingMetaVerificationError(
         r.metaApiError,
@@ -4595,6 +4603,27 @@ export default function MetaCentrumPage() {
                             <p className="mt-1 whitespace-pre-wrap text-xs text-amber-800">
                               {c.metaLaunchPayloads.launchHistory.join('\n')}
                             </p>
+                          ) : null}
+                          {c.metaAdId && c.status === 'paused' ? (
+                            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+                              <p className="font-semibold">Reklama dokončena</p>
+                              <p className="mt-1">
+                                Ad ID: <span className="font-mono">{c.metaAdId}</span> · stav PAUSED
+                                {c.metaLaunchedAt
+                                  ? ` · ${new Date(c.metaLaunchedAt).toLocaleString('cs-CZ')}`
+                                  : ''}
+                              </p>
+                              {c.metaCampaignId ? (
+                                <a
+                                  href={buildMetaAdsManagerUrl(c.adAccountId, c.metaCampaignId)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex font-medium text-[#1877f2] underline"
+                                >
+                                  Otevřít ve Správci reklam
+                                </a>
+                              ) : null}
+                            </div>
                           ) : null}
                           {isPendingMetaVerificationError(
                             undefined,

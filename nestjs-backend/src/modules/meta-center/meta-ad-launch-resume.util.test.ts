@@ -21,6 +21,57 @@ test('buildMetaAdCreatePayload serializes creative once for Meta form', () => {
   assert.doesNotMatch(bundle.metaForm.creative, /^"\\"\{/);
 });
 
+test('planMetaLaunchResume continues with ad set when campaign exists', () => {
+  const plan = planMetaLaunchResume({
+    metaCampaignId: 'c1',
+    metaAdSetId: null,
+    metaCreativeId: null,
+    metaAdId: null,
+  });
+  assert.equal(plan.createCampaign, false);
+  assert.equal(plan.createAdSet, true);
+  assert.equal(plan.createCreative, false);
+  assert.equal(plan.createAd, false);
+});
+
+test('planMetaLaunchResume continues with creative when campaign and ad set exist', () => {
+  const plan = planMetaLaunchResume({
+    metaCampaignId: 'c1',
+    metaAdSetId: 'as1',
+    metaCreativeId: null,
+    metaAdId: null,
+  });
+  assert.equal(plan.createCampaign, false);
+  assert.equal(plan.createAdSet, false);
+  assert.equal(plan.createCreative, true);
+  assert.equal(plan.createAd, false);
+});
+
+test('buildMetaAdCreatePayload omits nullish optional fields from meta form', () => {
+  const bundle = buildMetaAdCreatePayload({
+    name: 'test',
+    adSetId: 'as1',
+    creativeId: 'cr1',
+  });
+  assert.equal(Object.keys(bundle.metaForm).includes('extra'), false);
+  assert.equal(bundle.logical.status, 'PAUSED');
+});
+
+test('isMetaPendingVerificationError detects code 31 with subcode in response', () => {
+  assert.equal(
+    isMetaPendingVerificationError({
+      response: {
+        error: {
+          code: 31,
+          error_subcode: 3858385,
+          message: 'This request requires the user to take a pending action',
+        },
+      },
+    }),
+    true,
+  );
+});
+
 test('planMetaLaunchResume creates only ad when upstream IDs exist', () => {
   const plan = planMetaLaunchResume({
     metaCampaignId: 'c1',

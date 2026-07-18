@@ -22,6 +22,13 @@ export type MetaAdPreflightContext = {
   graphApiVersion: string;
 };
 
+function extractCreativePageId(objectStorySpec: unknown): string | null {
+  if (!objectStorySpec || typeof objectStorySpec !== 'object') return null;
+  const spec = objectStorySpec as Record<string, unknown>;
+  const pageId = spec.page_id;
+  return typeof pageId === 'string' && pageId.trim() ? pageId.trim() : null;
+}
+
 export type MetaGraphFetcher = {
   get<T>(path: string, token: string, query?: Record<string, string>): Promise<MetaGraphResult<T>>;
 };
@@ -270,6 +277,25 @@ export async function runMetaAdPreflightChecks(input: {
             'creative_product_set',
             false,
             `Creative používá jiný product set (${creativeRes.data.product_set_id}) než kampaň (${ctx.productSetId}).`,
+          ),
+        );
+      }
+      const creativePageId = extractCreativePageId(creativeRes.data.object_story_spec);
+      if (ctx.pageId && creativePageId && creativePageId !== ctx.pageId) {
+        checks.push(
+          check(
+            'creative_page',
+            false,
+            `Creative používá jinou stránku (${creativePageId}) než nastavení Meta Centra (${ctx.pageId}).`,
+          ),
+        );
+      } else if (ctx.pageId && creativePageId) {
+        checks.push(
+          check(
+            'creative_page',
+            true,
+            `Creative používá správné Page ID ${creativePageId}.`,
+            'info',
           ),
         );
       }
