@@ -1,4 +1,3 @@
-import type { MetaGraphResult } from './meta-graph-client.service';
 import {
   graphGetWithV25FieldFallback,
   META_GRAPH_V25_FIELDS,
@@ -76,7 +75,9 @@ export function summarizePreflightChecks(checks: MetaPreflightCheck[]): {
 } {
   const errors = checks.filter((c) => !c.ok && c.severity === 'error');
   const warnings = checks.filter((c) => !c.ok && c.severity === 'warning');
-  const fieldWarnings = checks.filter((c) => c.key.startsWith('diagnostics_fields_'));
+  const fieldWarnings = checks.filter((c) =>
+    c.key.startsWith('diagnostics_fields_'),
+  );
   const hasUnsupportedFieldsWarning = fieldWarnings.length > 0;
 
   if (errors.length) {
@@ -91,7 +92,9 @@ export function summarizePreflightChecks(checks: MetaPreflightCheck[]): {
 
   const warningMessages = [
     ...warnings.map((c) => c.message),
-    ...(hasUnsupportedFieldsWarning ? [META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS] : []),
+    ...(hasUnsupportedFieldsWarning
+      ? [META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS]
+      : []),
   ];
 
   if (warningMessages.length) {
@@ -148,7 +151,13 @@ export async function runMetaAdPreflightChecks(input: {
     amount_spent?: string;
     balance?: string;
     spend_cap?: string;
-  }>(graph, actPath(ctx.adAccountId), token, META_GRAPH_V25_FIELDS.adAccount, META_GRAPH_V25_FIELDS.adAccountMinimal);
+  }>(
+    graph,
+    actPath(ctx.adAccountId),
+    token,
+    META_GRAPH_V25_FIELDS.adAccount,
+    META_GRAPH_V25_FIELDS.adAccountMinimal,
+  );
 
   pushFieldWarnings(checks, 'ad_account', adAccountFetch.skippedFields);
 
@@ -187,19 +196,23 @@ export async function runMetaAdPreflightChecks(input: {
   }
 
   if (ctx.businessId) {
-    const businessFetch = await graphGetWithV25FieldFallback<{ id?: string; name?: string }>(
-      graph,
-      `/${ctx.businessId}`,
-      token,
-      META_GRAPH_V25_FIELDS.business,
-    );
+    const businessFetch = await graphGetWithV25FieldFallback<{
+      id?: string;
+      name?: string;
+    }>(graph, `/${ctx.businessId}`, token, META_GRAPH_V25_FIELDS.business);
     pushFieldWarnings(checks, 'business', businessFetch.skippedFields);
     checks.push(
       businessFetch.result.ok
-        ? check('business', true, `Business ${businessFetch.result.data.name ?? ctx.businessId} je dostupný.`, 'info', {
-            id: businessFetch.result.data.id,
-            fields: businessFetch.requestedFields,
-          })
+        ? check(
+            'business',
+            true,
+            `Business ${businessFetch.result.data.name ?? ctx.businessId} je dostupný.`,
+            'info',
+            {
+              id: businessFetch.result.data.id,
+              fields: businessFetch.requestedFields,
+            },
+          )
         : check(
             'business',
             false,
@@ -216,20 +229,28 @@ export async function runMetaAdPreflightChecks(input: {
   });
   checks.push(
     meRes.ok
-      ? check('me', true, `Token patří uživateli ${meRes.data.name ?? meRes.data.id ?? '—'}.`, 'info', {
-          id: meRes.data.id,
-          name: meRes.data.name,
-        })
-      : check('me', false, `Nelze ověřit uživatele tokenu: ${meRes.errorMessage}`),
+      ? check(
+          'me',
+          true,
+          `Token patří uživateli ${meRes.data.name ?? meRes.data.id ?? '—'}.`,
+          'info',
+          {
+            id: meRes.data.id,
+            name: meRes.data.name,
+          },
+        )
+      : check(
+          'me',
+          false,
+          `Nelze ověřit uživatele tokenu: ${meRes.errorMessage}`,
+        ),
   );
 
-  const permsRes = await graph.get<{ data?: Array<{ permission?: string; status?: string }> }>(
-    `/me/permissions`,
-    token,
-    { fields: META_GRAPH_V25_FIELDS.permissions },
-  );
+  const permsRes = await graph.get<{
+    data?: Array<{ permission?: string; status?: string }>;
+  }>(`/me/permissions`, token, { fields: META_GRAPH_V25_FIELDS.permissions });
   const granted = new Set(
-    (permsRes.ok ? permsRes.data.data ?? [] : [])
+    (permsRes.ok ? (permsRes.data.data ?? []) : [])
       .filter((p) => p.status === 'granted' && p.permission)
       .map((p) => p.permission as string),
   );
@@ -279,15 +300,27 @@ export async function runMetaAdPreflightChecks(input: {
       id?: string;
       name?: string;
       link?: string;
-    }>(graph, `/${ctx.pageId}`, token, META_GRAPH_V25_FIELDS.page, META_GRAPH_V25_FIELDS.pageMinimal);
+    }>(
+      graph,
+      `/${ctx.pageId}`,
+      token,
+      META_GRAPH_V25_FIELDS.page,
+      META_GRAPH_V25_FIELDS.pageMinimal,
+    );
     pushFieldWarnings(checks, 'page', pageFetch.skippedFields);
     checks.push(
       pageFetch.result.ok
-        ? check('page', true, `Stránka ${pageFetch.result.data.name ?? ctx.pageId} je dostupná.`, 'info', {
-            id: pageFetch.result.data.id,
-            link: pageFetch.result.data.link,
-            fields: pageFetch.requestedFields,
-          })
+        ? check(
+            'page',
+            true,
+            `Stránka ${pageFetch.result.data.name ?? ctx.pageId} je dostupná.`,
+            'info',
+            {
+              id: pageFetch.result.data.id,
+              link: pageFetch.result.data.link,
+              fields: pageFetch.requestedFields,
+            },
+          )
         : check(
             'page',
             false,
@@ -302,19 +335,23 @@ export async function runMetaAdPreflightChecks(input: {
   }
 
   if (ctx.pixelId) {
-    const pixelFetch = await graphGetWithV25FieldFallback<{ id?: string; name?: string }>(
-      graph,
-      `/${ctx.pixelId}`,
-      token,
-      META_GRAPH_V25_FIELDS.pixel,
-    );
+    const pixelFetch = await graphGetWithV25FieldFallback<{
+      id?: string;
+      name?: string;
+    }>(graph, `/${ctx.pixelId}`, token, META_GRAPH_V25_FIELDS.pixel);
     pushFieldWarnings(checks, 'pixel', pixelFetch.skippedFields);
     checks.push(
       pixelFetch.result.ok
-        ? check('pixel', true, `Pixel/Dataset ${pixelFetch.result.data.name ?? ctx.pixelId} je dostupný.`, 'info', {
-            id: pixelFetch.result.data.id,
-            fields: pixelFetch.requestedFields,
-          })
+        ? check(
+            'pixel',
+            true,
+            `Pixel/Dataset ${pixelFetch.result.data.name ?? ctx.pixelId} je dostupný.`,
+            'info',
+            {
+              id: pixelFetch.result.data.id,
+              fields: pixelFetch.requestedFields,
+            },
+          )
         : check(
             'pixel',
             false,
@@ -355,7 +392,8 @@ export async function runMetaAdPreflightChecks(input: {
         !creativeRes.data.account_id ||
         normalizeActId(creativeRes.data.account_id) === actId;
       const archived =
-        creativeRes.data.status === 'DELETED' || creativeRes.data.status === 'ARCHIVED';
+        creativeRes.data.status === 'DELETED' ||
+        creativeRes.data.status === 'ARCHIVED';
       const productSetOk =
         !ctx.productSetId ||
         !creativeRes.data.product_set_id ||
@@ -378,7 +416,11 @@ export async function runMetaAdPreflightChecks(input: {
           },
         ),
       );
-      if (ctx.productSetId && creativeRes.data.product_set_id && !productSetOk) {
+      if (
+        ctx.productSetId &&
+        creativeRes.data.product_set_id &&
+        !productSetOk
+      ) {
         checks.push(
           check(
             'creative_product_set',
@@ -387,7 +429,9 @@ export async function runMetaAdPreflightChecks(input: {
           ),
         );
       }
-      const creativePageId = extractCreativePageId(creativeRes.data.object_story_spec);
+      const creativePageId = extractCreativePageId(
+        creativeRes.data.object_story_spec,
+      );
       if (ctx.pageId && creativePageId && creativePageId !== ctx.pageId) {
         checks.push(
           check(
@@ -440,9 +484,12 @@ export async function runMetaAdPreflightChecks(input: {
     } else {
       const adSetRes = adSetFetch.result;
       const accountMatch =
-        !adSetRes.data.account_id || normalizeActId(adSetRes.data.account_id) === actId;
+        !adSetRes.data.account_id ||
+        normalizeActId(adSetRes.data.account_id) === actId;
       const campaignMatch =
-        !ctx.campaignId || !adSetRes.data.campaign_id || adSetRes.data.campaign_id === ctx.campaignId;
+        !ctx.campaignId ||
+        !adSetRes.data.campaign_id ||
+        adSetRes.data.campaign_id === ctx.campaignId;
       const archived =
         adSetRes.data.effective_status === 'ARCHIVED' ||
         adSetRes.data.status === 'ARCHIVED' ||
@@ -477,7 +524,13 @@ export async function runMetaAdPreflightChecks(input: {
       id?: string;
       name?: string;
       business?: { id?: string; name?: string };
-    }>(graph, `/${ctx.catalogId}`, token, META_GRAPH_V25_FIELDS.catalog, META_GRAPH_V25_FIELDS.catalogMinimal);
+    }>(
+      graph,
+      `/${ctx.catalogId}`,
+      token,
+      META_GRAPH_V25_FIELDS.catalog,
+      META_GRAPH_V25_FIELDS.catalogMinimal,
+    );
     pushFieldWarnings(checks, 'catalog', catalogFetch.skippedFields);
 
     const businessOk =

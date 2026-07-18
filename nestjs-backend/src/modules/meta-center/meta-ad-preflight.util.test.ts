@@ -32,7 +32,12 @@ function fail(message: string, code = '100'): MetaGraphResult<never> {
 test('summarizePreflightChecks fails when any error severity check fails', () => {
   const summary = summarizePreflightChecks([
     { key: 'a', ok: true, severity: 'info', message: 'ok' },
-    { key: 'b', ok: false, severity: 'error', message: 'creative wrong account' },
+    {
+      key: 'b',
+      ok: false,
+      severity: 'error',
+      message: 'creative wrong account',
+    },
   ]);
   assert.equal(summary.ok, false);
   assert.match(summary.message, /creative wrong account/);
@@ -48,7 +53,8 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
           account_status: 1,
         }) as MetaGraphResult<T>;
       }
-      if (path === '/me') return ok({ id: 'u1', name: 'User' }) as MetaGraphResult<T>;
+      if (path === '/me')
+        return ok({ id: 'u1', name: 'User' }) as MetaGraphResult<T>;
       if (path === '/me/permissions') {
         return ok({
           data: [
@@ -61,7 +67,11 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
         }) as MetaGraphResult<T>;
       }
       if (path === '/1122348867622129') {
-        return ok({ id: '1122348867622129', name: 'XXrealit.cz', link: 'https://facebook.com/xxrealit' }) as MetaGraphResult<T>;
+        return ok({
+          id: '1122348867622129',
+          name: 'XXrealit.cz',
+          link: 'https://facebook.com/xxrealit',
+        }) as MetaGraphResult<T>;
       }
       if (path === '/cr-wrong') {
         return ok({
@@ -81,7 +91,11 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
         }) as MetaGraphResult<T>;
       }
       if (path === '/1327331349483915') {
-        return ok({ id: '1327331349483915', name: 'Catalog', business: { id: '1495460465477109' } }) as MetaGraphResult<T>;
+        return ok({
+          id: '1327331349483915',
+          name: 'Catalog',
+          business: { id: '1495460465477109' },
+        }) as MetaGraphResult<T>;
       }
       if (path === '/1012438134826074') {
         return ok({
@@ -103,12 +117,17 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
       pageId: '1122348867622129',
       catalogId: '1327331349483915',
       productSetId: '1012438134826074',
+      pixelId: null,
       campaignId: 'c1',
       adSetId: 'as1',
       creativeId: 'cr-wrong',
       graphApiVersion: 'v25.0',
     },
-    tokenDebug: { is_valid: true, expires_at: 9999999999, scopes: ['ads_management'] },
+    tokenDebug: {
+      is_valid: true,
+      expires_at: 9999999999,
+      scopes: ['ads_management'],
+    },
   });
 
   const creativeCheck = checks.find((c) => c.key === 'creative');
@@ -119,7 +138,7 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
 
 test('runMetaAdPreflightChecks treats HTTP 200 Graph error body as failure path via graph client contract', async () => {
   const graph: MetaGraphFetcher = {
-    async get<T>(_path: string): Promise<MetaGraphResult<T>> {
+    async get<T>(): Promise<MetaGraphResult<T>> {
       return fail('Invalid OAuth access token', '190') as MetaGraphResult<T>;
     },
   };
@@ -132,22 +151,33 @@ test('runMetaAdPreflightChecks treats HTTP 200 Graph error body as failure path 
       pageId: null,
       catalogId: null,
       productSetId: null,
+      pixelId: null,
       campaignId: null,
       adSetId: null,
       creativeId: null,
       graphApiVersion: 'v25.0',
     },
   });
-  assert.equal(checks.some((c) => c.key === 'ad_account' && !c.ok), true);
+  assert.equal(
+    checks.some((c) => c.key === 'ad_account' && !c.ok),
+    true,
+  );
 });
 
 test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without blocking', async () => {
   let pageCalls = 0;
   const graph: MetaGraphFetcher = {
-    async get<T>(path: string, _token: string, query?: Record<string, string>): Promise<MetaGraphResult<T>> {
+    async get<T>(
+      path: string,
+      _token: string,
+      query?: Record<string, string>,
+    ): Promise<MetaGraphResult<T>> {
       if (path.startsWith('/act_')) {
         if (query?.fields?.includes('disable_reason')) {
-          return fail('(#100) Tried accessing nonexistent field (disable_reason)', '100') as MetaGraphResult<T>;
+          return fail(
+            '(#100) Tried accessing nonexistent field (disable_reason)',
+            '100',
+          ) as MetaGraphResult<T>;
         }
         return ok({
           id: 'act_111',
@@ -155,7 +185,8 @@ test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without
           account_status: 1,
         }) as MetaGraphResult<T>;
       }
-      if (path === '/me') return ok({ id: 'u1', name: 'User' }) as MetaGraphResult<T>;
+      if (path === '/me')
+        return ok({ id: 'u1', name: 'User' }) as MetaGraphResult<T>;
       if (path === '/me/permissions') {
         return ok({
           data: [
@@ -170,9 +201,15 @@ test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without
       if (path === '/1122348867622129') {
         pageCalls += 1;
         if (query?.fields === 'id,name,link') {
-          return fail('(#100) Tried accessing nonexistent field (link)', '100') as MetaGraphResult<T>;
+          return fail(
+            '(#100) Tried accessing nonexistent field (link)',
+            '100',
+          ) as MetaGraphResult<T>;
         }
-        return ok({ id: '1122348867622129', name: 'XXrealit.cz' }) as MetaGraphResult<T>;
+        return ok({
+          id: '1122348867622129',
+          name: 'XXrealit.cz',
+        }) as MetaGraphResult<T>;
       }
       if (path === '/cr1') {
         return ok({
@@ -203,6 +240,7 @@ test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without
       pageId: '1122348867622129',
       catalogId: null,
       productSetId: null,
+      pixelId: null,
       campaignId: 'c1',
       adSetId: 'as1',
       creativeId: 'cr1',
@@ -215,7 +253,16 @@ test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without
   const summary = summarizePreflightChecks(checks);
   assert.equal(summary.ok, true);
   assert.equal(summary.hasUnsupportedFieldsWarning, true);
-  assert.match(summary.message, /diagnostická pole nejsou ve verzi Graph API v25 podporována/i);
-  assert.equal(checks.some((c) => c.key === 'ad_account' && c.ok), true);
-  assert.equal(checks.some((c) => c.key === 'page' && c.ok), true);
+  assert.match(
+    summary.message,
+    /diagnostická pole nejsou ve verzi Graph API v25 podporována/i,
+  );
+  assert.equal(
+    checks.some((c) => c.key === 'ad_account' && c.ok),
+    true,
+  );
+  assert.equal(
+    checks.some((c) => c.key === 'page' && c.ok),
+    true,
+  );
 });
