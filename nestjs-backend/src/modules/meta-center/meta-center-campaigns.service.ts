@@ -3898,6 +3898,7 @@ export class MetaCenterCampaignsService {
         pageId: settings?.pageId ?? null,
         catalogId: ids.catalogId ?? draft.catalogId,
         productSetId: draft.metaProductSetId,
+        pixelId: ids.pixelId ?? ids.datasetId ?? null,
         campaignId: draft.metaCampaignId,
         adSetId: draft.metaAdSetId,
         creativeId: draft.metaCreativeId ?? null,
@@ -4001,7 +4002,8 @@ export class MetaCenterCampaignsService {
       };
     }
     const preflight = await this.runPreflightForDraft(draftId);
-    if (!preflight.ok) {
+    const hasLaunchAssets = Boolean(draft.metaCampaignId && draft.metaAdSetId && draft.metaCreativeId);
+    if (!preflight.ok && !hasLaunchAssets) {
       return {
         ok: false as const,
         message: `Pre-flight selhala: ${preflight.message}`,
@@ -4129,7 +4131,10 @@ export class MetaCenterCampaignsService {
       const row = await this.getSettingsRow();
       const preflight = await this.runPreflightForDraft(input.draftId);
       input.launchPayloads.preflightChecks = preflight.checks;
-      if (!preflight.ok) {
+      const hasLaunchAssets = Boolean(
+        input.draftRow.metaCampaignId && input.draftRow.metaAdSetId && input.draftRow.metaCreativeId,
+      );
+      if (!preflight.ok && !hasLaunchAssets) {
         await this.persistLaunchState(input.draftId, {
           status: 'error',
           errorMessage: preflight.message,

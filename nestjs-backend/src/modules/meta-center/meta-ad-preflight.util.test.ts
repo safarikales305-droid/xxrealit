@@ -61,7 +61,7 @@ test('runMetaAdPreflightChecks blocks creative from different ad account', async
         }) as MetaGraphResult<T>;
       }
       if (path === '/1122348867622129') {
-        return ok({ id: '1122348867622129', name: 'XXrealit.cz', tasks: ['ADVERTISE'] }) as MetaGraphResult<T>;
+        return ok({ id: '1122348867622129', name: 'XXrealit.cz', link: 'https://facebook.com/xxrealit' }) as MetaGraphResult<T>;
       }
       if (path === '/cr-wrong') {
         return ok({
@@ -139,4 +139,83 @@ test('runMetaAdPreflightChecks treats HTTP 200 Graph error body as failure path 
     },
   });
   assert.equal(checks.some((c) => c.key === 'ad_account' && !c.ok), true);
+});
+
+test('runMetaAdPreflightChecks warns on unsupported Graph API v25 fields without blocking', async () => {
+  let pageCalls = 0;
+  const graph: MetaGraphFetcher = {
+    async get<T>(path: string, _token: string, query?: Record<string, string>): Promise<MetaGraphResult<T>> {
+      if (path.startsWith('/act_')) {
+        if (query?.fields?.includes('disable_reason')) {
+          return fail('(#100) Tried accessing nonexistent field (disable_reason)', '100') as MetaGraphResult<T>;
+        }
+        return ok({
+          id: 'act_111',
+          name: 'Test account',
+          account_status: 1,
+        }) as MetaGraphResult<T>;
+      }
+      if (path === '/me') return ok({ id: 'u1', name: 'User' }) as MetaGraphResult<T>;
+      if (path === '/me/permissions') {
+        return ok({
+          data: [
+            { permission: 'ads_management', status: 'granted' },
+            { permission: 'ads_read', status: 'granted' },
+            { permission: 'business_management', status: 'granted' },
+            { permission: 'pages_read_engagement', status: 'granted' },
+            { permission: 'pages_manage_ads', status: 'granted' },
+          ],
+        }) as MetaGraphResult<T>;
+      }
+      if (path === '/1122348867622129') {
+        pageCalls += 1;
+        if (query?.fields === 'id,name,link') {
+          return fail('(#100) Tried accessing nonexistent field (link)', '100') as MetaGraphResult<T>;
+        }
+        return ok({ id: '1122348867622129', name: 'XXrealit.cz' }) as MetaGraphResult<T>;
+      }
+      if (path === '/cr1') {
+        return ok({
+          id: 'cr1',
+          account_id: 'act_111',
+          status: 'ACTIVE',
+          object_story_spec: { page_id: '1122348867622129' },
+        }) as MetaGraphResult<T>;
+      }
+      if (path === '/as1') {
+        return ok({
+          id: 'as1',
+          account_id: 'act_111',
+          campaign_id: 'c1',
+          effective_status: 'ACTIVE',
+        }) as MetaGraphResult<T>;
+      }
+      return fail(`Unknown path ${path}`) as MetaGraphResult<T>;
+    },
+  };
+
+  const checks = await runMetaAdPreflightChecks({
+    graph,
+    token: 'token',
+    ctx: {
+      adAccountId: 'act_111',
+      businessId: null,
+      pageId: '1122348867622129',
+      catalogId: null,
+      productSetId: null,
+      campaignId: 'c1',
+      adSetId: 'as1',
+      creativeId: 'cr1',
+      graphApiVersion: 'v25.0',
+    },
+    tokenDebug: { is_valid: true },
+  });
+
+  assert.equal(pageCalls, 2);
+  const summary = summarizePreflightChecks(checks);
+  assert.equal(summary.ok, true);
+  assert.equal(summary.hasUnsupportedFieldsWarning, true);
+  assert.match(summary.message, /diagnostická pole nejsou ve verzi Graph API v25 podporována/i);
+  assert.equal(checks.some((c) => c.key === 'ad_account' && c.ok), true);
+  assert.equal(checks.some((c) => c.key === 'page' && c.ok), true);
 });

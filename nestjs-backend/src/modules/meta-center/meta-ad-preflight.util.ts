@@ -1,4 +1,13 @@
 import type { MetaGraphResult } from './meta-graph-client.service';
+import {
+  graphGetWithV25FieldFallback,
+  META_GRAPH_V25_FIELDS,
+  META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS,
+  unsupportedFieldsWarningCheck,
+  type MetaGraphFetcher,
+} from './meta-graph-fields-v25.util';
+
+export type { MetaGraphFetcher };
 
 export type MetaPreflightSeverity = 'info' | 'warning' | 'error';
 
@@ -16,6 +25,7 @@ export type MetaAdPreflightContext = {
   pageId: string | null;
   catalogId: string | null;
   productSetId: string | null;
+  pixelId: string | null;
   campaignId: string | null;
   adSetId: string | null;
   creativeId: string | null;
@@ -28,10 +38,6 @@ function extractCreativePageId(objectStorySpec: unknown): string | null {
   const pageId = spec.page_id;
   return typeof pageId === 'string' && pageId.trim() ? pageId.trim() : null;
 }
-
-export type MetaGraphFetcher = {
-  get<T>(path: string, token: string, query?: Record<string, string>): Promise<MetaGraphResult<T>>;
-};
 
 function check(
   key: string,
@@ -52,31 +58,59 @@ function normalizeActId(adAccountId: string): string {
   return adAccountId.replace(/^act_/, '');
 }
 
+function pushFieldWarnings(
+  checks: MetaPreflightCheck[],
+  resourceKey: string,
+  skippedFields: string[],
+): void {
+  const warning = unsupportedFieldsWarningCheck(resourceKey, skippedFields);
+  if (warning) checks.push(warning);
+}
+
 export function summarizePreflightChecks(checks: MetaPreflightCheck[]): {
   ok: boolean;
   errorCount: number;
   warningCount: number;
   message: string;
+  hasUnsupportedFieldsWarning: boolean;
 } {
   const errors = checks.filter((c) => !c.ok && c.severity === 'error');
   const warnings = checks.filter((c) => !c.ok && c.severity === 'warning');
+  const fieldWarnings = checks.filter((c) => c.key.startsWith('diagnostics_fields_'));
+  const hasUnsupportedFieldsWarning = fieldWarnings.length > 0;
+
   if (errors.length) {
     return {
       ok: false,
       errorCount: errors.length,
-      warningCount: warnings.length,
+      warningCount: warnings.length + fieldWarnings.length,
       message: errors.map((c) => c.message).join(' '),
+      hasUnsupportedFieldsWarning,
     };
   }
-  if (warnings.length) {
+
+  const warningMessages = [
+    ...warnings.map((c) => c.message),
+    ...(hasUnsupportedFieldsWarning ? [META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS] : []),
+  ];
+
+  if (warningMessages.length) {
     return {
       ok: true,
       errorCount: 0,
-      warningCount: warnings.length,
-      message: warnings.map((c) => c.message).join(' '),
+      warningCount: warningMessages.length,
+      message: [...new Set(warningMessages)].join(' '),
+      hasUnsupportedFieldsWarning,
     };
   }
-  return { ok: true, errorCount: 0, warningCount: 0, message: 'Pre-flight kontrola prošla.' };
+
+  return {
+    ok: true,
+    errorCount: 0,
+    warningCount: 0,
+    message: 'Pre-flight kontrola prošla.',
+    hasUnsupportedFieldsWarning: false,
+  };
 }
 
 const REQUIRED_AD_PERMISSIONS = [
@@ -103,7 +137,7 @@ export async function runMetaAdPreflightChecks(input: {
   const checks: MetaPreflightCheck[] = [];
   const actId = normalizeActId(input.ctx.adAccountId);
 
-  const adAccountRes = await graph.get<{
+  const adAccountFetch = await graphGetWithV25FieldFallback<{
     id?: string;
     name?: string;
     account_status?: number;
@@ -111,42 +145,74 @@ export async function runMetaAdPreflightChecks(input: {
     currency?: string;
     timezone_name?: string;
     business?: { id?: string; name?: string };
-    owner_business?: { id?: string; name?: string };
     amount_spent?: string;
     balance?: string;
     spend_cap?: string;
-  }>(actPath(ctx.adAccountId), token, {
-    fields:
-      'id,name,account_status,disable_reason,currency,timezone_name,business,owner_business,amount_spent,balance,spend_cap',
-  });
+  }>(graph, actPath(ctx.adAccountId), token, META_GRAPH_V25_FIELDS.adAccount, META_GRAPH_V25_FIELDS.adAccountMinimal);
 
-  if (!adAccountRes.ok) {
+  pushFieldWarnings(checks, 'ad_account', adAccountFetch.skippedFields);
+
+  if (!adAccountFetch.result.ok) {
     checks.push(
-      check('ad_account', false, `Reklamní účet nelze načíst: ${adAccountRes.errorMessage}`),
+      check(
+        'ad_account',
+        false,
+        adAccountFetch.unsupportedFieldsSkipped
+          ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+          : `Reklamní účet nelze načíst: ${adAccountFetch.result.errorMessage}`,
+        adAccountFetch.unsupportedFieldsSkipped ? 'warning' : 'error',
+        { requestedFields: adAccountFetch.requestedFields },
+      ),
     );
   } else {
-    const status = adAccountRes.data.account_status;
+    const status = adAccountFetch.result.data.account_status;
     const active = status === 1 || status === 9;
     checks.push(
       check(
         'ad_account',
         active,
         active
-          ? `Reklamní účet ${adAccountRes.data.name ?? actId} je aktivní.`
+          ? `Reklamní účet ${adAccountFetch.result.data.name ?? actId} je aktivní.`
           : `Reklamní účet není aktivní (account_status=${status ?? '—'}).`,
         active ? 'info' : 'error',
         {
-          id: adAccountRes.data.id,
+          id: adAccountFetch.result.data.id,
           account_status: status,
-          disable_reason: adAccountRes.data.disable_reason ?? null,
-          currency: adAccountRes.data.currency ?? null,
+          disable_reason: adAccountFetch.result.data.disable_reason ?? null,
+          currency: adAccountFetch.result.data.currency ?? null,
+          fields: adAccountFetch.requestedFields,
         },
       ),
     );
   }
 
+  if (ctx.businessId) {
+    const businessFetch = await graphGetWithV25FieldFallback<{ id?: string; name?: string }>(
+      graph,
+      `/${ctx.businessId}`,
+      token,
+      META_GRAPH_V25_FIELDS.business,
+    );
+    pushFieldWarnings(checks, 'business', businessFetch.skippedFields);
+    checks.push(
+      businessFetch.result.ok
+        ? check('business', true, `Business ${businessFetch.result.data.name ?? ctx.businessId} je dostupný.`, 'info', {
+            id: businessFetch.result.data.id,
+            fields: businessFetch.requestedFields,
+          })
+        : check(
+            'business',
+            false,
+            businessFetch.unsupportedFieldsSkipped
+              ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+              : `Business nelze načíst: ${businessFetch.result.errorMessage}`,
+            businessFetch.unsupportedFieldsSkipped ? 'warning' : 'warning',
+          ),
+    );
+  }
+
   const meRes = await graph.get<{ id?: string; name?: string }>(`/me`, token, {
-    fields: 'id,name',
+    fields: META_GRAPH_V25_FIELDS.me,
   });
   checks.push(
     meRes.ok
@@ -160,7 +226,7 @@ export async function runMetaAdPreflightChecks(input: {
   const permsRes = await graph.get<{ data?: Array<{ permission?: string; status?: string }> }>(
     `/me/permissions`,
     token,
-    { fields: 'permission,status' },
+    { fields: META_GRAPH_V25_FIELDS.permissions },
   );
   const granted = new Set(
     (permsRes.ok ? permsRes.data.data ?? [] : [])
@@ -209,26 +275,59 @@ export async function runMetaAdPreflightChecks(input: {
   }
 
   if (ctx.pageId) {
-    const pageRes = await graph.get<{ id?: string; name?: string; link?: string; tasks?: string[] }>(
-      `/${ctx.pageId}`,
-      token,
-      { fields: 'id,name,link,tasks' },
-    );
+    const pageFetch = await graphGetWithV25FieldFallback<{
+      id?: string;
+      name?: string;
+      link?: string;
+    }>(graph, `/${ctx.pageId}`, token, META_GRAPH_V25_FIELDS.page, META_GRAPH_V25_FIELDS.pageMinimal);
+    pushFieldWarnings(checks, 'page', pageFetch.skippedFields);
     checks.push(
-      pageRes.ok
-        ? check('page', true, `Stránka ${pageRes.data.name ?? ctx.pageId} je dostupná.`, 'info', {
-            id: pageRes.data.id,
-            link: pageRes.data.link,
-            tasks: pageRes.data.tasks ?? [],
+      pageFetch.result.ok
+        ? check('page', true, `Stránka ${pageFetch.result.data.name ?? ctx.pageId} je dostupná.`, 'info', {
+            id: pageFetch.result.data.id,
+            link: pageFetch.result.data.link,
+            fields: pageFetch.requestedFields,
           })
-        : check('page', false, `Stránku nelze načíst: ${pageRes.errorMessage}`),
+        : check(
+            'page',
+            false,
+            pageFetch.unsupportedFieldsSkipped
+              ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+              : `Stránku nelze načíst: ${pageFetch.result.errorMessage}`,
+            pageFetch.unsupportedFieldsSkipped ? 'warning' : 'error',
+          ),
     );
   } else {
     checks.push(check('page', false, 'Chybí Page ID v nastavení Meta Centra.'));
   }
 
+  if (ctx.pixelId) {
+    const pixelFetch = await graphGetWithV25FieldFallback<{ id?: string; name?: string }>(
+      graph,
+      `/${ctx.pixelId}`,
+      token,
+      META_GRAPH_V25_FIELDS.pixel,
+    );
+    pushFieldWarnings(checks, 'pixel', pixelFetch.skippedFields);
+    checks.push(
+      pixelFetch.result.ok
+        ? check('pixel', true, `Pixel/Dataset ${pixelFetch.result.data.name ?? ctx.pixelId} je dostupný.`, 'info', {
+            id: pixelFetch.result.data.id,
+            fields: pixelFetch.requestedFields,
+          })
+        : check(
+            'pixel',
+            false,
+            pixelFetch.unsupportedFieldsSkipped
+              ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+              : `Pixel nelze načíst: ${pixelFetch.result.errorMessage}`,
+            pixelFetch.unsupportedFieldsSkipped ? 'warning' : 'warning',
+          ),
+    );
+  }
+
   if (ctx.creativeId) {
-    const creativeRes = await graph.get<{
+    const creativeFetch = await graphGetWithV25FieldFallback<{
       id?: string;
       name?: string;
       account_id?: string;
@@ -236,15 +335,22 @@ export async function runMetaAdPreflightChecks(input: {
       product_set_id?: string;
       effective_object_story_id?: string;
       status?: string;
-    }>(`/${ctx.creativeId}`, token, {
-      fields:
-        'id,name,account_id,object_story_spec,product_set_id,effective_object_story_id,status',
-    });
-    if (!creativeRes.ok) {
+    }>(graph, `/${ctx.creativeId}`, token, META_GRAPH_V25_FIELDS.creative);
+    pushFieldWarnings(checks, 'creative', creativeFetch.skippedFields);
+
+    if (!creativeFetch.result.ok) {
       checks.push(
-        check('creative', false, `Creative nelze načíst: ${creativeRes.errorMessage}`),
+        check(
+          'creative',
+          false,
+          creativeFetch.unsupportedFieldsSkipped
+            ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+            : `Creative nelze načíst: ${creativeFetch.result.errorMessage}`,
+          creativeFetch.unsupportedFieldsSkipped ? 'warning' : 'error',
+        ),
       );
     } else {
+      const creativeRes = creativeFetch.result;
       const accountMatch =
         !creativeRes.data.account_id ||
         normalizeActId(creativeRes.data.account_id) === actId;
@@ -268,6 +374,7 @@ export async function runMetaAdPreflightChecks(input: {
             account_id: creativeRes.data.account_id,
             product_set_id: creativeRes.data.product_set_id,
             status: creativeRes.data.status,
+            fields: creativeFetch.requestedFields,
           },
         ),
       );
@@ -305,7 +412,7 @@ export async function runMetaAdPreflightChecks(input: {
   }
 
   if (ctx.adSetId) {
-    const adSetRes = await graph.get<{
+    const adSetFetch = await graphGetWithV25FieldFallback<{
       id?: string;
       name?: string;
       account_id?: string;
@@ -316,13 +423,22 @@ export async function runMetaAdPreflightChecks(input: {
       targeting?: unknown;
       billing_event?: string;
       optimization_goal?: string;
-    }>(`/${ctx.adSetId}`, token, {
-      fields:
-        'id,name,account_id,campaign_id,status,effective_status,promoted_object,targeting,billing_event,optimization_goal',
-    });
-    if (!adSetRes.ok) {
-      checks.push(check('ad_set', false, `Ad Set nelze načíst: ${adSetRes.errorMessage}`));
+    }>(graph, `/${ctx.adSetId}`, token, META_GRAPH_V25_FIELDS.adSet);
+    pushFieldWarnings(checks, 'ad_set', adSetFetch.skippedFields);
+
+    if (!adSetFetch.result.ok) {
+      checks.push(
+        check(
+          'ad_set',
+          false,
+          adSetFetch.unsupportedFieldsSkipped
+            ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+            : `Ad Set nelze načíst: ${adSetFetch.result.errorMessage}`,
+          adSetFetch.unsupportedFieldsSkipped ? 'warning' : 'error',
+        ),
+      );
     } else {
+      const adSetRes = adSetFetch.result;
       const accountMatch =
         !adSetRes.data.account_id || normalizeActId(adSetRes.data.account_id) === actId;
       const campaignMatch =
@@ -347,6 +463,7 @@ export async function runMetaAdPreflightChecks(input: {
             account_id: adSetRes.data.account_id,
             campaign_id: adSetRes.data.campaign_id,
             effective_status: adSetRes.data.effective_status,
+            fields: adSetFetch.requestedFields,
           },
         ),
       );
@@ -356,54 +473,78 @@ export async function runMetaAdPreflightChecks(input: {
   }
 
   if (ctx.catalogId) {
-    const catalogRes = await graph.get<{ id?: string; name?: string; business?: { id?: string } }>(
-      `/${ctx.catalogId}`,
-      token,
-      { fields: 'id,name,business' },
-    );
+    const catalogFetch = await graphGetWithV25FieldFallback<{
+      id?: string;
+      name?: string;
+      business?: { id?: string; name?: string };
+    }>(graph, `/${ctx.catalogId}`, token, META_GRAPH_V25_FIELDS.catalog, META_GRAPH_V25_FIELDS.catalogMinimal);
+    pushFieldWarnings(checks, 'catalog', catalogFetch.skippedFields);
+
     const businessOk =
       !ctx.businessId ||
-      !catalogRes.ok ||
-      !catalogRes.data.business?.id ||
-      catalogRes.data.business.id === ctx.businessId;
+      !catalogFetch.result.ok ||
+      !catalogFetch.result.data.business?.id ||
+      catalogFetch.result.data.business.id === ctx.businessId;
     checks.push(
-      catalogRes.ok
+      catalogFetch.result.ok
         ? check(
             'catalog',
             businessOk,
             businessOk
-              ? `Katalog ${catalogRes.data.name ?? ctx.catalogId} je dostupný.`
+              ? `Katalog ${catalogFetch.result.data.name ?? ctx.catalogId} je dostupný.`
               : `Katalog není ve stejném Business Portfoliu.`,
             businessOk ? 'info' : 'warning',
-            { business_id: catalogRes.data.business?.id ?? null },
+            {
+              business_id: catalogFetch.result.data.business?.id ?? null,
+              fields: catalogFetch.requestedFields,
+            },
           )
-        : check('catalog', false, `Katalog nelze načíst: ${catalogRes.errorMessage}`, 'warning'),
+        : check(
+            'catalog',
+            false,
+            catalogFetch.unsupportedFieldsSkipped
+              ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+              : `Katalog nelze načíst: ${catalogFetch.result.errorMessage}`,
+            'warning',
+          ),
     );
   }
 
   if (ctx.productSetId) {
-    const psRes = await graph.get<{ id?: string; name?: string; product_catalog?: { id?: string } }>(
-      `/${ctx.productSetId}`,
-      token,
-      { fields: 'id,name,product_catalog' },
-    );
+    const psFetch = await graphGetWithV25FieldFallback<{
+      id?: string;
+      name?: string;
+      product_catalog?: { id?: string; name?: string };
+    }>(graph, `/${ctx.productSetId}`, token, META_GRAPH_V25_FIELDS.productSet);
+    pushFieldWarnings(checks, 'product_set', psFetch.skippedFields);
+
     const catalogMatch =
       !ctx.catalogId ||
-      !psRes.ok ||
-      !psRes.data.product_catalog?.id ||
-      psRes.data.product_catalog.id === ctx.catalogId;
+      !psFetch.result.ok ||
+      !psFetch.result.data.product_catalog?.id ||
+      psFetch.result.data.product_catalog.id === ctx.catalogId;
     checks.push(
-      psRes.ok
+      psFetch.result.ok
         ? check(
             'product_set',
             catalogMatch,
             catalogMatch
-              ? `Product Set ${psRes.data.name ?? ctx.productSetId} je dostupný.`
+              ? `Product Set ${psFetch.result.data.name ?? ctx.productSetId} je dostupný.`
               : `Product Set nepatří ke katalogu kampaně.`,
             catalogMatch ? 'info' : 'error',
-            { catalog_id: psRes.data.product_catalog?.id ?? null },
+            {
+              catalog_id: psFetch.result.data.product_catalog?.id ?? null,
+              fields: psFetch.requestedFields,
+            },
           )
-        : check('product_set', false, `Product Set nelze načíst: ${psRes.errorMessage}`),
+        : check(
+            'product_set',
+            false,
+            psFetch.unsupportedFieldsSkipped
+              ? META_GRAPH_UNSUPPORTED_FIELDS_WARNING_CS
+              : `Product Set nelze načíst: ${psFetch.result.errorMessage}`,
+            psFetch.unsupportedFieldsSkipped ? 'warning' : 'error',
+          ),
     );
   }
 

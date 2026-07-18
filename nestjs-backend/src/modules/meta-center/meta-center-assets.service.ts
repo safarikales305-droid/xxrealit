@@ -299,7 +299,6 @@ export class MetaCenterAssetsService {
       id?: string;
       name?: string;
       last_fired_time?: string;
-      owner_business?: { id?: string; name?: string };
     };
     const endpoints = [
       `/${businessId}/adspixels`,
@@ -309,7 +308,7 @@ export class MetaCenterAssetsService {
     const merged = new Map<string, PixelRow>();
     for (const endpoint of endpoints) {
       const res = await this.graph.get<GraphList<PixelRow>>(endpoint, token, {
-        fields: 'id,name,last_fired_time,owner_business',
+        fields: 'id,name,last_fired_time',
         limit: '50',
       });
       if (!res.ok) continue;
@@ -321,7 +320,7 @@ export class MetaCenterAssetsService {
       id: p.id ?? '',
       name: p.name ?? p.id ?? 'Dataset',
       lastFiredTime: p.last_fired_time ?? null,
-      sourceApp: p.owner_business?.name ?? null,
+      sourceApp: null,
     }));
   }
 

@@ -394,10 +394,10 @@ export class MetaCatalogSalesAssetsVerifyService {
     }
 
     const pixelPath = `/${verifiedPixelId}`;
-    const pixelRes = await this.graph.getWithResponseHeaders<IdName & { owner_business?: { id?: string } }>(
+    const pixelRes = await this.graph.getWithResponseHeaders<IdName>(
       pixelPath,
       token,
-      { fields: 'id,name,owner_business{id,name}' },
+      { fields: 'id,name' },
     );
     if (!pixelRes.ok || !pixelRes.data?.id) {
       pushCheck(
