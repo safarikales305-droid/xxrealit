@@ -136,29 +136,34 @@ export class SeoLocationSourcesController {
 
   @Post('ruian/vfr/discover')
   ruianDiscover(@Body() body?: { mode?: 'full' | 'delta' }) {
-    return this.ruianVfr.discoverLatest(body?.mode ?? 'full');
+    return this.ruianVfr.discoverLatestSafe(body?.mode ?? 'full');
   }
 
   @Post('ruian/vfr/full-import')
   ruianFullImport(@Body() body?: { resume?: boolean }) {
-    return this.ruianVfr.runFullImport(body);
+    return this.ruianVfr.runFullImportSafe(body);
   }
 
   @Post('ruian/vfr/daily-download')
   ruianDailyDownload() {
-    return this.ruianVfr.downloadDailyChanges();
+    return this.ruianVfr.downloadDailyChangesSafe();
   }
 
   @Post('ruian/vfr/sync-delta')
   ruianSyncDelta() {
-    return this.ruianVfr.syncDeltaChanges();
+    return this.ruianVfr.syncDeltaChangesSafe();
   }
 
   @Post('ruian/vfr/upload')
   @UseInterceptors(FileInterceptor('file', uploadOptions))
   ruianVfrUpload(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('Soubor chybí.');
-    return this.ruianVfr.importUploadedBuffer(file.buffer, file.originalname);
+    if (!file) return { success: false, error: 'Soubor chybí.', logs: [] };
+    return this.ruianVfr.importUploadedBufferSafe(file.buffer, file.originalname);
+  }
+
+  @Get('ruian/vfr/logs')
+  ruianVfrLogs() {
+    return this.ruianVfr.getImportLogs();
   }
 
   @Post('ruian/map/verify')

@@ -44,9 +44,9 @@ export class SeoLocationSyncCronService implements OnModuleInit, OnModuleDestroy
         const lastFull = cfg.vfr?.lastFullSyncAt ? new Date(cfg.vfr.lastFullSyncAt).getTime() : 0;
         const needFull = force && only === 'ruian-full' ? true : Date.now() - lastFull > MONTH_MS;
         if (needFull && (!only || only === 'ruian-full')) {
-          results.ruianFull = await this.ruianVfr.runFullImport();
+          results.ruianFull = await this.ruianVfr.runFullImportSafe();
         } else if (!only || only === 'ruian-delta') {
-          results.ruianDelta = await this.ruianVfr.syncDeltaChanges();
+          results.ruianDelta = await this.ruianVfr.syncDeltaChangesSafe();
         }
       }
 

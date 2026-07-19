@@ -10,6 +10,7 @@ import { SeoLocationSourceService } from './seo-location-source.service';
 import { SeoPublicListingsController } from './seo-public-listings.controller';
 import { CsuDataStatService } from './csu-datastat.service';
 import { RuianMapService } from './ruian-map.service';
+import { RuianVfrController } from './ruian-vfr.controller';
 import { RuianVfrService } from './ruian-vfr.service';
 import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
 import { SeoPublicListingsService } from './seo-public-listings.service';
@@ -17,7 +18,7 @@ import { SeoAdminCenterService } from './seo-admin-center.service';
 import { SeoService } from './seo.service';
 
 @Module({
-  controllers: [SeoPublicController, SeoAdminController, SeoPublicListingsController, SeoLocationSourcesController],
+  controllers: [SeoPublicController, SeoAdminController, SeoPublicListingsController, SeoLocationSourcesController, RuianVfrController],
   providers: [
     SeoService,
     ProgrammaticSeoService,

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { formatRuianVfrError } from './ruian-vfr.errors';
+import { RuianVfrImportSession } from './ruian-vfr.import-session';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -60,6 +62,21 @@ test('CsuDataStatService.parsePopulationCsv pairs by official code', () => {
   assert.equal(rows[0]!.officialCode, '554782');
   assert.equal(rows[0]!.population, 1397880);
   assert.equal(rows[1]!.officialCode, '500011');
+});
+
+test('formatRuianVfrError maps ENOENT to readable message', () => {
+  const info = formatRuianVfrError(Object.assign(new Error('no such file'), { code: 'ENOENT' }));
+  assert.match(info.userMessage, /nenalezen|disku/i);
+});
+
+test('RuianVfrImportSession tracks progress phases', () => {
+  const session = new RuianVfrImportSession();
+  session.log('discover', 'Načítám stavový soubor...');
+  session.log('download', 'Stahuji...');
+  assert.equal(session.progressPct, 15);
+  session.log('done', 'Hotovo.');
+  assert.equal(session.progressPct, 100);
+  assert.ok(session.entries.length >= 3);
 });
 
 test('streamParseVfrXmlFile parses Obec elements without loading full file to RAM', async () => {

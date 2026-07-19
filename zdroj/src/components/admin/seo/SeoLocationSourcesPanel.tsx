@@ -7,14 +7,16 @@ import {
   nestAdminRuianVfrDailyDownload,
   nestAdminRuianVfrDiscover,
   nestAdminRuianVfrFullImport,
+  nestAdminRuianVfrLiveStatus,
+  nestAdminRuianVfrLogs,
   nestAdminRuianVfrStatus,
   nestAdminRuianVfrSyncDelta,
   nestAdminRuianVfrUpload,
   nestAdminSeoLocationDiagnosticsRun,
-  nestAdminSeoLocationImports,
   nestAdminSeoLocationSourceUpdate,
   nestAdminSeoLocationSources,
   type CsuDataStatStatus,
+  type RuianVfrLogsResponse,
   type RuianVfrStatus,
   type SeoLocationSourceCard,
 } from '@/lib/nest-client';
@@ -38,9 +40,13 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   const [csuStatus, setCsuStatus] = useState<CsuDataStatStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [logSourceId, setLogSourceId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<Array<Record<string, unknown>>>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progressPct, setProgressPct] = useState(0);
+  const [currentStep, setCurrentStep] = useState<string | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
+  const [importLogs, setImportLogs] = useState<RuianVfrLogsResponse | null>(null);
   const vfrFileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(async () => {
     const [srcRes, ruianRes, csuRes] = await Promise.all([
@@ -49,49 +55,115 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
       nestAdminCsuDataStatStatus(token),
     ]);
     if (srcRes) setSources(srcRes);
-    if (ruianRes) setRuianStatus(ruianRes);
+    if (ruianRes) {
+      setRuianStatus(ruianRes);
+      if (!busy && ruianRes.progressPct) setProgressPct(ruianRes.progressPct);
+      if (!busy && ruianRes.currentStep) setCurrentStep(ruianRes.currentStep);
+    }
     if (csuRes) setCsuStatus(csuRes);
-  }, [token]);
+  }, [token, busy]);
+
+  const refreshLogs = useCallback(async () => {
+    try {
+      const logs = await nestAdminRuianVfrLogs(token);
+      setImportLogs(logs);
+      if (logs.running || busy) {
+        setProgressPct(logs.progressPct);
+        setCurrentStep(logs.currentStep);
+      }
+    } catch {
+      /* ignore poll errors */
+    }
+  }, [token, busy]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function startPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      void (async () => {
+        try {
+          const live = await nestAdminRuianVfrLiveStatus(token);
+          setProgressPct(live.progressPct);
+          setCurrentStep(live.currentStep);
+          if (!live.running && pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+            setBusy(false);
+            void refresh();
+            void refreshLogs();
+            onImported?.();
+          }
+        } catch {
+          /* keep polling */
+        }
+        void refreshLogs();
+      })();
+    }, 2000);
+  }
+
   const ruian = sources.find((s) => s.type === 'RUIAN');
   const csu = sources.find((s) => s.type === 'CSU');
 
-  async function runAction(label: string, fn: () => Promise<unknown>) {
+  async function runAction(label: string, fn: () => Promise<unknown>, poll = false) {
     setBusy(true);
     setMsg(null);
+    setErrorMsg(null);
+    setProgressPct(0);
+    setCurrentStep('START IMPORT');
+    if (poll) startPolling();
     try {
       const res = await fn();
-      const r = res as Record<string, unknown> | null;
-      if (r?.inserted !== undefined || r?.updated !== undefined) {
+      const r = res as Record<string, unknown>;
+      if (r.success === false) {
+        setErrorMsg(String(r.error ?? 'Import selhal.'));
+        setBusy(false);
+        if (pollRef.current) clearInterval(pollRef.current);
+        void refreshLogs();
+        return;
+      }
+      if (r.inserted !== undefined || r.updated !== undefined) {
         setMsg(
           `${label}: +${String(r.inserted ?? 0)} nových, ${String(r.updated ?? 0)} aktualizovaných, ${String(r.errorCount ?? 0)} chyb`,
         );
-      } else if (r?.downloaded) {
+        setProgressPct(100);
+        setCurrentStep('Hotovo.');
+      } else if (r.downloaded) {
         setMsg(`${label}: staženo ${String(r.downloaded)}`);
-      } else if (r?.filename) {
-        setMsg(`${label}: nalezen ${String(r.filename)} (${String(r.version ?? '')})`);
-      } else if (r?.updated !== undefined && r?.parsed !== undefined) {
+        setProgressPct(100);
+      } else if (r.file && typeof r.file === 'object') {
+        const f = r.file as { filename?: string; version?: string };
+        setMsg(`${label}: nalezen ${f.filename ?? ''} (${f.version ?? ''})`);
+      } else if (r.updated !== undefined && r.parsed !== undefined) {
         setMsg(`${label}: ${String(r.updated)} obcí aktualizováno z ${String(r.parsed)} řádků`);
       } else {
         setMsg(`${label} dokončeno.`);
       }
-      void refresh();
-      onImported?.();
+      if (!poll) {
+        setBusy(false);
+        void refresh();
+        onImported?.();
+      }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : `${label} selhalo`);
-    } finally {
+      setErrorMsg(e instanceof Error ? e.message : `${label} selhalo`);
       setBusy(false);
+      if (pollRef.current) clearInterval(pollRef.current);
+    } finally {
+      void refreshLogs();
     }
   }
 
-  async function openLogs(sourceId: string) {
-    setLogSourceId(sourceId);
-    const res = await nestAdminSeoLocationImports(token, sourceId);
-    setLogs(res ?? []);
+  async function openLogs() {
+    setShowLogs(true);
+    await refreshLogs();
   }
 
   async function toggleAutoSync(source: SeoLocationSourceCard, enabled: boolean) {
@@ -102,6 +174,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   const ruianStats = ruianStatus?.stats ?? {};
   const ruianStatusClass = STATUS_COLORS[ruianStatus?.lastStatus ?? 'idle'] ?? STATUS_COLORS.idle;
   const csuStatusClass = STATUS_COLORS[csuStatus?.lastStatus ?? 'idle'] ?? STATUS_COLORS.idle;
+  const logEntries = importLogs?.entries ?? [];
 
   return (
     <section className="mb-8 space-y-4">
@@ -117,6 +190,32 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         </button>
       </div>
 
+      {(busy || progressPct > 0) && (
+        <div className="rounded-xl border bg-white p-4">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span className="font-medium">{currentStep ?? 'Import probíhá…'}</span>
+            <span className="tabular-nums">{Math.round(progressPct)} %</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+            <div
+              className="h-full bg-orange-500 transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
+            />
+          </div>
+          <div className="mt-2 flex justify-between text-xs text-zinc-500">
+            <span>0 %</span>
+            <span>25 %</span>
+            <span>50 %</span>
+            <span>75 %</span>
+            <span>100 %</span>
+          </div>
+        </div>
+      )}
+
+      {errorMsg ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errorMsg}</p>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className={`rounded-2xl border p-5 ${ruianStatusClass}`}>
           <div className="mb-3 flex items-start justify-between gap-2">
@@ -126,12 +225,13 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               <p className="mt-1 text-xs opacity-80">API klíč není vyžadován</p>
             </div>
             <span className="rounded-full px-2 py-0.5 text-xs font-medium capitalize">
-              {ruianStatus?.lastStatus ?? 'idle'}
+              {busy ? 'syncing' : (ruianStatus?.lastStatus ?? 'idle')}
             </span>
           </div>
 
           <p className="mb-3 text-sm">
-            Poskytuje: kraje, okresy, ORP, obce, části obcí, katastry, ulice, adresní místa, hierarchii a souřadnice.
+            Poskytuje: kraje, okresy, ORP, POÚ, obce, části obcí, katastry, ulice, adresní místa, hierarchii a
+            souřadnice.
           </p>
           <p className="mb-3 text-xs">
             Poslední synchronizace:{' '}
@@ -157,11 +257,9 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             <dd>{(ruianStats.adresniMista ?? 0).toLocaleString('cs-CZ')}</dd>
             <dt>Chyby</dt>
             <dd>{ruian?.errorCount ?? 0}</dd>
-            <dt>Průběh</dt>
-            <dd>{ruianStatus?.progressPct ?? 0} %</dd>
           </dl>
 
-          {ruianStatus?.lastError ? (
+          {ruianStatus?.lastError && !errorMsg ? (
             <p className="mb-3 text-xs text-red-700">{ruianStatus.lastError}</p>
           ) : null}
 
@@ -175,7 +273,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               disabled={busy}
               primary
               label="Spustit plný import"
-              onClick={() => void runAction('Plný import', () => nestAdminRuianVfrFullImport(token))}
+              onClick={() => void runAction('Plný import', () => nestAdminRuianVfrFullImport(token), true)}
             />
             <ActionBtn
               disabled={busy}
@@ -185,12 +283,10 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             <ActionBtn
               disabled={busy}
               label="Synchronizovat změny"
-              onClick={() => void runAction('Sync delty', () => nestAdminRuianVfrSyncDelta(token))}
+              onClick={() => void runAction('Sync delty', () => nestAdminRuianVfrSyncDelta(token), true)}
             />
             <ActionBtn disabled={busy} label="Nahrát VFR ručně" onClick={() => vfrFileRef.current?.click()} />
-            {ruian ? (
-              <ActionBtn disabled={busy} label="Zobrazit log" onClick={() => void openLogs(ruian.id)} />
-            ) : null}
+            <ActionBtn disabled={busy} label="Zobrazit log" onClick={() => void openLogs()} />
           </div>
 
           {ruian ? (
@@ -211,7 +307,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) void runAction('Ruční VFR', () => nestAdminRuianVfrUpload(token, file));
+              if (file) void runAction('Ruční VFR', () => nestAdminRuianVfrUpload(token, file), true);
             }}
           />
         </div>
@@ -264,9 +360,6 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               label="Testovací sync"
               onClick={() => void runAction('ČSÚ dry-run', () => nestAdminCsuDataStatSync(token, true))}
             />
-            {csu ? (
-              <ActionBtn disabled={busy} label="Zobrazit log" onClick={() => void openLogs(csu.id)} />
-            ) : null}
           </div>
 
           {csu ? (
@@ -282,27 +375,34 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         </div>
       </div>
 
-      {msg ? <p className="rounded-lg border bg-white px-3 py-2 text-sm">{msg}</p> : null}
+      {msg && !errorMsg ? <p className="rounded-lg border bg-white px-3 py-2 text-sm">{msg}</p> : null}
 
-      {logSourceId ? (
+      {showLogs ? (
         <div className="rounded-2xl border bg-white p-4">
           <div className="mb-2 flex justify-between">
-            <h3 className="font-semibold">Log importů</h3>
-            <button type="button" onClick={() => setLogSourceId(null)} className="text-sm text-zinc-500">
+            <h3 className="font-semibold">Log importu RÚIAN</h3>
+            <button type="button" onClick={() => setShowLogs(false)} className="text-sm text-zinc-500">
               Zavřít
             </button>
           </div>
-          <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
-            {logs.map((l) => (
-              <li key={String(l.id)} className="flex justify-between border-b py-1">
-                <span>
-                  {String(l.status)} · {String(l.filename ?? l.sourceLabel ?? '')}
-                </span>
-                <span>
-                  +{String(l.inserted)} / ~{String(l.updated)} · {String(l.errorCount)} chyb
-                </span>
-              </li>
-            ))}
+          <p className="mb-2 text-xs text-zinc-500">
+            {importLogs?.running ? 'Import probíhá…' : 'Poslední běh'}
+            {importLogs?.latestRunId ? ` · run ${importLogs.latestRunId}` : ''}
+          </p>
+          <ul className="max-h-64 space-y-1 overflow-y-auto font-mono text-xs">
+            {logEntries.length === 0 ? (
+              <li className="text-zinc-500">Zatím žádné záznamy.</li>
+            ) : (
+              logEntries.map((entry, i) => (
+                <li
+                  key={`${entry.at}-${i}`}
+                  className={`border-b py-1 ${entry.level === 'error' ? 'text-red-700' : entry.level === 'warn' ? 'text-amber-700' : 'text-zinc-800'}`}
+                >
+                  <span className="text-zinc-400">{new Date(entry.at).toLocaleTimeString('cs-CZ')}</span>{' '}
+                  <span className="text-zinc-500">[{entry.progressPct}%]</span> {entry.message}
+                </li>
+              ))
+            )}
           </ul>
         </div>
       ) : null}

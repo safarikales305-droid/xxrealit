@@ -63,6 +63,8 @@ export class SeoLocationService {
       uploadId?: string;
       filename?: string;
       dataSource?: 'RUIAN' | 'CSU' | 'CUSTOM';
+      skipRunCreation?: boolean;
+      existingRunId?: string;
     },
   ): Promise<{
     runId: string;
@@ -75,9 +77,10 @@ export class SeoLocationService {
     dryRun: boolean;
   }> {
     const dryRun = options?.dryRun ?? false;
-    const run = dryRun
-      ? null
-      : await this.prisma.seoLocationImportRun.create({
+    const run =
+      dryRun || options?.skipRunCreation
+        ? null
+        : await this.prisma.seoLocationImportRun.create({
           data: {
             status: 'running',
             sourceLabel,

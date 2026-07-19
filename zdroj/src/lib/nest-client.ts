@@ -14450,11 +14450,38 @@ async function nestAdminSeoLocationsJson<T>(
     ...init,
     headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
   });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(err.message ?? `Chyba ${res.status}`);
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    message?: string;
+    detail?: string;
+  };
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error ?? data.message ?? data.detail ?? `Chyba ${res.status}`);
   }
-  return (await res.json().catch(() => null)) as T | null;
+  return data as T;
+}
+
+async function nestAdminVfrJson<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  if (!API_BASE_URL || !token) throw new Error('Chybí přihlášení nebo API URL.');
+  const res = await fetch(`${API_BASE_URL}/vfr${path}`, {
+    ...init,
+    headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    message?: string;
+    detail?: string;
+  };
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error ?? data.message ?? data.detail ?? `Chyba ${res.status}`);
+  }
+  return data as T;
 }
 
 export async function nestAdminSeoLocationSources(
@@ -14589,6 +14616,7 @@ export async function nestAdminSeoLocationSaveMappings(
 export type RuianVfrStatus = {
   connector: string;
   apiKeyRequired: boolean;
+  running?: boolean;
   mode: 'full' | 'delta';
   lastAvailableFile: string | null;
   lastImportedFile: string | null;
@@ -14597,6 +14625,7 @@ export type RuianVfrStatus = {
   lastStatus: string;
   lastError: string | null;
   progressPct: number;
+  currentStep?: string | null;
   stats: Record<string, number>;
   provides: string[];
 };
@@ -14620,31 +14649,63 @@ export async function nestAdminRuianVfrStatus(token: string | null): Promise<Rui
   return nestAdminSeoLocationsJson(token, '/ruian/vfr/status');
 }
 
-export async function nestAdminRuianVfrDiscover(
-  token: string | null,
-  mode: 'full' | 'delta' = 'full',
-): Promise<Record<string, unknown> | null> {
-  return nestAdminSeoLocationsJson(token, '/ruian/vfr/discover', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode }),
-  });
+export type RuianVfrLiveStatus = {
+  running: boolean;
+  progressPct: number;
+  currentStep: string;
+  currentPhase: string | null;
+  runId: string | null;
+};
+
+export type RuianVfrLogsResponse = {
+  running: boolean;
+  live: {
+    runId: string | null;
+    currentPhase: string;
+    currentStep: string;
+    progressPct: number;
+    entries: Array<{ at: string; level: string; step: string; message: string; progressPct: number }>;
+    startedAt: string;
+  } | null;
+  latestRunId: string | null;
+  entries: Array<{ at: string; level: string; step: string; message: string; progressPct: number }>;
+  progressPct: number;
+  currentStep: string;
+};
+
+export async function nestAdminRuianVfrLiveStatus(token: string | null): Promise<RuianVfrLiveStatus> {
+  return nestAdminVfrJson(token, '/status');
+}
+
+export async function nestAdminRuianVfrLogs(token: string | null): Promise<RuianVfrLogsResponse> {
+  return nestAdminVfrJson(token, '/logs');
 }
 
 export async function nestAdminRuianVfrFullImport(
   token: string | null,
-): Promise<Record<string, unknown> | null> {
-  return nestAdminSeoLocationsJson(token, '/ruian/vfr/full-import', {
+): Promise<Record<string, unknown>> {
+  return nestAdminVfrJson(token, '/full-import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
 }
 
+export async function nestAdminRuianVfrDiscover(
+  token: string | null,
+  mode: 'full' | 'delta' = 'full',
+): Promise<Record<string, unknown>> {
+  return nestAdminVfrJson(token, '/discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+}
+
 export async function nestAdminRuianVfrDailyDownload(
   token: string | null,
-): Promise<Record<string, unknown> | null> {
-  return nestAdminSeoLocationsJson(token, '/ruian/vfr/daily-download', {
+): Promise<Record<string, unknown>> {
+  return nestAdminVfrJson(token, '/daily-download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
@@ -14653,8 +14714,8 @@ export async function nestAdminRuianVfrDailyDownload(
 
 export async function nestAdminRuianVfrSyncDelta(
   token: string | null,
-): Promise<Record<string, unknown> | null> {
-  return nestAdminSeoLocationsJson(token, '/ruian/vfr/sync-delta', {
+): Promise<Record<string, unknown>> {
+  return nestAdminVfrJson(token, '/sync-delta', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
@@ -14668,16 +14729,20 @@ export async function nestAdminRuianVfrUpload(
   if (!API_BASE_URL || !token) return null;
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(`${API_BASE_URL}/admin/seo/locations/ruian/vfr/upload`, {
+  const res = await fetch(`${API_BASE_URL}/vfr/upload`, {
     method: 'POST',
     headers: nestAuthHeaders(token),
     body: fd,
   });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(err.message ?? `Chyba ${res.status}`);
+  const data = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    message?: string;
+  };
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error ?? data.message ?? `Chyba ${res.status}`);
   }
-  return (await res.json()) as Record<string, unknown>;
+  return data as Record<string, unknown>;
 }
 
 export async function nestAdminCsuDataStatStatus(token: string | null): Promise<CsuDataStatStatus | null> {

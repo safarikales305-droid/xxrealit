@@ -101,7 +101,7 @@ function attrValue(v: unknown): string {
 export async function streamParseVfrXmlFile(
   xmlPath: string,
   onBatch: (rows: SeoLocationImportRow[], stats: VfrStreamStats) => Promise<void>,
-  opts?: { batchSize?: number; skipUntil?: number },
+  opts?: { batchSize?: number; skipUntil?: number; onElement?: (elementType: string) => void },
 ): Promise<{ total: number; stats: VfrStreamStats }> {
   const batchSize = opts?.batchSize ?? 500;
   const stats: VfrStreamStats = {};
@@ -194,6 +194,7 @@ export async function streamParseVfrXmlFile(
               batch.push(row);
               total += 1;
               bumpStat(stats, tag);
+              opts?.onElement?.(tag);
               if (batch.length >= batchSize) {
                 parser.pause();
                 void flush()
