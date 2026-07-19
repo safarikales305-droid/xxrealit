@@ -46,6 +46,9 @@ import { emptyMetaCampaignLaunchResult, emptyMetaCampaignAdSetPayloadPreviewResu
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
+import { MetaPublicUrlHealthService } from './meta-public-url-health.service';
+import { MetaAdsResourcesVerifyService } from './meta-ads-resources-verify.service';
+import { emptyMetaUrlDiagnosticsResult } from './meta-url-diagnostics.util';
 
 @Controller('admin/meta-center')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -66,6 +69,8 @@ export class MetaCenterAdminController {
     private readonly catalogSalesAssetsVerify: MetaCatalogSalesAssetsVerifyService,
     private readonly geo: MetaCenterGeoService,
     private readonly remarketing: MetaCenterRemarketingService,
+    private readonly metaUrlHealth: MetaPublicUrlHealthService,
+    private readonly adsResourcesVerify: MetaAdsResourcesVerifyService,
   ) {}
 
   private async safeEndpoint<T extends Record<string, unknown>>(
@@ -611,6 +616,28 @@ export class MetaCenterAdminController {
         hasOpenGraph: false,
         openGraph: { title: false, description: false, image: false },
         errors: [message],
+      }),
+    );
+  }
+
+  @Get('campaigns/meta-url-diagnostics')
+  diagnoseCampaignMetaUrl(@Query('url') url?: string) {
+    return this.safeEndpoint(
+      'campaigns/meta-url-diagnostics',
+      () => this.metaUrlHealth.diagnoseUrl(url),
+      (message) => emptyMetaUrlDiagnosticsResult(url?.trim() ?? '', message),
+    );
+  }
+
+  @Get('campaigns/meta-ads-resources')
+  verifyMetaAdsResources() {
+    return this.safeEndpoint(
+      'campaigns/meta-ads-resources',
+      () => this.adsResourcesVerify.verifyAll(),
+      (message) => ({
+        ok: false,
+        graphVersion: '',
+        checks: [{ key: 'error', label: 'Chyba', id: null, ok: false, httpStatus: null, message }],
       }),
     );
   }

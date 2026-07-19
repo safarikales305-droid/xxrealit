@@ -8,6 +8,7 @@ import { MetaCenterAdminController } from './meta-center-admin.controller';
 import { MetaCenterPublicController } from './meta-center-public.controller';
 import { PublicHealthController } from './public-health.controller';
 import { MetaPublicUrlHealthService } from './meta-public-url-health.service';
+import { MetaAdsResourcesVerifyService } from './meta-ads-resources-verify.service';
 import { MetaCenterService } from './meta-center.service';
 import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.service';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
@@ -61,6 +62,7 @@ import {
     MetaCatalogSalesAssetsVerifyService,
     MetaInstagramIdentityService,
     MetaPublicUrlHealthService,
+    MetaAdsResourcesVerifyService,
     MetaCampaignBodyPipe,
     OptionalMetaCampaignBodyPipe,
   ],

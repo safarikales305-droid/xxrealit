@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { getServerSideApiBaseUrl, nestAbsoluteAssetUrl } from '@/lib/api';
-import { getAppOrigin } from '@/lib/app-url';
-import { pageTitle } from '@/lib/seo/metadata';
+import { buildProfileOpenGraphMetadata } from '@/lib/profile-og-metadata';
 
 type LayoutProps = {
   params: Promise<{ slug: string }>;
@@ -18,7 +17,10 @@ export async function generateMetadata({ params }: LayoutProps): Promise<Metadat
   const { slug } = await params;
   const base = getServerSideApiBaseUrl();
   if (!base || !slug.trim()) {
-    return { title: pageTitle('Makléř'), robots: { index: true, follow: true } };
+    return buildProfileOpenGraphMetadata({
+      name: 'Makléř',
+      canonicalPath: `/makler/${slug}`,
+    });
   }
 
   const res = await fetch(
@@ -26,7 +28,10 @@ export async function generateMetadata({ params }: LayoutProps): Promise<Metadat
     { cache: 'no-store', headers: { Accept: 'application/json' } },
   );
   if (!res.ok) {
-    return { title: pageTitle('Makléř'), robots: { index: true, follow: true } };
+    return buildProfileOpenGraphMetadata({
+      name: 'Makléř',
+      canonicalPath: `/makler/${slug}`,
+    });
   }
 
   const data = (await res.json()) as {
@@ -40,36 +45,23 @@ export async function generateMetadata({ params }: LayoutProps): Promise<Metadat
   };
   const broker = data.broker;
   if (!broker) {
-    return { title: pageTitle('Makléř'), robots: { index: true, follow: true } };
+    return buildProfileOpenGraphMetadata({
+      name: 'Makléř',
+      canonicalPath: `/makler/${slug}`,
+    });
   }
 
-  const title = pageTitle(broker.name?.trim() || 'Makléř');
-  const description =
-    broker.bio?.trim()?.slice(0, 200) ||
-    `${broker.name ?? 'Makléř'}${broker.officeName ? ` – ${broker.officeName}` : ''} na XXREALIT.`;
   const image =
-    publicAssetUrl(broker.coverImageUrl) || publicAssetUrl(broker.avatarUrl) || undefined;
-  const canonical = `${getAppOrigin()}/makler/${encodeURIComponent(slug)}`;
+    publicAssetUrl(broker.coverImageUrl) || publicAssetUrl(broker.avatarUrl) || null;
 
-  return {
-    title,
-    description,
-    alternates: { canonical },
-    openGraph: {
-      title,
-      description,
-      url: canonical,
-      type: 'profile',
-      images: image ? [{ url: image, width: 1200, height: 630, alt: broker.name ?? 'Makléř' }] : undefined,
-    },
-    twitter: {
-      card: image ? 'summary_large_image' : 'summary',
-      title,
-      description,
-      images: image ? [image] : undefined,
-    },
-    robots: { index: true, follow: true },
-  };
+  return buildProfileOpenGraphMetadata({
+    name: broker.name?.trim() || 'Makléř',
+    description:
+      broker.bio?.trim() ||
+      `${broker.name ?? 'Makléř'}${broker.officeName ? ` – ${broker.officeName}` : ''} na XXREALIT.`,
+    imageUrl: image,
+    canonicalPath: `/makler/${encodeURIComponent(slug)}`,
+  });
 }
 
 export default function MaklerSlugLayout({ children }: { children: React.ReactNode }) {

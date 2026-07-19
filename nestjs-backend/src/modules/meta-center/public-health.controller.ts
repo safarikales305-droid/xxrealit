@@ -9,4 +9,9 @@ export class PublicHealthController {
   checkMetaUrl(@Query('url') url?: string) {
     return this.metaUrlHealth.checkUrl(url);
   }
+
+  @Get('meta-url/diagnostics')
+  diagnoseMetaUrl(@Query('url') url?: string) {
+    return this.metaUrlHealth.diagnoseUrl(url);
+  }
 }

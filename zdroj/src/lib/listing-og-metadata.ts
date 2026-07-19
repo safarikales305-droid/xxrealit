@@ -327,7 +327,8 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
     shareUrl: pageUrl,
     priceIncluded: false,
   });
-  const ogType = isShorts ? 'video.other' : 'article';
+  const ogType = 'website';
+  const siteName = 'XXREALIT';
   const videoAbs = listing.videoUrl?.trim()
     ? (() => {
         const t = upgradeHttpToHttps(listing.videoUrl!.trim());
@@ -347,7 +348,7 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
       title,
       description,
       url: pageUrl,
-      siteName: 'XXrealit.cz',
+      siteName,
       locale: 'cs_CZ',
       images: [{ url: imageUrl, width: 1200, height: 630, alt: listing.title, type: 'image/jpeg' }],
       ...(videoAbs
@@ -370,6 +371,7 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
       description,
       images: [imageUrl],
     },
+    robots: { index: true, follow: true },
     other: {
       'og:title': title,
       'og:description': description,
@@ -380,6 +382,8 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
       'og:image:type': 'image/jpeg',
       'og:url': pageUrl,
       'og:type': ogType,
+      'og:site_name': siteName,
+      'og:locale': 'cs_CZ',
       ...(videoAbs
         ? {
             'og:video': videoAbs,

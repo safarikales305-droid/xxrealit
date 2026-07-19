@@ -192,6 +192,7 @@ export type MetaLaunchPayloadSnapshot = {
     message: string;
     details?: Record<string, unknown>;
   }> | null;
+  urlDiagnostics?: import('./meta-url-diagnostics.util').MetaUrlDiagnosticsResult[] | null;
   launchHistory?: string[] | null;
   placementSanitizeWarnings?: string[] | null;
 };

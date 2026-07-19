@@ -50,6 +50,7 @@ import {
   resolveMetaCampaignDestinationUrls,
 } from './meta-campaign-destination-url.util';
 import { probeMetaPublicUrl } from './meta-public-url-health.util';
+import { runMetaUrlDiagnostics } from './meta-url-diagnostics.util';
 import {
   META_CAMPAIGN_TARGETING_MODES,
   META_CREATIVE_TYPES,
@@ -4049,11 +4050,31 @@ export class MetaCenterCampaignsService {
         : null,
     });
     const summary = summarizePreflightChecks(checks);
+    const dto = this.draftRowToDto(draft);
+    const destinationUrls = await this.resolveDestinationUrlsForLaunch(dto);
+    const urlChecks: MetaPreflightCheck[] = [];
+    for (const destUrl of destinationUrls) {
+      const diag = await runMetaUrlDiagnostics(destUrl);
+      urlChecks.push({
+        key: `meta_url_${urlChecks.length}`,
+        ok: diag.ok,
+        severity: diag.ok ? 'info' : 'error',
+        message: diag.ok
+          ? `Cílová URL je veřejná: ${destUrl}`
+          : `Cílová URL není veřejná (${destUrl}): ${diag.errors.join(' · ')}`,
+        details: { url: destUrl, diagnostics: diag },
+      });
+    }
+    const allChecks = [...checks, ...urlChecks];
+    const combinedSummary = summarizePreflightChecks(allChecks);
     const launchPayloads =
       draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'
         ? ({ ...(draft.metaLaunchPayloads as MetaLaunchPayloadSnapshot) } as MetaLaunchPayloadSnapshot)
         : ({} as MetaLaunchPayloadSnapshot);
-    launchPayloads.preflightChecks = checks;
+    launchPayloads.preflightChecks = allChecks;
+    launchPayloads.urlDiagnostics = destinationUrls.length
+      ? await Promise.all(destinationUrls.map((u) => runMetaUrlDiagnostics(u)))
+      : [];
     await this.prisma.metaMarketingCampaignDraft.update({
       where: { id: draftId },
       data: {
@@ -4063,9 +4084,9 @@ export class MetaCenterCampaignsService {
     });
     const refreshed = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
     return {
-      ok: summary.ok,
-      message: summary.message,
-      checks,
+      ok: combinedSummary.ok,
+      message: combinedSummary.message,
+      checks: allChecks,
       campaign: this.serializeDraft(refreshed ?? draft),
     };
   }

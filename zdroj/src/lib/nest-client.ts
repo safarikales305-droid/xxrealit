@@ -4890,6 +4890,173 @@ export async function nestAdminMetaCenterCampaignMetaUrlHealth(
   return r.data;
 }
 
+export type MetaUrlDiagnosticsMeta = {
+  canonical: string | null;
+  robots: string | null;
+  ogType: string | null;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImage: string | null;
+  ogImageWidth: string | null;
+  ogImageHeight: string | null;
+  ogUrl: string | null;
+  ogSiteName: string | null;
+  ogLocale: string | null;
+  ogVideo: string | null;
+  ogVideoType: string | null;
+  ogVideoWidth: string | null;
+  ogVideoHeight: string | null;
+  twitterCard: string | null;
+  twitterTitle: string | null;
+  twitterDescription: string | null;
+  twitterImage: string | null;
+  metaPixelIds: string[];
+};
+
+export type MetaUrlDiagnosticsResult = {
+  ok: boolean;
+  url: string;
+  finalUrl: string;
+  httpStatus: number | null;
+  redirects: Array<{ status: number; url: string }>;
+  anonymousAccess: boolean;
+  requiresLogin: boolean;
+  indexable: boolean;
+  canonical: string | null;
+  canonicalHasQuery: boolean;
+  robots: string | null;
+  meta: MetaUrlDiagnosticsMeta;
+  ogImageReachable: boolean | null;
+  ogImageHttpStatus: number | null;
+  facebookCrawler: {
+    userAgent: string;
+    httpStatus: number | null;
+    finalUrl: string;
+    redirects: Array<{ status: number; url: string }>;
+    requiresLogin: boolean;
+    ok: boolean;
+    error: string | null;
+  };
+  googleCrawler: {
+    userAgent: string;
+    httpStatus: number | null;
+    finalUrl: string;
+    redirects: Array<{ status: number; url: string }>;
+    requiresLogin: boolean;
+    ok: boolean;
+    error: string | null;
+  };
+  errors: string[];
+  warnings: string[];
+  autoFixes: Array<{ key: string; label: string; action: string }>;
+};
+
+export type MetaAdsResourceCheck = {
+  key: string;
+  label: string;
+  id: string | null;
+  ok: boolean;
+  httpStatus: number | null;
+  message: string;
+};
+
+/** GET /admin/meta-center/campaigns/meta-url-diagnostics */
+export async function nestAdminMetaCenterCampaignMetaUrlDiagnostics(
+  token: string,
+  url: string,
+): Promise<MetaUrlDiagnosticsResult> {
+  const trimmed = url.trim();
+  const empty: MetaUrlDiagnosticsResult = {
+    ok: false,
+    url: trimmed,
+    finalUrl: trimmed,
+    httpStatus: null,
+    redirects: [],
+    anonymousAccess: false,
+    requiresLogin: false,
+    indexable: false,
+    canonical: null,
+    canonicalHasQuery: false,
+    robots: null,
+    meta: {
+      canonical: null,
+      robots: null,
+      ogType: null,
+      ogTitle: null,
+      ogDescription: null,
+      ogImage: null,
+      ogImageWidth: null,
+      ogImageHeight: null,
+      ogUrl: null,
+      ogSiteName: null,
+      ogLocale: null,
+      ogVideo: null,
+      ogVideoType: null,
+      ogVideoWidth: null,
+      ogVideoHeight: null,
+      twitterCard: null,
+      twitterTitle: null,
+      twitterDescription: null,
+      twitterImage: null,
+      metaPixelIds: [],
+    },
+    ogImageReachable: null,
+    ogImageHttpStatus: null,
+    facebookCrawler: {
+      userAgent: 'facebookexternalhit',
+      httpStatus: null,
+      finalUrl: trimmed,
+      redirects: [],
+      requiresLogin: false,
+      ok: false,
+      error: 'API nebo URL chybí.',
+    },
+    googleCrawler: {
+      userAgent: 'Googlebot',
+      httpStatus: null,
+      finalUrl: trimmed,
+      redirects: [],
+      requiresLogin: false,
+      ok: false,
+      error: 'API nebo URL chybí.',
+    },
+    errors: ['API nebo URL chybí.'],
+    warnings: [],
+    autoFixes: [],
+  };
+  if (!API_BASE_URL || !trimmed) return empty;
+  const r = await metaCenterFetch<MetaUrlDiagnosticsResult>(
+    token,
+    `/campaigns/meta-url-diagnostics?url=${encodeURIComponent(trimmed)}`,
+  );
+  if (!r.ok) {
+    return { ...empty, errors: [r.error] };
+  }
+  return r.data;
+}
+
+/** GET /admin/meta-center/campaigns/meta-ads-resources */
+export async function nestAdminMetaCenterMetaAdsResources(
+  token: string,
+): Promise<{ ok: boolean; checks: MetaAdsResourceCheck[]; graphVersion: string | null }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, checks: [], graphVersion: null };
+  }
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    checks: MetaAdsResourceCheck[];
+    graphVersion: string;
+  }>(token, '/campaigns/meta-ads-resources');
+  if (!r.ok) {
+    return { ok: false, checks: [], graphVersion: null };
+  }
+  return {
+    ok: r.data.ok,
+    checks: r.data.checks,
+    graphVersion: r.data.graphVersion ?? null,
+  };
+}
+
 /** POST /brokers/:brokerId/reviews */
 export async function nestUpsertBrokerReview(
   token: string | null,

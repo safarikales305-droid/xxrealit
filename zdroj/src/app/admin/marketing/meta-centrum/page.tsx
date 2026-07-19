@@ -35,6 +35,7 @@ import {
   isPendingMetaVerificationError,
   MetaPendingVerificationCard,
 } from '@/components/meta-centrum/MetaPendingVerificationCard';
+import { MetaUrlDiagnosticsPanel } from '@/components/meta-centrum/MetaUrlDiagnosticsPanel';
 import { MetaAdPlacementSettingsPanel } from '@/components/meta-centrum/MetaAdPlacementSettingsPanel';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 import { MetaCatalogAssetsVerifyPanel } from '@/components/meta-centrum/MetaCatalogAssetsVerifyPanel';
@@ -233,6 +234,7 @@ const TABS = [
   { id: 'api-logs', label: 'Meta API logy' },
   { id: 'remarketing', label: 'Remarketing' },
   { id: 'campaigns', label: 'Kampaně' },
+  { id: 'url-diagnostics', label: 'Diagnostika URL' },
   { id: 'mapping', label: 'Mapování' },
 ] as const;
 
@@ -5308,6 +5310,10 @@ export default function MetaCentrumPage() {
               </table>
             </div>
           </section>
+        ) : null}
+
+        {tab === 'url-diagnostics' ? (
+          <MetaUrlDiagnosticsPanel token={token} initialUrl={targetLaunchUrl} />
         ) : null}
 
         {tab === 'mapping' && dash ? (

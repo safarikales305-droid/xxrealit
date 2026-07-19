@@ -7,9 +7,8 @@ import { UserPropertiesList } from '@/components/profile/user-properties-list';
 import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { RightSidebar } from '@/components/home/right-sidebar';
 import { ROLE_LABELS, isUserRole } from '@/lib/roles';
-import { getAppOrigin } from '@/lib/app-url';
 import { getServerSideApiBaseUrl, nestAbsoluteAssetUrl } from '@/lib/api';
-import { pageTitle } from '@/lib/seo/metadata';
+import { buildProfileOpenGraphMetadata } from '@/lib/profile-og-metadata';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 import {
   safeNormalizePropertyFromApi,
@@ -72,7 +71,7 @@ export async function generateMetadata({
   const { id } = await params;
   const base = getServerSideApiBaseUrl();
   if (!base) {
-    return { title: pageTitle('Profil'), robots: { index: true, follow: true } };
+    return buildProfileOpenGraphMetadata({ name: 'Profil', canonicalPath: `/profile/${id}` });
   }
 
   const res = await fetch(`${base}/users/${encodeURIComponent(id)}`, {
@@ -80,43 +79,27 @@ export async function generateMetadata({
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) {
-    return { title: pageTitle('Profil'), robots: { index: true, follow: true } };
+    return buildProfileOpenGraphMetadata({ name: 'Profil', canonicalPath: `/profile/${id}` });
   }
 
   const profile = (await res.json()) as PublicProfile;
   const user = profile.user ?? profile;
   const name = user.name?.trim() || 'Profil';
-  const title = pageTitle(name);
-  const description =
-    user.bio?.trim()?.slice(0, 200) ||
-    `${name}${user.city ? ` – ${user.city}` : ''} na XXREALIT.`;
   const imageRaw = user.coverImage || user.avatar;
   const image = imageRaw
     ? /^https?:\/\//i.test(imageRaw)
       ? imageRaw
       : nestAbsoluteAssetUrl(imageRaw) || imageRaw
-    : undefined;
-  const canonical = `${getAppOrigin()}/profile/${encodeURIComponent(id)}`;
+    : null;
 
-  return {
-    title,
-    description,
-    alternates: { canonical },
-    openGraph: {
-      title,
-      description,
-      url: canonical,
-      type: 'profile',
-      images: image ? [{ url: image, width: 1200, height: 630, alt: name }] : undefined,
-    },
-    twitter: {
-      card: image ? 'summary_large_image' : 'summary',
-      title,
-      description,
-      images: image ? [image] : undefined,
-    },
-    robots: { index: true, follow: true },
-  };
+  return buildProfileOpenGraphMetadata({
+    name,
+    description:
+      user.bio?.trim() ||
+      `${name}${user.city ? ` – ${user.city}` : ''} na XXREALIT.`,
+    imageUrl: image,
+    canonicalPath: `/profile/${encodeURIComponent(id)}`,
+  });
 }
 
 async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
