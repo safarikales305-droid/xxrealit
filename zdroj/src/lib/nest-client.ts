@@ -14619,6 +14619,7 @@ export type RuianVfrStatus = {
   running?: boolean;
   mode: 'full' | 'delta';
   lastAvailableFile: string | null;
+  lastAvailableUrl?: string | null;
   lastImportedFile: string | null;
   lastImportedVersion: string | null;
   lastSyncAt: string | null;
@@ -14688,6 +14689,17 @@ export async function nestAdminRuianVfrFullImport(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianVfrTestImport(
+  token: string | null,
+  limit = 100,
+): Promise<Record<string, unknown>> {
+  return nestAdminVfrJson(token, '/test-import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit }),
   });
 }
 

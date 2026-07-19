@@ -11,6 +11,7 @@ import {
   nestAdminRuianVfrLogs,
   nestAdminRuianVfrStatus,
   nestAdminRuianVfrSyncDelta,
+  nestAdminRuianVfrTestImport,
   nestAdminRuianVfrUpload,
   nestAdminSeoLocationDiagnosticsRun,
   nestAdminSeoLocationSourceUpdate,
@@ -27,6 +28,8 @@ const STATUS_COLORS: Record<string, string> = {
   syncing: 'bg-blue-100 text-blue-800 border-blue-200',
   idle: 'bg-amber-100 text-amber-800 border-amber-200',
   pending: 'bg-amber-100 text-amber-800 border-amber-200',
+  empty_import: 'bg-orange-100 text-orange-900 border-orange-200',
+  failed: 'bg-red-100 text-red-800 border-red-200',
 };
 
 type Props = {
@@ -45,6 +48,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
   const [importLogs, setImportLogs] = useState<RuianVfrLogsResponse | null>(null);
+  const [testPreview, setTestPreview] = useState<Array<{ officialCode: string; name: string }>>([]);
   const vfrFileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -124,10 +128,16 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
       const res = await fn();
       const r = res as Record<string, unknown>;
       if (r.success === false) {
-        setErrorMsg(String(r.error ?? 'Import selhal.'));
+        const status = String(r.status ?? '');
+        if (status === 'EMPTY_IMPORT') {
+          setErrorMsg('Import doběhl, ale nebyly nalezeny žádné záznamy.');
+        } else {
+          setErrorMsg(String(r.error ?? 'Import selhal.'));
+        }
         setBusy(false);
         if (pollRef.current) clearInterval(pollRef.current);
         void refreshLogs();
+        void refresh();
         return;
       }
       if (r.inserted !== undefined || r.updated !== undefined) {
@@ -140,8 +150,14 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         setMsg(`${label}: staženo ${String(r.downloaded)}`);
         setProgressPct(100);
       } else if (r.file && typeof r.file === 'object') {
-        const f = r.file as { filename?: string; version?: string };
+        const f = r.file as { filename?: string; version?: string; url?: string };
         setMsg(`${label}: nalezen ${f.filename ?? ''} (${f.version ?? ''})`);
+      } else if (Array.isArray(r.preview)) {
+        const preview = r.preview as Array<{ officialCode?: string; name?: string }>;
+        setTestPreview(
+          preview.map((p) => ({ officialCode: p.officialCode ?? '', name: p.name ?? '' })),
+        );
+        setMsg(`${label}: náhled ${preview.length} obcí (bez zápisu do DB)`);
       } else if (r.updated !== undefined && r.parsed !== undefined) {
         setMsg(`${label}: ${String(r.updated)} obcí aktualizováno z ${String(r.parsed)} řádků`);
       } else {
@@ -172,7 +188,17 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   }
 
   const ruianStats = ruianStatus?.stats ?? {};
-  const ruianStatusClass = STATUS_COLORS[ruianStatus?.lastStatus ?? 'idle'] ?? STATUS_COLORS.idle;
+  const ruianObce = ruianStats.obce ?? 0;
+  const ruianLastStatus = busy ? 'syncing' : (ruianStatus?.lastStatus ?? 'idle');
+  const ruianStatusKey =
+    ruianLastStatus === 'empty_import' || (ruianLastStatus === 'ok' && ruianObce === 0)
+      ? 'empty_import'
+      : ruianLastStatus === 'ok' && ruianObce > 0
+        ? 'ok'
+        : ruianLastStatus === 'error'
+          ? 'error'
+          : ruianLastStatus;
+  const ruianStatusClass = STATUS_COLORS[ruianStatusKey] ?? STATUS_COLORS.idle;
   const csuStatusClass = STATUS_COLORS[csuStatus?.lastStatus ?? 'idle'] ?? STATUS_COLORS.idle;
   const logEntries = importLogs?.entries ?? [];
 
@@ -225,7 +251,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               <p className="mt-1 text-xs opacity-80">API klíč není vyžadován</p>
             </div>
             <span className="rounded-full px-2 py-0.5 text-xs font-medium capitalize">
-              {busy ? 'syncing' : (ruianStatus?.lastStatus ?? 'idle')}
+              {ruianStatusKey}
             </span>
           </div>
 
@@ -244,7 +270,17 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             <dt>Režim</dt>
             <dd>{ruianStatus?.mode === 'delta' ? 'denní změny' : 'plný import'}</dd>
             <dt>Poslední dostupný soubor</dt>
-            <dd className="truncate font-mono">{ruianStatus?.lastAvailableFile ?? '—'}</dd>
+            <dd className="truncate font-mono" title={ruianStatus?.lastAvailableUrl ?? undefined}>
+              {ruianStatus?.lastAvailableFile ?? '—'}
+            </dd>
+            {ruianStatus?.lastAvailableUrl ? (
+              <>
+                <dt>URL zdroje</dt>
+                <dd className="col-span-1 truncate font-mono text-[10px]" title={ruianStatus.lastAvailableUrl}>
+                  {ruianStatus.lastAvailableUrl}
+                </dd>
+              </>
+            ) : null}
             <dt>Poslední importovaný</dt>
             <dd className="truncate font-mono">{ruianStatus?.lastImportedFile ?? '—'}</dd>
             <dt>Obce</dt>
@@ -258,6 +294,12 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             <dt>Chyby</dt>
             <dd>{ruian?.errorCount ?? 0}</dd>
           </dl>
+
+          {ruianStatusKey === 'empty_import' && !errorMsg ? (
+            <p className="mb-3 text-xs text-orange-800">
+              Import doběhl, ale nebyly nalezeny žádné záznamy.
+            </p>
+          ) : null}
 
           {ruianStatus?.lastError && !errorMsg ? (
             <p className="mb-3 text-xs text-red-700">{ruianStatus.lastError}</p>
@@ -274,6 +316,13 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               primary
               label="Spustit plný import"
               onClick={() => void runAction('Plný import', () => nestAdminRuianVfrFullImport(token), true)}
+            />
+            <ActionBtn
+              disabled={busy}
+              label="Test importu 100 záznamů"
+              onClick={() =>
+                void runAction('Test importu', () => nestAdminRuianVfrTestImport(token, 100))
+              }
             />
             <ActionBtn
               disabled={busy}
@@ -298,6 +347,22 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               />
               Automatická synchronizace (denní delta, měsíční plný import)
             </label>
+          ) : null}
+
+          {testPreview.length > 0 ? (
+            <div className="mt-3 rounded-lg border bg-white/60 p-2 text-xs">
+              <p className="mb-1 font-semibold">Náhled obcí (test)</p>
+              <ul className="max-h-24 overflow-y-auto font-mono">
+                {testPreview.slice(0, 10).map((row) => (
+                  <li key={row.officialCode}>
+                    {row.officialCode} — {row.name}
+                  </li>
+                ))}
+                {testPreview.length > 10 ? (
+                  <li className="text-zinc-500">… a dalších {testPreview.length - 10}</li>
+                ) : null}
+              </ul>
+            </div>
           ) : null}
 
           <input
@@ -379,11 +444,30 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
 
       {showLogs ? (
         <div className="rounded-2xl border bg-white p-4">
-          <div className="mb-2 flex justify-between">
+          <div className="mb-2 flex justify-between gap-2">
             <h3 className="font-semibold">Log importu RÚIAN</h3>
-            <button type="button" onClick={() => setShowLogs(false)} className="text-sm text-zinc-500">
-              Zavřít
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-sm text-zinc-600"
+                onClick={() => {
+                  const blob = new Blob([JSON.stringify(importLogs, null, 2)], {
+                    type: 'application/json',
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `ruian-vfr-log-${new Date().toISOString().slice(0, 10)}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Stáhnout JSON
+              </button>
+              <button type="button" onClick={() => setShowLogs(false)} className="text-sm text-zinc-500">
+                Zavřít
+              </button>
+            </div>
           </div>
           <p className="mb-2 text-xs text-zinc-500">
             {importLogs?.running ? 'Import probíhá…' : 'Poslední běh'}

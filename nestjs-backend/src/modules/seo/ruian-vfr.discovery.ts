@@ -4,7 +4,6 @@ import {
   RUIAN_VFR_DAILY_ATOM_URL,
   RUIAN_VFR_MONTHLY_BASE_URL,
   RUIAN_VFR_STATE_FILE_TOKEN,
-  RUIAN_VFR_DELTA_FILE_TOKEN,
 } from './ruian-vfr.official.constants';
 import { sanitizeXmlInput } from './seo-location-import.util';
 
@@ -14,16 +13,88 @@ export type RuianVfrFileRef = {
   kind: 'full' | 'delta';
   version: string;
   publishedAt?: string;
+  datasetType: string;
+  sizeLabel?: string;
 };
+
+/** Priorita stavových souborů pro kompletní import hierarchie. */
+const FULL_STATE_PRIORITY = ['ST_UKSG', 'ST_UKSH', 'ST_UZSZ'] as const;
 
 function formatYm(d: Date): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/** Najde nejnovější měsíční stavový ST_UKSG na services.cuzk.gov.cz/vfr/YYYYMM/ */
+function parseIndexEntries(html: string): Array<{ href: string; sizeLabel?: string }> {
+  const entries: Array<{ href: string; sizeLabel?: string }> = [];
+  const rowRe =
+    /<tr>\s*<td[^>]*>([^<]*)<\/td>\s*<td><a href="([^"]+\.zip)"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rowRe.exec(html)) !== null) {
+    entries.push({ sizeLabel: m[1]?.trim(), href: m[2]! });
+  }
+  if (entries.length) return entries;
+
+  const linkRe = /href="([^"]+\.zip)"/gi;
+  while ((m = linkRe.exec(html)) !== null) {
+    entries.push({ href: m[1]! });
+  }
+  return entries;
+}
+
+function resolveZipUrl(href: string, indexUrl: string): string {
+  if (href.startsWith('http')) return href;
+  return new URL(href, indexUrl).toString();
+}
+
+function pickBestStateFile(
+  entries: Array<{ href: string; sizeLabel?: string }>,
+  indexUrl: string,
+): RuianVfrFileRef | null {
+  const candidates: Array<RuianVfrFileRef & { sortKey: string }> = [];
+
+  for (const entry of entries) {
+    const filename = entry.href.split('/').pop() ?? entry.href;
+    const upper = filename.toUpperCase();
+    if (!upper.includes(RUIAN_VFR_STATE_FILE_TOKEN) && !FULL_STATE_PRIORITY.some((t) => upper.includes(t))) {
+      continue;
+    }
+    const datasetType =
+      FULL_STATE_PRIORITY.find((t) => upper.includes(t)) ??
+      (upper.includes(RUIAN_VFR_STATE_FILE_TOKEN) ? 'ST_UKSG' : 'UNKNOWN');
+    const dateMatch = filename.match(/^(\d{8})/);
+    const sortKey = dateMatch?.[1] ?? filename;
+    candidates.push({
+      url: resolveZipUrl(entry.href, indexUrl),
+      filename,
+      kind: 'full',
+      version: sortKey.slice(0, 6),
+      publishedAt: dateMatch?.[1] ?? undefined,
+      datasetType,
+      sizeLabel: entry.sizeLabel,
+      sortKey,
+    });
+  }
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    const pa = FULL_STATE_PRIORITY.indexOf(a.datasetType as (typeof FULL_STATE_PRIORITY)[number]);
+    const pb = FULL_STATE_PRIORITY.indexOf(b.datasetType as (typeof FULL_STATE_PRIORITY)[number]);
+    const prioA = pa >= 0 ? pa : 99;
+    const prioB = pb >= 0 ? pb : 99;
+    if (prioA !== prioB) return prioA - prioB;
+    return b.sortKey.localeCompare(a.sortKey);
+  });
+
+  const best = candidates[0]!;
+  const { sortKey: _sk, ...rest } = best;
+  return rest;
+}
+
+/** Najde nejnovější měsíční stavový ST_UKSG/ST_UKSH na services.cuzk.gov.cz/vfr/YYYYMM/ */
 export async function discoverLatestMonthlyVfrFile(): Promise<RuianVfrFileRef | null> {
   const now = new Date();
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 12; i += 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const ym = formatYm(d);
     const indexUrl = `${RUIAN_VFR_MONTHLY_BASE_URL}/${ym}/`;
@@ -35,20 +106,9 @@ export async function discoverLatestMonthlyVfrFile(): Promise<RuianVfrFileRef | 
       });
       if (res.status >= 400) continue;
       const html = String(res.data);
-      const re = new RegExp(`href="([^"]*${RUIAN_VFR_STATE_FILE_TOKEN}[^"]*\\.zip)"`, 'i');
-      const match = html.match(re);
-      if (match?.[1]) {
-        const href = match[1];
-        const url = href.startsWith('http') ? href : new URL(href, indexUrl).toString();
-        const filename = url.split('/').pop() ?? href;
-        return {
-          url,
-          filename,
-          kind: 'full',
-          version: ym,
-          publishedAt: `${ym}01`,
-        };
-      }
+      const entries = parseIndexEntries(html);
+      const picked = pickBestStateFile(entries, indexUrl);
+      if (picked) return picked;
     } catch {
       /* try previous month */
     }
@@ -66,11 +126,7 @@ export async function discoverLatestDailyVfrFile(): Promise<RuianVfrFileRef | nu
   const parsed = await parseStringPromise(safe, { explicitArray: false, trim: true });
   const feed = parsed.feed ?? parsed['atom:feed'];
   if (!feed) return null;
-  const entries = feed.entry
-    ? Array.isArray(feed.entry)
-      ? feed.entry
-      : [feed.entry]
-    : [];
+  const entries = feed.entry ? (Array.isArray(feed.entry) ? feed.entry : [feed.entry]) : [];
   const sorted = entries
     .map((e: Record<string, unknown>) => {
       const link = e.link as
@@ -94,6 +150,7 @@ export async function discoverLatestDailyVfrFile(): Promise<RuianVfrFileRef | nu
     kind: 'delta',
     version: top.updated.slice(0, 10),
     publishedAt: top.updated,
+    datasetType: 'ST_ZZSG',
   };
 }
 
@@ -102,7 +159,8 @@ export async function discoverRuianVfrFile(mode: 'full' | 'delta'): Promise<Ruia
 }
 
 export function isStateVfrFilename(name: string): boolean {
-  return name.toUpperCase().includes(RUIAN_VFR_STATE_FILE_TOKEN);
+  const u = name.toUpperCase();
+  return u.includes(RUIAN_VFR_STATE_FILE_TOKEN) || FULL_STATE_PRIORITY.some((t) => u.includes(t));
 }
 
 export function isDeltaVfrFilename(name: string): boolean {

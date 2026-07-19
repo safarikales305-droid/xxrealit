@@ -13,6 +13,12 @@ export type CsuPopulationRow = {
   name?: string;
 };
 
+type CsuVyberMeta = {
+  kod?: string;
+  sadaKod?: string;
+  nazev?: string;
+};
+
 @Injectable()
 export class CsuDataStatService {
   private readonly log = new Logger(CsuDataStatService.name);
@@ -43,6 +49,7 @@ export class CsuDataStatService {
     try {
       const res = await axios.get(`${cfg.catalogUrl}/sady`, {
         timeout: 30000,
+        headers: { 'Accept-Language': 'cs' },
         validateStatus: (s: number) => s < 500,
       });
       return { ok: res.status < 400, status: res.status, datasets: Array.isArray(res.data) ? res.data.length : null };
@@ -51,12 +58,81 @@ export class CsuDataStatService {
     }
   }
 
+  private formatCsuAxiosError(err: unknown, context: string): Error {
+    const ax = err as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    const status = ax.response?.status;
+    const body =
+      ax.response?.data != null
+        ? typeof ax.response.data === 'string'
+          ? ax.response.data
+          : JSON.stringify(ax.response.data)
+        : '';
+    const detail = body || ax.message || context;
+    this.log.error(`ČSÚ ${context}: HTTP ${status ?? '?'} — ${detail}`);
+    const userMessage =
+      status === 400
+        ? `ČSÚ odmítlo požadavek (HTTP 400): ${detail.slice(0, 500)}`
+        : status
+          ? `ČSÚ API chyba (HTTP ${status}): ${detail.slice(0, 300)}`
+          : `ČSÚ API chyba: ${detail.slice(0, 300)}`;
+    return Object.assign(new Error(userMessage), {
+      code: status ? `HTTP_${status}` : 'CSU_API_ERROR',
+      userMessage,
+      detail,
+      responseBody: body,
+    });
+  }
+
+  /** Najde platný kód předdefinovaného výběru pro datovou sadu v katalogu ČSÚ. */
+  async resolveVyberCode(datasetCode: string, preferred?: string): Promise<string> {
+    if (preferred) return preferred;
+    try {
+      const res = await axios.get(`${CSU_DATASTAT_DEFAULTS.catalogUrl}/vybery`, {
+        timeout: 30000,
+        headers: { 'Accept-Language': 'cs' },
+      });
+      const vybery = (Array.isArray(res.data) ? res.data : []) as CsuVyberMeta[];
+      const byDataset = vybery.filter(
+        (v) =>
+          v.sadaKod === datasetCode ||
+          v.kod?.startsWith(datasetCode) ||
+          /obec|obyvatel/i.test(`${v.nazev ?? ''}${v.kod ?? ''}`),
+      );
+      const obce = byDataset.find((v) => /obec/i.test(v.nazev ?? '')) ?? byDataset[0];
+      if (obce?.kod) {
+        this.log.log(`ČSÚ vybrán výběr ${obce.kod} (${obce.nazev ?? ''})`);
+        return obce.kod;
+      }
+    } catch (err) {
+      this.log.warn(`Katalog výběrů ČSÚ nedostupný: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return CSU_DATASTAT_DEFAULTS.predefinedVyberCode;
+  }
+
   async fetchPredefinedVyberCsv(vyberCode?: string): Promise<string> {
     const cfg = CSU_DATASTAT_DEFAULTS;
-    const code = vyberCode ?? cfg.predefinedVyberCode;
+    const code = await this.resolveVyberCode(cfg.datasetCode, vyberCode);
     const url = `${cfg.baseUrl}/data/vybery/${encodeURIComponent(code)}?format=CSV`;
-    const res = await axios.get(url, { timeout: 120000, responseType: 'text' });
-    return String(res.data);
+    try {
+      const res = await axios.get(url, {
+        timeout: 120000,
+        responseType: 'text',
+        headers: { Accept: 'text/csv', 'Accept-Language': 'cs' },
+        validateStatus: () => true,
+      });
+      if (res.status >= 400) {
+        throw Object.assign(new Error(`HTTP ${res.status}`), {
+          response: { status: res.status, data: res.data },
+          isAxiosError: true,
+        });
+      }
+      return String(res.data);
+    } catch (err) {
+      throw this.formatCsuAxiosError(err, `GET ${url}`);
+    }
   }
 
   async fetchCustomDataset(body: {
@@ -65,12 +141,28 @@ export class CsuDataStatService {
     dimenze?: Array<{ kod: string; hodnoty?: string[] }>;
   }): Promise<unknown> {
     const cfg = CSU_DATASTAT_DEFAULTS;
-    const url = `${cfg.baseUrl}/data/sady/${encodeURIComponent(body.sadaKod)}/vlastni`;
-    const res = await axios.post(url, body, {
-      timeout: 120000,
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    });
-    return res.data;
+    const url = `${cfg.baseUrl}/data/sady/${encodeURIComponent(body.sadaKod)}/vlastni?format=CSV&kodZvlast=true`;
+    try {
+      const res = await axios.post(url, body, {
+        timeout: 120000,
+        headers: {
+          Accept: 'text/csv, application/json',
+          'Content-Type': 'application/json',
+          'Accept-Language': 'cs',
+        },
+        responseType: 'text',
+        validateStatus: () => true,
+      });
+      if (res.status >= 400) {
+        throw Object.assign(new Error(`HTTP ${res.status}`), {
+          response: { status: res.status, data: res.data },
+          isAxiosError: true,
+        });
+      }
+      return res.data;
+    } catch (err) {
+      throw this.formatCsuAxiosError(err, `POST ${url}`);
+    }
   }
 
   /** Parsuje CSV z DataStatu a vrací řádky párované podle kódu obce. */
@@ -114,19 +206,36 @@ export class CsuDataStatService {
 
     await this.prisma.seoLocationSource.update({
       where: { id: source.id },
-      data: { lastStatus: 'syncing' },
+      data: { lastStatus: 'syncing', lastError: null },
     });
 
     try {
       let csv: string;
+      let usedVyber: string | undefined;
       try {
-        csv = await this.fetchPredefinedVyberCsv(opts?.vyberCode);
-      } catch {
-        this.log.warn('Předdefinovaný výběr selhal — zkouším katalog sady');
-        const catalog = await axios.get(`${CSU_DATASTAT_DEFAULTS.catalogUrl}/sady`, { timeout: 30000 });
+        usedVyber = await this.resolveVyberCode(CSU_DATASTAT_DEFAULTS.datasetCode, opts?.vyberCode);
+        csv = await this.fetchPredefinedVyberCsv(usedVyber);
+      } catch (firstErr) {
+        this.log.warn(`Předdefinovaný výběr selhal — zkouším vlastní dotaz na sadu OBY01`);
+        const catalog = await axios.get(`${CSU_DATASTAT_DEFAULTS.catalogUrl}/sady`, {
+          timeout: 30000,
+          headers: { 'Accept-Language': 'cs' },
+        });
         const sady = catalog.data as Array<{ kod?: string; nazev?: string }>;
-        const obySada = sady.find((s) => /obyvatel|obec/i.test(`${s.nazev ?? ''}${s.kod ?? ''}`));
-        if (!obySada?.kod) throw new Error('Datová sada obcí nenalezena v katalogu ČSÚ.');
+        const obySada =
+          sady.find((s) => s.kod === 'OBY01') ??
+          sady.find((s) => /obyvatel|obec/i.test(`${s.nazev ?? ''}${s.kod ?? ''}`));
+        if (!obySada?.kod) {
+          const detail =
+            firstErr instanceof Error && 'detail' in firstErr
+              ? String((firstErr as { detail?: string }).detail)
+              : firstErr instanceof Error
+                ? firstErr.message
+                : String(firstErr);
+          throw Object.assign(new Error(`Datová sada obcí nenalezena. ${detail}`), {
+            userMessage: `ČSÚ sync selhal: ${detail.slice(0, 400)}`,
+          });
+        }
         const custom = await this.fetchCustomDataset({ sadaKod: obySada.kod });
         csv = typeof custom === 'string' ? custom : JSON.stringify(custom);
       }
@@ -156,11 +265,13 @@ export class CsuDataStatService {
         data: {
           lastStatus: 'ok',
           lastSyncAt: new Date(),
+          lastError: null,
           updatedCount: { increment: updated },
           configJson: {
             ...((source.configJson as object) ?? {}),
             datastat: {
               ...cfg,
+              predefinedVyberCode: usedVyber ?? cfg.predefinedVyberCode,
               updatedMunicipalities: updated,
               lastDatasetVersion: new Date().toISOString().slice(0, 10),
             },
@@ -168,13 +279,19 @@ export class CsuDataStatService {
         },
       });
 
-      return { updated, parsed: parsed.length, dryRun: Boolean(opts?.dryRun) };
+      return { updated, parsed: parsed.length, dryRun: Boolean(opts?.dryRun), vyberCode: usedVyber };
     } catch (err) {
+      const message =
+        err instanceof Error && 'userMessage' in err
+          ? String((err as { userMessage?: string }).userMessage)
+          : err instanceof Error
+            ? err.message
+            : String(err);
       await this.prisma.seoLocationSource.update({
         where: { id: source.id },
         data: {
           lastStatus: 'error',
-          lastError: err instanceof Error ? err.message : String(err),
+          lastError: message,
         },
       });
       throw err;

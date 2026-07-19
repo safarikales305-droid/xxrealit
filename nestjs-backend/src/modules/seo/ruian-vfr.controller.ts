@@ -43,6 +43,11 @@ export class RuianVfrController {
     return this.ruianVfr.discoverLatestSafe(body?.mode ?? 'full');
   }
 
+  @Post('test-import')
+  testImport(@Body() body?: { limit?: number }) {
+    return this.ruianVfr.runTestImportSafe(body);
+  }
+
   @Post('full-import')
   fullImport(@Body() body?: { resume?: boolean }) {
     return this.ruianVfr.runFullImportSafe(body);

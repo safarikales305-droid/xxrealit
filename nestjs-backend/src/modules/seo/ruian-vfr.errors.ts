@@ -96,10 +96,47 @@ export function formatRuianVfrError(err: unknown): RuianVfrErrorInfo {
   };
 }
 
-export function ruianVfrFail(err: unknown, logs?: unknown[]) {
+export type RuianVfrImportStatus =
+  | 'COMPLETED'
+  | 'EMPTY_IMPORT'
+  | 'FAILED'
+  | 'FILE_FOUND'
+  | 'DISCOVERING';
+
+export type VfrImportCounts = {
+  parsed?: number;
+  inserted?: number;
+  updated?: number;
+  skipped?: number;
+  errorCount?: number;
+};
+
+export function validateVfrImportResult(counts: VfrImportCounts):
+  | { ok: true }
+  | { ok: false; status: 'EMPTY_IMPORT'; error: string } {
+  const parsed = counts.parsed ?? 0;
+  const inserted = counts.inserted ?? 0;
+  const updated = counts.updated ?? 0;
+  const skipped = counts.skipped ?? 0;
+  if (parsed === 0 && inserted === 0 && updated === 0 && skipped === 0) {
+    return {
+      ok: false,
+      status: 'EMPTY_IMPORT',
+      error: 'Import nenašel žádné zpracovatelné záznamy.',
+    };
+  }
+  return { ok: true };
+}
+
+export function ruianVfrFail(
+  err: unknown,
+  logs?: unknown[],
+  status: RuianVfrImportStatus | string = 'FAILED',
+) {
   const info = formatRuianVfrError(err);
   return {
     success: false as const,
+    status,
     error: info.userMessage,
     code: info.code,
     detail: info.message,
@@ -107,6 +144,9 @@ export function ruianVfrFail(err: unknown, logs?: unknown[]) {
   };
 }
 
-export function ruianVfrOk<T extends Record<string, unknown>>(data: T) {
-  return { success: true as const, ...data };
+export function ruianVfrOk<T extends Record<string, unknown>>(
+  data: T,
+  status: RuianVfrImportStatus | string = 'COMPLETED',
+) {
+  return { success: true as const, status, ...data };
 }

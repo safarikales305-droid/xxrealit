@@ -3,13 +3,13 @@ import { Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../../database/prisma.service';
-import { discoverRuianVfrFile } from './ruian-vfr.discovery';
-import { formatRuianVfrError, ruianVfrFail, ruianVfrOk } from './ruian-vfr.errors';
+import { discoverRuianVfrFile, type RuianVfrFileRef } from './ruian-vfr.discovery';
+import { formatRuianVfrError, ruianVfrFail, ruianVfrOk, validateVfrImportResult } from './ruian-vfr.errors';
+import { extractAllVfrDataFiles, validateDownloadedFile } from './ruian-vfr.archive';
 import {
   cleanupDir,
   createRuianWorkDir,
   downloadToFile,
-  extractFirstXmlFromZip,
   verifyRemoteFileHead,
   type DownloadLogFn,
 } from './ruian-vfr.io';
@@ -23,7 +23,7 @@ import {
   RUIAN_VFR_MONTHLY_BASE_URL,
   type RuianVfrConnectorConfig,
 } from './ruian-vfr.official.constants';
-import { streamParseVfrXmlFile } from './ruian-vfr.stream-parser';
+import { streamParseVfrXmlFile, type VfrParseDiagnostics } from './ruian-vfr.stream-parser';
 import { SeoLocationSourceService } from './seo-location-source.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
@@ -114,16 +114,83 @@ export class RuianVfrService {
   }
 
   async discoverLatestSafe(mode: 'full' | 'delta' = 'full') {
+    const session = new RuianVfrImportSession();
     try {
       await this.sourceService.ensureDefaultSources();
+      session.log('discover', 'Hledám nejnovější stavový VFR soubor...');
       const file = await this.discoverLatest(mode);
-      if (!file) {
-        return ruianVfrFail('Oficiální VFR soubor nenalezen.', []);
+      if (!file?.url) {
+        return ruianVfrFail('Nebyl nalezen žádný stavový VFR soubor.', session.entries, 'FAILED');
       }
-      return ruianVfrOk({ file });
+      session.log('verify', `Nalezen: ${file.filename} (${file.url})`);
+      return ruianVfrOk({ file }, 'FILE_FOUND');
     } catch (err) {
       this.log.error(`discoverLatestSafe: ${formatRuianVfrError(err).message}`);
-      return ruianVfrFail(err, this.activeSession?.entries ?? []);
+      return ruianVfrFail(err, session.entries);
+    }
+  }
+
+  async runTestImportSafe(opts?: { limit?: number }) {
+    if (this.running) {
+      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
+    }
+    this.running = true;
+    const session = new RuianVfrImportSession();
+    this.activeSession = session;
+    let workDir: string | null = null;
+    const limit = opts?.limit ?? 100;
+
+    try {
+      await this.sourceService.ensureDefaultSources();
+      const source = await this.getRuianSource();
+      const cfg = this.getVfrConfig(source);
+      session.log('discover', 'Test importu — hledám stavový soubor...');
+
+      const file = await this.resolveVfrFile('full', cfg, session);
+      if (!file?.url) {
+        return ruianVfrFail('Nebyl nalezen žádný stavový VFR soubor.', session.entries);
+      }
+
+      workDir = createRuianWorkDir();
+      const ioLog = this.bindSessionLog(session);
+      const zipPath = path.join(workDir, file.filename);
+      session.log('download', `Stahuji ${file.filename}...`);
+      await downloadToFile(file.url, zipPath, 300000, ioLog);
+      validateDownloadedFile(zipPath);
+
+      const preview: SeoLocationImportRow[] = [];
+      const diagnostics = await this.processZipAtPath(zipPath, workDir, 'full', file.filename, 0, session, {
+        dryRun: true,
+        maxRecords: limit,
+        filterElementType: 'Obec',
+        onPreview: (rows) => preview.push(...rows),
+      });
+
+      session.log('done', `Test: ${preview.length} obcí připraveno k náhledu.`);
+      if (preview.length === 0) {
+        return ruianVfrFail(
+          'Import nenašel žádné zpracovatelné záznamy.',
+          session.entries,
+          'EMPTY_IMPORT',
+        );
+      }
+      return ruianVfrOk(
+        {
+          dryRun: true,
+          file: { url: file.url, filename: file.filename, version: file.version },
+          preview: preview.slice(0, limit),
+          diagnostics,
+          logs: session.entries,
+        },
+        'COMPLETED',
+      );
+    } catch (err) {
+      session.logError(err);
+      return ruianVfrFail(err, session.entries);
+    } finally {
+      this.running = false;
+      this.activeSession = null;
+      if (workDir) cleanupDir(workDir);
     }
   }
 
@@ -221,6 +288,17 @@ export class RuianVfrService {
       fs.writeFileSync(zipPath, buffer);
       session.log('verify', 'Soubor nahrán');
       const result = await this.processZipAtPath(zipPath, workDir, 'full', originalName, 0, session);
+      const validation = validateVfrImportResult({
+        parsed: result.total,
+        inserted: result.inserted,
+        updated: result.updated,
+        skipped: result.skipped,
+      });
+      if (!validation.ok) {
+        session.log('error', validation.error, 'error');
+        await this.markSourceError(validation.error);
+        return ruianVfrFail(validation.error, session.entries, validation.status);
+      }
       session.log('done', 'Hotovo.');
       return ruianVfrOk({ ...result, logs: session.entries });
     } catch (err) {
@@ -287,13 +365,20 @@ export class RuianVfrService {
       const cfg = this.getVfrConfig(source);
       session.log('discover', 'Načítám stavový soubor...');
 
-      let file =
+      let file: RuianVfrFileRef | null =
         mode === 'delta' && cfg.pendingDeltaMeta
-          ? cfg.pendingDeltaMeta
-          : await discoverRuianVfrFile(mode);
+          ? {
+              url: cfg.pendingDeltaMeta.url,
+              filename: cfg.pendingDeltaMeta.filename,
+              kind: 'delta',
+              version: cfg.pendingDeltaMeta.version,
+              publishedAt: cfg.pendingDeltaMeta.publishedAt,
+              datasetType: 'ST_ZZSG',
+            }
+          : await this.resolveVfrFile(mode, cfg, session);
 
       if (!file?.url) {
-        return ruianVfrFail('Oficiální VFR soubor nenalezen.', session.entries);
+        return ruianVfrFail('Nebyl nalezen žádný stavový VFR soubor.', session.entries);
       }
 
       session.log('verify', `Soubor nalezen: ${file.filename}`);
@@ -312,11 +397,13 @@ export class RuianVfrService {
         session.log('download', 'Stahuji...');
         try {
           await downloadToFile(file.url, zipPath, 300000, ioLog);
+          validateDownloadedFile(zipPath);
         } catch (err) {
           return ruianVfrFail(err, session.entries);
         }
       } else {
         session.log('download', 'Používám již stažený soubor');
+        validateDownloadedFile(zipPath);
       }
 
       const result = await this.processZipAtPath(
@@ -327,6 +414,36 @@ export class RuianVfrService {
         opts?.resume ? cfg.checkpoint?.recordsProcessed ?? 0 : 0,
         session,
       );
+
+      const validation = validateVfrImportResult({
+        parsed: result.total,
+        inserted: result.inserted,
+        updated: result.updated,
+        skipped: result.skipped,
+      });
+      if (!validation.ok) {
+        session.log('error', validation.error, 'error');
+        await this.prisma.seoLocationSource.update({
+          where: { id: source.id },
+          data: {
+            lastStatus: 'empty_import',
+            lastError: validation.error,
+            lastSyncAt: new Date(),
+            configJson: {
+              ...((source.configJson as object) ?? {}),
+              vfr: {
+                ...cfg,
+                mode,
+                lastAvailableFile: file.filename,
+                lastAvailableUrl: file.url,
+                progressPct: 100,
+                stats: result.stats,
+              },
+            } as Prisma.InputJsonValue,
+          },
+        });
+        return ruianVfrFail(validation.error, session.entries, validation.status);
+      }
 
       await this.prisma.seoLocationSource.update({
         where: { id: source.id },
@@ -361,6 +478,7 @@ export class RuianVfrService {
         progressPct: 100,
         currentStep: 'Hotovo.',
         logs: session.entries,
+        diagnostics: result.diagnostics,
       });
     } catch (err) {
       session.logError(err);
@@ -386,6 +504,45 @@ export class RuianVfrService {
     }
   }
 
+  private async resolveVfrFile(
+    mode: 'full' | 'delta',
+    cfg: RuianVfrConnectorConfig,
+    session: RuianVfrImportSession,
+  ): Promise<RuianVfrFileRef | null> {
+    if (mode === 'full' && cfg.lastAvailableUrl && cfg.lastAvailableFile) {
+      session.log('discover', `Používám uložený soubor: ${cfg.lastAvailableFile}`);
+      return {
+        url: cfg.lastAvailableUrl,
+        filename: cfg.lastAvailableFile,
+        kind: 'full',
+        version: cfg.lastImportedVersion ?? cfg.lastAvailableFile.slice(0, 6),
+        datasetType: 'ST_UKSG',
+      };
+    }
+    session.log('discover', 'Vyhledávám nejnovější soubor na ČÚZK...');
+    const file = await discoverRuianVfrFile(mode);
+    if (file) {
+      const source = await this.getRuianSource();
+      if (source) {
+        await this.prisma.seoLocationSource.update({
+          where: { id: source.id },
+          data: {
+            configJson: {
+              ...((source.configJson as object) ?? {}),
+              vfr: {
+                ...cfg,
+                lastAvailableFile: file.filename,
+                lastAvailableUrl: file.url,
+                lastAvailableVersion: file.version,
+              },
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
+    return file;
+  }
+
   private async processZipAtPath(
     zipPath: string,
     workDir: string,
@@ -393,52 +550,69 @@ export class RuianVfrService {
     filename: string,
     skipUntil: number,
     session: RuianVfrImportSession,
+    opts?: {
+      dryRun?: boolean;
+      maxRecords?: number;
+      filterElementType?: string;
+      onPreview?: (rows: SeoLocationImportRow[]) => void;
+    },
   ) {
-    const xmlPath = path.join(workDir, 'extracted.xml');
-    let innerName: string;
-
-    try {
-      session.log('extract', 'Rozbaluji...');
-      const ioLog = this.bindSessionLog(session);
-      innerName = await extractFirstXmlFromZip(zipPath, xmlPath, ioLog);
-      this.log.log(`RÚIAN VFR: extrahováno ${innerName}`);
-      session.log('extract', `ZIP rozbalen: ${innerName}`);
-    } catch (err) {
-      throw err;
-    }
+    session.log('extract', 'Rozbaluji archiv...');
+    const ioLog = this.bindSessionLog(session);
+    const dataFiles = await extractAllVfrDataFiles(zipPath, workDir, ioLog);
+    this.log.log(`RÚIAN VFR: ${dataFiles.length} datových souborů v archivu`);
+    session.log('extract', `Nalezeno ${dataFiles.length} XML/GML souborů`);
 
     const source = await this.getRuianSource();
-    const run = await this.prisma.seoLocationImportRun.create({
-      data: {
-        sourceId: source?.id,
-        status: 'running',
-        mode: mode === 'delta' ? 'delta' : 'full',
-        sourceLabel: 'RUIAN_VFR',
-        filename,
-        totalRows: 0,
-        logJson: session.toJson({ innerName, mode }) as Prisma.InputJsonValue,
-      },
-    });
-    session.runId = run.id;
+    let runId: string | null = null;
+    if (!opts?.dryRun) {
+      const run = await this.prisma.seoLocationImportRun.create({
+        data: {
+          sourceId: source?.id,
+          status: 'running',
+          mode: mode === 'delta' ? 'delta' : 'full',
+          sourceLabel: 'RUIAN_VFR',
+          filename,
+          totalRows: 0,
+          logJson: session.toJson({ dataFiles: dataFiles.map((f) => f.archivePath), mode }) as Prisma.InputJsonValue,
+        },
+      });
+      runId = run.id;
+      session.runId = run.id;
+    }
 
     let inserted = 0;
     let updated = 0;
+    let skipped = 0;
     let errorCount = 0;
     const errors: string[] = [];
     let processed = 0;
+    let totalParsed = 0;
     let stats: Record<string, number> = {};
+    const diagnostics: VfrParseDiagnostics = {
+      parsedRegions: 0,
+      parsedDistricts: 0,
+      parsedOrp: 0,
+      parsedMunicipalities: 0,
+      parsedMunicipalityParts: 0,
+      parsedCadastralAreas: 0,
+      parsedStreets: 0,
+      parsedAddressPlaces: 0,
+      parseErrors: [],
+    };
     const buffer: SeoLocationImportRow[] = [];
     let lastPhase: string | null = null;
 
     const persistProgress = async () => {
+      if (!runId) return;
       await this.prisma.seoLocationImportRun.update({
-        where: { id: run.id },
+        where: { id: runId },
         data: {
           progressPct: session.progressPct,
           inserted,
           updated,
           errorCount,
-          logJson: session.toJson({ stats, innerName, mode, processed }) as Prisma.InputJsonValue,
+          logJson: session.toJson({ stats, diagnostics, mode, processed, totalParsed }) as Prisma.InputJsonValue,
         },
       });
       if (source) {
@@ -463,6 +637,11 @@ export class RuianVfrService {
     const flushBuffer = async () => {
       if (!buffer.length) return;
       const chunk = buffer.splice(0, buffer.length);
+      if (opts?.dryRun) {
+        opts.onPreview?.(chunk);
+        processed += chunk.length;
+        return;
+      }
       session.log('save_db', `Ukládám do DB… (${chunk.length} záznamů)`);
       try {
         const res = await this.locations.importLocations(chunk, 'RUIAN_VFR', {
@@ -470,10 +649,11 @@ export class RuianVfrService {
           dataSource: 'RUIAN',
           filename,
           skipRunCreation: true,
-          existingRunId: run.id,
+          existingRunId: runId ?? undefined,
         });
         inserted += res.inserted;
         updated += res.updated;
+        skipped += res.skipped;
         errorCount += res.errorCount;
         if (res.errors.length) {
           errors.push(...res.errors.slice(0, 5));
@@ -495,84 +675,121 @@ export class RuianVfrService {
     };
 
     try {
-      const parseResult = await streamParseVfrXmlFile(
-        xmlPath,
-        async (rows, parseStats) => {
-          for (const [key, val] of Object.entries(parseStats)) {
-            if (val && val > 0) {
-              const el = key === 'kraje' ? 'Kraj' : key === 'okresy' ? 'Okres' : key === 'obce' ? 'Obec' : null;
-              if (el) {
-                const phase = mapElementToPhase(el);
-                if (phase && phase !== lastPhase) {
-                  lastPhase = phase;
-                  session.log(phase);
+      for (const dataFile of dataFiles) {
+        session.log('parse_obce', `Parsuji ${dataFile.archivePath}…`);
+        const parseResult = await streamParseVfrXmlFile(
+          dataFile.absolutePath,
+          async (rows, parseStats, diag) => {
+            for (const [key, val] of Object.entries(parseStats)) {
+              if (val && val > 0) {
+                const el =
+                  key === 'kraje'
+                    ? 'Kraj'
+                    : key === 'okresy'
+                      ? 'Okres'
+                      : key === 'obce'
+                        ? 'Obec'
+                        : null;
+                if (el) {
+                  const phase = mapElementToPhase(el);
+                  if (phase && phase !== lastPhase) {
+                    lastPhase = phase;
+                    session.log(phase);
+                  }
                 }
               }
             }
-          }
 
-          buffer.push(...rows);
-          processed += rows.length;
-          if (buffer.length >= 500) {
-            await flushBuffer();
-          }
-
-          const parseProgress = Math.min(74, 25 + Math.floor((processed / Math.max(processed + 5000, 1)) * 50));
-          session.setProgress(parseProgress, session.currentStep);
-          await persistProgress();
-        },
-        {
-          batchSize: 500,
-          skipUntil,
-          onElement: (elementType) => {
-            const phase = mapElementToPhase(elementType);
-            if (phase && phase !== lastPhase) {
-              lastPhase = phase;
-              session.log(phase);
+            diagnostics.parsedRegions += diag.parsedRegions;
+            diagnostics.parsedDistricts += diag.parsedDistricts;
+            diagnostics.parsedOrp += diag.parsedOrp;
+            diagnostics.parsedMunicipalities += diag.parsedMunicipalities;
+            diagnostics.parsedMunicipalityParts += diag.parsedMunicipalityParts;
+            diagnostics.parsedCadastralAreas += diag.parsedCadastralAreas;
+            diagnostics.parsedStreets += diag.parsedStreets;
+            diagnostics.parsedAddressPlaces += diag.parsedAddressPlaces;
+            if (diag.parseErrors.length) {
+              diagnostics.parseErrors.push(...diag.parseErrors.slice(0, 20));
             }
+
+            buffer.push(...rows);
+            processed += rows.length;
+            totalParsed += rows.length;
+            if (buffer.length >= 500) {
+              await flushBuffer();
+            }
+
+            const parseProgress = Math.min(74, 25 + Math.floor((processed / Math.max(processed + 5000, 1)) * 50));
+            session.setProgress(parseProgress, session.currentStep);
+            await persistProgress();
           },
-        },
-      );
+          {
+            batchSize: 500,
+            skipUntil,
+            maxRecords: opts?.maxRecords,
+            filterElementType: opts?.filterElementType,
+            onElement: (elementType) => {
+              const phase = mapElementToPhase(elementType);
+              if (phase && phase !== lastPhase) {
+                lastPhase = phase;
+                session.log(phase);
+              }
+            },
+          },
+        );
+
+        for (const [k, v] of Object.entries(parseResult.stats)) {
+          stats[k] = (stats[k] ?? 0) + (v ?? 0);
+        }
+        totalParsed = Object.values(stats).reduce((a, b) => a + (b ?? 0), 0);
+
+        if (opts?.maxRecords != null && processed >= opts.maxRecords) break;
+      }
 
       await flushBuffer();
-      stats = parseResult.stats as Record<string, number>;
 
-      await this.prisma.seoLocationImportRun.update({
-        where: { id: run.id },
-        data: {
-          status: errorCount ? 'completed_with_errors' : 'completed',
-          totalRows: parseResult.total,
-          inserted,
-          updated,
-          errorCount,
-          errors: errors.slice(0, 50),
-          progressPct: 100,
-          finishedAt: new Date(),
-          logJson: session.toJson({ stats, innerName, mode, processed }) as Prisma.InputJsonValue,
-        },
-      });
+      if (runId) {
+        await this.prisma.seoLocationImportRun.update({
+          where: { id: runId },
+          data: {
+            status: errorCount ? 'completed_with_errors' : 'completed',
+            totalRows: totalParsed,
+            inserted,
+            updated,
+            errorCount,
+            errors: errors.slice(0, 50),
+            progressPct: 100,
+            finishedAt: new Date(),
+            logJson: session.toJson({ stats, diagnostics, mode, processed, totalParsed }) as Prisma.InputJsonValue,
+          },
+        });
+      }
 
       return {
-        runId: run.id,
+        runId,
         inserted,
         updated,
+        skipped,
         errorCount,
         errors,
         stats,
-        total: parseResult.total,
+        total: totalParsed,
+        diagnostics,
         progressPct: 100,
       };
     } catch (err) {
-      await this.prisma.seoLocationImportRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'failed',
-          errorCount: errorCount + 1,
-          errors: [...errors, formatRuianVfrError(err).userMessage].slice(0, 50),
-          finishedAt: new Date(),
-          logJson: session.toJson({ stats, innerName, mode, processed, failed: true }) as Prisma.InputJsonValue,
-        },
-      });
+      if (runId) {
+        await this.prisma.seoLocationImportRun.update({
+          where: { id: runId },
+          data: {
+            status: 'failed',
+            errorCount: errorCount + 1,
+            errors: [...errors, formatRuianVfrError(err).userMessage].slice(0, 50),
+            finishedAt: new Date(),
+            logJson: session.toJson({ stats, diagnostics, mode, processed, failed: true }) as Prisma.InputJsonValue,
+          },
+        });
+      }
       throw err;
     }
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatRuianVfrError } from './ruian-vfr.errors';
+import { formatRuianVfrError, validateVfrImportResult } from './ruian-vfr.errors';
 import { resolveSaxModule } from './ruian-vfr.sax';
 import { RuianVfrImportSession } from './ruian-vfr.import-session';
 import * as fs from 'node:fs';
@@ -27,14 +27,29 @@ test('official CSU DataStat endpoints are preset', () => {
   assert.equal(CSU_DATASTAT_DEFAULTS.datasetCode, 'OBY01');
 });
 
-test('isStateVfrFilename detects ST_UKSG', () => {
+test('isStateVfrFilename detects ST_UKSG and xml.zip variant', () => {
   assert.ok(isStateVfrFilename('20240501_ST_UKSG.zip'));
+  assert.ok(isStateVfrFilename('20260531_ST_UKSG.xml.zip'));
   assert.ok(!isStateVfrFilename('20240501_ST_ZZSG.zip'));
 });
 
 test('isDeltaVfrFilename detects ZZSG', () => {
   assert.ok(isDeltaVfrFilename('20240502_ST_ZZSG.zip'));
   assert.ok(!isDeltaVfrFilename('20240501_ST_UKSG.zip'));
+});
+
+test('validateVfrImportResult rejects zero parsed/inserted/updated/skipped', () => {
+  const res = validateVfrImportResult({ parsed: 0, inserted: 0, updated: 0, skipped: 0 });
+  assert.equal(res.ok, false);
+  if (!res.ok) {
+    assert.equal(res.status, 'EMPTY_IMPORT');
+    assert.match(res.error, /žádné zpracovatelné záznamy/i);
+  }
+});
+
+test('validateVfrImportResult accepts skipped records', () => {
+  const res = validateVfrImportResult({ parsed: 0, inserted: 0, updated: 0, skipped: 3 });
+  assert.equal(res.ok, true);
 });
 
 test('vfrRecordToImportRow maps Obec with parent codes', () => {
@@ -53,6 +68,16 @@ test('vfrRecordToImportRow maps Obec with parent codes', () => {
   assert.equal(row!.officialCode, '554782');
   assert.equal(row!.name, 'Praha');
   assert.equal(row!.latitude, 50.08);
+});
+
+test('vfrRecordToImportRow imports Obec without GPS', () => {
+  const row = vfrRecordToImportRow({
+    elementType: 'Obec',
+    officialCode: '500101',
+    name: 'Brašec',
+  });
+  assert.ok(row);
+  assert.equal(row!.latitude, null);
 });
 
 test('CsuDataStatService.parsePopulationCsv pairs by official code', () => {
@@ -85,7 +110,7 @@ test('RuianVfrImportSession tracks progress phases', () => {
   assert.ok(session.entries.length >= 3);
 });
 
-test('streamParseVfrXmlFile parses Obec elements without loading full file to RAM', async () => {
+test('streamParseVfrXmlFile parses Obec elements with attributes', async () => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <VymennyFormat>
   <Obec Kod="554782" Nazev="Praha" KodOkresu="3100" KodVusc="19"/>
@@ -101,6 +126,36 @@ test('streamParseVfrXmlFile parses Obec elements without loading full file to RA
   assert.equal(result.total, 2);
   assert.equal(result.stats.obce, 2);
   assert.deepEqual(collected, ['554782', '500011']);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('streamParseVfrXmlFile parses vf:Obec with child elements and namespaces', async () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<VymennyFormat xmlns:vf="http://www.cuzk.cz/schemas/vfr/vf" xmlns:obi="http://www.cuzk.cz/schemas/vfr/obi" xmlns:oki="http://www.cuzk.cz/schemas/vfr/oki">
+  <vf:Obec>
+    <obi:Kod>500101</obi:Kod>
+    <obi:Nazev>Brašec</obi:Nazev>
+    <obi:Okres><oki:Kod>3403</oki:Kod></obi:Okres>
+  </vf:Obec>
+  <vf:Obec>
+    <obi:Kod>554782</obi:Kod>
+    <obi:Nazev>Praha</obi:Nazev>
+    <obi:Okres><oki:Kod>3100</oki:Kod></obi:Okres>
+  </vf:Obec>
+</VymennyFormat>`;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vfr-ns-'));
+  const xmlPath = path.join(tmp, 'ns.xml');
+  fs.writeFileSync(xmlPath, xml, 'utf8');
+  const rows: Array<{ code: string; district?: string | null }> = [];
+  const result = await streamParseVfrXmlFile(xmlPath, async (batch) => {
+    for (const r of batch) {
+      rows.push({ code: r.officialCode, district: r.districtOfficialCode });
+    }
+  });
+  assert.equal(result.total, 2);
+  assert.equal(result.diagnostics.parsedMunicipalities, 2);
+  assert.equal(rows[0]!.code, '500101');
+  assert.equal(rows[0]!.district, '3403');
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -123,4 +178,37 @@ test('streamParseVfrXmlFile supports resume via skipUntil', async () => {
   );
   assert.deepEqual(codes, ['3']);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('streamParseVfrXmlFile test import limits municipalities', async () => {
+  const parts = Array.from({ length: 5 }, (_, i) => `<Obec Kod="${i + 1}" Nazev="O${i + 1}"/>`).join('');
+  const xml = `<?xml version="1.0"?><root>${parts}</root>`;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vfr-limit-'));
+  const xmlPath = path.join(tmp, 'limit.xml');
+  fs.writeFileSync(xmlPath, xml, 'utf8');
+  const result = await streamParseVfrXmlFile(
+    xmlPath,
+    async () => undefined,
+    { maxRecords: 3, filterElementType: 'Obec' },
+  );
+  assert.equal(result.total, 3);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('validateDownloadedFile rejects tiny files', async () => {
+  const { validateDownloadedFile } = await import('./ruian-vfr.archive');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vfr-tiny-'));
+  const p = path.join(tmp, 'tiny.zip');
+  fs.writeFileSync(p, Buffer.from('tiny'));
+  assert.throws(() => validateDownloadedFile(p), /malý|prázdný/i);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('formatRuianVfrError handles axios HTTP 400', () => {
+  const info = formatRuianVfrError({
+    isAxiosError: true,
+    message: 'Request failed with status code 400',
+    response: { status: 400, data: { detail: 'Neplatný kód výběru' } },
+  });
+  assert.match(info.userMessage, /HTTP 400/);
 });
