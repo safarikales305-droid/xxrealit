@@ -30,9 +30,9 @@ export class RuianVfrController {
   constructor(private readonly ruianVfr: RuianVfrService) {}
 
   @Get('status')
-  status() {
+  async status() {
     try {
-      return this.ruianVfr.getPublicStatus();
+      return await this.ruianVfr.getPublicStatus();
     } catch (err) {
       return ruianVfrFail(err);
     }
@@ -66,7 +66,7 @@ export class RuianVfrController {
   }
 
   @Post('full-import')
-  async fullImport(@Body() body?: { resume?: boolean }) {
+  async fullImport(@Body() body?: { resume?: boolean; scope?: 'seo' | 'addresses' }) {
     try {
       return await this.ruianVfr.runFullImportSafe(body);
     } catch (err) {

@@ -204,6 +204,63 @@ test('validateDownloadedFile rejects tiny files', async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('streamParseVfrXmlFile skips AdresniMisto in SEO mode', async () => {
+  const xml = `<?xml version="1.0"?><root>
+  <Obec Kod="1" Nazev="A"/>
+  <AdresniMisto Kod="9001" Nazev="Adresa 1"/>
+  <Obec Kod="2" Nazev="B"/>
+</root>`;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vfr-skip-addr-'));
+  const xmlPath = path.join(tmp, 'skip-addr.xml');
+  fs.writeFileSync(xmlPath, xml, 'utf8');
+  const { RUIAN_SEO_ELEMENT_TYPES } = await import('./ruian-import-job.constants');
+  const codes: string[] = [];
+  const result = await streamParseVfrXmlFile(
+    xmlPath,
+    async (rows) => {
+      codes.push(...rows.map((r) => r.officialCode));
+    },
+    { allowedElementTypes: RUIAN_SEO_ELEMENT_TYPES },
+  );
+  assert.equal(result.total, 2);
+  assert.ok(result.diagnostics.skippedElements >= 1);
+  assert.deepEqual(codes, ['1', '2']);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('streamParseVfrXmlFile handles large synthetic stream without loading whole file', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vfr-large-'));
+  const xmlPath = path.join(tmp, 'large.xml');
+  const ws = fs.createWriteStream(xmlPath, { encoding: 'utf8' });
+  ws.write('<?xml version="1.0"?><root>');
+  for (let i = 0; i < 50_000; i += 1) {
+    ws.write(`<Obec Kod="${i}" Nazev="Obec${i}"/>`);
+  }
+  ws.write('</root>');
+  await new Promise<void>((resolve, reject) => {
+    ws.end(() => resolve());
+    ws.on('error', reject);
+  });
+  const stat = fs.statSync(xmlPath);
+  assert.ok(stat.size > 1_000_000, 'synthetic file should exceed 1MB');
+
+  const memBefore = process.memoryUsage().rss;
+  let parsed = 0;
+  const result = await streamParseVfrXmlFile(
+    xmlPath,
+    async (rows) => {
+      parsed += rows.length;
+    },
+    { batchSize: 1000, maxRecords: 200, filterElementType: 'Obec' },
+  );
+  const memAfter = process.memoryUsage().rss;
+  const memDeltaMb = (memAfter - memBefore) / 1024 / 1024;
+  assert.equal(result.total, 200);
+  assert.ok(memDeltaMb < 200, `memory delta should stay bounded, got ${memDeltaMb.toFixed(1)} MB`);
+  assert.equal(parsed, 200);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test('formatRuianVfrError handles axios HTTP 400', () => {
   const info = formatRuianVfrError({
     isAxiosError: true,

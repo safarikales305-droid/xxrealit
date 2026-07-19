@@ -18,6 +18,7 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CsuDataStatService } from './csu-datastat.service';
 import { RuianMapService } from './ruian-map.service';
+import { RuianImportJobService } from './ruian-import-job.service';
 import { RuianVfrService } from './ruian-vfr.service';
 import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
 import { SEO_LOCATION_UPLOAD_MAX_BYTES } from './seo-location-import.util';
@@ -37,6 +38,7 @@ export class SeoLocationSourcesController {
   constructor(
     private readonly sources: SeoLocationSourceService,
     private readonly ruianVfr: RuianVfrService,
+    private readonly ruianImportJobs: RuianImportJobService,
     private readonly csuDataStat: CsuDataStatService,
     private readonly ruianMap: RuianMapService,
     private readonly syncCron: SeoLocationSyncCronService,
@@ -113,14 +115,43 @@ export class SeoLocationSourcesController {
     return this.sources.listImports(sourceId);
   }
 
+  @Get('imports/:jobId/logs')
+  ruianImportJobLogs(@Param('jobId') jobId: string) {
+    return this.ruianImportJobs.getJobLogs(jobId);
+  }
+
+  @Post('imports/:jobId/cancel')
+  ruianImportJobCancel(@Param('jobId') jobId: string) {
+    return this.ruianImportJobs.cancelJob(jobId);
+  }
+
+  @Post('imports/:jobId/resume')
+  ruianImportJobResume(@Param('jobId') jobId: string) {
+    return this.ruianImportJobs.resumeJob(jobId);
+  }
+
   @Get('imports/:id')
-  getImport(@Param('id') id: string) {
+  async getImport(@Param('id') id: string) {
+    const job = await this.ruianImportJobs.getJob(id);
+    if (job) return job;
     return this.sources.getImport(id);
   }
 
   @Post('sync/ruian')
-  syncRuian(@Body() body?: { dryRun?: boolean }) {
-    return this.ruianVfr.runFullImport();
+  syncRuian() {
+    return this.ruianVfr.runFullImportSafe({ scope: 'seo' });
+  }
+
+  @Post('ruian/full-import')
+  ruianSeoFullImport(@Body() body?: { scope?: 'seo' | 'addresses' }) {
+    return this.ruianVfr.runFullImportSafe({ scope: body?.scope ?? 'seo' });
+  }
+
+  @Get('ruian/import/active')
+  async ruianActiveImportJob() {
+    const job = await this.ruianImportJobs.getActiveJob();
+    if (!job) return { jobId: null, status: 'idle' };
+    return this.ruianImportJobs.getJob(job.id);
   }
 
   @Post('sync/csu')
@@ -140,7 +171,7 @@ export class SeoLocationSourcesController {
   }
 
   @Post('ruian/vfr/full-import')
-  ruianFullImport(@Body() body?: { resume?: boolean }) {
+  ruianFullImport(@Body() body?: { resume?: boolean; scope?: 'seo' | 'addresses' }) {
     return this.ruianVfr.runFullImportSafe(body);
   }
 

@@ -10,6 +10,7 @@ import { SeoLocationSourceService } from './seo-location-source.service';
 import { SeoPublicListingsController } from './seo-public-listings.controller';
 import { CsuDataStatService } from './csu-datastat.service';
 import { RuianMapService } from './ruian-map.service';
+import { RuianImportJobService } from './ruian-import-job.service';
 import { RuianVfrController } from './ruian-vfr.controller';
 import { RuianVfrService } from './ruian-vfr.service';
 import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
@@ -25,6 +26,7 @@ import { SeoService } from './seo.service';
     SeoLocationService,
     SeoLocationSourceService,
     RuianVfrService,
+    RuianImportJobService,
     CsuDataStatService,
     RuianMapService,
     SeoLocationSyncCronService,

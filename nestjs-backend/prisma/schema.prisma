@@ -3089,28 +3089,44 @@ model SeoLocationUpload {
 
 /// Historie importu územních jednotek.
 model SeoLocationImportRun {
-  id          String             @id @default(cuid())
-  sourceId    String?
-  source      SeoLocationSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  uploadId    String?
-  status      String             @default("running")
-  mode        String             @default("live")
-  sourceLabel String?
-  filename    String?
-  totalRows   Int                @default(0)
-  inserted    Int                @default(0)
-  updated     Int                @default(0)
-  skipped     Int                @default(0)
-  deactivated Int                @default(0)
-  errorCount  Int                @default(0)
-  errors      Json?
-  logJson     Json?
-  progressPct Float              @default(0)
-  startedAt   DateTime           @default(now())
-  finishedAt  DateTime?
+  id               String             @id @default(cuid())
+  sourceId         String?
+  source           SeoLocationSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  uploadId         String?
+  status           String             @default("running")
+  mode             String             @default("live")
+  sourceLabel      String?
+  filename         String?
+  totalRows        Int                @default(0)
+  inserted         Int                @default(0)
+  updated          Int                @default(0)
+  skipped          Int                @default(0)
+  deactivated      Int                @default(0)
+  errorCount       Int                @default(0)
+  errors           Json?
+  logJson          Json?
+  progressPct      Float              @default(0)
+  startedAt        DateTime           @default(now())
+  finishedAt       DateTime?
+  /// Job runner — fáze, heartbeat, checkpoint
+  phase            String?
+  message          String?
+  sourceUrl        String?
+  sourceFileSize   BigInt?
+  currentFile      String?
+  bytesRead        BigInt?            @default(0)
+  totalBytes       BigInt?
+  importScope      String?            /// seo | addresses | full
+  heartbeatAt      DateTime?
+  lastCheckpointAt DateTime?
+  errorCode        String?
+  errorMessage     String?
+  errorStackMasked String?
+  jobMeta          Json?
 
   @@index([startedAt(sort: Desc)])
   @@index([sourceId])
+  @@index([status])
 }
 
 /// 301 redirect při změně SEO slugu lokality.

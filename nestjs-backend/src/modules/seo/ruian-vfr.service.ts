@@ -27,6 +27,8 @@ import { streamParseVfrXmlFile, type VfrParseDiagnostics } from './ruian-vfr.str
 import { SeoLocationSourceService } from './seo-location-source.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
+import { RuianImportJobService } from './ruian-import-job.service';
+import { RUIAN_IMPORT_SCOPE } from './ruian-import-job.constants';
 
 @Injectable()
 export class RuianVfrService {
@@ -39,14 +41,30 @@ export class RuianVfrService {
     private readonly prisma: PrismaService,
     private readonly locations: SeoLocationService,
     private readonly sourceService: SeoLocationSourceService,
+    private readonly importJobs: RuianImportJobService,
   ) {}
 
-  isRunning(): boolean {
-    return this.running;
+  async isRunningAsync(): Promise<boolean> {
+    const active = await this.importJobs.getActiveJob();
+    return Boolean(active) || this.running;
   }
 
-  getPublicStatus() {
+  async getPublicStatus() {
+    const active = await this.importJobs.getActiveJob();
     const session = this.activeSession?.snapshot() ?? null;
+    if (active) {
+      const job = await this.importJobs.getJob(active.id);
+      return {
+        running: true,
+        progressPct: job?.progress ?? 0,
+        currentStep: job?.message ?? 'Import probíhá…',
+        currentPhase: job?.phase ?? null,
+        runId: active.id,
+        jobId: active.id,
+        lastJobSuccess: null,
+        lastJobError: null,
+      };
+    }
     const last = this.lastJobResult;
     return {
       running: this.running,
@@ -54,28 +72,99 @@ export class RuianVfrService {
       currentStep: session?.currentStep ?? (last?.currentStep as string) ?? (this.running ? 'Import probíhá…' : 'Neaktivní'),
       currentPhase: session?.currentPhase ?? (last?.step as string) ?? null,
       runId: session?.runId ?? null,
+      jobId: null,
       lastJobSuccess: last?.success ?? null,
       lastJobError: last?.success === false ? (last.error as string) : null,
     };
   }
 
+  isRunning(): boolean {
+    return this.running;
+  }
+
   async getImportLogs() {
-    const live = this.activeSession?.snapshot() ?? null;
+    const activeJob = await this.importJobs.getActiveJob();
+    if (activeJob) {
+      const job = await this.importJobs.getJob(activeJob.id);
+      const logs = (job?.logs ?? []) as Array<{
+        at: string;
+        level: string;
+        step: string;
+        message: string;
+        meta?: Record<string, unknown>;
+      }>;
+      return {
+        running: true,
+        jobId: activeJob.id,
+        live: {
+          runId: activeJob.id,
+          currentPhase: job?.phase ?? 'running',
+          currentStep: job?.message ?? 'Import probíhá…',
+          progressPct: job?.progress ?? 0,
+          entries: logs.map((e) => ({ ...e, progressPct: job?.progress ?? 0 })),
+          startedAt: job?.startedAt ?? activeJob.startedAt.toISOString(),
+        },
+        latestRunId: activeJob.id,
+        entries: logs.map((e) => ({ ...e, progressPct: job?.progress ?? 0 })),
+        progressPct: job?.progress ?? 0,
+        currentStep: job?.message ?? 'Import probíhá…',
+        lastJobResult: job,
+      };
+    }
+
     const latest = await this.prisma.seoLocationImportRun.findFirst({
       where: { sourceLabel: 'RUIAN_VFR' },
       orderBy: { startedAt: 'desc' },
     });
-    const persisted =
-      latest?.logJson && typeof latest.logJson === 'object'
-        ? (latest.logJson as { entries?: RuianVfrLogEntry[] })
-        : null;
+    if (latest) {
+      const job = await this.importJobs.getJob(latest.id);
+      const logs = (job?.logs ?? []) as Array<{
+        at: string;
+        level: string;
+        step: string;
+        message: string;
+        meta?: Record<string, unknown>;
+      }>;
+      const meta = (latest.jobMeta ?? {}) as { preview?: unknown[]; dryRun?: boolean };
+      const isRunning = [
+        'QUEUED',
+        'DISCOVERING',
+        'DOWNLOADING',
+        'EXTRACTING',
+        'PARSING',
+        'SAVING',
+      ].includes(latest.status);
+      return {
+        running: isRunning,
+        jobId: latest.id,
+        live: null,
+        latestRunId: latest.id,
+        entries: logs.map((e) => ({ ...e, progressPct: latest.progressPct })),
+        progressPct: latest.progressPct,
+        currentStep: latest.message ?? latest.status,
+        lastJobResult: job
+          ? {
+              success: latest.status === 'COMPLETED',
+              status: latest.status,
+              inserted: job.insertedRows,
+              updated: job.updatedRows,
+              errorCount: job.errorRows,
+              preview: meta.preview,
+              dryRun: meta.dryRun,
+              error: latest.errorMessage,
+            }
+          : this.lastJobResult,
+      };
+    }
+
+    const live = this.activeSession?.snapshot() ?? null;
     return {
       running: this.running,
       live,
-      latestRunId: latest?.id ?? null,
-      entries: live?.entries ?? persisted?.entries ?? [],
-      progressPct: live?.progressPct ?? latest?.progressPct ?? 0,
-      currentStep: live?.currentStep ?? latest?.status ?? 'idle',
+      latestRunId: null,
+      entries: live?.entries ?? [],
+      progressPct: live?.progressPct ?? 0,
+      currentStep: live?.currentStep ?? 'idle',
       lastJobResult: this.lastJobResult,
     };
   }
@@ -83,11 +172,15 @@ export class RuianVfrService {
   async getStatus() {
     const source = await this.getRuianSource();
     const cfg = this.getVfrConfig(source);
+    const activeJob = await this.importJobs.getActiveJob();
+    const jobView = activeJob ? await this.importJobs.getJob(activeJob.id) : null;
     const live = this.activeSession?.snapshot();
+    const running = Boolean(activeJob) || this.running;
     return {
       connector: 'RUIAN_VFR_OFFICIAL',
       apiKeyRequired: false,
-      running: this.running,
+      running,
+      jobId: activeJob?.id ?? null,
       mode: cfg.mode ?? 'full',
       sourceUrl: RUIAN_VFR_MONTHLY_BASE_URL,
       dailyAtomUrl: RUIAN_VFR_DAILY_ATOM_URL,
@@ -96,10 +189,17 @@ export class RuianVfrService {
       lastImportedFile: cfg.lastImportedFile ?? null,
       lastImportedVersion: cfg.lastImportedVersion ?? null,
       lastSyncAt: source?.lastSyncAt?.toISOString() ?? null,
-      lastStatus: this.running ? 'syncing' : (source?.lastStatus ?? 'idle'),
+      lastStatus: running ? 'syncing' : (source?.lastStatus ?? 'idle'),
       lastError: source?.lastError ?? null,
-      progressPct: live?.progressPct ?? cfg.progressPct ?? 0,
-      currentStep: live?.currentStep ?? null,
+      progressPct: jobView?.progress ?? live?.progressPct ?? cfg.progressPct ?? 0,
+      currentStep: jobView?.message ?? live?.currentStep ?? null,
+      currentPhase: jobView?.phase ?? null,
+      bytesRead: jobView?.bytesRead ?? null,
+      totalBytes: jobView?.totalBytes ?? null,
+      parsedRows: jobView?.parsedRows ?? null,
+      insertedRows: jobView?.insertedRows ?? null,
+      updatedRows: jobView?.updatedRows ?? null,
+      heartbeatAt: jobView?.heartbeatAt ?? null,
       stats: cfg.stats ?? {},
       provides: [
         'kraje',
@@ -136,98 +236,12 @@ export class RuianVfrService {
   }
 
   async runTestImportSafe(opts?: { limit?: number }) {
-    if (this.running) {
-      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
+    const res = await this.importJobs.enqueueTestImport(opts?.limit ?? 100);
+    if (!res.success) {
+      return ruianVfrFail(res.error ?? 'Test import nelze spustit.');
     }
-    const session = new RuianVfrImportSession();
-    this.activeSession = session;
-    this.running = true;
-    this.lastJobResult = null;
-    const limit = opts?.limit ?? 100;
-
-    this.scheduleBackgroundJob(async () => {
-      let workDir: string | null = null;
-      try {
-        await this.sourceService.ensureDefaultSources();
-        const source = await this.getRuianSource();
-        const cfg = this.getVfrConfig(source);
-        session.log('discover', 'Test importu — hledám stavový soubor...');
-        await this.persistSessionToSource(session);
-
-        const file = await this.resolveVfrFile('full', cfg, session);
-        if (!file?.url) {
-          throw Object.assign(new Error('Nebyl nalezen žádný stavový VFR soubor.'), { userMessage: 'Nebyl nalezen žádný stavový VFR soubor.' });
-        }
-
-        workDir = createRuianWorkDir();
-        const ioLog = this.bindSessionLog(session);
-        const zipPath = path.join(workDir, file.filename);
-        session.log('download', `Stahuji ${file.filename}...`);
-        await this.persistSessionToSource(session);
-        await downloadToFile(file.url, zipPath, 300000, ioLog);
-        validateDownloadedFile(zipPath);
-        session.log('download', `Soubor stažen (${file.filename})`);
-        await this.persistSessionToSource(session);
-
-        const preview: SeoLocationImportRow[] = [];
-        const result = await this.processZipAtPath(zipPath, workDir, 'full', file.filename, 0, session, {
-          dryRun: true,
-          maxRecords: limit,
-          filterElementType: 'Obec',
-          onPreview: (rows) => preview.push(...rows),
-        });
-
-        session.log('done', `Test: ${preview.length} obcí připraveno k náhledu.`);
-        await this.persistSessionToSource(session);
-
-        if (preview.length === 0) {
-          this.lastJobResult = {
-            success: false,
-            status: 'EMPTY_IMPORT',
-            step: session.currentPhase,
-            error: 'Import nenašel žádné zpracovatelné záznamy.',
-            xmlFiles: result.xmlFileCount,
-            parsedMunicipalities: result.diagnostics.parsedMunicipalities,
-            logs: session.entries,
-          };
-          return;
-        }
-
-        this.lastJobResult = {
-          success: true,
-          status: 'COMPLETED',
-          dryRun: true,
-          xmlFiles: result.xmlFileCount,
-          parsedMunicipalities: result.diagnostics.parsedMunicipalities,
-          preview: preview.slice(0, limit),
-          diagnostics: result.diagnostics,
-          file: { url: file.url, filename: file.filename, version: file.version },
-          logs: session.entries,
-          progressPct: 100,
-          currentStep: 'Hotovo',
-        };
-      } catch (err) {
-        session.logError(err);
-        await this.persistSessionToSource(session);
-        const info = formatRuianVfrError(err);
-        this.lastJobResult = {
-          success: false,
-          status: 'FAILED',
-          step: session.currentPhase,
-          error: info.userMessage,
-          detail: info.message,
-          logs: session.entries,
-        };
-        await this.markSourceError(err);
-      } finally {
-        this.running = false;
-        this.activeSession = null;
-        if (workDir) cleanupDir(workDir);
-      }
-    });
-
     return ruianVfrOk(
-      { started: true, running: true, message: 'Test import spuštěn na pozadí.', logs: session.entries },
+      { jobId: res.jobId, status: res.status, started: true, running: true, message: 'Test import zařazen do fronty.' },
       'RUNNING',
     );
   }
@@ -255,21 +269,24 @@ export class RuianVfrService {
     return file;
   }
 
-  async runFullImportSafe(opts?: { resume?: boolean }) {
-    if (this.running) {
-      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
+  async runFullImportSafe(opts?: { resume?: boolean; scope?: 'seo' | 'addresses' }) {
+    const scope =
+      opts?.scope === 'addresses' ? RUIAN_IMPORT_SCOPE.ADDRESSES : RUIAN_IMPORT_SCOPE.SEO;
+    const res = await this.importJobs.enqueueImport(scope);
+    if (!res.success) {
+      return ruianVfrFail(res.error ?? 'Import nelze spustit.', [], 'FAILED');
     }
-    const session = new RuianVfrImportSession();
-    this.activeSession = session;
-    this.running = true;
-    this.lastJobResult = null;
-
-    this.scheduleBackgroundJob(async () => {
-      this.lastJobResult = await this.executeVfrImport('full', session, opts);
-    });
-
     return ruianVfrOk(
-      { started: true, running: true, message: 'Plný import spuštěn na pozadí.', logs: session.entries },
+      {
+        jobId: res.jobId,
+        status: res.status,
+        started: true,
+        running: true,
+        message:
+          scope === RUIAN_IMPORT_SCOPE.ADDRESSES
+            ? 'Adresní import zařazen do fronty.'
+            : 'Import lokalit pro SEO zařazen do fronty.',
+      },
       'RUNNING',
     );
   }
@@ -747,6 +764,7 @@ export class RuianVfrService {
       parsedStreets: 0,
       parsedAddressPlaces: 0,
       parseErrors: [],
+      skippedElements: 0,
     };
     const buffer: SeoLocationImportRow[] = [];
     let lastPhase: string | null = null;

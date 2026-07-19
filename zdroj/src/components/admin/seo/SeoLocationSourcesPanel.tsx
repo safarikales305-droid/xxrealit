@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   nestAdminCsuDataStatStatus,
   nestAdminCsuDataStatSync,
+  nestAdminRuianActiveImportJob,
+  nestAdminRuianImportJob,
+  nestAdminRuianImportJobCancel,
   nestAdminRuianVfrDailyDownload,
   nestAdminRuianVfrDiscover,
   nestAdminRuianVfrFullImport,
@@ -17,6 +20,7 @@ import {
   nestAdminSeoLocationSourceUpdate,
   nestAdminSeoLocationSources,
   type CsuDataStatStatus,
+  type RuianImportJob,
   type RuianVfrLogsResponse,
   type RuianVfrStatus,
   type SeoLocationSourceCard,
@@ -49,8 +53,24 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   const [showLogs, setShowLogs] = useState(false);
   const [importLogs, setImportLogs] = useState<RuianVfrLogsResponse | null>(null);
   const [testPreview, setTestPreview] = useState<Array<{ officialCode: string; name: string }>>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<RuianImportJob | null>(null);
   const vfrFileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function formatMb(bytes?: string | null): string {
+    if (!bytes) return '—';
+    const n = Number(bytes);
+    if (!Number.isFinite(n)) return '—';
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  const applyJobView = useCallback((job: RuianImportJob | null) => {
+    if (!job) return;
+    setActiveJob(job);
+    if (job.progress != null) setProgressPct(job.progress);
+    if (job.message) setCurrentStep(job.message);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [srcRes, ruianRes, csuRes] = await Promise.all([
@@ -85,46 +105,78 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
   }, [refresh]);
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const active = await nestAdminRuianActiveImportJob(token);
+        if (active && 'jobId' in active && active.jobId) {
+          setActiveJobId(active.jobId);
+          applyJobView(active as RuianImportJob);
+          setBusy(true);
+          startPolling(active.jobId);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
 
-  function startPolling(onComplete?: () => void) {
+  function startPolling(jobId?: string | null, onComplete?: () => void) {
     if (pollRef.current) clearInterval(pollRef.current);
+    const trackedJobId = jobId ?? activeJobId;
     pollRef.current = setInterval(() => {
       void (async () => {
         try {
           const live = await nestAdminRuianVfrLiveStatus(token);
           setProgressPct(live.progressPct);
           setCurrentStep(live.currentStep);
+          if (live.runId) setActiveJobId(live.runId);
+
+          if (trackedJobId) {
+            const job = await nestAdminRuianImportJob(token, trackedJobId);
+            if (job) applyJobView(job);
+          }
+
           if (!live.running && pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
             setBusy(false);
             const logs = await nestAdminRuianVfrLogs(token);
             setImportLogs(logs);
-            const last = logs.lastJobResult;
+            const last = logs.lastJobResult as Record<string, unknown> | null | undefined;
             if (last?.success === false) {
               const step = last.step ? `[${String(last.step)}] ` : '';
-              setErrorMsg(`${step}${String(last.error ?? 'Import selhal.')}`);
-            } else if (Array.isArray(last?.preview)) {
-              const preview = last.preview as Array<{ officialCode?: string; name?: string }>;
+              setErrorMsg(`${step}${String(last.error ?? last.errorMessage ?? 'Import selhal.')}`);
+            } else if (Array.isArray(last?.preview) || Array.isArray((last as { preview?: unknown[] })?.preview)) {
+              const preview = (last?.preview ?? []) as Array<{
+                officialCode?: string;
+                name?: string;
+                districtOfficialCode?: string | null;
+                regionOfficialCode?: string | null;
+              }>;
               setTestPreview(
                 preview.map((p) => ({ officialCode: p.officialCode ?? '', name: p.name ?? '' })),
               );
               setMsg(
-                `Test importu: ${preview.length} obcí, XML souborů: ${String(last?.xmlFiles ?? '?')}, parsováno: ${String(last?.parsedMunicipalities ?? '?')}`,
+                `Test importu: ${preview.length} obcí, parsováno: ${String(last?.parsedRows ?? last?.parsedMunicipalities ?? '?')}`,
               );
             } else if (last?.inserted !== undefined || last?.updated !== undefined) {
               setMsg(
-                `Import: +${String(last.inserted ?? 0)} nových, ${String(last.updated ?? 0)} aktualizovaných, ${String(last.errorCount ?? 0)} chyb`,
+                `Import: +${String(last.inserted ?? last.insertedRows ?? 0)} nových, ${String(last.updated ?? last.updatedRows ?? 0)} aktualizovaných, ${String(last.errorCount ?? last.errorRows ?? 0)} chyb`,
               );
               setProgressPct(100);
               setCurrentStep('Hotovo');
             } else if (live.lastJobError) {
               setErrorMsg(String(live.lastJobError));
             }
+            setActiveJobId(null);
+            setActiveJob(null);
             void refresh();
             void refreshLogs();
             onImported?.();
@@ -135,7 +187,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         }
         void refreshLogs();
       })();
-    }, 2000);
+    }, 3000);
   }
 
   const ruian = sources.find((s) => s.type === 'RUIAN');
@@ -147,7 +199,6 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
     setErrorMsg(null);
     setProgressPct(0);
     setCurrentStep('START IMPORT');
-    if (poll) startPolling();
     try {
       const res = await fn();
       const r = res as Record<string, unknown>;
@@ -165,11 +216,12 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         void refresh();
         return;
       }
-      if (r.started === true || r.running === true) {
+      const jobId = typeof r.jobId === 'string' ? r.jobId : null;
+      if (jobId) setActiveJobId(jobId);
+      if (r.started === true || r.running === true || jobId) {
         setMsg(String(r.message ?? `${label} běží na pozadí — sledujte log.`));
-        if (!poll) {
-          setBusy(false);
-        }
+        if (poll) startPolling(jobId);
+        else setBusy(false);
         return;
       }
       if (r.inserted !== undefined || r.updated !== undefined) {
@@ -268,13 +320,33 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
             />
           </div>
-          <div className="mt-2 flex justify-between text-xs text-zinc-500">
-            <span>0 %</span>
-            <span>25 %</span>
-            <span>50 %</span>
-            <span>75 %</span>
-            <span>100 %</span>
-          </div>
+          {activeJob ? (
+            <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-zinc-600">
+              <dt>Stav</dt>
+              <dd className="font-mono">{activeJob.status}</dd>
+              <dt>Fáze</dt>
+              <dd>{activeJob.phase ?? '—'}</dd>
+              <dt>Soubor</dt>
+              <dd className="truncate font-mono" title={activeJob.currentFile ?? undefined}>
+                {activeJob.currentFile ?? '—'}
+              </dd>
+              <dt>Přečteno</dt>
+              <dd>
+                {formatMb(activeJob.bytesRead)} / {formatMb(activeJob.totalBytes)}
+              </dd>
+              <dt>Záznamy</dt>
+              <dd>
+                parsováno {activeJob.parsedRows ?? 0}, vloženo {activeJob.insertedRows ?? 0}, aktualizováno{' '}
+                {activeJob.updatedRows ?? 0}
+              </dd>
+              <dt>Heartbeat</dt>
+              <dd>
+                {activeJob.heartbeatAt
+                  ? new Date(activeJob.heartbeatAt).toLocaleTimeString('cs-CZ')
+                  : '—'}
+              </dd>
+            </dl>
+          ) : null}
         </div>
       )}
 
@@ -354,9 +426,35 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             <ActionBtn
               disabled={busy}
               primary
-              label="Spustit plný import"
-              onClick={() => void runAction('Plný import', () => nestAdminRuianVfrFullImport(token), true)}
+              label="Importovat lokality pro SEO"
+              onClick={() =>
+                void runAction(
+                  'SEO import',
+                  () => nestAdminRuianVfrFullImport(token, 'seo'),
+                  true,
+                )
+              }
             />
+            <ActionBtn
+              disabled={busy}
+              label="Importovat adresní databázi"
+              onClick={() =>
+                void runAction(
+                  'Adresní import',
+                  () => nestAdminRuianVfrFullImport(token, 'addresses'),
+                  true,
+                )
+              }
+            />
+            {busy && activeJobId ? (
+              <ActionBtn
+                disabled={false}
+                label="Zrušit import"
+                onClick={() =>
+                  void runAction('Zrušení', () => nestAdminRuianImportJobCancel(token, activeJobId))
+                }
+              />
+            ) : null}
             <ActionBtn
               disabled={busy}
               label="Test importu 100 záznamů"

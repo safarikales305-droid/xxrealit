@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import * as fs from 'node:fs';
 import {
   RUIAN_VFR_ELEMENT_KIND_MAP,
   type RuianVfrConnectorConfig,
@@ -28,19 +29,17 @@ export type VfrParseDiagnostics = {
   parsedStreets: number;
   parsedAddressPlaces: number;
   parseErrors: string[];
+  skippedElements: number;
 };
 
 export type VfrStreamStats = NonNullable<RuianVfrConnectorConfig['stats']>;
 
 const NESTED_REF_ONLY_TAGS = new Set(['Okres', 'Pou', 'Vusc', 'Orp']);
+const TRACKED_TAGS = new Set(Object.keys(RUIAN_VFR_ELEMENT_KIND_MAP));
 
 function isNestedReferenceTag(tag: string, recordStackDepth: number): boolean {
   return recordStackDepth > 0 && NESTED_REF_ONLY_TAGS.has(tag);
 }
-
-const TRACKED_TAGS = new Set(Object.keys(RUIAN_VFR_ELEMENT_KIND_MAP));
-
-const FIELD_TAGS = new Set(['Kod', 'Nazev', 'Name', 'pos']);
 
 function localName(tag: string): string {
   if (tag.startsWith('{')) {
@@ -57,7 +56,6 @@ function parseCoordPair(text: string): { lat: number; lon: number } | null {
   const x = Number.parseFloat(parts[0]!);
   const y = Number.parseFloat(parts[1]!);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  // VFR EPSG:5514 — pro SEO uložíme jako lat/lon aproximaci (s-jtsk); lepší než nic
   return { lat: y / 100000, lon: x / 100000 };
 }
 
@@ -158,9 +156,53 @@ export function vfrRecordToImportRow(rec: VfrStreamRecord): SeoLocationImportRow
 
 type PartialRec = Partial<VfrStreamRecord> & { elementType: string };
 
+function finalizeRecordSync(
+  rec: PartialRec,
+  opts: {
+    filterElementType?: string;
+    allowedElementTypes?: Set<string>;
+    skipUntil: number;
+    maxRecords?: number;
+    skippedCounter: { n: number };
+    totalCounter: { n: number };
+    diagnostics: VfrParseDiagnostics;
+    stats: VfrStreamStats;
+    onElement?: (elementType: string) => void;
+  },
+): SeoLocationImportRow | null {
+  if (opts.allowedElementTypes && !opts.allowedElementTypes.has(rec.elementType)) {
+    opts.diagnostics.skippedElements += 1;
+    return null;
+  }
+  if (opts.filterElementType && rec.elementType !== opts.filterElementType) return null;
+  if (!rec.officialCode?.trim()) {
+    if (opts.diagnostics.parseErrors.length < 50) {
+      opts.diagnostics.parseErrors.push(`Chybí kód u prvku ${rec.elementType}`);
+    }
+    return null;
+  }
+  if (!rec.name?.trim()) rec.name = rec.officialCode;
+  const row = vfrRecordToImportRow(rec as VfrStreamRecord);
+  if (!row) return null;
+
+  if (opts.skippedCounter.n < opts.skipUntil) {
+    opts.skippedCounter.n += 1;
+    return null;
+  }
+  if (opts.maxRecords != null && opts.totalCounter.n >= opts.maxRecords) return null;
+
+  opts.totalCounter.n += 1;
+  bumpStat(opts.stats, rec.elementType);
+  bumpDiag(opts.diagnostics, rec.elementType);
+  opts.onElement?.(rec.elementType);
+  return row;
+}
+
 /**
  * Streamované parsování VFR XML/GML (SAX).
- * Podporuje child elementy s namespace prefixy (obi:Kod, vf:Obec, gml:pos).
+ * — žádné async handlery v closetag (backpressure)
+ * — skipSubtree pro nepovolené elementy (SEO režim bez adres)
+ * — sledování bytesRead pro skutečný progress
  */
 export async function streamParseVfrXmlFile(
   xmlPath: string,
@@ -170,10 +212,16 @@ export async function streamParseVfrXmlFile(
     skipUntil?: number;
     maxRecords?: number;
     filterElementType?: string;
+    allowedElementTypes?: Set<string>;
+    skipGeometry?: boolean;
     onElement?: (elementType: string) => void;
+    onBytesRead?: (bytesRead: number, totalBytes: number) => void;
+    shouldStop?: () => boolean;
   },
-): Promise<{ total: number; stats: VfrStreamStats; diagnostics: VfrParseDiagnostics }> {
+): Promise<{ total: number; stats: VfrStreamStats; diagnostics: VfrParseDiagnostics; bytesRead: number }> {
   const batchSize = opts?.batchSize ?? 500;
+  const fileStat = fs.statSync(xmlPath);
+  const totalBytes = fileStat.size;
   const stats: VfrStreamStats = {};
   const diagnostics: VfrParseDiagnostics = {
     parsedRegions: 0,
@@ -185,16 +233,20 @@ export async function streamParseVfrXmlFile(
     parsedStreets: 0,
     parsedAddressPlaces: 0,
     parseErrors: [],
+    skippedElements: 0,
   };
-  let total = 0;
-  let skipped = 0;
+  const totalCounter = { n: 0 };
+  const skippedCounter = { n: 0 };
   let batch: SeoLocationImportRow[] = [];
+  let bytesRead = 0;
 
   await new Promise<void>((resolve, reject) => {
     const sax = resolveSaxModule();
     const parser = sax.createStream(true, { lowercase: false, xmlns: true });
-    const readStream = createReadStream(xmlPath, { encoding: 'utf8', highWaterMark: 128 * 1024 });
+    const readStream = createReadStream(xmlPath, { encoding: 'utf8', highWaterMark: 256 * 1024 });
     let stopped = false;
+    let skipSubtreeDepth = 0;
+    let flushChain: Promise<void> = Promise.resolve();
 
     const recordStack: PartialRec[] = [];
     const elementStack: string[] = [];
@@ -203,73 +255,92 @@ export async function streamParseVfrXmlFile(
       null;
     let inGeometry = false;
 
-    const flush = async () => {
-      if (!batch.length) return;
-      const copy = batch;
-      batch = [];
-      await onBatch(copy, stats, diagnostics);
+    const enqueueFlush = (rows: SeoLocationImportRow[]) => {
+      if (!rows.length) return;
+      readStream.pause();
+      flushChain = flushChain
+        .then(() => onBatch(rows, stats, diagnostics))
+        .then(() => {
+          if (!stopped) readStream.resume();
+        })
+        .catch(reject);
     };
 
-    const finalizeRecord = async (rec: PartialRec) => {
-      if (opts?.filterElementType && rec.elementType !== opts.filterElementType) {
-        return;
-      }
-      if (!rec.officialCode?.trim()) {
-        diagnostics.parseErrors.push(`Chybí kód u prvku ${rec.elementType}`);
-        return;
-      }
-      if (!rec.name?.trim()) {
-        rec.name = rec.officialCode;
-      }
-      const row = vfrRecordToImportRow(rec as VfrStreamRecord);
+    readStream.on('data', (chunk: string | Buffer) => {
+      if (stopped) return;
+      bytesRead += typeof chunk === 'string' ? Buffer.byteLength(chunk, 'utf8') : chunk.length;
+      opts?.onBytesRead?.(bytesRead, totalBytes);
+      parser.write(chunk);
+    });
+
+    const stopParsing = () => {
+      stopped = true;
+      readStream.removeAllListeners('data');
+      readStream.removeAllListeners('end');
+      readStream.destroy();
+    };
+
+    const pushRow = (row: SeoLocationImportRow | null) => {
       if (!row) return;
-
-      if (skipped < (opts?.skipUntil ?? 0)) {
-        skipped += 1;
+      batch.push(row);
+      if (opts?.maxRecords != null && totalCounter.n >= opts.maxRecords) {
+        const copy = batch.splice(0, batch.length);
+        enqueueFlush(copy);
+        stopParsing();
+        flushChain.then(() => resolve()).catch(reject);
         return;
       }
-      if (opts?.maxRecords != null && total >= opts.maxRecords) return;
-
-      batch.push(row);
-      total += 1;
-      bumpStat(stats, rec.elementType);
-      bumpDiag(diagnostics, rec.elementType);
-      opts?.onElement?.(rec.elementType);
-
+      if (opts?.shouldStop?.()) {
+        const copy = batch.splice(0, batch.length);
+        enqueueFlush(copy);
+        stopParsing();
+        flushChain.then(() => resolve()).catch(reject);
+        return;
+      }
       if (batch.length >= batchSize) {
-        parser.pause();
-        void flush()
-          .then(() => parser.resume())
-          .catch(reject);
+        const copy = batch.splice(0, batch.length);
+        enqueueFlush(copy);
       }
     };
 
     parser.on('opentag', (node: { name: string; attributes: Record<string, unknown> }) => {
+      if (stopped) return;
       const tag = localName(node.name);
       elementStack.push(tag);
+
+      if (skipSubtreeDepth > 0) {
+        skipSubtreeDepth += 1;
+        return;
+      }
+
       textBuffer = '';
 
       if (TRACKED_TAGS.has(tag) && !isNestedReferenceTag(tag, recordStack.length)) {
+        if (opts?.allowedElementTypes && !opts.allowedElementTypes.has(tag)) {
+          skipSubtreeDepth = 1;
+          diagnostics.skippedElements += 1;
+          return;
+        }
+
         const attrs: Record<string, string> = {};
         for (const [k, v] of Object.entries(node.attributes ?? {})) {
           attrs[localName(k)] = attrValue(v);
         }
-        const fromAttr: PartialRec = {
+        recordStack.push({
           elementType: tag,
           officialCode: attrs.Kod || attrs.kod || attrs.Id || '',
           name: attrs.Nazev || attrs.nazev || attrs.Name || '',
           parentOfficialCode: attrs.KodNadrazenehoPrvku ?? null,
           districtOfficialCode: attrs.KodOkresu ?? null,
           regionOfficialCode: attrs.KodVusc ?? attrs.KodKraje ?? null,
-        };
-        recordStack.push(fromAttr);
+        });
         captureTarget = null;
         return;
       }
 
       if (!recordStack.length) return;
 
-      if (tag === 'Geometrie' || tag === 'DefinicniBod' || tag === 'MultiPoint' || tag === 'Point') {
+      if (!opts?.skipGeometry && (tag === 'Geometrie' || tag === 'DefinicniBod' || tag === 'MultiPoint' || tag === 'Point')) {
         inGeometry = true;
       }
 
@@ -291,11 +362,18 @@ export async function streamParseVfrXmlFile(
     });
 
     parser.on('text', (text: string) => {
-      if (captureTarget) textBuffer += text;
+      if (captureTarget && skipSubtreeDepth === 0) textBuffer += text;
     });
 
-    parser.on('closetag', async (name: string) => {
+    parser.on('closetag', (name: string) => {
+      if (stopped) return;
       const tag = localName(name);
+
+      if (skipSubtreeDepth > 0) {
+        skipSubtreeDepth -= 1;
+        elementStack.pop();
+        return;
+      }
 
       if (captureTarget && (tag === 'Kod' || tag === 'Nazev' || tag === 'Name' || tag === 'pos')) {
         const value = textBuffer.trim();
@@ -328,28 +406,42 @@ export async function streamParseVfrXmlFile(
       if (TRACKED_TAGS.has(tag) && !isNestedReferenceTag(tag, recordStack.length)) {
         const rec = recordStack.pop();
         if (rec && rec.elementType === tag) {
-          if (opts?.maxRecords != null && total >= opts.maxRecords) {
-            if (!stopped) {
-              stopped = true;
-              readStream.destroy();
-              void flush().then(() => resolve()).catch(reject);
-            }
-            return;
-          }
-          await finalizeRecord(rec);
+          const row = finalizeRecordSync(rec, {
+            filterElementType: opts?.filterElementType,
+            allowedElementTypes: opts?.allowedElementTypes,
+            skipUntil: opts?.skipUntil ?? 0,
+            maxRecords: opts?.maxRecords,
+            skippedCounter,
+            totalCounter,
+            diagnostics,
+            stats,
+            onElement: opts?.onElement,
+          });
+          pushRow(row);
         }
       }
 
       elementStack.pop();
     });
 
-    parser.on('error', (err: Error) => reject(err));
+    parser.on('error', (err: Error) => {
+      if (stopped) return;
+      reject(err);
+    });
     parser.on('end', () => {
-      void flush().then(() => resolve()).catch(reject);
+      flushChain
+        .then(() => {
+          if (batch.length) return onBatch(batch.splice(0, batch.length), stats, diagnostics);
+        })
+        .then(() => resolve())
+        .catch(reject);
     });
 
-    readStream.pipe(parser);
+    readStream.on('error', reject);
+    readStream.on('end', () => {
+      if (!stopped) parser.end();
+    });
   });
 
-  return { total, stats, diagnostics };
+  return { total: totalCounter.n, stats, diagnostics, bytesRead };
 }

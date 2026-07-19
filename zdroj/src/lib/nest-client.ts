@@ -14722,13 +14722,102 @@ export async function nestAdminRuianVfrLogs(token: string | null): Promise<Ruian
   return nestAdminVfrJson(token, '/logs');
 }
 
+export type RuianImportJob = {
+  jobId: string;
+  status: string;
+  phase: string | null;
+  message: string | null;
+  progress: number;
+  importScope: string | null;
+  sourceUrl: string | null;
+  sourceFilename: string | null;
+  sourceFileSize: string | null;
+  currentFile: string | null;
+  bytesRead: string;
+  totalBytes: string | null;
+  parsedRows: number;
+  insertedRows: number;
+  updatedRows: number;
+  skippedRows: number;
+  errorRows: number;
+  heartbeatAt: string | null;
+  lastCheckpointAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  memoryMb: number | null;
+  logs: Array<{
+    at: string;
+    level: string;
+    step: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }>;
+  stats: Record<string, number>;
+};
+
+export async function nestAdminRuianImportJob(
+  token: string | null,
+  jobId: string,
+): Promise<RuianImportJob | null> {
+  return nestAdminSeoLocationsJson(token, `/imports/${jobId}`);
+}
+
+export async function nestAdminRuianImportJobLogs(
+  token: string | null,
+  jobId: string,
+): Promise<RuianImportJob | null> {
+  return nestAdminSeoLocationsJson(token, `/imports/${jobId}/logs`);
+}
+
+export async function nestAdminRuianImportJobCancel(
+  token: string | null,
+  jobId: string,
+): Promise<{ success: boolean; jobId: string; status: string } | null> {
+  return nestAdminSeoLocationsJson(token, `/imports/${jobId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianImportJobResume(
+  token: string | null,
+  jobId: string,
+): Promise<{ success: boolean; jobId?: string; status?: string; error?: string } | null> {
+  return nestAdminSeoLocationsJson(token, `/imports/${jobId}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianSeoFullImport(
+  token: string | null,
+  scope: 'seo' | 'addresses' = 'seo',
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/full-import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope }),
+  });
+}
+
+export async function nestAdminRuianActiveImportJob(
+  token: string | null,
+): Promise<RuianImportJob | { jobId: null; status: string } | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/import/active');
+}
+
 export async function nestAdminRuianVfrFullImport(
   token: string | null,
+  scope: 'seo' | 'addresses' = 'seo',
 ): Promise<Record<string, unknown>> {
   return nestAdminVfrJson(token, '/full-import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ scope }),
   });
 }
 

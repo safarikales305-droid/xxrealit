@@ -8,6 +8,7 @@ import {
 } from './seo-location.util';
 
 const BATCH_SIZE = 200;
+const VFR_BATCH_SIZE = 500;
 
 @Injectable()
 export class SeoLocationService {
@@ -244,6 +245,112 @@ export class SeoLocationService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Dávkový import pro RÚIAN VFR — jeden findMany na batch místo tisíců findUnique.
+   */
+  async importVfrBatch(
+    rows: SeoLocationImportRow[],
+    options: {
+      sourceId?: string;
+      dataSource?: 'RUIAN';
+      existingRunId?: string;
+    },
+  ): Promise<{ inserted: number; updated: number; skipped: number; errorCount: number; errors: string[] }> {
+    const errors: string[] = [];
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    const codes = rows.map((r) => r.officialCode?.trim()).filter(Boolean) as string[];
+    if (!codes.length) return { inserted, updated, skipped, errorCount: 0, errors };
+
+    const existingRows = await this.prisma.seoLocation.findMany({
+      where: { officialCode: { in: codes } },
+      select: {
+        id: true,
+        officialCode: true,
+        slug: true,
+        slugAscii: true,
+        slugLocked: true,
+      },
+    });
+    const existingByCode = new Map(existingRows.map((e) => [e.officialCode, e]));
+
+    for (const row of rows) {
+      try {
+        const code = row.officialCode?.trim();
+        if (!code) {
+          errors.push('Řádek bez officialCode');
+          skipped += 1;
+          continue;
+        }
+        const slug = row.slug?.trim() || buildSeoLocationSlug(row.name, code);
+        const slugAscii = row.slugAscii?.trim() || slug;
+        const kind = normalizeSeoLocationKind(row.kind) as SeoLocationKind;
+        const searchTerms = [row.name, row.locative ?? '', ...(row.searchTerms ?? [])].filter(Boolean);
+        const existing = existingByCode.get(code);
+
+        const data: Prisma.SeoLocationUncheckedCreateInput = {
+          officialCode: code,
+          name: row.name.trim(),
+          slug: existing?.slugLocked ? existing.slug : slug,
+          slugAscii: existing?.slugLocked ? existing.slugAscii : slugAscii,
+          locative: row.locative?.trim() || row.name.trim(),
+          kind,
+          latitude: row.latitude ?? undefined,
+          longitude: row.longitude ?? undefined,
+          population: row.population ?? undefined,
+          psc: row.psc?.trim() || undefined,
+          cadastreCode: row.cadastreCode?.trim() || undefined,
+          searchTerms: [...new Set(searchTerms)],
+          isActive: row.isActive !== false,
+          importedAt: new Date(),
+          dataSource: options.dataSource,
+        };
+
+        if (existing) {
+          await this.prisma.seoLocation.update({
+            where: { id: existing.id },
+            data: {
+              ...data,
+              slug: existing.slugLocked
+                ? existing.slug
+                : existing.slug === slug
+                  ? slug
+                  : await this.ensureUniqueSlug(slug, existing.id),
+              slugAscii: existing.slugLocked ? existing.slugAscii : slugAscii,
+            },
+          });
+          updated += 1;
+        } else {
+          const uniqueSlug = await this.ensureUniqueSlug(slug);
+          await this.prisma.seoLocation.create({
+            data: { ...data, slug: uniqueSlug, slugAscii: uniqueSlug },
+          });
+          inserted += 1;
+        }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    if (options.existingRunId) {
+      await this.prisma.seoLocationImportRun.update({
+        where: { id: options.existingRunId },
+        data: {
+          inserted: { increment: inserted },
+          updated: { increment: updated },
+          skipped: { increment: skipped },
+          errorCount: { increment: errors.length },
+        },
+      });
+    }
+
+    await this.resolveHierarchyRefs(rows);
+
+    return { inserted, updated, skipped, errorCount: errors.length, errors };
   }
 
   private async resolveHierarchyRefs(rows: SeoLocationImportRow[]): Promise<void> {
