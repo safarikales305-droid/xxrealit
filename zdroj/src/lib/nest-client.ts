@@ -4872,7 +4872,7 @@ export async function nestAdminMetaCenterCampaignMetaUrlHealth(
     token,
     `/campaigns/meta-url-health?url=${encodeURIComponent(trimmed)}`,
   );
-  if (!r.ok || !r.data) {
+  if (!r.ok) {
     return {
       ok: false,
       url: trimmed,
@@ -4884,7 +4884,7 @@ export async function nestAdminMetaCenterCampaignMetaUrlHealth(
       indexable: false,
       hasOpenGraph: false,
       openGraph: { title: false, description: false, image: false },
-      errors: [r.error ?? 'Kontrola URL selhala.'],
+      errors: [r.error],
     };
   }
   return r.data;

@@ -141,37 +141,39 @@ export default function AdminImportsPage() {
       void Promise.all(
         activeIds.map(async (id) => {
           const r = await nestAdminImportProgress(token, id);
-          if (!r.ok || !r.data) return;
+          if (!r.ok) return;
+          const progress = r.data;
+          if (!progress) return;
           setBranches((prev) =>
             prev.map((b) =>
               b.id === id
                 ? {
                     ...b,
-                    progressPercent: r.data!.progressPercent,
-                    processedItems: r.data!.processedItems,
-                    totalItems: r.data!.totalItems,
-                    currentMessage: r.data!.currentMessage,
+                    progressPercent: progress.progressPercent,
+                    processedItems: progress.processedItems,
+                    totalItems: progress.totalItems,
+                    currentMessage: progress.currentMessage,
                     running:
-                      r.data!.running === false && r.data!.done
+                      progress.running === false && progress.done
                         ? {
                             ...(b.running ?? { running: false, percent: 0, message: '' }),
                             running: false,
-                            percent: r.data!.progressPercent,
-                            progressPercent: r.data!.progressPercent,
-                            processedListings: r.data!.processedItems,
-                            totalListings: r.data!.totalItems ?? undefined,
-                            currentMessage: r.data!.currentMessage,
-                            etaSeconds: r.data!.etaSeconds,
+                            percent: progress.progressPercent,
+                            progressPercent: progress.progressPercent,
+                            processedListings: progress.processedItems,
+                            totalListings: progress.totalItems ?? undefined,
+                            currentMessage: progress.currentMessage,
+                            etaSeconds: progress.etaSeconds,
                           }
                         : {
                             ...(b.running ?? { running: true, percent: 0, message: '' }),
                             running: true,
-                            percent: r.data!.progressPercent,
-                            progressPercent: r.data!.progressPercent,
-                            processedListings: r.data!.processedItems,
-                            totalListings: r.data!.totalItems ?? undefined,
-                            currentMessage: r.data!.currentMessage,
-                            etaSeconds: r.data!.etaSeconds,
+                            percent: progress.progressPercent,
+                            progressPercent: progress.progressPercent,
+                            processedListings: progress.processedItems,
+                            totalListings: progress.totalItems ?? undefined,
+                            currentMessage: progress.currentMessage,
+                            etaSeconds: progress.etaSeconds,
                           },
                   }
                 : b,
@@ -518,8 +520,12 @@ export default function AdminImportsPage() {
     setStatusMsg(null);
     const r = await nestAdminImportApifyDataset(token, normalizedUrl);
     setApifyImportBusy(false);
-    if (!r.ok || !r.data) {
+    if (!r.ok) {
       setError(r.error ?? 'APIFY dataset import selhal.');
+      return;
+    }
+    if (!r.data) {
+      setError('APIFY dataset import selhal.');
       return;
     }
     setStatusMsg(

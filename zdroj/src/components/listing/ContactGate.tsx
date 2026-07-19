@@ -146,7 +146,7 @@ export function useContactGate({
       setContactLeadError(null);
       const r = await nestListingUnlockContact(apiAccessToken, targetId, lead);
       setContactLeadBusy(false);
-      if (!r.ok || !r.data) {
+      if (!r.ok) {
         if (r.code === 'PROPERTY_SEEKER_TIP_BLOCKED') {
           setContactLeadError(
             r.error ?? PROPERTY_SEEKER_TIP_MSG,
@@ -166,6 +166,12 @@ export function useContactGate({
         }
         setContactLeadError(
           r.error ?? (isTip ? 'Odemčení kontaktu se nezdařilo.' : 'Odeslání zájmu se nezdařilo.'),
+        );
+        return;
+      }
+      if (!r.data) {
+        setContactLeadError(
+          isTip ? 'Odemčení kontaktu se nezdařilo.' : 'Odeslání zájmu se nezdařilo.',
         );
         return;
       }

@@ -751,8 +751,13 @@ export default function AdminImportedBrokersPage() {
                       source: importSource,
                     });
                     setImportBusy(false);
-                    if (!r.ok || !r.data) {
+                    if (!r.ok) {
                       setImportErr(r.error ?? 'Náhled se nepodařil.');
+                      setImportPreview(null);
+                      return;
+                    }
+                    if (!r.data) {
+                      setImportErr('Náhled se nepodařil.');
                       setImportPreview(null);
                       return;
                     }
@@ -774,8 +779,12 @@ export default function AdminImportedBrokersPage() {
                       source: importSource,
                     });
                     setImportBusy(false);
-                    if (!r.ok || !r.data) {
+                    if (!r.ok) {
                       setImportErr(r.error ?? 'Import selhal.');
+                      return;
+                    }
+                    if (!r.data) {
+                      setImportErr('Import selhal.');
                       return;
                     }
                     setImportResult(r.data);
