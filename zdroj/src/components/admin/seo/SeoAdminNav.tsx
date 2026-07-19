@@ -3,7 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const NAV = [
+type SeoNavItem = {
+  href: string;
+  label: string;
+  exact?: boolean;
+};
+
+const NAV: SeoNavItem[] = [
   { href: '/admin/seo', label: 'Dashboard', exact: true },
   { href: '/admin/seo/stranky', label: 'SEO stránky' },
   { href: '/admin/seo/generator', label: 'AI Generátor' },
@@ -22,7 +28,7 @@ const NAV = [
   { href: '/admin/seo/audit', label: 'SEO Audit' },
   { href: '/admin/seo/vykon', label: 'Výkon' },
   { href: '/admin/seo/historie', label: 'Historie změn' },
-] as const;
+];
 
 export function SeoAdminNav() {
   const pathname = usePathname();
