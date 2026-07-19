@@ -14468,18 +14468,41 @@ async function nestAdminVfrJson<T>(
   init?: RequestInit,
 ): Promise<T> {
   if (!API_BASE_URL || !token) throw new Error('Chybí přihlášení nebo API URL.');
-  const res = await fetch(`${API_BASE_URL}/vfr${path}`, {
-    ...init,
-    headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/vfr${path}`, {
+      ...init,
+      headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      /fetch|network|failed/i.test(msg)
+        ? 'Síťová chyba — server neodpověděl. Import může pokračovat na pozadí, sledujte log.'
+        : `Síťová chyba: ${msg}`,
+    );
+  }
+  const text = await res.text().catch(() => '');
+  let data: {
     success?: boolean;
     error?: string;
     message?: string;
     detail?: string;
+    step?: string;
+    started?: boolean;
+    running?: boolean;
   };
+  try {
+    data = text ? (JSON.parse(text) as typeof data) : {};
+  } catch {
+    throw new Error(
+      `Server vrátil neplatnou odpověď (HTTP ${res.status}): ${text.slice(0, 400) || '(prázdná odpověď)'}`,
+    );
+  }
   if (!res.ok || data.success === false) {
-    throw new Error(data.error ?? data.message ?? data.detail ?? `Chyba ${res.status}`);
+    const errMsg = data.error ?? data.message ?? data.detail ?? `Chyba ${res.status}`;
+    const step = data.step ? `[${data.step}] ` : '';
+    throw new Error(`${step}${errMsg}`);
   }
   return data as T;
 }
@@ -14656,6 +14679,8 @@ export type RuianVfrLiveStatus = {
   currentStep: string;
   currentPhase: string | null;
   runId: string | null;
+  lastJobSuccess?: boolean | null;
+  lastJobError?: string | null;
 };
 
 export type RuianVfrLogsResponse = {
@@ -14665,13 +14690,28 @@ export type RuianVfrLogsResponse = {
     currentPhase: string;
     currentStep: string;
     progressPct: number;
-    entries: Array<{ at: string; level: string; step: string; message: string; progressPct: number }>;
+    entries: Array<{
+      at: string;
+      level: string;
+      step: string;
+      message: string;
+      progressPct: number;
+      meta?: Record<string, unknown>;
+    }>;
     startedAt: string;
   } | null;
   latestRunId: string | null;
-  entries: Array<{ at: string; level: string; step: string; message: string; progressPct: number }>;
+  entries: Array<{
+    at: string;
+    level: string;
+    step: string;
+    message: string;
+    progressPct: number;
+    meta?: Record<string, unknown>;
+  }>;
   progressPct: number;
   currentStep: string;
+  lastJobResult?: Record<string, unknown> | null;
 };
 
 export async function nestAdminRuianVfrLiveStatus(token: string | null): Promise<RuianVfrLiveStatus> {

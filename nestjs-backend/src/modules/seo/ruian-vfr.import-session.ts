@@ -4,6 +4,7 @@ export type RuianVfrLogEntry = {
   step: string;
   message: string;
   progressPct: number;
+  meta?: Record<string, unknown>;
 };
 
 export type RuianVfrImportPhase =
@@ -12,6 +13,9 @@ export type RuianVfrImportPhase =
   | 'verify'
   | 'download'
   | 'extract'
+  | 'scan_xml'
+  | 'parse_start'
+  | 'parse_done'
   | 'parse_kraje'
   | 'parse_okresy'
   | 'parse_orp'
@@ -29,7 +33,10 @@ const PHASE_PROGRESS: Record<RuianVfrImportPhase, number> = {
   discover: 5,
   verify: 10,
   download: 15,
-  extract: 25,
+  extract: 20,
+  scan_xml: 22,
+  parse_start: 28,
+  parse_done: 74,
   parse_kraje: 30,
   parse_okresy: 35,
   parse_orp: 40,
@@ -46,9 +53,12 @@ const PHASE_PROGRESS: Record<RuianVfrImportPhase, number> = {
 const PHASE_LABELS: Record<RuianVfrImportPhase, string> = {
   start: 'START IMPORT',
   discover: 'Načítám stavový soubor...',
-  verify: 'Ověřuji dostupnost souboru...',
+  verify: 'Soubor nalezen',
   download: 'Stahuji...',
-  extract: 'Rozbaluji...',
+  extract: 'Rozbaluji archiv...',
+  scan_xml: 'Vyhledávám XML...',
+  parse_start: 'Začínám parser...',
+  parse_done: 'Parser dokončen',
   parse_kraje: 'Načítám kraje...',
   parse_okresy: 'Import okresů...',
   parse_orp: 'Načítám ORP a POÚ...',
@@ -57,8 +67,8 @@ const PHASE_LABELS: Record<RuianVfrImportPhase, string> = {
   parse_katastry: 'Načítám katastrální území...',
   parse_ulice: 'Import ulic...',
   parse_adresy: 'Načítám adresní místa...',
-  save_db: 'Ukládám do DB...',
-  done: 'Hotovo.',
+  save_db: 'Začínám ukládat do DB',
+  done: 'Hotovo',
   error: 'Chyba importu',
 };
 
@@ -75,7 +85,12 @@ export class RuianVfrImportSession {
     this.log('start', 'START IMPORT');
   }
 
-  log(phase: RuianVfrImportPhase, message?: string, level: RuianVfrLogEntry['level'] = 'info') {
+  log(
+    phase: RuianVfrImportPhase,
+    message?: string,
+    level: RuianVfrLogEntry['level'] = 'info',
+    meta?: Record<string, unknown>,
+  ) {
     this.currentPhase = phase;
     this.progressPct = PHASE_PROGRESS[phase] ?? this.progressPct;
     this.currentStep = message ?? PHASE_LABELS[phase];
@@ -85,6 +100,7 @@ export class RuianVfrImportSession {
       step: phase,
       message: this.currentStep,
       progressPct: this.progressPct,
+      meta,
     };
     this.entries.push(entry);
     return entry;

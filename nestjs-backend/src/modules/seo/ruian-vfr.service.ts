@@ -33,6 +33,7 @@ export class RuianVfrService {
   private readonly log = new Logger(RuianVfrService.name);
   private running = false;
   private activeSession: RuianVfrImportSession | null = null;
+  private lastJobResult: Record<string, unknown> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -46,12 +47,15 @@ export class RuianVfrService {
 
   getPublicStatus() {
     const session = this.activeSession?.snapshot() ?? null;
+    const last = this.lastJobResult;
     return {
       running: this.running,
-      progressPct: session?.progressPct ?? 0,
-      currentStep: session?.currentStep ?? (this.running ? 'Import probíhá…' : 'Neaktivní'),
-      currentPhase: session?.currentPhase ?? null,
+      progressPct: session?.progressPct ?? (last?.progressPct as number) ?? 0,
+      currentStep: session?.currentStep ?? (last?.currentStep as string) ?? (this.running ? 'Import probíhá…' : 'Neaktivní'),
+      currentPhase: session?.currentPhase ?? (last?.step as string) ?? null,
       runId: session?.runId ?? null,
+      lastJobSuccess: last?.success ?? null,
+      lastJobError: last?.success === false ? (last.error as string) : null,
     };
   }
 
@@ -72,6 +76,7 @@ export class RuianVfrService {
       entries: live?.entries ?? persisted?.entries ?? [],
       progressPct: live?.progressPct ?? latest?.progressPct ?? 0,
       currentStep: live?.currentStep ?? latest?.status ?? 'idle',
+      lastJobResult: this.lastJobResult,
     };
   }
 
@@ -134,64 +139,97 @@ export class RuianVfrService {
     if (this.running) {
       return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
     }
-    this.running = true;
     const session = new RuianVfrImportSession();
     this.activeSession = session;
-    let workDir: string | null = null;
+    this.running = true;
+    this.lastJobResult = null;
     const limit = opts?.limit ?? 100;
 
-    try {
-      await this.sourceService.ensureDefaultSources();
-      const source = await this.getRuianSource();
-      const cfg = this.getVfrConfig(source);
-      session.log('discover', 'Test importu — hledám stavový soubor...');
+    this.scheduleBackgroundJob(async () => {
+      let workDir: string | null = null;
+      try {
+        await this.sourceService.ensureDefaultSources();
+        const source = await this.getRuianSource();
+        const cfg = this.getVfrConfig(source);
+        session.log('discover', 'Test importu — hledám stavový soubor...');
+        await this.persistSessionToSource(session);
 
-      const file = await this.resolveVfrFile('full', cfg, session);
-      if (!file?.url) {
-        return ruianVfrFail('Nebyl nalezen žádný stavový VFR soubor.', session.entries);
-      }
+        const file = await this.resolveVfrFile('full', cfg, session);
+        if (!file?.url) {
+          throw Object.assign(new Error('Nebyl nalezen žádný stavový VFR soubor.'), { userMessage: 'Nebyl nalezen žádný stavový VFR soubor.' });
+        }
 
-      workDir = createRuianWorkDir();
-      const ioLog = this.bindSessionLog(session);
-      const zipPath = path.join(workDir, file.filename);
-      session.log('download', `Stahuji ${file.filename}...`);
-      await downloadToFile(file.url, zipPath, 300000, ioLog);
-      validateDownloadedFile(zipPath);
+        workDir = createRuianWorkDir();
+        const ioLog = this.bindSessionLog(session);
+        const zipPath = path.join(workDir, file.filename);
+        session.log('download', `Stahuji ${file.filename}...`);
+        await this.persistSessionToSource(session);
+        await downloadToFile(file.url, zipPath, 300000, ioLog);
+        validateDownloadedFile(zipPath);
+        session.log('download', `Soubor stažen (${file.filename})`);
+        await this.persistSessionToSource(session);
 
-      const preview: SeoLocationImportRow[] = [];
-      const diagnostics = await this.processZipAtPath(zipPath, workDir, 'full', file.filename, 0, session, {
-        dryRun: true,
-        maxRecords: limit,
-        filterElementType: 'Obec',
-        onPreview: (rows) => preview.push(...rows),
-      });
-
-      session.log('done', `Test: ${preview.length} obcí připraveno k náhledu.`);
-      if (preview.length === 0) {
-        return ruianVfrFail(
-          'Import nenašel žádné zpracovatelné záznamy.',
-          session.entries,
-          'EMPTY_IMPORT',
-        );
-      }
-      return ruianVfrOk(
-        {
+        const preview: SeoLocationImportRow[] = [];
+        const result = await this.processZipAtPath(zipPath, workDir, 'full', file.filename, 0, session, {
           dryRun: true,
-          file: { url: file.url, filename: file.filename, version: file.version },
+          maxRecords: limit,
+          filterElementType: 'Obec',
+          onPreview: (rows) => preview.push(...rows),
+        });
+
+        session.log('done', `Test: ${preview.length} obcí připraveno k náhledu.`);
+        await this.persistSessionToSource(session);
+
+        if (preview.length === 0) {
+          this.lastJobResult = {
+            success: false,
+            status: 'EMPTY_IMPORT',
+            step: session.currentPhase,
+            error: 'Import nenašel žádné zpracovatelné záznamy.',
+            xmlFiles: result.xmlFileCount,
+            parsedMunicipalities: result.diagnostics.parsedMunicipalities,
+            logs: session.entries,
+          };
+          return;
+        }
+
+        this.lastJobResult = {
+          success: true,
+          status: 'COMPLETED',
+          dryRun: true,
+          xmlFiles: result.xmlFileCount,
+          parsedMunicipalities: result.diagnostics.parsedMunicipalities,
           preview: preview.slice(0, limit),
-          diagnostics,
+          diagnostics: result.diagnostics,
+          file: { url: file.url, filename: file.filename, version: file.version },
           logs: session.entries,
-        },
-        'COMPLETED',
-      );
-    } catch (err) {
-      session.logError(err);
-      return ruianVfrFail(err, session.entries);
-    } finally {
-      this.running = false;
-      this.activeSession = null;
-      if (workDir) cleanupDir(workDir);
-    }
+          progressPct: 100,
+          currentStep: 'Hotovo',
+        };
+      } catch (err) {
+        session.logError(err);
+        await this.persistSessionToSource(session);
+        const info = formatRuianVfrError(err);
+        this.lastJobResult = {
+          success: false,
+          status: 'FAILED',
+          step: session.currentPhase,
+          error: info.userMessage,
+          detail: info.message,
+          logs: session.entries,
+        };
+        await this.markSourceError(err);
+      } finally {
+        this.running = false;
+        this.activeSession = null;
+        if (workDir) cleanupDir(workDir);
+      }
+    });
+
+    return ruianVfrOk(
+      { started: true, running: true, message: 'Test import spuštěn na pozadí.', logs: session.entries },
+      'RUNNING',
+    );
   }
 
   async discoverLatest(mode: 'full' | 'delta' = 'full') {
@@ -218,11 +256,41 @@ export class RuianVfrService {
   }
 
   async runFullImportSafe(opts?: { resume?: boolean }) {
-    return this.runVfrImportSafe('full', opts);
+    if (this.running) {
+      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
+    }
+    const session = new RuianVfrImportSession();
+    this.activeSession = session;
+    this.running = true;
+    this.lastJobResult = null;
+
+    this.scheduleBackgroundJob(async () => {
+      this.lastJobResult = await this.executeVfrImport('full', session, opts);
+    });
+
+    return ruianVfrOk(
+      { started: true, running: true, message: 'Plný import spuštěn na pozadí.', logs: session.entries },
+      'RUNNING',
+    );
   }
 
   async syncDeltaChangesSafe() {
-    return this.runVfrImportSafe('delta');
+    if (this.running) {
+      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
+    }
+    const session = new RuianVfrImportSession();
+    this.activeSession = session;
+    this.running = true;
+    this.lastJobResult = null;
+
+    this.scheduleBackgroundJob(async () => {
+      this.lastJobResult = await this.executeVfrImport('delta', session);
+    });
+
+    return ruianVfrOk(
+      { started: true, running: true, message: 'Synchronizace delty spuštěna na pozadí.', logs: session.entries },
+      'RUNNING',
+    );
   }
 
   async downloadDailyChangesSafe() {
@@ -277,39 +345,65 @@ export class RuianVfrService {
     if (this.running) {
       return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
     }
-    this.running = true;
     const session = new RuianVfrImportSession();
     this.activeSession = session;
-    const workDir = createRuianWorkDir();
-    const zipPath = path.join(workDir, originalName);
-    try {
-      await this.sourceService.ensureDefaultSources();
-      session.log('start', `Ruční upload: ${originalName}`);
-      fs.writeFileSync(zipPath, buffer);
-      session.log('verify', 'Soubor nahrán');
-      const result = await this.processZipAtPath(zipPath, workDir, 'full', originalName, 0, session);
-      const validation = validateVfrImportResult({
-        parsed: result.total,
-        inserted: result.inserted,
-        updated: result.updated,
-        skipped: result.skipped,
-      });
-      if (!validation.ok) {
-        session.log('error', validation.error, 'error');
-        await this.markSourceError(validation.error);
-        return ruianVfrFail(validation.error, session.entries, validation.status);
+    this.running = true;
+    this.lastJobResult = null;
+
+    this.scheduleBackgroundJob(async () => {
+      let workDir: string | null = null;
+      try {
+        await this.sourceService.ensureDefaultSources();
+        workDir = createRuianWorkDir();
+        const zipPath = path.join(workDir, originalName);
+        session.log('start', `Ruční upload: ${originalName}`);
+        fs.writeFileSync(zipPath, buffer);
+        session.log('verify', 'Soubor nahrán');
+        await this.persistSessionToSource(session);
+
+        const result = await this.processZipAtPath(zipPath, workDir, 'full', originalName, 0, session);
+        const validation = validateVfrImportResult({
+          parsed: result.total,
+          inserted: result.inserted,
+          updated: result.updated,
+          skipped: result.skipped,
+        });
+        if (!validation.ok) {
+          session.log('error', validation.error, 'error');
+          await this.markSourceError(validation.error);
+          this.lastJobResult = {
+            success: false,
+            status: validation.status,
+            step: session.currentPhase,
+            error: validation.error,
+            logs: session.entries,
+          };
+          return;
+        }
+        session.log('done', 'Hotovo');
+        this.lastJobResult = { success: true, ...result, logs: session.entries, progressPct: 100 };
+      } catch (err) {
+        session.logError(err);
+        await this.markSourceError(err);
+        const info = formatRuianVfrError(err);
+        this.lastJobResult = {
+          success: false,
+          step: session.currentPhase,
+          error: info.userMessage,
+          detail: info.message,
+          logs: session.entries,
+        };
+      } finally {
+        this.running = false;
+        this.activeSession = null;
+        if (workDir) cleanupDir(workDir);
       }
-      session.log('done', 'Hotovo.');
-      return ruianVfrOk({ ...result, logs: session.entries });
-    } catch (err) {
-      session.logError(err);
-      await this.markSourceError(err);
-      return ruianVfrFail(err, session.entries);
-    } finally {
-      this.running = false;
-      this.activeSession = null;
-      cleanupDir(workDir);
-    }
+    });
+
+    return ruianVfrOk(
+      { started: true, running: true, message: 'Ruční import spuštěn na pozadí.', logs: session.entries },
+      'RUNNING',
+    );
   }
 
   async runFullImport(opts?: { resume?: boolean }) {
@@ -338,14 +432,28 @@ export class RuianVfrService {
     return res;
   }
 
-  private async runVfrImportSafe(mode: 'full' | 'delta', opts?: { resume?: boolean }) {
-    if (this.running) {
-      return ruianVfrFail('RÚIAN import již běží.', this.activeSession?.entries ?? []);
-    }
+  private scheduleBackgroundJob(job: () => Promise<void>): void {
+    setImmediate(() => {
+      void job().catch((err) => {
+        this.log.error(`Background VFR job failed: ${formatRuianVfrError(err).message}`);
+        if (!this.lastJobResult) {
+          this.lastJobResult = {
+            success: false,
+            error: formatRuianVfrError(err).userMessage,
+            detail: formatRuianVfrError(err).message,
+          };
+        }
+        this.running = false;
+        this.activeSession = null;
+      });
+    });
+  }
 
-    this.running = true;
-    const session = new RuianVfrImportSession();
-    this.activeSession = session;
+  private async executeVfrImport(
+    mode: 'full' | 'delta',
+    session: RuianVfrImportSession,
+    opts?: { resume?: boolean },
+  ): Promise<Record<string, unknown>> {
     let workDir: string | null = null;
     let sourceId: string | null = null;
 
@@ -364,6 +472,7 @@ export class RuianVfrService {
 
       const cfg = this.getVfrConfig(source);
       session.log('discover', 'Načítám stavový soubor...');
+      await this.persistSessionToSource(session);
 
       let file: RuianVfrFileRef | null =
         mode === 'delta' && cfg.pendingDeltaMeta
@@ -398,6 +507,8 @@ export class RuianVfrService {
         try {
           await downloadToFile(file.url, zipPath, 300000, ioLog);
           validateDownloadedFile(zipPath);
+          session.log('download', 'Soubor stažen');
+          await this.persistSessionToSource(session);
         } catch (err) {
           return ruianVfrFail(err, session.entries);
         }
@@ -472,17 +583,18 @@ export class RuianVfrService {
         },
       });
 
-      session.log('done', 'Hotovo.');
-      return ruianVfrOk({
+      session.log('done', 'Hotovo');
+      return {
+        success: true,
         ...result,
         progressPct: 100,
-        currentStep: 'Hotovo.',
+        currentStep: 'Hotovo',
         logs: session.entries,
         diagnostics: result.diagnostics,
-      });
+      };
     } catch (err) {
       session.logError(err);
-      this.log.error(`runVfrImportSafe: ${formatRuianVfrError(err).message}`, err instanceof Error ? err.stack : undefined);
+      this.log.error(`executeVfrImport: ${formatRuianVfrError(err).message}`, err instanceof Error ? err.stack : undefined);
       if (sourceId) await this.markSourceError(err, sourceId);
       if (session.runId) {
         await this.prisma.seoLocationImportRun.update({
@@ -496,7 +608,15 @@ export class RuianVfrService {
           },
         }).catch(() => undefined);
       }
-      return ruianVfrFail(err, session.entries);
+      const info = formatRuianVfrError(err);
+      return {
+        success: false,
+        step: session.currentPhase,
+        error: info.userMessage,
+        detail: info.message,
+        code: info.code,
+        logs: session.entries,
+      };
     } finally {
       this.running = false;
       this.activeSession = null;
@@ -558,10 +678,38 @@ export class RuianVfrService {
     },
   ) {
     session.log('extract', 'Rozbaluji archiv...');
+    await this.persistSessionToSource(session);
     const ioLog = this.bindSessionLog(session);
-    const dataFiles = await extractAllVfrDataFiles(zipPath, workDir, ioLog);
+    const dataFiles = await extractAllVfrDataFiles(
+      zipPath,
+      workDir,
+      ioLog,
+      0,
+      async (message, meta) => {
+        if (message.includes('Vyhledávám')) {
+          session.log('scan_xml', message, 'info', meta);
+        } else {
+          session.log('extract', message, 'info', meta);
+        }
+        await this.persistSessionToSource(session);
+      },
+    );
     this.log.log(`RÚIAN VFR: ${dataFiles.length} datových souborů v archivu`);
-    session.log('extract', `Nalezeno ${dataFiles.length} XML/GML souborů`);
+    session.log(
+      'extract',
+      `Nalezeno ${dataFiles.length} XML/GML souborů`,
+      'info',
+      {
+        count: dataFiles.length,
+        files: dataFiles.map((f) => ({
+          name: f.archivePath,
+          size: f.size,
+          ext: f.ext,
+          sizeMb: Math.round((f.size / 1024 / 1024) * 10) / 10,
+        })),
+      },
+    );
+    await this.persistSessionToSource(session);
 
     const source = await this.getRuianSource();
     let runId: string | null = null;
@@ -664,19 +812,31 @@ export class RuianVfrService {
       } catch (e) {
         errorCount += 1;
         const msg = e instanceof Error ? e.message : String(e);
+        const prismaDetail =
+          e && typeof e === 'object' && 'meta' in e ? JSON.stringify((e as { meta?: unknown }).meta) : '';
         errors.push(msg);
-        session.log('save_db', `Nepodařilo se uložit obec: ${msg}`, 'error');
+        session.log(
+          'save_db',
+          `Prisma chyba při ukládání: ${msg}${prismaDetail ? ` — ${prismaDetail}` : ''}`,
+          'error',
+          { prismaError: msg, detail: prismaDetail },
+        );
+        await this.persistSessionToSource(session);
         throw Object.assign(new Error('Nepodařilo se uložit data do databáze.'), {
           code: 'PRISMA_ERROR',
-          userMessage: 'Nepodařilo se uložit obec.',
+          userMessage: `Nepodařilo se uložit data do databáze: ${msg}`,
           detail: msg,
         });
       }
     };
 
     try {
+      session.log('parse_start', 'Začínám parser...');
+      await this.persistSessionToSource(session);
+
       for (const dataFile of dataFiles) {
-        session.log('parse_obce', `Parsuji ${dataFile.archivePath}…`);
+        session.log('parse_obce', `Parsuji ${dataFile.archivePath} (${dataFile.ext}, ${Math.round(dataFile.size / 1024 / 1024)} MB)…`);
+        await this.persistSessionToSource(session);
         const parseResult = await streamParseVfrXmlFile(
           dataFile.absolutePath,
           async (rows, parseStats, diag) => {
@@ -746,6 +906,18 @@ export class RuianVfrService {
         if (opts?.maxRecords != null && processed >= opts.maxRecords) break;
       }
 
+      session.log(
+        'parse_done',
+        `Parser dokončen — ${this.formatDiagnostics(diagnostics)}`,
+        'info',
+        { diagnostics, stats },
+      );
+      await this.persistSessionToSource(session);
+
+      if (!opts?.dryRun) {
+        session.log('save_db', 'Začínám ukládat do DB');
+        await this.persistSessionToSource(session);
+      }
       await flushBuffer();
 
       if (runId) {
@@ -775,6 +947,7 @@ export class RuianVfrService {
         stats,
         total: totalParsed,
         diagnostics,
+        xmlFileCount: dataFiles.length,
         progressPct: 100,
       };
     } catch (err) {
@@ -816,6 +989,38 @@ export class RuianVfrService {
     return cfg.vfr ?? { mode: 'full' };
   }
 
+  private formatDiagnostics(diag: VfrParseDiagnostics): string {
+    return [
+      `kraje ${diag.parsedRegions}`,
+      `okresy ${diag.parsedDistricts}`,
+      `ORP ${diag.parsedOrp}`,
+      `obce ${diag.parsedMunicipalities}`,
+      `části obcí ${diag.parsedMunicipalityParts}`,
+      `katastry ${diag.parsedCadastralAreas}`,
+      `ulice ${diag.parsedStreets}`,
+      `adresní místa ${diag.parsedAddressPlaces}`,
+    ].join(', ');
+  }
+
+  private async persistSessionToSource(session: RuianVfrImportSession): Promise<void> {
+    const source = await this.getRuianSource();
+    if (!source) return;
+    const cfg = this.getVfrConfig(source);
+    await this.prisma.seoLocationSource.update({
+      where: { id: source.id },
+      data: {
+        configJson: {
+          ...((source.configJson as object) ?? {}),
+          vfr: {
+            ...cfg,
+            progressPct: session.progressPct,
+            currentStep: session.currentStep,
+          },
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   /** Propojí IO logy s admin session + NestJS Logger + console (Railway). */
   private bindSessionLog(session: RuianVfrImportSession): DownloadLogFn {
     return (message: string, meta?: Record<string, unknown>) => {
@@ -823,10 +1028,13 @@ export class RuianVfrService {
       this.log.log(`RÚIAN VFR: ${line}`);
       console.log(`[RUIAN VFR] ${line}`);
       if (message.includes('Začínám stahovat')) session.log('download', 'Začínám stahovat...');
-      else if (message.includes('Soubor uložen')) session.log('download', `Soubor uložen (${meta?.bytes ?? '?'} B)`);
-      else if (message.includes('ZIP rozbalen')) session.log('extract', 'ZIP rozbalen');
-      else if (message.includes('HEAD odpověď') && meta?.status) {
+      else if (message.includes('Soubor uložen')) session.log('download', `Soubor stažen (${meta?.bytes ?? '?'} B)`);
+      else if (message.includes('ZIP rozbalen') || message.includes('Archiv rozbalen')) {
+        void this.persistSessionToSource(session);
+      } else if (message.includes('HEAD odpověď') && meta?.status) {
         session.log('verify', `Status ${meta.status}, velikost ${meta.contentLength ?? '?'}`);
+      } else if (message.includes('Obsah archivu') || message.includes('Extrahován soubor')) {
+        void this.persistSessionToSource(session);
       }
     };
   }

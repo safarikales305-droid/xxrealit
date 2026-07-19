@@ -90,7 +90,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
     };
   }, []);
 
-  function startPolling() {
+  function startPolling(onComplete?: () => void) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => {
       void (async () => {
@@ -102,9 +102,33 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
             clearInterval(pollRef.current);
             pollRef.current = null;
             setBusy(false);
+            const logs = await nestAdminRuianVfrLogs(token);
+            setImportLogs(logs);
+            const last = logs.lastJobResult;
+            if (last?.success === false) {
+              const step = last.step ? `[${String(last.step)}] ` : '';
+              setErrorMsg(`${step}${String(last.error ?? 'Import selhal.')}`);
+            } else if (Array.isArray(last?.preview)) {
+              const preview = last.preview as Array<{ officialCode?: string; name?: string }>;
+              setTestPreview(
+                preview.map((p) => ({ officialCode: p.officialCode ?? '', name: p.name ?? '' })),
+              );
+              setMsg(
+                `Test importu: ${preview.length} obcí, XML souborů: ${String(last?.xmlFiles ?? '?')}, parsováno: ${String(last?.parsedMunicipalities ?? '?')}`,
+              );
+            } else if (last?.inserted !== undefined || last?.updated !== undefined) {
+              setMsg(
+                `Import: +${String(last.inserted ?? 0)} nových, ${String(last.updated ?? 0)} aktualizovaných, ${String(last.errorCount ?? 0)} chyb`,
+              );
+              setProgressPct(100);
+              setCurrentStep('Hotovo');
+            } else if (live.lastJobError) {
+              setErrorMsg(String(live.lastJobError));
+            }
             void refresh();
             void refreshLogs();
             onImported?.();
+            onComplete?.();
           }
         } catch {
           /* keep polling */
@@ -129,15 +153,23 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
       const r = res as Record<string, unknown>;
       if (r.success === false) {
         const status = String(r.status ?? '');
+        const step = r.step ? `[${String(r.step)}] ` : '';
         if (status === 'EMPTY_IMPORT') {
           setErrorMsg('Import doběhl, ale nebyly nalezeny žádné záznamy.');
         } else {
-          setErrorMsg(String(r.error ?? 'Import selhal.'));
+          setErrorMsg(`${step}${String(r.error ?? 'Import selhal.')}`);
         }
         setBusy(false);
         if (pollRef.current) clearInterval(pollRef.current);
         void refreshLogs();
         void refresh();
+        return;
+      }
+      if (r.started === true || r.running === true) {
+        setMsg(String(r.message ?? `${label} běží na pozadí — sledujte log.`));
+        if (!poll) {
+          setBusy(false);
+        }
         return;
       }
       if (r.inserted !== undefined || r.updated !== undefined) {
@@ -169,9 +201,17 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
         onImported?.();
       }
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : `${label} selhalo`);
-      setBusy(false);
-      if (pollRef.current) clearInterval(pollRef.current);
+      const errText = e instanceof Error ? e.message : `${label} selhalo`;
+      if (poll && /síťová chyba|failed to fetch|network/i.test(errText)) {
+        setErrorMsg(
+          `${errText} Import může pokračovat na pozadí — otevřete log pro aktuální stav.`,
+        );
+        void refreshLogs();
+      } else {
+        setErrorMsg(errText);
+        setBusy(false);
+        if (pollRef.current) clearInterval(pollRef.current);
+      }
     } finally {
       void refreshLogs();
     }
@@ -321,7 +361,7 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
               disabled={busy}
               label="Test importu 100 záznamů"
               onClick={() =>
-                void runAction('Test importu', () => nestAdminRuianVfrTestImport(token, 100))
+                void runAction('Test importu', () => nestAdminRuianVfrTestImport(token, 100), true)
               }
             />
             <ActionBtn
@@ -484,6 +524,12 @@ export function SeoLocationSourcesPanel({ token, onImported }: Props) {
                 >
                   <span className="text-zinc-400">{new Date(entry.at).toLocaleTimeString('cs-CZ')}</span>{' '}
                   <span className="text-zinc-500">[{entry.progressPct}%]</span> {entry.message}
+                  {entry.meta ? (
+                    <span className="block text-zinc-500">
+                      {JSON.stringify(entry.meta).slice(0, 200)}
+                      {JSON.stringify(entry.meta).length > 200 ? '…' : ''}
+                    </span>
+                  ) : null}
                 </li>
               ))
             )}

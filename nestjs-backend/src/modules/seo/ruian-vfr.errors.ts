@@ -101,7 +101,8 @@ export type RuianVfrImportStatus =
   | 'EMPTY_IMPORT'
   | 'FAILED'
   | 'FILE_FOUND'
-  | 'DISCOVERING';
+  | 'DISCOVERING'
+  | 'RUNNING';
 
 export type VfrImportCounts = {
   parsed?: number;
@@ -132,14 +133,20 @@ export function ruianVfrFail(
   err: unknown,
   logs?: unknown[],
   status: RuianVfrImportStatus | string = 'FAILED',
+  step?: string,
 ) {
   const info = formatRuianVfrError(err);
+  const detail =
+    err && typeof err === 'object' && 'detail' in err
+      ? String((err as { detail?: string }).detail)
+      : info.message;
   return {
     success: false as const,
     status,
+    step: step ?? null,
     error: info.userMessage,
     code: info.code,
-    detail: info.message,
+    detail,
     logs: logs ?? [],
   };
 }

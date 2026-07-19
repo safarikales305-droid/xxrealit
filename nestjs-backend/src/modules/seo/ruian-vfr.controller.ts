@@ -11,6 +11,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ruianVfrFail } from './ruian-vfr.errors';
 import { RuianVfrService } from './ruian-vfr.service';
 import { SEO_LOCATION_UPLOAD_MAX_BYTES } from './seo-location-import.util';
 
@@ -30,45 +31,77 @@ export class RuianVfrController {
 
   @Get('status')
   status() {
-    return this.ruianVfr.getPublicStatus();
+    try {
+      return this.ruianVfr.getPublicStatus();
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Get('logs')
-  logs() {
-    return this.ruianVfr.getImportLogs();
+  async logs() {
+    try {
+      return await this.ruianVfr.getImportLogs();
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('discover')
-  discover(@Body() body?: { mode?: 'full' | 'delta' }) {
-    return this.ruianVfr.discoverLatestSafe(body?.mode ?? 'full');
+  async discover(@Body() body?: { mode?: 'full' | 'delta' }) {
+    try {
+      return await this.ruianVfr.discoverLatestSafe(body?.mode ?? 'full');
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('test-import')
-  testImport(@Body() body?: { limit?: number }) {
-    return this.ruianVfr.runTestImportSafe(body);
+  async testImport(@Body() body?: { limit?: number }) {
+    try {
+      return await this.ruianVfr.runTestImportSafe(body);
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('full-import')
-  fullImport(@Body() body?: { resume?: boolean }) {
-    return this.ruianVfr.runFullImportSafe(body);
+  async fullImport(@Body() body?: { resume?: boolean }) {
+    try {
+      return await this.ruianVfr.runFullImportSafe(body);
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('daily-download')
-  dailyDownload() {
-    return this.ruianVfr.downloadDailyChangesSafe();
+  async dailyDownload() {
+    try {
+      return await this.ruianVfr.downloadDailyChangesSafe();
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('sync-delta')
-  syncDelta() {
-    return this.ruianVfr.syncDeltaChangesSafe();
+  async syncDelta() {
+    try {
+      return await this.ruianVfr.syncDeltaChangesSafe();
+    } catch (err) {
+      return ruianVfrFail(err);
+    }
   }
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', uploadOptions))
-  upload(@UploadedFile() file: Express.Multer.File) {
-    if (!file?.buffer?.length) {
-      return { success: false, error: 'Soubor chybí.', logs: [] };
+  async upload(@UploadedFile() file: Express.Multer.File) {
+    try {
+      if (!file?.buffer?.length) {
+        return { success: false, step: 'verify', error: 'Soubor chybí.', logs: [] };
+      }
+      return await this.ruianVfr.importUploadedBufferSafe(file.buffer, file.originalname);
+    } catch (err) {
+      return ruianVfrFail(err, [], 'FAILED', 'upload');
     }
-    return this.ruianVfr.importUploadedBufferSafe(file.buffer, file.originalname);
   }
 }

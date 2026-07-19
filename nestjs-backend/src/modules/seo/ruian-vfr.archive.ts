@@ -9,6 +9,7 @@ export type ExtractedVfrFile = {
   absolutePath: string;
   archivePath: string;
   size: number;
+  ext: string;
 };
 
 const MIN_ZIP_BYTES = 1024;
@@ -31,50 +32,110 @@ export function validateDownloadedFile(filePath: string, minBytes = MIN_ZIP_BYTE
   return stat.size;
 }
 
-function listZipEntries(zipPath: string): Promise<yauzl.Entry[]> {
+function fileExt(name: string): string {
+  const m = name.match(/\.([a-z0-9]+)$/i);
+  return m?.[1]?.toLowerCase() ?? 'unknown';
+}
+
+/** Jednoprůchodová extrakce — ZIP se otevře jen jednou (vhodné pro velké státní soubory). */
+function extractZipSinglePass(
+  zipPath: string,
+  workDir: string,
+  depth: number,
+  onLog: DownloadLogFn,
+): Promise<{ extracted: ExtractedVfrFile[]; nestedZips: string[]; entryCount: number }> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
       if (err || !zipfile) {
-        reject(err ?? new Error('ZIP nelze otevřít.'));
+        const info = formatRuianVfrError(err ?? new Error('ZIP nelze otevřít.'));
+        reject(Object.assign(new Error(info.userMessage), { code: 'ZIP_ERROR', userMessage: info.userMessage }));
         return;
       }
-      const entries: yauzl.Entry[] = [];
-      zipfile.on('entry', (entry: yauzl.Entry) => {
-        entries.push(entry);
-        zipfile.readEntry();
-      });
-      zipfile.on('end', () => {
-        zipfile.close();
-        resolve(entries);
-      });
-      zipfile.on('error', reject);
-    });
-  });
-}
 
-function extractZipEntry(zipPath: string, entry: yauzl.Entry, destPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-      if (err || !zipfile) return reject(err ?? new Error('ZIP open failed'));
-      zipfile.on('entry', (e: yauzl.Entry) => {
-        if (e.fileName !== entry.fileName) {
+      const extracted: ExtractedVfrFile[] = [];
+      const nestedZips: string[] = [];
+      let entryCount = 0;
+      let pending = 0;
+      let ended = false;
+
+      const finish = () => {
+        if (!ended || pending > 0) return;
+        zipfile.close();
+        resolve({ extracted, nestedZips, entryCount });
+      };
+
+      const fail = (e: unknown) => {
+        try {
+          zipfile.close();
+        } catch {
+          /* ignore */
+        }
+        reject(e);
+      };
+
+      zipfile.on('entry', (entry: yauzl.Entry) => {
+        entryCount += 1;
+        const name = entry.fileName;
+        if (/\/$/.test(name)) {
           zipfile.readEntry();
           return;
         }
-        zipfile.openReadStream(e, (e2, readStream) => {
-          if (e2 || !readStream) return reject(e2 ?? new Error('ZIP stream failed'));
-          fs.mkdirSync(path.dirname(destPath), { recursive: true });
-          const writer = createWriteStream(destPath);
+
+        const baseName = path.basename(name);
+        const dest = path.join(workDir, `d${depth}`, baseName.replace(/[<>:"|?*]/g, '_'));
+        const isNestedZip = /\.zip$/i.test(name);
+        const isData = DATA_EXT.test(name);
+
+        if (!isNestedZip && !isData) {
+          zipfile.readEntry();
+          return;
+        }
+
+        pending += 1;
+        zipfile.openReadStream(entry, (e2, readStream) => {
+          if (e2 || !readStream) {
+            pending -= 1;
+            fail(e2 ?? new Error('ZIP stream failed'));
+            return;
+          }
+
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          const writer = createWriteStream(dest);
           readStream.pipe(writer);
           writer.on('finish', () => {
-            zipfile.close();
-            resolve();
+            pending -= 1;
+            if (isNestedZip) {
+              nestedZips.push(dest);
+            } else {
+              const size = fs.statSync(dest).size;
+              extracted.push({
+                absolutePath: dest,
+                archivePath: name,
+                size,
+                ext: fileExt(name),
+              });
+              onLog('Extrahován soubor', { name, size, ext: fileExt(name) });
+            }
+            finish();
+            zipfile.readEntry();
           });
-          writer.on('error', reject);
+          writer.on('error', (we) => {
+            pending -= 1;
+            fail(we);
+          });
+          readStream.on('error', (re) => {
+            pending -= 1;
+            fail(re);
+          });
         });
       });
+
+      zipfile.on('end', () => {
+        ended = true;
+        finish();
+      });
+      zipfile.on('error', fail);
       zipfile.readEntry();
-      zipfile.on('error', reject);
     });
   });
 }
@@ -87,63 +148,65 @@ export async function extractAllVfrDataFiles(
   workDir: string,
   onLog: DownloadLogFn = () => undefined,
   depth = 0,
+  onStep?: (message: string, meta?: Record<string, unknown>) => void,
 ): Promise<ExtractedVfrFile[]> {
   if (depth > 5) return [];
 
   validateDownloadedFile(zipPath);
-  const entries = await listZipEntries(zipPath);
+  onStep?.('Vyhledávám XML...', { zipPath, depth });
+
+  const { extracted, nestedZips, entryCount } = await extractZipSinglePass(zipPath, workDir, depth, onLog);
+
   onLog('Obsah archivu', {
     zipPath,
-    entryCount: entries.length,
-    sample: entries.slice(0, 15).map((e) => e.fileName),
+    entryCount,
+    dataFiles: extracted.length,
+    nestedZips: nestedZips.length,
+    sample: extracted.slice(0, 15).map((f) => ({ path: f.archivePath, size: f.size, ext: f.ext })),
   });
 
-  if (!entries.length) {
+  if (entryCount === 0) {
     throw Object.assign(new Error('ZIP archiv je prázdný.'), {
       code: 'ZIP_EMPTY',
       userMessage: 'Archiv byl stažen, ale neobsahuje podporovaná RÚIAN data.',
     });
   }
 
-  const extracted: ExtractedVfrFile[] = [];
-  const nestedZips: string[] = [];
-
-  for (const entry of entries) {
-    const name = entry.fileName;
-    if (/\/$/.test(name)) continue;
-
-    const baseName = path.basename(name);
-    const dest = path.join(workDir, `d${depth}`, baseName.replace(/[<>:"|?*]/g, '_'));
-
-    if (/\.zip$/i.test(name)) {
-      await extractZipEntry(zipPath, entry, dest);
-      nestedZips.push(dest);
-      continue;
-    }
-
-    if (!DATA_EXT.test(name)) continue;
-
-    await extractZipEntry(zipPath, entry, dest);
-    const size = fs.statSync(dest).size;
-    extracted.push({ absolutePath: dest, archivePath: name, size });
-  }
+  const allExtracted = [...extracted];
 
   for (const nested of nestedZips) {
-    const inner = await extractAllVfrDataFiles(nested, workDir, onLog, depth + 1);
-    extracted.push(...inner);
+    const inner = await extractAllVfrDataFiles(nested, workDir, onLog, depth + 1, onStep);
+    allExtracted.push(...inner);
   }
 
-  if (!extracted.length) {
-    throw Object.assign(new Error('Archiv neobsahuje XML/GML/CSV soubory.'), {
-      code: 'ZIP_NO_DATA',
-      userMessage: 'Archiv byl stažen, ale neobsahuje podporovaná RÚIAN data.',
-    });
+  if (!allExtracted.length) {
+    const nonData = entryCount - nestedZips.length;
+    throw Object.assign(
+      new Error(
+        `Archiv neobsahuje XML/GML/CSV soubory (${entryCount} položek, ${nestedZips.length} vnořených ZIP).`,
+      ),
+      {
+        code: 'ZIP_NO_DATA',
+        userMessage: 'Archiv byl stažen, ale neobsahuje podporovaná RÚIAN data.',
+        detail: `Položek v archivu: ${entryCount}, bez datových souborů: ${nonData}`,
+      },
+    );
   }
 
-  onLog('ZIP rozbalen', {
-    dataFiles: extracted.length,
-    files: extracted.slice(0, 10).map((f) => ({ path: f.archivePath, size: f.size })),
+  onStep?.('Archiv rozbalen', {
+    dataFiles: allExtracted.length,
+    files: allExtracted.map((f) => ({
+      path: f.archivePath,
+      size: f.size,
+      ext: f.ext,
+      sizeMb: Math.round((f.size / 1024 / 1024) * 10) / 10,
+    })),
   });
 
-  return extracted;
+  onLog('ZIP rozbalen', {
+    dataFiles: allExtracted.length,
+    files: allExtracted.slice(0, 10).map((f) => ({ path: f.archivePath, size: f.size, ext: f.ext })),
+  });
+
+  return allExtracted;
 }
