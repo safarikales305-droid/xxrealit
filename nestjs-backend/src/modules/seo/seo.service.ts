@@ -22,6 +22,7 @@ import {
 } from './post-seo.util';
 import { communityPostAuthorUserWhere } from '../posts/community-posts.util';
 import { isCommunityPostAuthorVisible } from '../../common/public-visibility.util';
+import { ProgrammaticSeoService } from './programmatic-seo.service';
 
 export type SitemapEntry = {
   loc: string;
@@ -30,9 +31,23 @@ export type SitemapEntry = {
   priority?: number;
 };
 
+export type SitemapKind =
+  | 'inzeraty'
+  | 'mesta'
+  | 'kraje'
+  | 'obce'
+  | 'videa'
+  | 'profily'
+  | 'clanky'
+  | 'programmatic'
+  | 'static';
+
 @Injectable()
 export class SeoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly programmaticSeo: ProgrammaticSeoService,
+  ) {}
 
   async getSettings() {
     return this.prisma.seoSettings.upsert({
@@ -189,6 +204,177 @@ export class SeoService {
     return [...staticPages, ...propertyEntries, ...brokerEntries, ...articleEntries, ...postEntries];
   }
 
+  async getSitemapEntriesByKind(kind: SitemapKind, origin: string): Promise<SitemapEntry[]> {
+    const base = origin.replace(/\/+$/, '');
+    const now = new Date().toISOString();
+
+    switch (kind) {
+      case 'static': {
+        return [
+          { loc: base, changefreq: 'daily', priority: 1, lastmod: now },
+          { loc: `${base}/nemovitosti`, changefreq: 'daily', priority: 0.9, lastmod: now },
+          { loc: `${base}/makleri`, changefreq: 'weekly', priority: 0.8, lastmod: now },
+          { loc: `${base}/o-portalu`, changefreq: 'weekly', priority: 0.85, lastmod: now },
+          { loc: `${base}/shorts`, changefreq: 'daily', priority: 0.8, lastmod: now },
+          { loc: `${base}/privacy-policy`, changefreq: 'yearly', priority: 0.3, lastmod: now },
+          { loc: `${base}/obchodni-podminky`, changefreq: 'yearly', priority: 0.3, lastmod: now },
+          { loc: `${base}/terms`, changefreq: 'yearly', priority: 0.3, lastmod: now },
+        ];
+      }
+      case 'inzeraty':
+        return this.getPropertySitemapEntries(base);
+      case 'profily':
+        return this.getBrokerSitemapEntries(base);
+      case 'clanky':
+        return this.getArticleSitemapEntries(base);
+      case 'videa':
+        return this.getVideoSitemapEntries(base);
+      case 'programmatic':
+      case 'mesta':
+        return this.programmaticSeo.getProgrammaticSitemapEntries(base);
+      case 'kraje':
+        return this.programmaticSeo.getRegionSitemapEntries(base);
+      case 'obce':
+        return this.programmaticSeo.getCitySitemapEntries(base);
+      default:
+        return [];
+    }
+  }
+
+  private async getPropertySitemapEntries(base: string): Promise<SitemapEntry[]> {
+    const properties = await this.prisma.property.findMany({
+      where: {
+        deletedAt: null,
+        approved: true,
+        isActive: true,
+        isVisible: true,
+        slug: { not: null },
+      },
+      select: { slug: true, createdAt: true, listingType: true, videoUrl: true },
+      take: 50000,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return properties
+      .filter((p) => p.slug)
+      .flatMap((p) => {
+        const lastmod = p.createdAt.toISOString();
+        const isShorts =
+          String(p.listingType ?? '').toUpperCase() === 'SHORTS' || Boolean(p.videoUrl?.trim());
+        const slug = p.slug!;
+        const entries: SitemapEntry[] = [
+          {
+            loc: `${base}${listingSeoPath(slug, isShorts ? 'shorts' : 'classic')}`,
+            lastmod,
+            changefreq: 'weekly' as const,
+            priority: isShorts ? 0.75 : 0.7,
+          },
+        ];
+        if (!isShorts) {
+          entries.push({
+            loc: `${base}/nemovitosti/${slug}`,
+            lastmod,
+            changefreq: 'weekly' as const,
+            priority: 0.65,
+          });
+        }
+        return entries;
+      });
+  }
+
+  private async getBrokerSitemapEntries(base: string): Promise<SitemapEntry[]> {
+    const brokers = await this.prisma.user.findMany({
+      where: {
+        brokerProfileSlug: { not: null },
+        isPublicBrokerProfile: true,
+      },
+      select: { brokerProfileSlug: true, createdAt: true },
+      take: 10000,
+    });
+
+    return brokers
+      .filter((b) => b.brokerProfileSlug)
+      .map((b) => ({
+        loc: `${base}/makler/${b.brokerProfileSlug}`,
+        lastmod: b.createdAt.toISOString(),
+        changefreq: 'weekly' as const,
+        priority: 0.6,
+      }));
+  }
+
+  private async getArticleSitemapEntries(base: string): Promise<SitemapEntry[]> {
+    const [articles, posts] = await Promise.all([
+      this.prisma.purchaseAdviceArticle.findMany({
+        where: { isPublished: true },
+        select: { id: true, updatedAt: true },
+        take: 5000,
+      }),
+      this.prisma.post.findMany({
+        where: {
+          slug: { not: null },
+          type: { not: 'short' },
+          user: communityPostAuthorUserWhere(),
+        },
+        select: {
+          slug: true,
+          videoUrl: true,
+          createdAt: true,
+          publishedAt: true,
+          media: { select: { type: true }, take: 5 },
+        },
+        take: 50000,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const articleEntries: SitemapEntry[] = articles.map((a) => ({
+      loc: `${base}/rady/${a.id}`,
+      lastmod: a.updatedAt.toISOString(),
+      changefreq: 'monthly' as const,
+      priority: 0.5,
+    }));
+
+    const postEntries: SitemapEntry[] = posts
+      .filter((p) => p.slug)
+      .map((p) => {
+        const hasVideo = postHasVideo(p);
+        const lastmod = (p.publishedAt ?? p.createdAt).toISOString();
+        return {
+          loc: `${base}${postSeoPath(p.slug!, hasVideo)}`,
+          lastmod,
+          changefreq: 'weekly' as const,
+          priority: hasVideo ? 0.72 : 0.68,
+        };
+      });
+
+    return [...articleEntries, ...postEntries];
+  }
+
+  private async getVideoSitemapEntries(base: string): Promise<SitemapEntry[]> {
+    const properties = await this.prisma.property.findMany({
+      where: {
+        deletedAt: null,
+        approved: true,
+        isActive: true,
+        isVisible: true,
+        slug: { not: null },
+        OR: [{ videoUrl: { not: null } }, { listingType: 'SHORTS' }],
+      },
+      select: { slug: true, createdAt: true, listingType: true, videoUrl: true },
+      take: 50000,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return properties
+      .filter((p) => p.slug)
+      .map((p) => ({
+        loc: `${base}${listingSeoPath(p.slug!, 'shorts')}`,
+        lastmod: p.createdAt.toISOString(),
+        changefreq: 'weekly' as const,
+        priority: 0.75,
+      }));
+  }
+
   async getAdminHealth() {
     const [propertyCount, withSlug, withSeoTitle, withSeoDesc, duplicateSlugs] =
       await Promise.all([
@@ -208,6 +394,8 @@ export class SeoService {
           ) d`,
       ]);
 
+    const programmaticPages = this.programmaticSeo.getProgrammaticSitemapEntries('https://x').length;
+
     const score = propertyCount
       ? Math.round(((withSlug + withSeoTitle + withSeoDesc) / (propertyCount * 3)) * 100)
       : 100;
@@ -219,6 +407,7 @@ export class SeoService {
       missingMetaDescription: propertyCount - withSeoDesc,
       missingSlug: propertyCount - withSlug,
       duplicateSlugs: Number(duplicateSlugs[0]?.cnt ?? 0),
+      programmaticSeoPages: programmaticPages,
       seoScore: Math.min(100, score),
     };
   }

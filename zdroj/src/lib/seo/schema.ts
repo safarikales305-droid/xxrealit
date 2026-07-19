@@ -174,6 +174,80 @@ export function faqJsonLd(items: Array<{ question: string; answer: string }>) {
   };
 }
 
+export function collectionPageJsonLd(input: {
+  name: string;
+  description: string;
+  path: string;
+  numberOfItems?: number;
+}) {
+  const origin = getAppOrigin();
+  const url = `${origin}${input.path.startsWith('/') ? input.path : `/${input.path}`}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: input.name,
+    description: input.description,
+    url,
+    isPartOf: { '@type': 'WebSite', name: SITE_NAME, url: origin },
+    ...(input.numberOfItems != null
+      ? { mainEntity: { '@type': 'ItemList', numberOfItems: input.numberOfItems } }
+      : {}),
+  };
+}
+
+export function offerCatalogJsonLd(input: {
+  name: string;
+  description: string;
+  path: string;
+  residenceType?: 'House' | 'Apartment' | 'Residence';
+  city?: string;
+}) {
+  const origin = getAppOrigin();
+  const url = `${origin}${input.path.startsWith('/') ? input.path : `/${input.path}`}`;
+  const residence = input.residenceType ?? 'Residence';
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': residence,
+        name: input.name,
+        description: input.description,
+        url,
+        address: input.city
+          ? { '@type': 'PostalAddress', addressLocality: input.city, addressCountry: 'CZ' }
+          : undefined,
+      },
+      {
+        '@type': 'OfferCatalog',
+        name: input.name,
+        url,
+        itemListElement: [],
+      },
+    ],
+  };
+}
+
+export function localBusinessDirectoryJsonLd(input: {
+  name: string;
+  description: string;
+  path: string;
+  city?: string;
+}) {
+  const origin = getAppOrigin();
+  const url = `${origin}${input.path.startsWith('/') ? input.path : `/${input.path}`}`;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    name: input.name,
+    description: input.description,
+    url,
+    address: input.city
+      ? { '@type': 'PostalAddress', addressLocality: input.city, addressCountry: 'CZ' }
+      : undefined,
+    parentOrganization: { '@type': 'Organization', name: SITE_NAME, url: origin },
+  };
+}
+
 export function videoObjectJsonLd(input: {
   name: string;
   description?: string | null;

@@ -3,12 +3,16 @@ import { SeoIndexStatus } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdatePropertySeoDto, UpdateSeoSettingsDto } from './dto/seo.dto';
+import { ProgrammaticSeoService } from './programmatic-seo.service';
 import { SeoIndexQueueService } from './seo-index-queue.service';
-import { SeoService } from './seo.service';
+import { SeoService, type SitemapKind } from './seo.service';
 
 @Controller('seo')
 export class SeoPublicController {
-  constructor(private readonly seo: SeoService) {}
+  constructor(
+    private readonly seo: SeoService,
+    private readonly programmaticSeo: ProgrammaticSeoService,
+  ) {}
 
   @Get('settings')
   getPublicSettings() {
@@ -19,6 +23,22 @@ export class SeoPublicController {
   getSitemap(@Query('origin') origin?: string) {
     const base = origin?.trim() || 'https://www.xxrealit.cz';
     return this.seo.getSitemapEntries(base);
+  }
+
+  @Get('sitemap/:kind')
+  getSitemapByKind(@Param('kind') kind: string, @Query('origin') origin?: string) {
+    const base = origin?.trim() || 'https://www.xxrealit.cz';
+    return this.seo.getSitemapEntriesByKind(kind as SitemapKind, base);
+  }
+
+  @Get('programmatic/:intent/:location')
+  getProgrammaticPage(
+    @Param('intent') intent: string,
+    @Param('location') location: string,
+    @Query('limit') limit?: string,
+  ) {
+    const n = limit ? Number.parseInt(limit, 10) : 24;
+    return this.programmaticSeo.resolvePageWithListings(intent, location, Number.isFinite(n) ? n : 24);
   }
 
   @Get('properties/by-slug/:slug')

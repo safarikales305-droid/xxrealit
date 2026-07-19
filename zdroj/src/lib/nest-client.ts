@@ -14004,6 +14004,7 @@ export type NestSeoHealth = {
   missingMetaDescription: number;
   missingSlug: number;
   duplicateSlugs: number;
+  programmaticSeoPages?: number;
   seoScore: number;
 };
 
