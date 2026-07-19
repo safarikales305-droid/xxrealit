@@ -36,6 +36,7 @@ import {
   MetaPendingVerificationCard,
 } from '@/components/meta-centrum/MetaPendingVerificationCard';
 import { MetaUrlDiagnosticsPanel } from '@/components/meta-centrum/MetaUrlDiagnosticsPanel';
+import { MetaAdsManagerComparePanel } from '@/components/meta-centrum/MetaAdsManagerComparePanel';
 import { MetaAdPlacementSettingsPanel } from '@/components/meta-centrum/MetaAdPlacementSettingsPanel';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 import { MetaCatalogAssetsVerifyPanel } from '@/components/meta-centrum/MetaCatalogAssetsVerifyPanel';
@@ -235,6 +236,7 @@ const TABS = [
   { id: 'remarketing', label: 'Remarketing' },
   { id: 'campaigns', label: 'Kampaně' },
   { id: 'url-diagnostics', label: 'Diagnostika URL' },
+  { id: 'ads-manager-compare', label: 'Porovnání s Ads Manager' },
   { id: 'mapping', label: 'Mapování' },
 ] as const;
 
@@ -619,6 +621,7 @@ export default function MetaCentrumPage() {
   const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
   const [campaignProducts, setCampaignProducts] = useState<MetaCampaignProductItem[]>([]);
   const [campaignDrafts, setCampaignDrafts] = useState<MetaCampaignDraft[]>([]);
+  const [adsManagerCompareDraftId, setAdsManagerCompareDraftId] = useState<string>('');
   const [campaignOverview, setCampaignOverview] = useState<MetaCampaignOverviewItem[]>([]);
   const [campaignsLiveEnabled, setCampaignsLiveEnabled] = useState(false);
   const [campaignsDebugMode, setCampaignsDebugMode] = useState(false);
@@ -5314,6 +5317,46 @@ export default function MetaCentrumPage() {
 
         {tab === 'url-diagnostics' ? (
           <MetaUrlDiagnosticsPanel token={token} initialUrl={targetLaunchUrl} />
+        ) : null}
+
+        {tab === 'ads-manager-compare' ? (
+          <section className="space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <label htmlFor="compare-draft" className="mb-1 block text-sm font-medium text-zinc-700">
+                Koncept kampaně
+              </label>
+              <select
+                id="compare-draft"
+                value={adsManagerCompareDraftId}
+                onChange={(e) => setAdsManagerCompareDraftId(e.target.value)}
+                className="w-full max-w-xl rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+              >
+                <option value="">— vyberte koncept —</option>
+                {campaignDrafts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.metaAdId ? ` · Ad ${c.metaAdId}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <MetaAdsManagerComparePanel
+              token={token}
+              draft={
+                adsManagerCompareDraftId
+                  ? campaignDrafts.find((c) => c.id === adsManagerCompareDraftId) ?? null
+                  : campaignDrafts.find((c) => c.metaAdId) ?? campaignDrafts[0] ?? null
+              }
+              onDraftUpdated={(updated) => {
+                setCampaignDrafts((prev) =>
+                  prev.map((c) => (c.id === updated.id ? updated : c)),
+                );
+                setCampaignOverview((prev) =>
+                  prev.map((c) => (c.id === updated.id ? updated : c)),
+                );
+              }}
+            />
+          </section>
         ) : null}
 
         {tab === 'mapping' && dash ? (

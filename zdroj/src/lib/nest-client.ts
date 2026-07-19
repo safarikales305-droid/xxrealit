@@ -8100,6 +8100,106 @@ export async function nestAdminMetaCenterPreflightCampaignDraft(
   return r.ok ? r.data : { ok: false, message: r.error, checks: [], campaign: null };
 }
 
+export type MetaAdsManagerDiffStatus = 'match' | 'different' | 'missing';
+
+export type MetaAdsManagerDiffRow = {
+  path: string;
+  status: MetaAdsManagerDiffStatus;
+  xxrealit?: unknown;
+  adsManager?: unknown;
+  missingSide?: 'xxrealit' | 'ads_manager' | 'both';
+};
+
+export type MetaAdsManagerLayerCompare = {
+  layer: 'campaign' | 'adSet' | 'creative' | 'ad';
+  xxrealit: Record<string, unknown> | null;
+  adsManager: Record<string, unknown> | null;
+  diff: MetaAdsManagerDiffRow[];
+  matchCount: number;
+  differentCount: number;
+  missingCount: number;
+};
+
+export type MetaAdsManagerCompareResult = {
+  ok: boolean;
+  message: string;
+  safeMode: boolean;
+  adId: string | null;
+  metaIds: {
+    campaignId: string | null;
+    adSetId: string | null;
+    creativeId: string | null;
+    adId: string | null;
+  };
+  xxrealit: {
+    campaign: Record<string, unknown> | null;
+    adSet: Record<string, unknown> | null;
+    creative: Record<string, unknown> | null;
+    ad: Record<string, unknown> | null;
+    raw: Record<string, unknown> | null;
+  };
+  adsManager: {
+    campaign: Record<string, unknown> | null;
+    adSet: Record<string, unknown> | null;
+    creative: Record<string, unknown> | null;
+    ad: Record<string, unknown> | null;
+  };
+  layers: MetaAdsManagerLayerCompare[];
+  summary: {
+    total: number;
+    match: number;
+    different: number;
+    missing: number;
+  };
+};
+
+export async function nestAdminMetaCenterAdsManagerCompare(
+  token: string | null,
+  draftId: string,
+  body: { adId?: string; safeMode?: boolean },
+): Promise<MetaAdsManagerCompareResult> {
+  const r = await metaCenterFetch<MetaAdsManagerCompareResult>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(draftId)}/ads-manager-compare`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  return r.ok
+    ? r.data
+    : {
+        ok: false,
+        message: r.error,
+        safeMode: Boolean(body.safeMode),
+        adId: body.adId ?? null,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId: null },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+}
+
+export async function nestAdminMetaCenterCloneFromAdsManager(
+  token: string | null,
+  draftId: string,
+  body: { adId?: string; safeMode?: boolean },
+): Promise<{
+  ok: boolean;
+  message?: string;
+  campaign?: MetaCampaignDraft | null;
+  clonedPayload?: Record<string, unknown> | null;
+}> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    campaign?: MetaCampaignDraft | null;
+    clonedPayload?: Record<string, unknown> | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(draftId)}/clone-from-ads-manager`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return r.ok ? r.data : { ok: false, message: r.error, campaign: null, clonedPayload: null };
+}
+
 export async function nestAdminMetaCenterResetMetaCampaignLaunch(
   token: string | null,
   id: string,

@@ -89,6 +89,15 @@ import {
   type MetaPreflightCheck,
 } from './meta-ad-preflight.util';
 import {
+  buildClonedPayloadFromAdsManager,
+  compareMetaAdsManagerLayers,
+  normalizeAdsManagerLayerPayload,
+  normalizeXxrealitLayerPayloads,
+  summarizeDiffLayers,
+  type MetaAdsManagerCompareResult,
+} from './meta-ads-manager-compare.util';
+import { fetchMetaAdsManagerSnapshot } from './meta-ads-manager-snapshot.util';
+import {
   applyPlacementModeToTargeting,
   buildPlacementDiagnostics,
   isMetaInstagramIdentityError,
@@ -4089,6 +4098,219 @@ export class MetaCenterCampaignsService {
       checks: allChecks,
       campaign: this.serializeDraft(refreshed ?? draft),
     };
+  }
+
+  async compareWithAdsManager(
+    draftId: string,
+    input: { adId?: string; safeMode?: boolean } = {},
+  ): Promise<MetaAdsManagerCompareResult> {
+    if (!(await this.ensureCampaignTableReady())) {
+      return {
+        ok: false,
+        message: META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE,
+        safeMode: Boolean(input.safeMode),
+        adId: input.adId ?? null,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId: null },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+    }
+
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    if (!draft) {
+      return {
+        ok: false,
+        message: 'Koncept nenalezen.',
+        safeMode: Boolean(input.safeMode),
+        adId: input.adId ?? null,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId: null },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+    }
+
+    const adId = input.adId?.trim() || draft.metaAdId?.trim() || '';
+    if (!adId) {
+      return {
+        ok: false,
+        message: 'Zadejte ID reklamy z Ads Manager nebo nejdříve spusťte kampaň z XXREALIT.',
+        safeMode: Boolean(input.safeMode),
+        adId: null,
+        metaIds: {
+          campaignId: draft.metaCampaignId,
+          adSetId: draft.metaAdSetId,
+          creativeId: draft.metaCreativeId,
+          adId: null,
+        },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+    }
+
+    let token: string;
+    try {
+      token = await this.oauth.resolveMarketingAccessToken();
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Marketing token chybí.',
+        safeMode: Boolean(input.safeMode),
+        adId,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+    }
+
+    const safeMode = Boolean(input.safeMode);
+    const live = await fetchMetaAdsManagerSnapshot({ graph: this.graph, token, adId });
+    if (!live.ok) {
+      return {
+        ok: false,
+        message: live.message,
+        safeMode,
+        adId,
+        metaIds: live.metaIds,
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      };
+    }
+
+    const rawPayloads =
+      draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'
+        ? (draft.metaLaunchPayloads as Record<string, unknown>)
+        : null;
+
+    let xxLayers = normalizeXxrealitLayerPayloads(rawPayloads, safeMode);
+
+    if (!xxLayers.campaign && !xxLayers.adSet && !xxLayers.creative && !xxLayers.ad) {
+      const dto = this.draftRowToDto(draft);
+      const preview = await this.previewCampaignPayloads(dto);
+      const fallbackRaw: Record<string, unknown> = {
+        campaign: preview.campaign?.payload ?? null,
+        adSet: preview.adSet?.payload ?? null,
+        creative: preview.creative?.payload ?? null,
+        ad: preview.ad?.payload ?? null,
+        targeting: preview.adSet?.payload?.targeting ?? null,
+      };
+      xxLayers = normalizeXxrealitLayerPayloads(fallbackRaw, safeMode);
+    }
+
+    const amLayers = {
+      campaign: normalizeAdsManagerLayerPayload('campaign', live.campaign, safeMode),
+      adSet: normalizeAdsManagerLayerPayload('adSet', live.adSet, safeMode),
+      creative: normalizeAdsManagerLayerPayload('creative', live.creative, safeMode),
+      ad: normalizeAdsManagerLayerPayload('ad', live.ad, safeMode),
+    };
+
+    const layers = compareMetaAdsManagerLayers({
+      xxrealit: xxLayers,
+      adsManager: amLayers,
+    });
+    const summary = summarizeDiffLayers(layers);
+
+    return {
+      ok: true,
+      message: live.fetchErrors.length
+        ? `${live.message} Porovnání dokončeno.`
+        : 'Porovnání s Ads Manager dokončeno.',
+      safeMode,
+      adId,
+      metaIds: live.metaIds,
+      xxrealit: {
+        ...xxLayers,
+        raw: rawPayloads,
+      },
+      adsManager: amLayers,
+      layers,
+      summary,
+    };
+  }
+
+  async cloneFromAdsManager(
+    draftId: string,
+    input: { adId?: string; safeMode?: boolean } = {},
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    campaign: ReturnType<MetaCenterCampaignsService['serializeDraft']> | null;
+    clonedPayload: Record<string, unknown> | null;
+  }> {
+    const compare = await this.compareWithAdsManager(draftId, input);
+    if (!compare.ok) {
+      return { ok: false, message: compare.message, campaign: null, clonedPayload: null };
+    }
+
+    const clonedPayload = buildClonedPayloadFromAdsManager({
+      campaign: compare.adsManager.campaign,
+      adSet: compare.adsManager.adSet,
+      creative: compare.adsManager.creative,
+      ad: compare.adsManager.ad,
+      safeMode: Boolean(input.safeMode),
+    });
+
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    if (!draft) {
+      return { ok: false, message: 'Koncept nenalezen.', campaign: null, clonedPayload };
+    }
+
+    const existing =
+      draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'
+        ? ({ ...(draft.metaLaunchPayloads as MetaLaunchPayloadSnapshot) } as MetaLaunchPayloadSnapshot)
+        : ({} as MetaLaunchPayloadSnapshot);
+
+    const merged: MetaLaunchPayloadSnapshot = {
+      ...existing,
+      ...(clonedPayload as MetaLaunchPayloadSnapshot),
+      launchHistory: [
+        ...(existing.launchHistory ?? []),
+        `Klonováno z Ads Manager (${compare.adId}) ${new Date().toISOString()}`,
+      ],
+    };
+
+    const updated = await this.prisma.metaMarketingCampaignDraft.update({
+      where: { id: draftId },
+      data: { metaLaunchPayloads: merged as Prisma.InputJsonValue },
+    });
+
+    return {
+      ok: true,
+      message: input.safeMode
+        ? 'Payload zkopírován z Ads Manager (Safe Mode — pouze oficiální pole Meta API).'
+        : 'Payload zkopírován z Ads Manager — struktura odpovídá ručně vytvořené reklamě.',
+      campaign: this.serializeDraft(updated),
+      clonedPayload,
+    };
+  }
+
+  async fetchAdsManagerSnapshotOnly(adId: string) {
+    let token: string;
+    try {
+      token = await this.oauth.resolveMarketingAccessToken();
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Marketing token chybí.',
+        adId,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId },
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
+        fetchErrors: ['Marketing token chybí'],
+      };
+    }
+    return fetchMetaAdsManagerSnapshot({ graph: this.graph, token, adId });
   }
 
   async completeAdOnly(draftId: string) {

@@ -763,6 +763,59 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Post('campaigns/drafts/:id/ads-manager-compare')
+  compareMetaCampaignWithAdsManager(
+    @Param('id') id: string,
+    @Body() body: { adId?: string; safeMode?: boolean },
+  ) {
+    return this.safeEndpoint(
+      'campaigns/drafts/ads-manager-compare',
+      () => this.campaigns.compareWithAdsManager(id, body ?? {}),
+      (message) => ({
+        ok: false,
+        message,
+        safeMode: Boolean(body?.safeMode),
+        adId: body?.adId ?? null,
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId: null },
+        xxrealit: { campaign: null, adSet: null, creative: null, ad: null, raw: null },
+        adsManager: { campaign: null, adSet: null, creative: null, ad: null },
+        layers: [],
+        summary: { total: 0, match: 0, different: 0, missing: 0 },
+      }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/clone-from-ads-manager')
+  cloneMetaCampaignFromAdsManager(
+    @Param('id') id: string,
+    @Body() body: { adId?: string; safeMode?: boolean },
+  ) {
+    return this.safeEndpoint(
+      'campaigns/drafts/clone-from-ads-manager',
+      () => this.campaigns.cloneFromAdsManager(id, body ?? {}),
+      (message) => ({ ok: false, message, campaign: null, clonedPayload: null }),
+    );
+  }
+
+  @Post('campaigns/ads-manager-snapshot')
+  fetchAdsManagerSnapshot(@Body() body: { adId: string }) {
+    return this.safeEndpoint(
+      'campaigns/ads-manager-snapshot',
+      () => this.campaigns.fetchAdsManagerSnapshotOnly(body?.adId ?? ''),
+      (message) => ({
+        ok: false,
+        message,
+        adId: body?.adId ?? '',
+        metaIds: { campaignId: null, adSetId: null, creativeId: null, adId: body?.adId ?? '' },
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
+        fetchErrors: [message],
+      }),
+    );
+  }
+
   @Post('campaigns/drafts/:id/probe-ad')
   probeMetaCampaignAd(@Param('id') id: string) {
     return this.safeEndpoint(
