@@ -46,6 +46,11 @@ import {
 } from './meta-adset-probe.util';
 import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
+  buildPropertyDetailUrl,
+  resolveMetaCampaignDestinationUrls,
+} from './meta-campaign-destination-url.util';
+import { probeMetaPublicUrl } from './meta-public-url-health.util';
+import {
   META_CAMPAIGN_TARGETING_MODES,
   META_CREATIVE_TYPES,
   type MetaCampaignTargetingMode,
@@ -376,6 +381,71 @@ export class MetaCenterCampaignsService {
     return blockers;
   }
 
+  private async resolveDestinationUrlsForLaunch(
+    dto: CreateMetaCampaignDto,
+  ): Promise<string[]> {
+    const productIds = (dto.selectedProductIds ?? [])
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter(Boolean);
+    const productDetailUrls: string[] = [];
+    if (productIds.length > 0) {
+      const rows = await this.prisma.property.findMany({
+        where: { id: { in: productIds.slice(0, 5) } },
+        select: { id: true, slug: true },
+      });
+      const base = this.frontendBase();
+      for (const row of rows) {
+        productDetailUrls.push(buildPropertyDetailUrl(base, row));
+      }
+    }
+    return resolveMetaCampaignDestinationUrls(dto, { productDetailUrls });
+  }
+
+  async checkMetaDestinationUrlHealth(
+    rawUrl: string,
+  ): Promise<Awaited<ReturnType<typeof probeMetaPublicUrl>>> {
+    const url = rawUrl?.trim();
+    if (!url) {
+      return {
+        ok: false,
+        url: '',
+        finalUrl: '',
+        httpStatus: null,
+        redirects: [],
+        anonymousAccess: false,
+        requiresLogin: false,
+        indexable: false,
+        hasOpenGraph: false,
+        openGraph: { title: false, description: false, image: false },
+        errors: ['Chybí URL.'],
+      };
+    }
+    return probeMetaPublicUrl(url);
+  }
+
+  private async appendMetaUrlHealthBlockers(
+    dto: CreateMetaCampaignDto,
+    blockers: MetaCampaignLaunchBlocker[],
+  ): Promise<MetaCampaignLaunchBlocker[]> {
+    const urls = await this.resolveDestinationUrlsForLaunch(dto);
+    if (urls.length === 0) {
+      return blockers;
+    }
+    for (const url of urls) {
+      const result = await probeMetaPublicUrl(url);
+      if (!result.ok) {
+        const detail = result.errors.length
+          ? result.errors.join(' · ')
+          : 'URL není veřejně dostupná.';
+        blockers.push({
+          key: 'meta_url_public',
+          message: `Cílová URL není veřejně dostupná (${result.finalUrl || url}): ${detail}`,
+        });
+      }
+    }
+    return blockers;
+  }
+
   async listCampaignDrafts() {
     if (!(await this.ensureCampaignTableReady())) {
       return {
@@ -543,7 +613,8 @@ export class MetaCenterCampaignsService {
     const liveOn = await this.isLiveEnabled();
 
     if (mode === 'launch') {
-      const blockers = this.computeLaunchBlockersForMode(dto, row, 'launch', liveOn);
+      let blockers = this.computeLaunchBlockersForMode(dto, row, 'launch', liveOn);
+      blockers = await this.appendMetaUrlHealthBlockers(dto, blockers);
       if (blockers.length > 0) {
         return {
           ok: false as const,
@@ -649,9 +720,21 @@ export class MetaCenterCampaignsService {
       !resumePlan.createAdSet &&
       !resumePlan.createCreative;
     if (adOnlyResume) {
+      const dtoForUrl = body ?? this.draftRowToDto(current);
+      const urlBlockers = await this.appendMetaUrlHealthBlockers(dtoForUrl, []);
+      if (urlBlockers.length) {
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: urlBlockers.map((b) => `❌ ${b.message}`).join('\n'),
+          blockers: urlBlockers,
+          campaign: this.serializeDraft(current),
+        };
+      }
       return this.completeAdOnly(id);
     }
-    const blockers = this.computeLaunchBlockersForMode(dto, settings, 'launch', true);
+    let blockers = this.computeLaunchBlockersForMode(dto, settings, 'launch', true);
+    blockers = await this.appendMetaUrlHealthBlockers(dto, blockers);
     if (blockers.length) {
       return {
         ok: false as const,
@@ -4022,6 +4105,16 @@ export class MetaCenterCampaignsService {
     const settings = await this.getSettingsRow();
     const ids = resolveMetaCenterIds(settings ?? ({} as never));
     const dto = this.draftRowToDto(draft);
+    const urlBlockers = await this.appendMetaUrlHealthBlockers(dto, []);
+    if (urlBlockers.length) {
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: urlBlockers.map((b) => `❌ ${b.message}`).join('\n'),
+        blockers: urlBlockers,
+        campaign: this.serializeDraft(draft),
+      };
+    }
     const launchSteps = this.parseLaunchSteps(draft.metaLaunchSteps) ?? emptyLaunchSteps();
     const launchPayloads: MetaLaunchPayloadSnapshot =
       draft.metaLaunchPayloads && typeof draft.metaLaunchPayloads === 'object'

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { FollowButton } from '@/components/profile/follow-button';
 import { PublicProfilePostsFeed, type PublicProfilePost } from '@/components/profile/PublicProfilePostsFeed';
 import { RecommendedListingsSidebar } from '@/components/profile/RecommendedListingsSidebar';
@@ -6,7 +7,9 @@ import { UserPropertiesList } from '@/components/profile/user-properties-list';
 import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { RightSidebar } from '@/components/home/right-sidebar';
 import { ROLE_LABELS, isUserRole } from '@/lib/roles';
+import { getAppOrigin } from '@/lib/app-url';
 import { getServerSideApiBaseUrl, nestAbsoluteAssetUrl } from '@/lib/api';
+import { pageTitle } from '@/lib/seo/metadata';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 import {
   safeNormalizePropertyFromApi,
@@ -60,6 +63,61 @@ type PublicProfile = {
   verifiedBadgeLabel?: string | null;
   profileHref?: string;
 };
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const base = getServerSideApiBaseUrl();
+  if (!base) {
+    return { title: pageTitle('Profil'), robots: { index: true, follow: true } };
+  }
+
+  const res = await fetch(`${base}/users/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    return { title: pageTitle('Profil'), robots: { index: true, follow: true } };
+  }
+
+  const profile = (await res.json()) as PublicProfile;
+  const user = profile.user ?? profile;
+  const name = user.name?.trim() || 'Profil';
+  const title = pageTitle(name);
+  const description =
+    user.bio?.trim()?.slice(0, 200) ||
+    `${name}${user.city ? ` – ${user.city}` : ''} na XXREALIT.`;
+  const imageRaw = user.coverImage || user.avatar;
+  const image = imageRaw
+    ? /^https?:\/\//i.test(imageRaw)
+      ? imageRaw
+      : nestAbsoluteAssetUrl(imageRaw) || imageRaw
+    : undefined;
+  const canonical = `${getAppOrigin()}/profile/${encodeURIComponent(id)}`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      title,
+      description,
+      url: canonical,
+      type: 'profile',
+      images: image ? [{ url: image, width: 1200, height: 630, alt: name }] : undefined,
+    },
+    twitter: {
+      card: image ? 'summary_large_image' : 'summary',
+      title,
+      description,
+      images: image ? [image] : undefined,
+    },
+    robots: { index: true, follow: true },
+  };
+}
 
 async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
   const res = await fetch(url, {

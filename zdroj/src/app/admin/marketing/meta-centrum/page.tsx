@@ -133,6 +133,8 @@ import {
   type MetaRemarketingAudienceTypeOption,
   type FacebookAppsConfig,
   metaCenterEndpointWarning,
+  nestPublicMetaUrlHealth,
+  type MetaPublicUrlHealthResult,
 } from '@/lib/nest-client';
 
 const META_EXTERNAL_LINKS = {
@@ -694,6 +696,8 @@ export default function MetaCentrumPage() {
     null,
   );
   const [marketingOAuthBusy, setMarketingOAuthBusy] = useState(false);
+  const [metaUrlHealth, setMetaUrlHealth] = useState<MetaPublicUrlHealthResult | null>(null);
+  const [metaUrlHealthBusy, setMetaUrlHealthBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -938,6 +942,56 @@ export default function MetaCentrumPage() {
     selectedCampaignProducts,
   ]);
 
+  const targetLaunchUrl = useMemo(() => {
+    const cp = campaignDraft.creativePayload as Record<string, unknown>;
+    const link = typeof cp?.link === 'string' ? cp.link : '';
+    const detailUrl = typeof cp?.detailUrl === 'string' ? cp.detailUrl : '';
+    const firstProduct = selectedCampaignProducts[0];
+    return (link || detailUrl || firstProduct?.detailUrl || '').trim();
+  }, [campaignDraft.creativePayload, selectedCampaignProducts]);
+
+  useEffect(() => {
+    if (!targetLaunchUrl) {
+      setMetaUrlHealth(null);
+      setMetaUrlHealthBusy(false);
+      return;
+    }
+    let cancelled = false;
+    setMetaUrlHealthBusy(true);
+    void nestPublicMetaUrlHealth(targetLaunchUrl).then((result) => {
+      if (!cancelled) {
+        setMetaUrlHealth(result);
+        setMetaUrlHealthBusy(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetLaunchUrl]);
+
+  const campaignValidationWithMetaUrl = useMemo(() => {
+    if (!targetLaunchUrl) return campaignValidation;
+    const metaUrlItem = {
+      key: 'metaUrlPublic',
+      label: 'Veřejná cílová URL (Meta Ads)',
+      ok: !metaUrlHealthBusy && Boolean(metaUrlHealth?.ok),
+      failMessage: metaUrlHealthBusy
+        ? 'Kontroluji dostupnost cílové URL…'
+        : metaUrlHealth?.errors?.join(' · ') ||
+          'Cílová URL není veřejně dostupná (HTTP 200, bez přihlášení, OG tagy).',
+      group: 'creative' as const,
+    };
+    const items = [...campaignValidation.items, metaUrlItem];
+    const blockers = items.filter((item) => !item.ok).map((item) => `❌ ${item.failMessage}`);
+    return {
+      ...campaignValidation,
+      items,
+      blockers,
+      readyToPublish:
+        campaignValidation.readyToPublish && metaUrlItem.ok && !metaUrlHealthBusy,
+    };
+  }, [campaignValidation, metaUrlHealth, metaUrlHealthBusy, targetLaunchUrl]);
+
   const campaignSubmitPayload = useMemo(
     () => buildMetaCampaignSubmitPayload(campaignDraft, campaignProducts),
     [campaignDraft, campaignProducts],
@@ -1119,6 +1173,29 @@ export default function MetaCentrumPage() {
     });
   }
 
+  async function ensureMetaUrlHealthReady(url: string): Promise<string | null> {
+    const health =
+      metaUrlHealth?.url === url || metaUrlHealth?.finalUrl === url
+        ? metaUrlHealth
+        : await nestPublicMetaUrlHealth(url);
+    setMetaUrlHealth(health);
+    if (!health.ok) {
+      return health.errors.join(' · ') || 'Cílová URL není veřejně dostupná.';
+    }
+    return null;
+  }
+
+  function resolveLaunchUrlFromPayload(
+    payload: MetaCampaignDraftBody,
+    products: MetaCampaignProductItem[],
+  ): string {
+    const cp = payload.creativePayload as Record<string, unknown> | undefined;
+    const link = typeof cp?.link === 'string' ? cp.link : '';
+    const detailUrl = typeof cp?.detailUrl === 'string' ? cp.detailUrl : '';
+    const firstSelected = products.find((p) => payload.selectedProductIds?.includes(p.id));
+    return (link || detailUrl || firstSelected?.detailUrl || '').trim();
+  }
+
   async function submitCampaign(mode: 'draft' | 'launch') {
     if (!token) return;
     const payload = buildCampaignPayload();
@@ -1133,10 +1210,17 @@ export default function MetaCentrumPage() {
 
     if (mode === 'launch') {
       setLaunchValidationHighlight(true);
-      if (!campaignValidation.readyToPublish) {
+      if (!campaignValidationWithMetaUrl.readyToPublish) {
         setLastLaunchError(null);
         setMsg('Před spuštěním opravte všechny položky v kontrole níže.');
         return;
+      }
+      if (targetLaunchUrl) {
+        const urlError = await ensureMetaUrlHealthReady(targetLaunchUrl);
+        if (urlError) {
+          setMsg(`Cílová URL není veřejná: ${urlError}`);
+          return;
+        }
       }
     }
     setBusy(true);
@@ -1217,6 +1301,15 @@ export default function MetaCentrumPage() {
     if (productsError) {
       setMsg(productsError);
       return;
+    }
+    const targetUrl = resolveLaunchUrlFromPayload(payload, campaignProducts);
+    if (targetUrl) {
+      setLaunchValidationHighlight(true);
+      const urlError = await ensureMetaUrlHealthReady(targetUrl);
+      if (urlError) {
+        setMsg(`Cílová URL není veřejná: ${urlError}`);
+        return;
+      }
     }
     setBusy(true);
     setLastLaunchError(null);
@@ -4418,7 +4511,7 @@ export default function MetaCentrumPage() {
                     pageName={dash?.settings.pageName ?? 'XXREALIT'}
                     budgetDaily={campaignDraft.budgetDaily}
                     cityLabel={campaignDraft.cityName || campaignDraft.locationLabel}
-                    validationItems={campaignValidation.items}
+                    validationItems={campaignValidationWithMetaUrl.items}
                   />
                 </div>
               </div>
@@ -4437,7 +4530,7 @@ export default function MetaCentrumPage() {
                   disabled={busy}
                   onClick={() => void submitCampaign('launch')}
                   className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
-                    campaignValidation.readyToPublish
+                    campaignValidationWithMetaUrl.readyToPublish
                       ? 'bg-emerald-600 hover:bg-emerald-700'
                       : 'bg-[#1877f2] hover:bg-[#166fe5]'
                   }`}
@@ -4448,16 +4541,16 @@ export default function MetaCentrumPage() {
 
               <div className="mt-3">
                 <MetaCampaignLaunchChecklist
-                  items={campaignValidation.items}
-                  readyToPublish={campaignValidation.readyToPublish}
+                  items={campaignValidationWithMetaUrl.items}
+                  readyToPublish={campaignValidationWithMetaUrl.readyToPublish}
                   highlightFailures={launchValidationHighlight}
                   title="Živá validace před spuštěním"
                   submitPayload={campaignSubmitPayload}
                 />
               </div>
 
-              {launchValidationHighlight && !campaignValidation.readyToPublish ? (
-                <MetaCampaignValidationErrors blockers={campaignValidation.blockers} />
+              {launchValidationHighlight && !campaignValidationWithMetaUrl.readyToPublish ? (
+                <MetaCampaignValidationErrors blockers={campaignValidationWithMetaUrl.blockers} />
               ) : null}
 
               <details className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs">
@@ -4603,7 +4696,7 @@ export default function MetaCentrumPage() {
                   Ostré spuštění je vypnuté — po kliknutí na „Spustit kampaň“ uvidíte chybu v kontrole výše. Zapněte
                   ostré spuštění v Nastavení.
                 </p>
-              ) : campaignValidation.readyToPublish ? (
+              ) : campaignValidationWithMetaUrl.readyToPublish ? (
                 <p className="mt-2 text-xs font-semibold text-emerald-800">✓ Připraveno ke spuštění</p>
               ) : (
                 <p className="mt-2 text-xs text-zinc-600">

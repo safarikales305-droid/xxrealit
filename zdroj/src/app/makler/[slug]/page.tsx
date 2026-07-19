@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { loginRedirectPath } from '@/lib/login-redirect';
 import {
   nestFetchBrokerBySlug,
   nestUpsertBrokerReview,
@@ -30,6 +31,7 @@ function StarsRow({ value }: { value: number }) {
 
 export default function MaklerPublicPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : '';
   const { apiAccessToken, isAuthenticated } = useAuth();
@@ -39,6 +41,12 @@ export default function MaklerPublicPage() {
   const [textDraft, setTextDraft] = useState('');
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewErr, setReviewErr] = useState<string | null>(null);
+
+  const loginReturnPath = pathname?.trim() || `/makler/${slug}`;
+
+  const redirectToLogin = useCallback(() => {
+    router.push(loginRedirectPath(loginReturnPath));
+  }, [loginReturnPath, router]);
 
   const load = useCallback(async () => {
     if (!slug.trim()) return;
@@ -60,16 +68,8 @@ export default function MaklerPublicPage() {
   }, [slug, apiAccessToken]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace(`/login?redirect=${encodeURIComponent(`/makler/${slug}`)}`);
-      return;
-    }
     void load();
-  }, [isAuthenticated, load, router, slug]);
-
-  if (!isAuthenticated) {
-    return <div className="flex min-h-[60vh] items-center justify-center text-sm text-zinc-600">Načítání…</div>;
-  }
+  }, [load]);
 
   const b = data?.broker;
   const avatar =
@@ -167,35 +167,59 @@ export default function MaklerPublicPage() {
                       Web
                     </a>
                   ) : null}
-                  {b.phonePublic?.trim() ? (
-                    <a
-                      href={`tel:${b.phonePublic.replace(/\s+/g, '')}`}
-                      className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-center text-sm font-bold text-white shadow-md"
-                    >
-                      Zavolat
-                    </a>
-                  ) : null}
-                  {b.whatsappEnabled ? (
-                    <WhatsAppContactButton
-                      targetUserId={b.id}
-                      variant="primary"
-                      className="w-full sm:w-auto"
-                    />
-                  ) : null}
-                  {b.emailPublic?.trim() ? (
-                    <a
-                      href={`mailto:${b.emailPublic}`}
-                      className="rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-center text-sm font-semibold text-orange-900"
-                    >
-                      E-mail
-                    </a>
-                  ) : null}
-                  <Link
-                    href={isAuthenticated ? '/profil/zpravy' : '/login'}
-                    className="rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 text-center text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-                  >
-                    Interní zprávy (schránka)
-                  </Link>
+                  {isAuthenticated ? (
+                    <>
+                      {b.phonePublic?.trim() ? (
+                        <a
+                          href={`tel:${b.phonePublic.replace(/\s+/g, '')}`}
+                          className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-center text-sm font-bold text-white shadow-md"
+                        >
+                          Zavolat
+                        </a>
+                      ) : null}
+                      {b.whatsappEnabled ? (
+                        <WhatsAppContactButton
+                          targetUserId={b.id}
+                          variant="primary"
+                          className="w-full sm:w-auto"
+                        />
+                      ) : null}
+                      {b.emailPublic?.trim() ? (
+                        <a
+                          href={`mailto:${b.emailPublic}`}
+                          className="rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-center text-sm font-semibold text-orange-900"
+                        >
+                          E-mail
+                        </a>
+                      ) : null}
+                      <Link
+                        href="/profil/zpravy"
+                        className="rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 text-center text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+                      >
+                        Interní zprávy (schránka)
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-center text-xs text-zinc-500 sm:text-right">
+                        Telefon a e-mail jsou dostupné po přihlášení.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={redirectToLogin}
+                        className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-center text-sm font-bold text-white shadow-md"
+                      >
+                        Kontaktovat makléře
+                      </button>
+                      <button
+                        type="button"
+                        onClick={redirectToLogin}
+                        className="rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 text-center text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+                      >
+                        Poslat zprávu
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -230,9 +254,13 @@ export default function MaklerPublicPage() {
                 {!isAuthenticated ? (
                   <p className="mt-3 text-sm text-zinc-600">
                     Pro napsání recenze se{' '}
-                    <Link href="/login" className="font-semibold text-[#e85d00] hover:underline">
+                    <button
+                      type="button"
+                      onClick={redirectToLogin}
+                      className="font-semibold text-[#e85d00] hover:underline"
+                    >
                       přihlaste
-                    </Link>
+                    </button>
                     .
                   </p>
                 ) : (

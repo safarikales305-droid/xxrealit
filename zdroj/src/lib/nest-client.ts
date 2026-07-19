@@ -4746,8 +4746,8 @@ export type NestBrokerPublicDetail = {
     regionLabel: string;
     specialization: string;
     web: string;
-    phonePublic: string;
-    emailPublic: string;
+    phonePublic: string | null;
+    emailPublic: string | null;
     whatsappEnabled?: boolean;
     allowBrokerReviews: boolean;
     ratingAverage: number | null;
@@ -4786,6 +4786,108 @@ export async function nestFetchBrokerBySlug(
   );
   if (!res.ok) return null;
   return (await res.json()) as NestBrokerPublicDetail;
+}
+
+export type MetaPublicUrlHealthResult = {
+  ok: boolean;
+  url: string;
+  finalUrl: string;
+  httpStatus: number | null;
+  redirects: Array<{ status: number; url: string }>;
+  anonymousAccess: boolean;
+  requiresLogin: boolean;
+  indexable: boolean;
+  hasOpenGraph: boolean;
+  openGraph: { title: boolean; description: boolean; image: boolean };
+  errors: string[];
+};
+
+/** GET /public/health/meta-url */
+export async function nestPublicMetaUrlHealth(
+  url: string,
+): Promise<MetaPublicUrlHealthResult> {
+  const trimmed = url.trim();
+  if (!API_BASE_URL || !trimmed) {
+    return {
+      ok: false,
+      url: trimmed,
+      finalUrl: trimmed,
+      httpStatus: null,
+      redirects: [],
+      anonymousAccess: false,
+      requiresLogin: false,
+      indexable: false,
+      hasOpenGraph: false,
+      openGraph: { title: false, description: false, image: false },
+      errors: ['API nebo URL chybí.'],
+    };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/public/health/meta-url?url=${encodeURIComponent(trimmed)}`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  const data = (await res.json().catch(() => ({}))) as Partial<MetaPublicUrlHealthResult> & {
+    message?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      url: trimmed,
+      finalUrl: trimmed,
+      httpStatus: res.status,
+      redirects: [],
+      anonymousAccess: false,
+      requiresLogin: false,
+      indexable: false,
+      hasOpenGraph: false,
+      openGraph: { title: false, description: false, image: false },
+      errors: [data.message ?? `HTTP ${res.status}`],
+    };
+  }
+  return data as MetaPublicUrlHealthResult;
+}
+
+/** GET /admin/meta-center/campaigns/meta-url-health */
+export async function nestAdminMetaCenterCampaignMetaUrlHealth(
+  token: string,
+  url: string,
+): Promise<MetaPublicUrlHealthResult> {
+  const trimmed = url.trim();
+  if (!API_BASE_URL || !trimmed) {
+    return {
+      ok: false,
+      url: trimmed,
+      finalUrl: trimmed,
+      httpStatus: null,
+      redirects: [],
+      anonymousAccess: false,
+      requiresLogin: false,
+      indexable: false,
+      hasOpenGraph: false,
+      openGraph: { title: false, description: false, image: false },
+      errors: ['API nebo URL chybí.'],
+    };
+  }
+  const r = await metaCenterFetch<MetaPublicUrlHealthResult>(
+    token,
+    `/campaigns/meta-url-health?url=${encodeURIComponent(trimmed)}`,
+  );
+  if (!r.ok || !r.data) {
+    return {
+      ok: false,
+      url: trimmed,
+      finalUrl: trimmed,
+      httpStatus: null,
+      redirects: [],
+      anonymousAccess: false,
+      requiresLogin: false,
+      indexable: false,
+      hasOpenGraph: false,
+      openGraph: { title: false, description: false, image: false },
+      errors: [r.error ?? 'Kontrola URL selhala.'],
+    };
+  }
+  return r.data;
 }
 
 /** POST /brokers/:brokerId/reviews */

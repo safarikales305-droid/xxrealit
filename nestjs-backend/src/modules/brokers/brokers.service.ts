@@ -339,9 +339,10 @@ export class BrokersService {
         specialization: broker.brokerSpecialization,
         web: broker.brokerWeb,
         facebookUrl: broker.facebookUrl ?? null,
-        phonePublic: broker.brokerPhonePublic,
-        emailPublic: broker.brokerEmailPublic,
+        phonePublic: viewerId ? broker.brokerPhonePublic : null,
+        emailPublic: viewerId ? broker.brokerEmailPublic : null,
         whatsappEnabled:
+          Boolean(viewerId) &&
           Boolean(broker.whatsappEnabled) &&
           isValidWhatsAppPhone(broker.whatsappPhone ?? ''),
         allowBrokerReviews: broker.allowBrokerReviews,

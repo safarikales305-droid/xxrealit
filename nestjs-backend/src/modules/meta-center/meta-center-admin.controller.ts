@@ -594,6 +594,27 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Get('campaigns/meta-url-health')
+  checkCampaignMetaUrl(@Query('url') url?: string) {
+    return this.safeEndpoint(
+      'campaigns/meta-url-health',
+      () => this.campaigns.checkMetaDestinationUrlHealth(url ?? ''),
+      (message) => ({
+        ok: false,
+        url: url?.trim() ?? '',
+        finalUrl: url?.trim() ?? '',
+        httpStatus: null,
+        redirects: [],
+        anonymousAccess: false,
+        requiresLogin: false,
+        indexable: false,
+        hasOpenGraph: false,
+        openGraph: { title: false, description: false, image: false },
+        errors: [message],
+      }),
+    );
+  }
+
   @Get('campaigns/creative-sources/posts')
   listCreativeSourcePosts(@Query('source') source?: string, @Query('take') takeRaw?: string) {
     const take = Number(takeRaw);
