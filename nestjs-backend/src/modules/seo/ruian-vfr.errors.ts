@@ -76,7 +76,7 @@ export function formatRuianVfrError(err: unknown): RuianVfrErrorInfo {
   if (/ZIP|zip|archiv/i.test(msg)) {
     return { code: 'ZIP_ERROR', message: msg, userMessage: 'ZIP je poškozen nebo neobsahuje XML.' };
   }
-  if (/XML|parse|sax/i.test(msg)) {
+  if (/XML|parse|sax|SAX_IMPORT/i.test(msg)) {
     return { code: 'XML_PARSE', message: msg, userMessage: 'Chyba při parsování VFR XML.' };
   }
   if (/prisma|Prisma|database|DB/i.test(msg)) {

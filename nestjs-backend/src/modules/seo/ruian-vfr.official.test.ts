@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatRuianVfrError } from './ruian-vfr.errors';
+import { resolveSaxModule } from './ruian-vfr.sax';
 import { RuianVfrImportSession } from './ruian-vfr.import-session';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -67,6 +68,11 @@ test('CsuDataStatService.parsePopulationCsv pairs by official code', () => {
 test('formatRuianVfrError maps ENOENT to readable message', () => {
   const info = formatRuianVfrError(Object.assign(new Error('no such file'), { code: 'ENOENT' }));
   assert.match(info.userMessage, /nenalezen|disku/i);
+});
+
+test('resolveSaxModule exposes createStream', () => {
+  const sax = resolveSaxModule();
+  assert.equal(typeof sax.createStream, 'function');
 });
 
 test('RuianVfrImportSession tracks progress phases', () => {

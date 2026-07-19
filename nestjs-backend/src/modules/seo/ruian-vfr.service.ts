@@ -11,6 +11,7 @@ import {
   downloadToFile,
   extractFirstXmlFromZip,
   verifyRemoteFileHead,
+  type DownloadLogFn,
 } from './ruian-vfr.io';
 import {
   mapElementToPhase,
@@ -167,14 +168,15 @@ export class RuianVfrService {
         return ruianVfrFail('Denní změnový soubor nenalezen v ATOM feedu.', session.entries);
       }
       session.log('verify', `Soubor nalezen: ${file.filename}`);
-      const head = await verifyRemoteFileHead(file.url);
+      const ioLog = this.bindSessionLog(session);
+      const head = await verifyRemoteFileHead(file.url, 30000, ioLog);
       if (!head.ok) {
         return ruianVfrFail(head.userMessage ?? 'Soubor není dostupný.', session.entries);
       }
       session.log('download', 'Stahuji denní změny...');
       const workDir = createRuianWorkDir();
       const zipPath = path.join(workDir, file.filename);
-      const size = await downloadToFile(file.url, zipPath);
+      const size = await downloadToFile(file.url, zipPath, 300000, ioLog);
       const source = await this.getRuianSource();
       if (source) {
         const cfg = this.getVfrConfig(source);
@@ -295,19 +297,21 @@ export class RuianVfrService {
       }
 
       session.log('verify', `Soubor nalezen: ${file.filename}`);
-      const head = await verifyRemoteFileHead(file.url);
+      const ioLog = this.bindSessionLog(session);
+      const head = await verifyRemoteFileHead(file.url, 30000, ioLog);
       if (!head.ok) {
         return ruianVfrFail(head.userMessage ?? 'Soubor není dostupný.', session.entries);
       }
-      session.log('verify', 'Soubor je dostupný (HEAD OK)');
+      session.log('verify', `Soubor je dostupný — status ${head.status}, velikost ${head.contentLength ?? '?'}`);
 
       workDir = createRuianWorkDir();
+      this.log.log(`RÚIAN VFR work dir: ${workDir}`);
       const zipPath = path.join(workDir, file.filename);
 
       if (!fs.existsSync(zipPath)) {
         session.log('download', 'Stahuji...');
         try {
-          await downloadToFile(file.url, zipPath);
+          await downloadToFile(file.url, zipPath, 300000, ioLog);
         } catch (err) {
           return ruianVfrFail(err, session.entries);
         }
@@ -395,9 +399,10 @@ export class RuianVfrService {
 
     try {
       session.log('extract', 'Rozbaluji...');
-      innerName = await extractFirstXmlFromZip(zipPath, xmlPath);
+      const ioLog = this.bindSessionLog(session);
+      innerName = await extractFirstXmlFromZip(zipPath, xmlPath, ioLog);
       this.log.log(`RÚIAN VFR: extrahováno ${innerName}`);
-      session.log('extract', `Rozbaleno: ${innerName}`);
+      session.log('extract', `ZIP rozbalen: ${innerName}`);
     } catch (err) {
       throw err;
     }
@@ -592,5 +597,20 @@ export class RuianVfrService {
   private getVfrConfig(source: { configJson: unknown } | null): RuianVfrConnectorConfig {
     const cfg = (source?.configJson ?? {}) as { vfr?: RuianVfrConnectorConfig };
     return cfg.vfr ?? { mode: 'full' };
+  }
+
+  /** Propojí IO logy s admin session + NestJS Logger + console (Railway). */
+  private bindSessionLog(session: RuianVfrImportSession): DownloadLogFn {
+    return (message: string, meta?: Record<string, unknown>) => {
+      const line = meta ? `${message} ${JSON.stringify(meta)}` : message;
+      this.log.log(`RÚIAN VFR: ${line}`);
+      console.log(`[RUIAN VFR] ${line}`);
+      if (message.includes('Začínám stahovat')) session.log('download', 'Začínám stahovat...');
+      else if (message.includes('Soubor uložen')) session.log('download', `Soubor uložen (${meta?.bytes ?? '?'} B)`);
+      else if (message.includes('ZIP rozbalen')) session.log('extract', 'ZIP rozbalen');
+      else if (message.includes('HEAD odpověď') && meta?.status) {
+        session.log('verify', `Status ${meta.status}, velikost ${meta.contentLength ?? '?'}`);
+      }
+    };
   }
 }

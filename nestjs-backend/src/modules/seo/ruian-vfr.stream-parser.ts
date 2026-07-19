@@ -1,9 +1,9 @@
 import { createReadStream } from 'node:fs';
-import sax from 'sax';
 import {
   RUIAN_VFR_ELEMENT_KIND_MAP,
   type RuianVfrConnectorConfig,
 } from './ruian-vfr.official.constants';
+import { resolveSaxModule } from './ruian-vfr.sax';
 import type { SeoLocationImportRow } from './seo-location.util';
 import { buildSeoLocationSlug } from './seo-location.util';
 
@@ -110,6 +110,7 @@ export async function streamParseVfrXmlFile(
   let batch: SeoLocationImportRow[] = [];
 
   await new Promise<void>((resolve, reject) => {
+    const sax = resolveSaxModule();
     const parser = sax.createStream(true, { lowercase: false, xmlns: true });
     const stack: Array<{ tag: string; attrs: Record<string, string>; text: string }> = [];
     let current: { tag: string; attrs: Record<string, string>; text: string } | null = null;
@@ -121,7 +122,7 @@ export async function streamParseVfrXmlFile(
       await onBatch(copy, stats);
     };
 
-    parser.on('opentag', (node: sax.Tag) => {
+    parser.on('opentag', (node: { name: string; attributes: Record<string, unknown> }) => {
       const tag = localName(node.name);
       const attrs: Record<string, string> = {};
       for (const [k, v] of Object.entries(node.attributes)) {
