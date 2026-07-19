@@ -14586,6 +14586,125 @@ export async function nestAdminSeoLocationSaveMappings(
   });
 }
 
+export type RuianVfrStatus = {
+  connector: string;
+  apiKeyRequired: boolean;
+  mode: 'full' | 'delta';
+  lastAvailableFile: string | null;
+  lastImportedFile: string | null;
+  lastImportedVersion: string | null;
+  lastSyncAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+  progressPct: number;
+  stats: Record<string, number>;
+  provides: string[];
+};
+
+export type CsuDataStatStatus = {
+  connector: string;
+  apiKeyRequired: boolean;
+  baseUrl: string;
+  catalogUrl: string;
+  datasetCode: string;
+  predefinedVyberCode: string;
+  lastSyncAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+  updatedMunicipalities: number;
+  provides: string[];
+  doesNotOverride: string[];
+};
+
+export async function nestAdminRuianVfrStatus(token: string | null): Promise<RuianVfrStatus | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/vfr/status');
+}
+
+export async function nestAdminRuianVfrDiscover(
+  token: string | null,
+  mode: 'full' | 'delta' = 'full',
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/vfr/discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+}
+
+export async function nestAdminRuianVfrFullImport(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/vfr/full-import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianVfrDailyDownload(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/vfr/daily-download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianVfrSyncDelta(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/ruian/vfr/sync-delta', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminRuianVfrUpload(
+  token: string | null,
+  file: File,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/admin/seo/locations/ruian/vfr/upload`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+    body: fd,
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function nestAdminCsuDataStatStatus(token: string | null): Promise<CsuDataStatStatus | null> {
+  return nestAdminSeoLocationsJson(token, '/csu/datastat/status');
+}
+
+export async function nestAdminCsuDataStatSync(
+  token: string | null,
+  dryRun?: boolean,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/csu/datastat/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun }),
+  });
+}
+
+export async function nestAdminSeoLocationDiagnosticsRun(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/diagnostics/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
 export async function nestAdminSeoRedirectsList(
   token: string | null,
 ): Promise<Array<Record<string, unknown>> | null> {

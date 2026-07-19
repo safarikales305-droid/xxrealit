@@ -27,18 +27,35 @@ const DEFAULT_SOURCES: Array<{
   name: string;
   sourceUrl: string;
   fileType: string;
+  configJson: Prisma.InputJsonValue;
 }> = [
   {
     type: 'RUIAN',
-    name: 'RÚIAN — územní prvky',
-    sourceUrl: 'https://vdp.cuzk.cz/vymenny_format/csv/',
-    fileType: 'CSV',
+    name: 'RÚIAN – Oficiální VFR',
+    sourceUrl: 'https://services.cuzk.gov.cz/vfr',
+    fileType: 'ZIP',
+    configJson: {
+      connector: 'RUIAN_VFR_OFFICIAL',
+      apiKeyRequired: false,
+      vfr: { mode: 'full', progressPct: 0, stats: {} },
+      mapRestUrl: 'https://ags.cuzk.cz/arcgis/rest/services/RUIAN/MapServer',
+    },
   },
   {
     type: 'CSU',
-    name: 'ČSÚ — číselník obcí',
-    sourceUrl: 'https://www.czso.cz/documents/10180/20551734/',
+    name: 'ČSÚ – DataStat API',
+    sourceUrl: 'https://data.csu.gov.cz/api/dotaz/v1',
     fileType: 'CSV',
+    configJson: {
+      connector: 'CSU_DATASTAT_OFFICIAL',
+      apiKeyRequired: false,
+      datastat: {
+        baseUrl: 'https://data.csu.gov.cz/api/dotaz/v1',
+        catalogUrl: 'https://data.csu.gov.cz/api/katalog/v1',
+        datasetCode: 'OBY01',
+        predefinedVyberCode: 'OBY01T1',
+      },
+    },
   },
 ];
 
@@ -75,7 +92,21 @@ export class SeoLocationSourceService {
             sourceMode: 'OFFICIAL_URL',
             sourceUrl: def.sourceUrl,
             fileType: def.fileType,
-            configJson: { encoding: 'utf-8', csvDelimiter: ';', timeoutMs: 60000 },
+            configJson: def.configJson,
+            autoSync: false,
+            syncIntervalMinutes: def.type === 'RUIAN' ? 1440 : 43200,
+          },
+        });
+      } else {
+        await this.prisma.seoLocationSource.update({
+          where: { id: existing.id },
+          data: {
+            name: def.name,
+            sourceUrl: existing.sourceUrl ?? def.sourceUrl,
+            configJson: {
+              ...((existing.configJson as object) ?? {}),
+              ...((def.configJson as object) ?? {}),
+            },
           },
         });
       }
