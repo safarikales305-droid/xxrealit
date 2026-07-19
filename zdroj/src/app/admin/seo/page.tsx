@@ -63,6 +63,10 @@ export default function AdminSeoPage() {
         <Link href="/admin/seo/indexace" className="text-sm font-semibold text-orange-600 hover:underline">
           Přehled indexace veřejného obsahu →
         </Link>
+        {' · '}
+        <Link href="/admin/seo/generator" className="text-sm font-semibold text-orange-600 hover:underline">
+          SEO generátor →
+        </Link>
       </p>
 
       {health ? (

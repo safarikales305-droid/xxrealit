@@ -1237,6 +1237,9 @@ model Property {
   /// Volitelné pro matching notifikací (kraj / oblast).
   region               String   @default("")
   district             String   @default("")
+  /// Vazba na normalizovanou SEO lokalitu (obec / město).
+  seoLocationId        String?
+  seoLocation          SeoLocation? @relation(fields: [seoLocationId], references: [id], onDelete: SetNull)
 
   /// Pokud tento SHORTS inzerát vznikl z klasického, ID zdrojového inzerátu.
   derivedFromPropertyId String?
@@ -1316,6 +1319,7 @@ model Property {
   @@index([importCategoryKey, sourcePortalKey])
   @@index([importSourceId])
   @@index([hiddenByImportDisabled, isActive])
+  @@index([seoLocationId])
   @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
 }
 
@@ -2940,6 +2944,166 @@ model SeoIndexQueue {
   @@unique([contentType, contentId])
   @@index([status])
   @@index([contentId])
+}
+
+enum SeoLocationKind {
+  KRAJ
+  OKRES
+  ORP
+  MESTO
+  MESTYS
+  OBEC
+  MESTSKA_CAST
+  CAST_OBCE
+  KATASTR
+  PSC
+  LOKALITA
+}
+
+/// Územní jednotka ČR pro programatické SEO (ČSÚ / RÚIAN).
+model SeoLocation {
+  id             String          @id @default(cuid())
+  officialCode   String          @unique
+  name           String
+  slug           String          @unique
+  slugAscii      String
+  locative       String          @default("")
+  kind           SeoLocationKind
+  parentId       String?
+  parent         SeoLocation?    @relation("SeoLocationTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       SeoLocation[]   @relation("SeoLocationTree")
+  regionId       String?
+  region         SeoLocation?    @relation("SeoLocationRegion", fields: [regionId], references: [id], onDelete: SetNull)
+  regionChildren SeoLocation[]   @relation("SeoLocationRegion")
+  districtId     String?
+  district       SeoLocation?    @relation("SeoLocationDistrict", fields: [districtId], references: [id], onDelete: SetNull)
+  districtChildren SeoLocation[] @relation("SeoLocationDistrict")
+  latitude       Float?
+  longitude      Float?
+  population     Int?
+  psc            String?
+  cadastreCode   String?
+  searchTerms    String[]        @default([])
+  isActive       Boolean         @default(true)
+  importedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  properties     Property[]
+  pageContents   SeoPageContent[]
+  redirects      SeoRedirect[]
+  analytics      SeoPageAnalytics[]
+
+  @@index([kind])
+  @@index([slug])
+  @@index([slugAscii])
+  @@index([parentId])
+  @@index([regionId])
+  @@index([districtId])
+  @@index([isActive])
+}
+
+/// Historie importu územních jednotek.
+model SeoLocationImportRun {
+  id          String    @id @default(cuid())
+  status      String    @default("running")
+  source      String?
+  totalRows   Int       @default(0)
+  inserted    Int       @default(0)
+  updated     Int       @default(0)
+  deactivated Int       @default(0)
+  errorCount  Int       @default(0)
+  errors      Json?
+  progressPct Float     @default(0)
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([startedAt(sort: Desc)])
+}
+
+/// 301 redirect při změně SEO slugu lokality.
+model SeoRedirect {
+  id         String       @id @default(cuid())
+  fromPath   String       @unique
+  toPath     String
+  statusCode Int          @default(301)
+  reason     String?
+  locationId String?
+  location   SeoLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdAt  DateTime     @default(now())
+
+  @@index([locationId])
+}
+
+enum SeoContentStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  PUBLISHED
+  LOCKED
+}
+
+/// SEO obsah stránky (programatické SEO / lokality) s workflow schválení.
+model SeoPageContent {
+  id            String           @id @default(cuid())
+  pageKey       String           @unique
+  intentSlug    String?
+  locationId    String?
+  location      SeoLocation?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  status        SeoContentStatus @default(DRAFT)
+  title         String?
+  description   String?          @db.Text
+  h1            String?
+  bodyText      String?          @db.Text
+  faq           Json?
+  internalLinks Json?
+  isLocked      Boolean          @default(false)
+  aiGenerated   Boolean          @default(false)
+  qualityScore  Int              @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  versions SeoPageContentVersion[]
+
+  @@index([locationId])
+  @@index([intentSlug])
+  @@index([status])
+}
+
+model SeoPageContentVersion {
+  id        String         @id @default(cuid())
+  contentId String
+  content   SeoPageContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  version   Int
+  snapshot  Json
+  createdBy String?
+  note      String?
+  createdAt DateTime       @default(now())
+
+  @@unique([contentId, version])
+  @@index([contentId])
+}
+
+/// SEO analytika stránky (organika, pozice, konverze).
+model SeoPageAnalytics {
+  id             String       @id @default(cuid())
+  pageKey        String
+  locationId     String?
+  location       SeoLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  organicVisits  Int          @default(0)
+  listingCount   Int          @default(0)
+  impressions    Int          @default(0)
+  clicks         Int          @default(0)
+  ctr            Float?
+  avgPosition    Float?
+  conversions    Int          @default(0)
+  qualityScore   Int          @default(0)
+  measuredAt     DateTime     @default(now())
+
+  @@index([pageKey])
+  @@index([locationId])
+  @@index([measuredAt(sort: Desc)])
 }
 
 model MarketingPopupUserView {

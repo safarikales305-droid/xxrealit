@@ -70,6 +70,7 @@ import {
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { SeoService } from '../seo/seo.service';
 import { SeoIndexQueueService } from '../seo/seo-index-queue.service';
+import { SeoLocationService } from '../seo/seo-location.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -110,6 +111,7 @@ export class PropertiesService {
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly seo: SeoService,
     private readonly seoIndexQueue: SeoIndexQueueService,
+    private readonly seoLocation: SeoLocationService,
     private readonly listingApprovalSettings: ListingApprovalSettingsService,
     private readonly propertySocialSummary: PropertySocialPublishSummaryService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
@@ -1192,6 +1194,13 @@ export class PropertiesService {
     });
 
     try {
+      const locLink = await this.seoLocation.resolveForPropertyAddress({
+        city: dto.city,
+        district: dto.district,
+        region: dto.region,
+        address: dto.address,
+      });
+
       const created = await this.prisma.property.create({
         data: {
           title: dto.title.trim(),
@@ -1203,6 +1212,7 @@ export class PropertiesService {
           subType: (dto.subType ?? '').trim().slice(0, 120),
           address: (dto.address ?? '').trim().slice(0, 500),
           city: dto.city.trim(),
+          seoLocationId: locLink.seoLocationId,
           area: dto.area ?? null,
           landArea: dto.landArea ?? null,
           floor: dto.floor ?? null,
@@ -1674,6 +1684,23 @@ export class PropertiesService {
       data.approved = editApproval.approved;
       data.status = editApproval.status;
       data.isVisible = false;
+    }
+
+    if (
+      dto.city !== undefined ||
+      dto.district !== undefined ||
+      dto.region !== undefined ||
+      dto.address !== undefined
+    ) {
+      const locLink = await this.seoLocation.resolveForPropertyAddress({
+        city: dto.city ?? existing.city,
+        district: dto.district ?? existing.district,
+        region: dto.region ?? existing.region,
+        address: dto.address ?? existing.address,
+      });
+      data.seoLocation = locLink.seoLocationId
+        ? { connect: { id: locLink.seoLocationId } }
+        : { disconnect: true };
     }
 
     const updated = await this.prisma.property.update({

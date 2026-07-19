@@ -231,7 +231,7 @@ export class SeoService {
         return this.getVideoSitemapEntries(base);
       case 'programmatic':
       case 'mesta':
-        return this.programmaticSeo.getProgrammaticSitemapEntries(base);
+        return await this.programmaticSeo.getProgrammaticSitemapEntries(base);
       case 'kraje':
         return this.programmaticSeo.getRegionSitemapEntries(base);
       case 'obce':
@@ -394,7 +394,8 @@ export class SeoService {
           ) d`,
       ]);
 
-    const programmaticPages = this.programmaticSeo.getProgrammaticSitemapEntries('https://x').length;
+    const programmaticEntries = await this.programmaticSeo.getProgrammaticSitemapEntries('https://x');
+    const programmaticPages = programmaticEntries.length;
 
     const score = propertyCount
       ? Math.round(((withSlug + withSeoTitle + withSeoDesc) / (propertyCount * 3)) * 100)

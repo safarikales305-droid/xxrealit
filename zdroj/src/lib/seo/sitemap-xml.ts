@@ -72,6 +72,15 @@ export const SITEMAP_KINDS = [
   'clanky',
 ] as const;
 
+/** Aliasové názvy sitemap podle SEO specifikace. */
+export const SITEMAP_ALIASES: Record<string, (typeof SITEMAP_KINDS)[number]> = {
+  listings: 'inzeraty',
+  locations: 'mesta',
+  profiles: 'profily',
+  videos: 'videa',
+  'seo-pages': 'mesta',
+};
+
 export function sitemapRoutePath(kind: (typeof SITEMAP_KINDS)[number]): string {
   return `/sitemap-${kind}.xml`;
 }

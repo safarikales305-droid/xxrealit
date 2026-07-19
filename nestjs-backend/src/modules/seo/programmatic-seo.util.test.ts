@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import { findCzGeoLocation } from './cz-geo-locations.data';
 import { getProgrammaticSeoIntent } from './programmatic-seo-intents';
 import {
@@ -6,32 +7,30 @@ import {
   buildProgrammaticSeoPath,
 } from './programmatic-seo.util';
 
-describe('programmatic-seo.util', () => {
-  it('builds clean URL path', () => {
-    expect(buildProgrammaticSeoPath('prodej-domu', 'pardubice')).toBe('/prodej-domu/pardubice');
-  });
+test('buildProgrammaticSeoPath builds clean URL path', () => {
+  assert.equal(buildProgrammaticSeoPath('prodej-domu', 'pardubice'), '/prodej-domu/pardubice');
+});
 
-  it('generates unique title and h1 for Pardubice houses', () => {
-    const intent = getProgrammaticSeoIntent('prodej-domu')!;
-    const loc = findCzGeoLocation('pardubice')!;
-    const copy = buildProgrammaticSeoCopy(intent, loc);
+test('buildProgrammaticSeoCopy generates unique title and h1 for Pardubice houses', () => {
+  const intent = getProgrammaticSeoIntent('prodej-domu')!;
+  const loc = findCzGeoLocation('pardubice')!;
+  const copy = buildProgrammaticSeoCopy(intent, loc);
 
-    expect(copy.h1).toBe('Prodej domů Pardubice');
-    expect(copy.title).toContain('Prodej domů Pardubice');
-    expect(copy.title).toContain('XXREALIT');
-    expect(copy.description).toContain('Pardubicích');
-    expect(copy.faq.length).toBeGreaterThanOrEqual(3);
-  });
+  assert.equal(copy.h1, 'Prodej domů Pardubice');
+  assert.ok(copy.title.includes('Prodej domů Pardubice'));
+  assert.ok(copy.title.includes('XXREALIT'));
+  assert.ok(copy.description.includes('Pardubicích'));
+  assert.ok(copy.faq.length >= 3);
+});
 
-  it('generates different body for Brno apartments', () => {
-    const intent = getProgrammaticSeoIntent('prodej-bytu')!;
-    const pardubice = findCzGeoLocation('pardubice')!;
-    const brno = findCzGeoLocation('brno')!;
-    const a = buildProgrammaticSeoCopy(intent, pardubice);
-    const b = buildProgrammaticSeoCopy(intent, brno);
+test('buildProgrammaticSeoCopy generates different body for Brno apartments', () => {
+  const intent = getProgrammaticSeoIntent('prodej-bytu')!;
+  const pardubice = findCzGeoLocation('pardubice')!;
+  const brno = findCzGeoLocation('brno')!;
+  const a = buildProgrammaticSeoCopy(intent, pardubice);
+  const b = buildProgrammaticSeoCopy(intent, brno);
 
-    expect(a.bodyText).not.toBe(b.bodyText);
-    expect(a.h1).toBe('Prodej bytů Pardubice');
-    expect(b.h1).toBe('Prodej bytů Brno');
-  });
+  assert.notEqual(a.bodyText, b.bodyText);
+  assert.equal(a.h1, 'Prodej bytů Pardubice');
+  assert.equal(b.h1, 'Prodej bytů Brno');
 });

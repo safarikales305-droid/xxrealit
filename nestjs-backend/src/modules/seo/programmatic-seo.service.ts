@@ -19,6 +19,9 @@ import {
   buildProgrammaticSeoPath,
   type ProgrammaticSeoCopy,
 } from './programmatic-seo.util';
+import { SeoContentService } from './seo-content.service';
+import { SeoLocationService } from './seo-location.service';
+import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import type { SitemapEntry } from './seo.service';
 
 export type ProgrammaticSeoListingPreview = {
@@ -48,16 +51,79 @@ export type ProgrammaticSeoPagePayload = ProgrammaticSeoCopy & {
 
 @Injectable()
 export class ProgrammaticSeoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly seoLocations: SeoLocationService,
+    private readonly seoContent: SeoContentService,
+  ) {}
 
-  resolvePage(intentSlug: string, locationSlug: string): ProgrammaticSeoPagePayload {
+  private dbToCzGeo(row: {
+    slug: string;
+    name: string;
+    locative: string;
+    kind: string;
+    regionId: string | null;
+    districtId: string | null;
+    searchTerms: string[];
+    population: number | null;
+  }): CzGeoLocation {
+    const kindMap: Record<string, CzGeoLocation['kind']> = {
+      KRAJ: 'kraj',
+      OKRES: 'okres',
+      ORP: 'orp',
+      MESTO: 'mesto',
+      MESTYS: 'obec',
+      OBEC: 'obec',
+      MESTSKA_CAST: 'mestska-cast',
+      CAST_OBCE: 'cast-obce',
+      KATASTR: 'lokalita',
+      PSC: 'psc',
+      LOKALITA: 'lokalita',
+    };
+    return {
+      slug: row.slug,
+      name: row.name,
+      locative: row.locative || row.name,
+      kind: kindMap[row.kind] ?? 'obec',
+      regionSlug: row.regionId ?? undefined,
+      districtSlug: row.districtId ?? undefined,
+      searchTerms: row.searchTerms.length ? row.searchTerms : [row.name],
+      population: row.population ?? undefined,
+    };
+  }
+
+  async resolveLocation(slug: string): Promise<CzGeoLocation | null> {
+    const db = await this.seoLocations.findBySlug(slug);
+    if (db) {
+      return this.dbToCzGeo(db);
+    }
+    return findCzGeoLocation(slug);
+  }
+
+  async resolvePage(intentSlug: string, locationSlug: string): Promise<ProgrammaticSeoPagePayload> {
     const intent = getProgrammaticSeoIntent(intentSlug);
     if (!intent) throw new NotFoundException('Neznámý typ stránky.');
 
-    const location = findCzGeoLocation(locationSlug);
+    const location = await this.resolveLocation(locationSlug);
     if (!location) throw new NotFoundException('Lokalita nenalezena.');
 
-    const copy = buildProgrammaticSeoCopy(intent, location);
+    const pageKey = buildProgrammaticSeoPageKey(intentSlug, location.slug);
+    const published = await this.seoContent.getPublished(pageKey);
+
+    const copy = published?.h1
+      ? {
+          path: buildProgrammaticSeoPath(intentSlug, location.slug),
+          h1: published.h1,
+          title: published.title ?? published.h1,
+          description: published.description ?? '',
+          bodyText: published.bodyText ?? '',
+          faq: Array.isArray(published.faq)
+            ? (published.faq as Array<{ question: string; answer: string }>)
+            : [],
+          keywords: [],
+        }
+      : buildProgrammaticSeoCopy(intent, location);
+
     return {
       ...copy,
       intent,
@@ -77,8 +143,10 @@ export class ProgrammaticSeoService {
     locationSlug: string,
     limit = 24,
   ): Promise<ProgrammaticSeoPagePayload> {
-    const base = this.resolvePage(intentSlug, locationSlug);
+    const base = await this.resolvePage(intentSlug, locationSlug);
     const { intent, location } = base;
+
+    const dbLoc = await this.seoLocations.findBySlug(locationSlug);
 
     const whereParts: Prisma.PropertyWhereInput[] = [
       { deletedAt: null },
@@ -89,8 +157,12 @@ export class ProgrammaticSeoService {
     ];
 
     if (!intent.isBrokerPage) {
-      const locationWhere = buildPropertyLocationsWhere(location.searchTerms);
-      if (Object.keys(locationWhere).length > 0) whereParts.push(locationWhere);
+      if (dbLoc) {
+        whereParts.push({ seoLocationId: dbLoc.id });
+      } else {
+        const locationWhere = buildPropertyLocationsWhere(location.searchTerms);
+        if (Object.keys(locationWhere).length > 0) whereParts.push(locationWhere);
+      }
 
       if (intent.offerType) {
         const offerVariants =
@@ -172,8 +244,8 @@ export class ProgrammaticSeoService {
         propertyType: r.propertyType,
       }));
 
-    const relatedLocations = this.buildRelatedLocations(intent, location);
-    const internalLinks = this.buildInternalLinks(intent, location);
+    const relatedLocations = await this.buildRelatedLocations(intent, location);
+    const internalLinks = await this.buildInternalLinks(intent, location);
 
     return {
       ...base,
@@ -184,10 +256,18 @@ export class ProgrammaticSeoService {
     };
   }
 
-  private buildRelatedLocations(
+  private async buildRelatedLocations(
     intent: ProgrammaticSeoIntent,
     location: CzGeoLocation,
-  ): Array<{ slug: string; name: string; path: string }> {
+  ): Promise<Array<{ slug: string; name: string; path: string }>> {
+    const related = await this.seoLocations.findRelated(location.slug, 8);
+    if (related.length) {
+      return related.map((l) => ({
+        slug: l.slug,
+        name: l.name,
+        path: buildProgrammaticSeoPath(intent.slug, l.slug),
+      }));
+    }
     const sameRegion = listCzGeoLocations()
       .filter((l) => l.regionSlug === location.regionSlug && l.slug !== location.slug && l.kind === 'mesto')
       .slice(0, 8);
@@ -198,7 +278,7 @@ export class ProgrammaticSeoService {
     }));
   }
 
-  private buildInternalLinks(intent: ProgrammaticSeoIntent, location: CzGeoLocation) {
+  private async buildInternalLinks(intent: ProgrammaticSeoIntent, location: CzGeoLocation) {
     const otherIntents = PROGRAMMATIC_SEO_INTENT_SLUGS.filter((s) => s !== intent.slug)
       .slice(0, 6)
       .map((intentSlug) => {
@@ -237,10 +317,11 @@ export class ProgrammaticSeoService {
     };
   }
 
-  getProgrammaticSitemapEntries(origin: string): SitemapEntry[] {
+  async getProgrammaticSitemapEntries(origin: string): Promise<SitemapEntry[]> {
     const base = origin.replace(/\/+$/, '');
     const now = new Date().toISOString();
-    const slugs = listCzGeoSlugsForSitemap();
+    const dbSlugs = await this.seoLocations.listSlugsForSitemap();
+    const slugs = dbSlugs.length ? dbSlugs : listCzGeoSlugsForSitemap();
     const entries: SitemapEntry[] = [];
 
     for (const intentSlug of PROGRAMMATIC_SEO_INTENT_SLUGS) {

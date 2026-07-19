@@ -1,10 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, ValidationPipe } from '@nestjs/common';
-import { SeoIndexStatus } from '@prisma/client';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { SeoContentStatus, SeoIndexStatus } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdatePropertySeoDto, UpdateSeoSettingsDto } from './dto/seo.dto';
 import { ProgrammaticSeoService } from './programmatic-seo.service';
+import { SeoContentService } from './seo-content.service';
 import { SeoIndexQueueService } from './seo-index-queue.service';
+import { SeoLocationService } from './seo-location.service';
+import type { SeoLocationImportRow } from './seo-location.util';
 import { SeoService, type SitemapKind } from './seo.service';
 
 @Controller('seo')
@@ -63,6 +66,8 @@ export class SeoAdminController {
   constructor(
     private readonly seo: SeoService,
     private readonly indexQueue: SeoIndexQueueService,
+    private readonly locations: SeoLocationService,
+    private readonly content: SeoContentService,
   ) {}
 
   @Get('settings')
@@ -128,5 +133,39 @@ export class SeoAdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdatePropertySeoDto,
   ) {
     return this.seo.updatePropertySeo(id, dto);
+  }
+
+  @Get('locations/import-runs')
+  listLocationImports() {
+    return this.locations.listImportRuns();
+  }
+
+  @Post('locations/import')
+  importLocations(@Body() body: { rows: SeoLocationImportRow[]; source?: string }) {
+    return this.locations.importLocations(body.rows ?? [], body.source);
+  }
+
+  @Get('content')
+  listSeoContent(@Query('q') q?: string, @Query('status') status?: SeoContentStatus) {
+    return this.content.listAdmin(q, status);
+  }
+
+  @Post('content/generate')
+  generateSeoContent(
+    @Body() body: { intentSlug: string; locationSlug: string; useAi?: boolean },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.generateDraft(body, userId);
+  }
+
+  @Patch('content/:id/status')
+  updateSeoContentStatus(
+    @Param('id') id: string,
+    @Body() body: { status: SeoContentStatus },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.updateStatus(id, body.status, userId);
   }
 }
