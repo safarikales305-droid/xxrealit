@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
@@ -33,6 +33,7 @@ export class MetaConnectDiagnosticsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fbConfig: FacebookConfigService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
     private readonly discovery: MetaConnectDiscoveryService,

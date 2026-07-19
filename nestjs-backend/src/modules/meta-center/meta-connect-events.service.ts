@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { getPublicPortalUrl } from '../social/autopost/social-publish-format.util';
@@ -13,6 +13,7 @@ const SETTINGS_ID = 'default';
 export class MetaConnectEventsService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
   ) {}

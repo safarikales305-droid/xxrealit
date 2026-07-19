@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { MetaCatalogSyncService } from '../meta-catalog/meta-catalog-sync.service';
 import { META_AD_ACCOUNT_OPTIONAL_MESSAGE, resolveMetaCenterIds } from './meta-center-env.util';
@@ -32,10 +32,12 @@ export class MetaCenterAssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly graph: MetaGraphClientService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graphDiag: MetaCenterGraphDiagnosticsService,
     private readonly catalogSync: MetaCatalogSyncService,
     private readonly provision: MetaConnectProvisionService,
+    @Inject(forwardRef(() => MetaMarketingDiagnosticsService))
     private readonly marketingDiag: MetaMarketingDiagnosticsService,
     private readonly apiLog: MetaCenterApiLogService,
   ) {}

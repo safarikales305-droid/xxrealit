@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
@@ -10,6 +10,7 @@ const SETTINGS_ID = 'default';
 export class MetaConnectProvisionService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
     private readonly discovery: MetaConnectDiscoveryService,

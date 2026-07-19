@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { META_CONNECT_SYNC_INTERVAL_MS } from './meta-connect.constants';
 import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.service';
@@ -15,6 +15,7 @@ export class MetaConnectSyncCronService implements OnModuleInit, OnModuleDestroy
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly discovery: MetaConnectDiscoveryService,
     private readonly diagnostics: MetaConnectDiagnosticsService,

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { MetaCatalogService } from '../meta-catalog/meta-catalog.service';
 import { SocialAutopostSettingsService } from '../social/autopost/social-autopost-settings.service';
@@ -45,6 +45,7 @@ export class MetaCenterIntegrationStatusService {
     private readonly autopost: SocialAutopostSettingsService,
     private readonly waConfig: WhatsAppConfigService,
     private readonly catalog: MetaCatalogService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
   ) {}

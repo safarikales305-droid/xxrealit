@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
@@ -50,6 +50,7 @@ export class MetaCenterGeoService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => MetaConnectOAuthService))
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
   ) {}
