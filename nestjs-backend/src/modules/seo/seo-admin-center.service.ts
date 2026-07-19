@@ -282,15 +282,23 @@ export class SeoAdminCenterService {
     kind?: SeoLocationKind;
     q?: string;
     regionId?: string;
+    dataSource?: string;
+    active?: 'yes' | 'no';
+    missingGps?: boolean;
+    missingSlug?: boolean;
+    withoutSeoPage?: boolean;
     page?: number;
     pageSize?: number;
   }) {
     const page = Math.max(1, opts?.page ?? 1);
     const pageSize = Math.min(200, Math.max(10, opts?.pageSize ?? 50));
     const where: Prisma.SeoLocationWhereInput = {
-      isActive: true,
+      ...(opts?.active === 'no' ? { isActive: false } : opts?.active === 'yes' ? { isActive: true } : {}),
       ...(opts?.kind ? { kind: opts.kind } : {}),
       ...(opts?.regionId ? { regionId: opts.regionId } : {}),
+      ...(opts?.dataSource ? { dataSource: opts.dataSource as never } : {}),
+      ...(opts?.missingGps ? { OR: [{ latitude: null }, { longitude: null }] } : {}),
+      ...(opts?.missingSlug ? { slug: '' } : {}),
       ...(opts?.q?.trim() ? { name: { contains: opts.q.trim(), mode: 'insensitive' } } : {}),
     };
 
@@ -304,28 +312,42 @@ export class SeoAdminCenterService {
         include: {
           region: { select: { name: true } },
           district: { select: { name: true } },
+          parent: { select: { name: true } },
           _count: { select: { properties: true, pageContents: true } },
         },
       }),
     ]);
 
     const intents = PROGRAMMATIC_SEO_INTENT_SLUGS.length;
+    let mapped = items.map((loc) => ({
+      id: loc.id,
+      name: loc.name,
+      officialCode: loc.officialCode,
+      slug: loc.slug,
+      kind: loc.kind,
+      regionName: loc.region?.name ?? null,
+      districtName: loc.district?.name ?? null,
+      parentName: loc.parent?.name ?? null,
+      population: loc.population,
+      listingCount: loc._count.properties,
+      seoUrlCount: loc._count.pageContents || intents,
+      seoEnabled: loc.seoEnabled,
+      status: loc.isActive ? 'active' : 'inactive',
+      dataSource: loc.dataSource,
+      indexed: loc._count.pageContents > 0,
+      hasGps: loc.latitude != null && loc.longitude != null,
+      updatedAt: loc.updatedAt.toISOString(),
+    }));
+
+    if (opts?.withoutSeoPage) {
+      mapped = mapped.filter((l) => l.seoUrlCount === 0);
+    }
+
     return {
-      total,
+      total: opts?.withoutSeoPage ? mapped.length : total,
       page,
       pageSize,
-      items: items.map((loc) => ({
-        id: loc.id,
-        name: loc.name,
-        slug: loc.slug,
-        kind: loc.kind,
-        regionName: loc.region?.name ?? null,
-        districtName: loc.district?.name ?? null,
-        listingCount: loc._count.properties,
-        seoUrlCount: loc._count.pageContents || intents,
-        status: loc.isActive ? 'active' : 'inactive',
-        indexed: loc._count.pageContents > 0,
-      })),
+      items: mapped,
     };
   }
 

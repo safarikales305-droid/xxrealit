@@ -14391,15 +14391,199 @@ export async function nestAdminSeoPagesList(
 
 export async function nestAdminSeoLocationsList(
   token: string | null,
-  opts?: { kind?: string; q?: string; page?: number; pageSize?: number },
+  opts?: {
+    kind?: string;
+    q?: string;
+    dataSource?: string;
+    active?: string;
+    missingGps?: boolean;
+    withoutSeoPage?: boolean;
+    page?: number;
+    pageSize?: number;
+  },
 ): Promise<{ items: Array<Record<string, unknown>>; total: number; page: number; pageSize: number } | null> {
   const params = new URLSearchParams();
   if (opts?.kind) params.set('kind', opts.kind);
   if (opts?.q) params.set('q', opts.q);
+  if (opts?.dataSource) params.set('dataSource', opts.dataSource);
+  if (opts?.active) params.set('active', opts.active);
+  if (opts?.missingGps) params.set('missingGps', 'true');
+  if (opts?.withoutSeoPage) params.set('withoutSeoPage', 'true');
   if (opts?.page != null) params.set('page', String(opts.page));
   if (opts?.pageSize != null) params.set('pageSize', String(opts.pageSize));
   const qs = params.toString();
   return nestAdminSeoJson(token, `/locations${qs ? `?${qs}` : ''}`);
+}
+
+export type SeoLocationSourceCard = {
+  id: string;
+  type: 'RUIAN' | 'CSU' | 'CUSTOM';
+  name: string;
+  sourceMode: string;
+  sourceUrl: string | null;
+  fileType: string | null;
+  config: Record<string, unknown>;
+  isEnabled: boolean;
+  autoSync: boolean;
+  syncIntervalMinutes: number;
+  lastSyncAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+  lastEtag: string | null;
+  lastModified: string | null;
+  lastDataVersion: string | null;
+  importedCount: number;
+  updatedCount: number;
+  errorCount: number;
+  fieldMappings: Array<{ sourceField: string; targetField: string; isRequired: boolean }>;
+  lastImport: { id: string; status: string; inserted: number; updated: number; errorCount: number; finishedAt: string | null } | null;
+  targetFields: string[];
+};
+
+async function nestAdminSeoLocationsJson<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/locations${path}`, {
+    ...init,
+    headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json().catch(() => null)) as T | null;
+}
+
+export async function nestAdminSeoLocationSources(
+  token: string | null,
+): Promise<SeoLocationSourceCard[] | null> {
+  return nestAdminSeoLocationsJson(token, '/sources');
+}
+
+export async function nestAdminSeoLocationSourceUpdate(
+  token: string | null,
+  sourceId: string,
+  patch: Record<string, unknown>,
+): Promise<SeoLocationSourceCard | null> {
+  return nestAdminSeoLocationsJson(token, `/sources/${encodeURIComponent(sourceId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function nestAdminSeoLocationSourceTest(
+  token: string | null,
+  sourceId: string,
+): Promise<{ ok: boolean; message?: string; status?: number } | null> {
+  return nestAdminSeoLocationsJson(token, '/sources/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceId }),
+  });
+}
+
+export async function nestAdminSeoLocationUpload(
+  token: string | null,
+  file: File,
+  sourceId?: string,
+): Promise<{
+  uploadId: string;
+  filename: string;
+  size: number;
+  rowCount: number;
+  preview: Array<Record<string, string>>;
+  headers: string[];
+  suggestedMapping: Record<string, string>;
+  validationErrors: string[];
+} | null> {
+  if (!API_BASE_URL || !token) return null;
+  const fd = new FormData();
+  fd.append('file', file);
+  if (sourceId) fd.append('sourceId', sourceId);
+  const res = await fetch(`${API_BASE_URL}/admin/seo/locations/upload`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+    body: fd,
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json()) as never;
+}
+
+export async function nestAdminSeoLocationImportPreview(
+  token: string | null,
+  body: { sourceId?: string; uploadId?: string; mapping?: Record<string, string> },
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/import/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoLocationImportRun(
+  token: string | null,
+  body: {
+    sourceId?: string;
+    uploadId?: string;
+    mapping?: Record<string, string>;
+    dryRun?: boolean;
+    syncScope?: 'all' | 'new' | 'changes';
+  },
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/import/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoLocationSyncRuian(
+  token: string | null,
+  dryRun?: boolean,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/sync/ruian', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun }),
+  });
+}
+
+export async function nestAdminSeoLocationSyncCsu(
+  token: string | null,
+  dryRun?: boolean,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoLocationsJson(token, '/sync/csu', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun }),
+  });
+}
+
+export async function nestAdminSeoLocationImports(
+  token: string | null,
+  sourceId?: string,
+): Promise<Array<Record<string, unknown>> | null> {
+  const qs = sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : '';
+  return nestAdminSeoLocationsJson(token, `/imports${qs}`);
+}
+
+export async function nestAdminSeoLocationSaveMappings(
+  token: string | null,
+  sourceId: string,
+  mappings: Array<{ sourceField: string; targetField: string; isRequired?: boolean }>,
+): Promise<SeoLocationSourceCard | null> {
+  return nestAdminSeoLocationsJson(token, `/sources/${encodeURIComponent(sourceId)}/mappings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mappings }),
+  });
 }
 
 export async function nestAdminSeoRedirectsList(

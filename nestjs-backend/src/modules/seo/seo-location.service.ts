@@ -56,22 +56,43 @@ export class SeoLocationService {
    */
   async importLocations(
     rows: SeoLocationImportRow[],
-    source = 'api',
+    sourceLabel = 'api',
+    options?: {
+      dryRun?: boolean;
+      sourceId?: string;
+      uploadId?: string;
+      filename?: string;
+      dataSource?: 'RUIAN' | 'CSU' | 'CUSTOM';
+    },
   ): Promise<{
     runId: string;
     inserted: number;
     updated: number;
+    skipped: number;
     deactivated: number;
     errorCount: number;
     errors: string[];
+    dryRun: boolean;
   }> {
-    const run = await this.prisma.seoLocationImportRun.create({
-      data: { status: 'running', source, totalRows: rows.length },
-    });
+    const dryRun = options?.dryRun ?? false;
+    const run = dryRun
+      ? null
+      : await this.prisma.seoLocationImportRun.create({
+          data: {
+            status: 'running',
+            sourceLabel,
+            sourceId: options?.sourceId,
+            uploadId: options?.uploadId,
+            filename: options?.filename,
+            mode: 'live',
+            totalRows: rows.length,
+          },
+        });
 
     const errors: string[] = [];
     let inserted = 0;
     let updated = 0;
+    let skipped = 0;
     const seenCodes = new Set<string>();
 
     try {
@@ -98,11 +119,17 @@ export class SeoLocationService {
               where: { officialCode: code },
             });
 
+            if (dryRun) {
+              if (existing) updated += 1;
+              else inserted += 1;
+              continue;
+            }
+
             const data: Prisma.SeoLocationUncheckedCreateInput = {
               officialCode: code,
               name: row.name.trim(),
-              slug,
-              slugAscii,
+              slug: existing?.slugLocked ? existing.slug : slug,
+              slugAscii: existing?.slugLocked ? existing.slugAscii : slugAscii,
               locative: row.locative?.trim() || row.name.trim(),
               kind,
               latitude: row.latitude ?? undefined,
@@ -113,6 +140,7 @@ export class SeoLocationService {
               searchTerms: [...new Set(searchTerms)],
               isActive: row.isActive !== false,
               importedAt: new Date(),
+              dataSource: options?.dataSource,
             };
 
             if (existing) {
@@ -120,7 +148,12 @@ export class SeoLocationService {
                 where: { id: existing.id },
                 data: {
                   ...data,
-                  slug: existing.slug === slug ? slug : await this.ensureUniqueSlug(slug, existing.id),
+                  slug: existing.slugLocked
+                    ? existing.slug
+                    : existing.slug === slug
+                      ? slug
+                      : await this.ensureUniqueSlug(slug, existing.id),
+                  slugAscii: existing.slugLocked ? existing.slugAscii : slugAscii,
                 },
               });
               updated += 1;
@@ -136,58 +169,76 @@ export class SeoLocationService {
           }
         }
 
-        await this.prisma.seoLocationImportRun.update({
-          where: { id: run.id },
-          data: {
-            progressPct: Math.min(100, ((i + batch.length) / rows.length) * 100),
-            inserted,
-            updated,
-            errorCount: errors.length,
-          },
-        });
+        if (run) {
+          await this.prisma.seoLocationImportRun.update({
+            where: { id: run.id },
+            data: {
+              progressPct: Math.min(100, ((i + batch.length) / rows.length) * 100),
+              inserted,
+              updated,
+              skipped,
+              errorCount: errors.length,
+            },
+          });
+        }
       }
 
-      // Resolve parent/region/district references in second pass
-      await this.resolveHierarchyRefs(rows);
+      if (!dryRun) {
+        await this.resolveHierarchyRefs(rows);
+      }
 
-      // Deactivate locations missing from import (only if import has substantial size)
       let deactivated = 0;
-      if (rows.length >= 100) {
+      if (!dryRun && rows.length >= 100) {
         const result = await this.prisma.seoLocation.updateMany({
           where: {
             officialCode: { notIn: [...seenCodes] },
             isActive: true,
+            ...(options?.dataSource ? { dataSource: options.dataSource } : {}),
           },
           data: { isActive: false },
         });
         deactivated = result.count;
       }
 
-      await this.prisma.seoLocationImportRun.update({
-        where: { id: run.id },
-        data: {
-          status: errors.length ? 'completed_with_errors' : 'completed',
-          inserted,
-          updated,
-          deactivated,
-          errorCount: errors.length,
-          errors: errors.slice(0, 100),
-          progressPct: 100,
-          finishedAt: new Date(),
-        },
-      });
+      if (run) {
+        await this.prisma.seoLocationImportRun.update({
+          where: { id: run.id },
+          data: {
+            status: errors.length ? 'completed_with_errors' : 'completed',
+            inserted,
+            updated,
+            skipped,
+            deactivated,
+            errorCount: errors.length,
+            errors: errors.slice(0, 100),
+            progressPct: 100,
+            finishedAt: new Date(),
+          },
+        });
+      }
 
-      return { runId: run.id, inserted, updated, deactivated, errorCount: errors.length, errors };
+      return {
+        runId: run?.id ?? 'dry-run',
+        inserted,
+        updated,
+        skipped,
+        deactivated,
+        errorCount: errors.length,
+        errors,
+        dryRun,
+      };
     } catch (err) {
-      await this.prisma.seoLocationImportRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'failed',
-          errorCount: errors.length + 1,
-          errors: [...errors, err instanceof Error ? err.message : String(err)].slice(0, 100),
-          finishedAt: new Date(),
-        },
-      });
+      if (run) {
+        await this.prisma.seoLocationImportRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'failed',
+            errorCount: errors.length + 1,
+            errors: [...errors, err instanceof Error ? err.message : String(err)].slice(0, 100),
+            finishedAt: new Date(),
+          },
+        });
+      }
       throw err;
     }
   }
@@ -293,10 +344,19 @@ export class SeoLocationService {
     });
   }
 
-  async listImportRuns(limit = 20) {
+  async listImportRuns(limit = 20, sourceId?: string) {
     return this.prisma.seoLocationImportRun.findMany({
+      where: sourceId ? { sourceId } : undefined,
       orderBy: { startedAt: 'desc' },
       take: limit,
+      include: { source: { select: { name: true, type: true } } },
+    });
+  }
+
+  async getImportRun(id: string) {
+    return this.prisma.seoLocationImportRun.findUnique({
+      where: { id },
+      include: { source: true },
     });
   }
 }

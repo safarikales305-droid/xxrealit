@@ -2960,6 +2960,18 @@ enum SeoLocationKind {
   LOKALITA
 }
 
+enum SeoLocationSourceType {
+  RUIAN
+  CSU
+  CUSTOM
+}
+
+enum SeoLocationSourceMode {
+  OFFICIAL_URL
+  REMOTE_URL
+  UPLOAD
+}
+
 /// Územní jednotka ČR pro programatické SEO (ČSÚ / RÚIAN).
 model SeoLocation {
   id             String          @id @default(cuid())
@@ -2967,8 +2979,11 @@ model SeoLocation {
   name           String
   slug           String          @unique
   slugAscii      String
+  slugLocked     Boolean         @default(false)
   locative       String          @default("")
   kind           SeoLocationKind
+  dataSource     SeoLocationSourceType?
+  seoEnabled     Boolean         @default(true)
   parentId       String?
   parent         SeoLocation?    @relation("SeoLocationTree", fields: [parentId], references: [id], onDelete: SetNull)
   children       SeoLocation[]   @relation("SeoLocationTree")
@@ -3001,24 +3016,101 @@ model SeoLocation {
   @@index([regionId])
   @@index([districtId])
   @@index([isActive])
+  @@index([dataSource])
+  @@index([seoEnabled])
+}
+
+/// Konfigurace datového zdroje lokalit (RÚIAN / ČSÚ).
+model SeoLocationSource {
+  id                  String                @id @default(cuid())
+  type                SeoLocationSourceType
+  name                String
+  sourceMode          SeoLocationSourceMode @default(OFFICIAL_URL)
+  sourceUrl           String?
+  fileType            String?
+  configJson          Json?
+  isEnabled           Boolean               @default(true)
+  autoSync            Boolean               @default(false)
+  syncIntervalMinutes Int                   @default(1440)
+  lastSyncAt          DateTime?
+  lastStatus          String                @default("idle")
+  lastError           String?               @db.Text
+  lastEtag            String?
+  lastModified        String?
+  lastDataVersion     String?
+  importedCount       Int                   @default(0)
+  updatedCount        Int                   @default(0)
+  errorCount          Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  fieldMappings SeoLocationFieldMapping[]
+  importRuns    SeoLocationImportRun[]
+  uploads       SeoLocationUpload[]
+
+  @@index([type])
+  @@index([lastStatus])
+}
+
+/// Mapování sloupců zdroje na pole SeoLocation.
+model SeoLocationFieldMapping {
+  id          String            @id @default(cuid())
+  sourceId    String
+  source      SeoLocationSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceField String
+  targetField String
+  transform   String?
+  isRequired  Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+
+  @@unique([sourceId, sourceField])
+  @@index([sourceId])
+}
+
+/// Dočasně nahraný soubor pro import lokalit.
+model SeoLocationUpload {
+  id               String             @id @default(cuid())
+  sourceId         String?
+  source           SeoLocationSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  filename         String
+  mimeType         String?
+  size             Int
+  storagePath      String
+  detectedFormat   String?
+  rowCount         Int                @default(0)
+  previewJson      Json?
+  validationErrors Json?
+  expiresAt        DateTime
+  createdAt        DateTime           @default(now())
+
+  @@index([sourceId])
+  @@index([expiresAt])
 }
 
 /// Historie importu územních jednotek.
 model SeoLocationImportRun {
-  id          String    @id @default(cuid())
-  status      String    @default("running")
-  source      String?
-  totalRows   Int       @default(0)
-  inserted    Int       @default(0)
-  updated     Int       @default(0)
-  deactivated Int       @default(0)
-  errorCount  Int       @default(0)
+  id          String             @id @default(cuid())
+  sourceId    String?
+  source      SeoLocationSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  uploadId    String?
+  status      String             @default("running")
+  mode        String             @default("live")
+  sourceLabel String?
+  filename    String?
+  totalRows   Int                @default(0)
+  inserted    Int                @default(0)
+  updated     Int                @default(0)
+  skipped     Int                @default(0)
+  deactivated Int                @default(0)
+  errorCount  Int                @default(0)
   errors      Json?
-  progressPct Float     @default(0)
-  startedAt   DateTime  @default(now())
+  logJson     Json?
+  progressPct Float              @default(0)
+  startedAt   DateTime           @default(now())
   finishedAt  DateTime?
 
   @@index([startedAt(sort: Desc)])
+  @@index([sourceId])
 }
 
 /// 301 redirect při změně SEO slugu lokality.

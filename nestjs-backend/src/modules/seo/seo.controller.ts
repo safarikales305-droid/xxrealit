@@ -238,6 +238,10 @@ export class SeoAdminController {
     @Query('kind') kind?: string,
     @Query('q') q?: string,
     @Query('regionId') regionId?: string,
+    @Query('dataSource') dataSource?: string,
+    @Query('active') active?: 'yes' | 'no',
+    @Query('missingGps') missingGps?: string,
+    @Query('withoutSeoPage') withoutSeoPage?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -245,6 +249,10 @@ export class SeoAdminController {
       kind: kind as never,
       q,
       regionId,
+      dataSource,
+      active,
+      missingGps: missingGps === '1' || missingGps === 'true',
+      withoutSeoPage: withoutSeoPage === '1' || withoutSeoPage === 'true',
       page: page ? Number.parseInt(page, 10) : undefined,
       pageSize: pageSize ? Number.parseInt(pageSize, 10) : undefined,
     });
