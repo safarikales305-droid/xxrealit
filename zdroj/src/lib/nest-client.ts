@@ -14209,6 +14209,242 @@ export async function nestAdminSeoIndexationProcessPending(
   return (await res.json().catch(() => null)) as { processed: number; submitted: number } | null;
 }
 
+export type SeoPageContentRow = {
+  id: string;
+  pageKey: string;
+  intentSlug: string | null;
+  locationId: string | null;
+  status: string;
+  title: string | null;
+  description: string | null;
+  keywords: string[];
+  h1: string | null;
+  h2: string | null;
+  bodyText: string | null;
+  faq: unknown;
+  internalLinks: unknown;
+  relatedLocations: unknown;
+  relatedPages: unknown;
+  canonical: string | null;
+  robots: string | null;
+  noindex: boolean;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImage: string | null;
+  twitterCard: string | null;
+  schemaJson: unknown;
+  altTexts: unknown;
+  redirectTo: string | null;
+  qualityScore: number;
+  googleIndexed: boolean;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  location?: { name: string; slug: string } | null;
+  versions?: Array<{ id: string; version: number; note: string | null; createdAt: string }>;
+};
+
+export type SeoPageListItem = {
+  id: string;
+  pageKey: string;
+  url: string;
+  name: string;
+  locationName: string;
+  locationSlug: string;
+  regionName: string | null;
+  districtName: string | null;
+  intentSlug: string;
+  intentLabel: string;
+  propertyType: string | null;
+  transaction: string | null;
+  h1: string;
+  metaTitle: string;
+  metaDescription: string;
+  canonical: string;
+  robots: string;
+  status: string;
+  listingCount: number;
+  seoScore: number;
+  googleIndex: boolean;
+  clicks: number;
+  ctr: number | null;
+  position: number | null;
+  updatedAt: string | null;
+  publishedAt: string | null;
+};
+
+export type SeoDashboard = {
+  totalPages: number;
+  withContent: number;
+  published: number;
+  indexed: number;
+  notIndexed: number;
+  withoutMeta: number;
+  withoutTitle: number;
+  withoutDescription: number;
+  withoutH1: number;
+  withoutFaq: number;
+  withoutOg: number;
+  withoutSchema: number;
+  withoutCanonical: number;
+  noindex: number;
+  redirects301: number;
+  errors404: number;
+  errors500: number;
+  duplicateUrls: number;
+  duplicateH1: number;
+  duplicateDescription: number;
+  duplicateTitles: number;
+  lowScore: number;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  avgPosition: number | null;
+  topPages: Array<{ pageKey: string; clicks: number; ctr: number | null; position: number | null }>;
+  worstPages: Array<{ pageKey: string; clicks: number; ctr: number | null; position: number | null }>;
+  newPages: Array<{ id: string; pageKey: string; title: string | null; createdAt: string; status: string }>;
+};
+
+async function nestAdminSeoJson<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo${path}`, {
+    ...init,
+    headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json().catch(() => null)) as T | null;
+}
+
+export async function nestAdminSeoContentGenerate(
+  token: string | null,
+  body: { intentSlug: string; locationSlug: string; useAi?: boolean },
+): Promise<SeoPageContentRow | null> {
+  return nestAdminSeoJson<SeoPageContentRow>(token, '/content/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoContentGet(
+  token: string | null,
+  id: string,
+): Promise<SeoPageContentRow | null> {
+  return nestAdminSeoJson<SeoPageContentRow>(token, `/content/${encodeURIComponent(id)}`);
+}
+
+export async function nestAdminSeoContentUpdate(
+  token: string | null,
+  id: string,
+  patch: Partial<SeoPageContentRow>,
+): Promise<SeoPageContentRow | null> {
+  return nestAdminSeoJson<SeoPageContentRow>(token, `/content/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function nestAdminSeoContentStatus(
+  token: string | null,
+  id: string,
+  status: string,
+): Promise<SeoPageContentRow | null> {
+  return nestAdminSeoJson<SeoPageContentRow>(token, `/content/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function nestAdminSeoContentVersions(
+  token: string | null,
+  id: string,
+): Promise<Array<{ id: string; version: number; note: string | null; createdAt: string }> | null> {
+  return nestAdminSeoJson(token, `/content/${encodeURIComponent(id)}/versions`);
+}
+
+export async function nestAdminSeoDashboard(token: string | null): Promise<SeoDashboard | null> {
+  return nestAdminSeoJson<SeoDashboard>(token, '/dashboard');
+}
+
+export async function nestAdminSeoPagesList(
+  token: string | null,
+  opts?: Record<string, string | number | boolean | undefined>,
+): Promise<{ items: SeoPageListItem[]; total: number; page: number; pageSize: number } | null> {
+  const params = new URLSearchParams();
+  if (opts) {
+    for (const [k, v] of Object.entries(opts)) {
+      if (v !== undefined && v !== '') params.set(k, String(v));
+    }
+  }
+  const qs = params.toString();
+  return nestAdminSeoJson(token, `/pages${qs ? `?${qs}` : ''}`);
+}
+
+export async function nestAdminSeoLocationsList(
+  token: string | null,
+  opts?: { kind?: string; q?: string; page?: number; pageSize?: number },
+): Promise<{ items: Array<Record<string, unknown>>; total: number; page: number; pageSize: number } | null> {
+  const params = new URLSearchParams();
+  if (opts?.kind) params.set('kind', opts.kind);
+  if (opts?.q) params.set('q', opts.q);
+  if (opts?.page != null) params.set('page', String(opts.page));
+  if (opts?.pageSize != null) params.set('pageSize', String(opts.pageSize));
+  const qs = params.toString();
+  return nestAdminSeoJson(token, `/locations${qs ? `?${qs}` : ''}`);
+}
+
+export async function nestAdminSeoRedirectsList(
+  token: string | null,
+): Promise<Array<Record<string, unknown>> | null> {
+  return nestAdminSeoJson(token, '/redirects');
+}
+
+export async function nestAdminSeoRedirectCreate(
+  token: string | null,
+  body: { fromPath: string; toPath: string; reason?: string },
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoJson(token, '/redirects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoRedirectDelete(
+  token: string | null,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoJson(token, `/redirects/${encodeURIComponent(id)}/delete`, { method: 'POST' });
+}
+
+export async function nestAdminSeoSearchConsole(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoJson(token, '/search-console');
+}
+
+export async function nestAdminSeoAuditRun(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return nestAdminSeoJson(token, '/audit/run', { method: 'POST' });
+}
+
+export async function nestAdminSeoHistory(
+  token: string | null,
+  limit = 50,
+): Promise<Array<Record<string, unknown>> | null> {
+  return nestAdminSeoJson(token, `/history?limit=${limit}`);
+}
+
 export type StatisticsSettings = {
   id: string;
   shortsViewsAutopilotEnabled: boolean;

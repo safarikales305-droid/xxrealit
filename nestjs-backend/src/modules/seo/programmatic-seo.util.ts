@@ -1,5 +1,6 @@
 import type { CzGeoLocation } from './cz-geo-locations.data';
 import type { ProgrammaticSeoIntent } from './programmatic-seo-intents';
+import { PROGRAMMATIC_SEO_INTENT_SLUGS, PROGRAMMATIC_SEO_INTENTS } from './programmatic-seo-intents';
 
 const SITE = 'XXREALIT';
 
@@ -146,4 +147,87 @@ export function buildProgrammaticFaq(
   });
 
   return items;
+}
+
+const SITE_ORIGIN = 'https://www.xxrealit.cz';
+
+export type ExtendedSeoMetadata = {
+  canonical: string;
+  robots: string;
+  ogTitle: string;
+  ogDescription: string;
+  ogImage: string;
+  twitterCard: string;
+  schemaJson: Record<string, unknown>;
+  internalLinks: Array<{ label: string; path: string }>;
+  relatedLocations: Array<{ slug: string; name: string }>;
+  relatedPages: Array<{ intentSlug: string; label: string; path: string }>;
+  altTexts: Array<{ context: string; alt: string }>;
+  h2: string;
+};
+
+export function buildExtendedSeoMetadata(
+  intent: ProgrammaticSeoIntent,
+  loc: CzGeoLocation,
+  copy: ProgrammaticSeoCopy,
+): ExtendedSeoMetadata {
+  const path = copy.path;
+  const canonical = `${SITE_ORIGIN}${path}`;
+  const h2 = intent.isBrokerPage
+    ? `Makléři a realitní kanceláře ${loc.name}`
+    : `Aktuální nabídka ${intent.label.toLowerCase()} ${loc.name}`;
+
+  const schemaJson: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: copy.h1,
+    description: copy.description,
+    url: canonical,
+    inLanguage: 'cs-CZ',
+    isPartOf: { '@type': 'WebSite', name: SITE, url: SITE_ORIGIN },
+    breadcrumb: {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Domů', item: SITE_ORIGIN },
+        { '@type': 'ListItem', position: 2, name: intent.label, item: `${SITE_ORIGIN}/${intent.slug}` },
+        { '@type': 'ListItem', position: 3, name: loc.name, item: canonical },
+      ],
+    },
+    ...(copy.faq.length
+      ? {
+          mainEntity: copy.faq.map((f) => ({
+            '@type': 'Question',
+            name: f.question,
+            acceptedAnswer: { '@type': 'Answer', text: f.answer },
+          })),
+        }
+      : {}),
+  };
+
+  const relatedPages = PROGRAMMATIC_SEO_INTENT_SLUGS.filter((s) => s !== intent.slug)
+    .slice(0, 4)
+    .map((slug) => ({
+      intentSlug: slug,
+      label: PROGRAMMATIC_SEO_INTENTS[slug].label,
+      path: `/${slug}/${loc.slug}`,
+    }));
+
+  return {
+    canonical,
+    robots: 'index,follow',
+    ogTitle: copy.title,
+    ogDescription: copy.description,
+    ogImage: `${SITE_ORIGIN}/og-default.jpg`,
+    twitterCard: 'summary_large_image',
+    schemaJson,
+    internalLinks: [
+      { label: 'Všechny reality', path: '/reality' },
+      { label: intent.label, path: `/${intent.slug}` },
+      { label: loc.name, path },
+    ],
+    relatedLocations: [],
+    relatedPages,
+    altTexts: [{ context: 'hero', alt: `${copy.h1} — ${SITE}` }],
+    h2,
+  };
 }

@@ -4,7 +4,8 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdatePropertySeoDto, UpdateSeoSettingsDto } from './dto/seo.dto';
 import { ProgrammaticSeoService } from './programmatic-seo.service';
-import { SeoContentService } from './seo-content.service';
+import { SeoAdminCenterService } from './seo-admin-center.service';
+import { SeoContentService, type SeoContentUpdateInput } from './seo-content.service';
 import { SeoIndexQueueService } from './seo-index-queue.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
@@ -68,6 +69,7 @@ export class SeoAdminController {
     private readonly indexQueue: SeoIndexQueueService,
     private readonly locations: SeoLocationService,
     private readonly content: SeoContentService,
+    private readonly adminCenter: SeoAdminCenterService,
   ) {}
 
   @Get('settings')
@@ -167,5 +169,114 @@ export class SeoAdminController {
   ) {
     const userId = req.user?.id ?? req.user?.sub;
     return this.content.updateStatus(id, body.status, userId);
+  }
+
+  @Get('content/:id')
+  getSeoContent(@Param('id') id: string) {
+    return this.content.getById(id);
+  }
+
+  @Patch('content/:id')
+  updateSeoContent(
+    @Param('id') id: string,
+    @Body() body: SeoContentUpdateInput,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.updateContent(id, body, userId);
+  }
+
+  @Get('content/:id/versions')
+  listSeoContentVersions(@Param('id') id: string) {
+    return this.content.listVersions(id);
+  }
+
+  @Get('dashboard')
+  getDashboard() {
+    return this.adminCenter.getDashboard();
+  }
+
+  @Get('pages')
+  listSeoPages(
+    @Query('q') q?: string,
+    @Query('regionId') regionId?: string,
+    @Query('districtId') districtId?: string,
+    @Query('locationId') locationId?: string,
+    @Query('intentSlug') intentSlug?: string,
+    @Query('propertyType') propertyType?: string,
+    @Query('transaction') transaction?: string,
+    @Query('indexed') indexed?: 'yes' | 'no',
+    @Query('missingTitle') missingTitle?: string,
+    @Query('missingDescription') missingDescription?: string,
+    @Query('lowScore') lowScore?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: 'url' | 'title' | 'score' | 'listings' | 'updated',
+    @Query('sortDir') sortDir?: 'asc' | 'desc',
+  ) {
+    return this.adminCenter.listPages({
+      q,
+      regionId,
+      districtId,
+      locationId,
+      intentSlug,
+      propertyType,
+      transaction,
+      indexed,
+      missingTitle: missingTitle === '1' || missingTitle === 'true',
+      missingDescription: missingDescription === '1' || missingDescription === 'true',
+      lowScore: lowScore === '1' || lowScore === 'true',
+      page: page ? Number.parseInt(page, 10) : undefined,
+      pageSize: pageSize ? Number.parseInt(pageSize, 10) : undefined,
+      sortBy,
+      sortDir,
+    });
+  }
+
+  @Get('locations')
+  listSeoLocations(
+    @Query('kind') kind?: string,
+    @Query('q') q?: string,
+    @Query('regionId') regionId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminCenter.listLocations({
+      kind: kind as never,
+      q,
+      regionId,
+      page: page ? Number.parseInt(page, 10) : undefined,
+      pageSize: pageSize ? Number.parseInt(pageSize, 10) : undefined,
+    });
+  }
+
+  @Get('redirects')
+  listRedirects() {
+    return this.adminCenter.listRedirects();
+  }
+
+  @Post('redirects')
+  createRedirect(@Body() body: { fromPath: string; toPath: string; reason?: string }) {
+    return this.adminCenter.createRedirect(body.fromPath, body.toPath, body.reason);
+  }
+
+  @Post('redirects/:id/delete')
+  deleteRedirect(@Param('id') id: string) {
+    return this.adminCenter.deleteRedirect(id);
+  }
+
+  @Get('search-console')
+  getSearchConsole() {
+    return this.adminCenter.getSearchConsoleStats();
+  }
+
+  @Post('audit/run')
+  runAudit() {
+    return this.adminCenter.runAudit();
+  }
+
+  @Get('history')
+  listChangeHistory(@Query('limit') limit?: string) {
+    return this.adminCenter.listChangeHistory(limit ? Number.parseInt(limit, 10) : 50);
   }
 }
