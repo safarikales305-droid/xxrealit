@@ -79,6 +79,34 @@ export class UpdateSeoSettingsDto {
   @IsOptional()
   @IsString()
   googleIndexingServiceAccountJson?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticGenerateWithoutListings?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticAutoEnrichWithListings?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticAutoRegenerateOnDataChange?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticDuplicateContentCheck?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticSeoScoreCheck?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticIndexationCheck?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  programmaticPreviewBeforePublish?: boolean;
 }
 
 export class UpdatePropertySeoDto {

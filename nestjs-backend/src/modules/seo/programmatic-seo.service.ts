@@ -17,6 +17,7 @@ import {
 import {
   buildProgrammaticSeoCopy,
   buildProgrammaticSeoPath,
+  buildExtendedSeoMetadata,
   type ProgrammaticSeoCopy,
 } from './programmatic-seo.util';
 import { SeoContentService } from './seo-content.service';
@@ -40,12 +41,24 @@ export type ProgrammaticSeoPagePayload = ProgrammaticSeoCopy & {
   intent: ProgrammaticSeoIntent;
   location: CzGeoLocation;
   totalCount: number;
+  hasListings: boolean;
   listings: ProgrammaticSeoListingPreview[];
   relatedLocations: Array<{ slug: string; name: string; path: string }>;
   internalLinks: {
     sameIntentNearby: Array<{ slug: string; name: string; path: string }>;
     otherIntents: Array<{ intentSlug: string; label: string; path: string }>;
     regionIntent?: { slug: string; name: string; path: string };
+    extra?: Array<{ label: string; path: string }>;
+  };
+  seo: {
+    canonical: string;
+    robots: string;
+    noindex: boolean;
+    ogTitle: string;
+    ogDescription: string;
+    ogImage: string;
+    twitterCard: string;
+    schemaJson: Record<string, unknown>;
   };
 };
 
@@ -109,32 +122,61 @@ export class ProgrammaticSeoService {
 
     const pageKey = buildProgrammaticSeoPageKey(intentSlug, location.slug);
     const published = await this.seoContent.getPublished(pageKey);
+    const generated = buildProgrammaticSeoCopy(intent, location);
+    const extended = buildExtendedSeoMetadata(intent, location, generated);
 
-    const copy = published?.h1
+    const copy: ProgrammaticSeoCopy = published?.h1
       ? {
-          path: buildProgrammaticSeoPath(intentSlug, location.slug),
+          ...generated,
           h1: published.h1,
-          title: published.title ?? published.h1,
-          description: published.description ?? '',
-          bodyText: published.bodyText ?? '',
+          title: published.title ?? generated.title,
+          description: published.description ?? generated.description,
+          bodyText: published.bodyText ?? generated.bodyText,
           faq: Array.isArray(published.faq)
             ? (published.faq as Array<{ question: string; answer: string }>)
-            : [],
-          keywords: [],
+            : generated.faq,
         }
-      : buildProgrammaticSeoCopy(intent, location);
+      : generated;
+
+    const seoMeta = published?.canonical
+      ? {
+          canonical: published.canonical,
+          robots: published.robots ?? extended.robots,
+          noindex: Boolean(published.noindex),
+          ogTitle: published.ogTitle ?? extended.ogTitle,
+          ogDescription: published.ogDescription ?? extended.ogDescription,
+          ogImage: published.ogImage ?? extended.ogImage,
+          twitterCard: published.twitterCard ?? extended.twitterCard,
+          schemaJson:
+            published.schemaJson && typeof published.schemaJson === 'object'
+              ? (published.schemaJson as Record<string, unknown>)
+              : extended.schemaJson,
+        }
+      : {
+          canonical: extended.canonical,
+          robots: extended.robots,
+          noindex: false,
+          ogTitle: extended.ogTitle,
+          ogDescription: extended.ogDescription,
+          ogImage: extended.ogImage,
+          twitterCard: extended.twitterCard,
+          schemaJson: extended.schemaJson,
+        };
 
     return {
       ...copy,
       intent,
       location,
       totalCount: 0,
+      hasListings: false,
       listings: [],
       relatedLocations: [],
       internalLinks: {
         sameIntentNearby: [],
         otherIntents: [],
+        extra: extended.internalLinks,
       },
+      seo: seoMeta,
     };
   }
 
@@ -246,13 +288,19 @@ export class ProgrammaticSeoService {
 
     const relatedLocations = await this.buildRelatedLocations(intent, location);
     const internalLinks = await this.buildInternalLinks(intent, location);
+    const generated = buildProgrammaticSeoCopy(intent, location);
+    const extended = buildExtendedSeoMetadata(intent, location, generated);
 
     return {
       ...base,
       totalCount,
+      hasListings: totalCount > 0,
       listings,
       relatedLocations,
-      internalLinks,
+      internalLinks: {
+        ...internalLinks,
+        extra: extended.internalLinks,
+      },
     };
   }
 

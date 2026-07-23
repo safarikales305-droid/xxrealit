@@ -14094,6 +14094,13 @@ export type NestSeoSettings = {
   linkedInInsightId: string | null;
   cookieConsentEnabled: boolean;
   hreflangLocales: string[];
+  programmaticGenerateWithoutListings?: boolean;
+  programmaticAutoEnrichWithListings?: boolean;
+  programmaticAutoRegenerateOnDataChange?: boolean;
+  programmaticDuplicateContentCheck?: boolean;
+  programmaticSeoScoreCheck?: boolean;
+  programmaticIndexationCheck?: boolean;
+  programmaticPreviewBeforePublish?: boolean;
   updatedAt: string;
 };
 

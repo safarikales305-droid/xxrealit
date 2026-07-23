@@ -34,3 +34,15 @@ test('buildProgrammaticSeoCopy generates different body for Brno apartments', ()
   assert.equal(a.h1, 'Prodej bytů Pardubice');
   assert.equal(b.h1, 'Prodej bytů Brno');
 });
+
+test('buildProgrammaticSeoCopy generates rich content with 1200+ words and 12+ FAQ', () => {
+  const intent = getProgrammaticSeoIntent('prodej-domu')!;
+  const loc = findCzGeoLocation('pardubice')!;
+  const copy = buildProgrammaticSeoCopy(intent, loc);
+
+  assert.ok(copy.wordCount >= 1200, `wordCount ${copy.wordCount}`);
+  assert.ok(copy.faq.length >= 12);
+  assert.ok(copy.sections.length >= 4);
+  assert.ok(copy.heroSubtitle.length > 20);
+  assert.ok(copy.heroImageUrl.startsWith('https://'));
+});

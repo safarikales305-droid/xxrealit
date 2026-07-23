@@ -65,8 +65,11 @@ export function ProgrammaticInternalLinks({ data }: Props) {
         links={[
           { href: '/nemovitosti', label: 'Všechny nemovitosti' },
           { href: '/makleri', label: 'Makléři' },
+          { href: '/stavebni-firmy', label: 'Stavební firmy' },
+          { href: '/hypoteky', label: 'Hypotéky' },
           { href: '/shorts', label: 'Video inzeráty' },
           { href: '/o-portalu', label: 'O portálu' },
+          ...(internalLinks.extra?.map((l) => ({ href: l.path, label: l.label })) ?? []),
         ]}
       />
     </div>

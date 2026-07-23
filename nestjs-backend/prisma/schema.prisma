@@ -2910,6 +2910,20 @@ model SeoSettings {
   googleIndexingApiEnabled        Boolean  @default(false)
   /// JSON service account pro Google Indexing API (šifrovat v produkci).
   googleIndexingServiceAccountJson String? @db.Text
+  /// Programatické SEO — generovat stránky i bez inzerátů
+  programmaticGenerateWithoutListings      Boolean @default(true)
+  /// Automaticky doplnit nabídky po přidání inzerátu
+  programmaticAutoEnrichWithListings       Boolean @default(true)
+  /// Automaticky regenerovat obsah po změně dat
+  programmaticAutoRegenerateOnDataChange   Boolean @default(true)
+  /// Kontrola duplicitního obsahu
+  programmaticDuplicateContentCheck        Boolean @default(true)
+  /// Kontrola SEO skóre
+  programmaticSeoScoreCheck                Boolean @default(true)
+  /// Kontrola indexace
+  programmaticIndexationCheck              Boolean @default(true)
+  /// Náhled stránky před publikací
+  programmaticPreviewBeforePublish         Boolean @default(false)
   updatedAt                       DateTime @updatedAt
 }
 

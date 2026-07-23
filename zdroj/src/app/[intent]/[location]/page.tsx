@@ -30,11 +30,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!data) {
     return buildSiteMetadata({ title: 'Stránka nenalezena', noindex: true });
   }
+
+  const seo = data.seo;
   return buildSiteMetadata({
-    title: data.title,
-    description: data.description,
+    title: seo?.ogTitle ?? data.title,
+    description: seo?.ogDescription ?? data.description,
     path: data.path,
     keywords: data.keywords,
+    image: seo?.ogImage ?? data.heroImageUrl,
+    noindex: seo?.noindex ?? false,
   });
 }
 
@@ -45,47 +49,79 @@ export default async function ProgrammaticSeoRoute({ params }: Props) {
   const data = await fetchProgrammaticSeoPage(intent, location);
   if (!data) notFound();
 
-  const schemaGraph = [
+  const breadcrumbs = [
+    { name: 'Domů', path: '/' },
+    { name: data.intent.label, path: `/${data.intent.slug}/${data.location.slug}` },
+    { name: data.location.name, path: data.path },
+  ];
+
+  const schemaGraph: Record<string, unknown>[] = [
     organizationJsonLd(),
     webSiteJsonLd(),
-    breadcrumbJsonLd([
-      { name: 'Domů', path: '/' },
-      { name: data.intent.label, path: data.path },
-      { name: data.location.name, path: data.path },
-    ]),
-    collectionPageJsonLd({
-      name: data.h1,
-      description: data.description,
-      path: data.path,
-      numberOfItems: data.totalCount,
-    }),
+    breadcrumbJsonLd(breadcrumbs),
     faqJsonLd(data.faq),
-    data.intent.isBrokerPage
-      ? localBusinessDirectoryJsonLd({
-          name: data.h1,
-          description: data.description,
-          path: data.path,
-          city: data.location.name,
-        })
-      : offerCatalogJsonLd({
+  ];
+
+  if (data.hasListings) {
+    schemaGraph.push(
+      collectionPageJsonLd({
+        name: data.h1,
+        description: data.description,
+        path: data.path,
+        numberOfItems: data.totalCount,
+      }),
+    );
+    if (data.intent.isBrokerPage) {
+      schemaGraph.push(
+        localBusinessDirectoryJsonLd({
           name: data.h1,
           description: data.description,
           path: data.path,
           city: data.location.name,
         }),
-  ];
+      );
+    } else {
+      schemaGraph.push(
+        offerCatalogJsonLd({
+          name: data.h1,
+          description: data.description,
+          path: data.path,
+          city: data.location.name,
+        }),
+      );
+    }
+  } else {
+    schemaGraph.push({
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: data.h1,
+      description: data.description,
+      inLanguage: 'cs-CZ',
+    });
+    schemaGraph.push({
+      '@context': 'https://schema.org',
+      '@type': 'RealEstateAgent',
+      name: 'XXREALIT',
+      description: 'Moderní realitní portál s video inzeráty a programatickým SEO.',
+      areaServed: { '@type': 'City', name: data.location.name },
+    });
+  }
 
-  return (
-    <>
-      <JsonLd
-        data={{
+  const storedSchema = data.seo?.schemaJson;
+  const jsonLd =
+    storedSchema && Object.keys(storedSchema).length > 0
+      ? storedSchema
+      : {
           '@context': 'https://schema.org',
           '@graph': schemaGraph.map((node) => {
             const { '@context': _ctx, ...rest } = node as Record<string, unknown>;
             return rest;
           }),
-        }}
-      />
+        };
+
+  return (
+    <>
+      <JsonLd data={jsonLd} />
       <ProgrammaticSeoPage data={data} />
     </>
   );

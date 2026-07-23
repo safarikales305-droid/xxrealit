@@ -12,12 +12,25 @@ export type ProgrammaticSeoListingPreview = {
   propertyType: string;
 };
 
+export type ProgrammaticSeoSection = {
+  id: string;
+  h2: string;
+  h3?: string[];
+  paragraphs: string[];
+};
+
 export type ProgrammaticSeoPageData = {
   path: string;
   h1: string;
+  h2: string;
   title: string;
   description: string;
   bodyText: string;
+  heroSubtitle: string;
+  heroImageUrl: string;
+  heroImageAlt: string;
+  sections: ProgrammaticSeoSection[];
+  wordCount?: number;
   faq: Array<{ question: string; answer: string }>;
   keywords: string[];
   intent: {
@@ -34,12 +47,24 @@ export type ProgrammaticSeoPageData = {
     regionSlug?: string;
   };
   totalCount: number;
+  hasListings: boolean;
   listings: ProgrammaticSeoListingPreview[];
   relatedLocations: Array<{ slug: string; name: string; path: string }>;
   internalLinks: {
     sameIntentNearby: Array<{ slug: string; name: string; path: string }>;
     otherIntents: Array<{ intentSlug: string; label: string; path: string }>;
     regionIntent?: { slug: string; name: string; path: string };
+    extra?: Array<{ label: string; path: string }>;
+  };
+  seo?: {
+    canonical: string;
+    robots: string;
+    noindex: boolean;
+    ogTitle: string;
+    ogDescription: string;
+    ogImage: string;
+    twitterCard: string;
+    schemaJson: Record<string, unknown>;
   };
 };
 

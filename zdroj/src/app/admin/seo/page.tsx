@@ -202,6 +202,94 @@ export default function AdminSeoDashboardPage() {
           </button>
         </form>
       ) : null}
+
+      {settings ? (
+        <form
+          className="mt-6 space-y-4 rounded-2xl border border-zinc-200 bg-white p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            void save({
+              programmaticGenerateWithoutListings: fd.get('programmaticGenerateWithoutListings') === 'on',
+              programmaticAutoEnrichWithListings: fd.get('programmaticAutoEnrichWithListings') === 'on',
+              programmaticAutoRegenerateOnDataChange:
+                fd.get('programmaticAutoRegenerateOnDataChange') === 'on',
+              programmaticDuplicateContentCheck: fd.get('programmaticDuplicateContentCheck') === 'on',
+              programmaticSeoScoreCheck: fd.get('programmaticSeoScoreCheck') === 'on',
+              programmaticIndexationCheck: fd.get('programmaticIndexationCheck') === 'on',
+              programmaticPreviewBeforePublish: fd.get('programmaticPreviewBeforePublish') === 'on',
+            });
+          }}
+        >
+          <h2 className="font-semibold">Programatické SEO stránky</h2>
+          <p className="text-sm text-zinc-600">
+            Lokalitní landing pages (např. /prodej-domu/pardubice) s bohatým obsahem i bez inzerátů.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticGenerateWithoutListings"
+              defaultChecked={settings.programmaticGenerateWithoutListings !== false}
+            />
+            Generovat stránky i bez inzerátů
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticAutoEnrichWithListings"
+              defaultChecked={settings.programmaticAutoEnrichWithListings !== false}
+            />
+            Automaticky doplnit reálné nabídky po jejich přidání
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticAutoRegenerateOnDataChange"
+              defaultChecked={settings.programmaticAutoRegenerateOnDataChange !== false}
+            />
+            Automaticky regenerovat obsah po změně dat
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticDuplicateContentCheck"
+              defaultChecked={settings.programmaticDuplicateContentCheck !== false}
+            />
+            Kontrola duplicitního obsahu
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticSeoScoreCheck"
+              defaultChecked={settings.programmaticSeoScoreCheck !== false}
+            />
+            Kontrola SEO skóre
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticIndexationCheck"
+              defaultChecked={settings.programmaticIndexationCheck !== false}
+            />
+            Kontrola indexace
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="programmaticPreviewBeforePublish"
+              defaultChecked={settings.programmaticPreviewBeforePublish === true}
+            />
+            Náhled stránky před publikací
+          </label>
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white"
+          >
+            {busy ? 'Ukládám…' : 'Uložit programatické SEO'}
+          </button>
+        </form>
+      ) : null}
     </>
   );
 }

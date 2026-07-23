@@ -1,21 +1,32 @@
 import type { CzGeoLocation } from './cz-geo-locations.data';
 import type { ProgrammaticSeoIntent } from './programmatic-seo-intents';
 import { PROGRAMMATIC_SEO_INTENT_SLUGS, PROGRAMMATIC_SEO_INTENTS } from './programmatic-seo-intents';
+import {
+  buildProgrammaticRichContent,
+  type ProgrammaticSeoSection,
+} from './programmatic-seo-rich-content';
 
 const SITE = 'XXREALIT';
+
+export type { ProgrammaticSeoSection };
 
 export type ProgrammaticSeoCopy = {
   path: string;
   h1: string;
+  h2: string;
   title: string;
   description: string;
   bodyText: string;
+  heroSubtitle: string;
+  heroImageUrl: string;
+  heroImageAlt: string;
+  sections: ProgrammaticSeoSection[];
   faq: Array<{ question: string; answer: string }>;
   keywords: string[];
+  wordCount: number;
 };
 
 function inLocation(loc: CzGeoLocation): string {
-  if (loc.kind === 'kraj') return `v ${loc.locative}`;
   return `v ${loc.locative}`;
 }
 
@@ -29,32 +40,6 @@ function headingWithLocation(intent: ProgrammaticSeoIntent, loc: CzGeoLocation):
   return `${intent.heading} ${loc.name}`;
 }
 
-function hashSeed(input: string): number {
-  let h = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    h = (h * 31 + input.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
-
-const INTRO_VARIANTS = [
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `${headingWithLocation(intent, loc)} patří mezi nejvyhledávanější realitní dotazy ${inLocation(loc)}. Na portálu ${SITE} najdete aktuální nabídku s fotografiemi, videi a mapou.`,
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `Hledáte ${intent.label.toLowerCase()} ${inLocation(loc)}? ${SITE} propojuje majitele, makléře a zájemce — vše na jednom místě s přehlednými filtry a kontaktem.`,
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `Trh s nemovitostmi ${inLocation(loc)} nabízí širokou škálu možností. Prohlédněte si ${intent.label.toLowerCase()} na ${SITE} a porovnejte ceny, vybavení i lokalitu.`,
-];
-
-const BODY_VARIANTS = [
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `Každý inzerát na ${SITE} obsahuje detailní popis, galerii a často i video prohlídku. U ${intent.label.toLowerCase()} ${inLocation(loc)} můžete filtrovat podle ceny, dispozice a stavu nemovitosti.`,
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `Lokalita ${loc.name} přitahuje rodiny i investory. Na našem portálu pravidelně přibývají nové nabídky — od cenově dostupných variant po prémiové reality.`,
-  (intent: ProgrammaticSeoIntent, loc: CzGeoLocation) =>
-    `Při výběru ${intent.label.toLowerCase()} ${inLocation(loc)} doporučujeme porovnat více inzerátů, ověřit stav nemovitosti a využít kontakt přímo na inzerenta nebo makléře.`,
-];
-
 export function buildProgrammaticSeoPath(intentSlug: string, locationSlug: string): string {
   return `/${intentSlug}/${locationSlug}`;
 }
@@ -67,19 +52,25 @@ export function buildProgrammaticSeoCopy(
   const h1 = headingWithLocation(intent, loc);
   const title = `${h1} | ${SITE}`;
   const description = buildProgrammaticDescription(intent, loc);
-  const seed = hashSeed(`${intent.slug}:${loc.slug}`);
-  const intro = INTRO_VARIANTS[seed % INTRO_VARIANTS.length](intent, loc);
-  const body = BODY_VARIANTS[(seed >> 3) % BODY_VARIANTS.length](intent, loc);
-  const bodyText = `${intro} ${body}`.trim();
+  const rich = buildProgrammaticRichContent(intent, loc);
+  const h2 = intent.isBrokerPage
+    ? `Makléři a realitní kanceláře ${loc.name}`
+    : `Průvodce ${intent.label.toLowerCase()} ${loc.name}`;
 
   return {
     path,
     h1,
+    h2,
     title,
     description,
-    bodyText,
-    faq: buildProgrammaticFaq(intent, loc),
+    bodyText: rich.bodyText,
+    heroSubtitle: rich.heroSubtitle,
+    heroImageUrl: rich.heroImageUrl,
+    heroImageAlt: rich.heroImageAlt,
+    sections: rich.sections,
+    faq: rich.faq,
     keywords: buildProgrammaticKeywords(intent, loc),
+    wordCount: rich.wordCount,
   };
 }
 
@@ -90,7 +81,7 @@ export function buildProgrammaticDescription(
   if (intent.isBrokerPage) {
     return `Ověření makléři a realitní kanceláře ${inLocation(loc)}. Profily, hodnocení, kontakt. ${SITE}.`;
   }
-  return `Aktuální nabídka ${intent.label.toLowerCase()} ${inLocation(loc)}. Fotografie, videa, mapy, kontakt přímo na majitele nebo makléře. ${SITE}.`;
+  return `Kompletní průvodce ${intent.label.toLowerCase()} ${inLocation(loc)}. Trh, ceny, tipy a aktuální nabídky s fotografiemi a videem. ${SITE}.`;
 }
 
 export function buildProgrammaticKeywords(
@@ -104,6 +95,7 @@ export function buildProgrammaticKeywords(
     'nemovitosti',
     'reality',
     'xxrealit',
+    loc.locative.toLowerCase(),
   ];
   if (intent.offerType) base.push(intent.offerType);
   if (intent.propertyTypeKey) base.push(intent.propertyTypeKey.replace('_', ' '));
@@ -114,39 +106,7 @@ export function buildProgrammaticFaq(
   intent: ProgrammaticSeoIntent,
   loc: CzGeoLocation,
 ): Array<{ question: string; answer: string }> {
-  const where = inLocation(loc);
-  const items: Array<{ question: string; answer: string }> = [];
-
-  if (!intent.isBrokerPage) {
-    items.push({
-      question: `Jaká je průměrná cena — ${intent.label.toLowerCase()} ${loc.name}?`,
-      answer: `Ceny se liší podle lokality, stavu a vybavení. Na ${SITE} u každého inzerátu uvidíte aktuální cenu a můžete porovnat více nabídek ${where}.`,
-    });
-    items.push({
-      question: `Kolik je aktuálně nabídek — ${intent.label.toLowerCase()} ${where}?`,
-      answer: `Počet inzerátů se mění denně. Na této stránce vidíte aktuální výpis; nové nabídky přibývají průběžně od majitelů i makléřů.`,
-    });
-    items.push({
-      question: `Jak probíhá koupě nebo pronájem ${where}?`,
-      answer: `Vyberte inzerát, prohlédněte detail a kontaktujte inzerenta přímo přes ${SITE}. U vybraných nabídek je k dispozici video prohlídka a mapa.`,
-    });
-  } else {
-    items.push({
-      question: `Jak najdu spolehlivou realitní kancelář ${where}?`,
-      answer: `Na ${SITE} najdete profily makléřů s hodnocením a kontaktem. Porovnejte zkušenosti a specializaci podle lokality ${loc.name}.`,
-    });
-    items.push({
-      question: `Je kontakt na makléře zdarma?`,
-      answer: `Základní profil a kontakt jsou dostupné po přihlášení. U prémiových makléřů najdete rozšířené informace a ověřené reference.`,
-    });
-  }
-
-  items.push({
-    question: `Proč používat ${SITE} pro reality ${where}?`,
-    answer: `${SITE} kombinuje klasické inzeráty s videem, mapou a přímým kontaktem. Nabídky jsou pravidelně aktualizované a optimalizované pro rychlé vyhledávání.`,
-  });
-
-  return items;
+  return buildProgrammaticRichContent(intent, loc).faq;
 }
 
 const SITE_ORIGIN = 'https://www.xxrealit.cz';
@@ -173,9 +133,6 @@ export function buildExtendedSeoMetadata(
 ): ExtendedSeoMetadata {
   const path = copy.path;
   const canonical = `${SITE_ORIGIN}${path}`;
-  const h2 = intent.isBrokerPage
-    ? `Makléři a realitní kanceláře ${loc.name}`
-    : `Aktuální nabídka ${intent.label.toLowerCase()} ${loc.name}`;
 
   const schemaJson: Record<string, unknown> = {
     '@context': 'https://schema.org',
@@ -217,17 +174,20 @@ export function buildExtendedSeoMetadata(
     robots: 'index,follow',
     ogTitle: copy.title,
     ogDescription: copy.description,
-    ogImage: `${SITE_ORIGIN}/og-default.jpg`,
+    ogImage: copy.heroImageUrl || `${SITE_ORIGIN}/og-default.jpg`,
     twitterCard: 'summary_large_image',
     schemaJson,
     internalLinks: [
       { label: 'Všechny reality', path: '/reality' },
       { label: intent.label, path: `/${intent.slug}` },
       { label: loc.name, path },
+      { label: 'Makléři', path: '/makleri' },
+      { label: 'Hypotéky', path: '/hypoteky' },
+      { label: 'Stavební firmy', path: '/stavebni-firmy' },
     ],
     relatedLocations: [],
     relatedPages,
-    altTexts: [{ context: 'hero', alt: `${copy.h1} — ${SITE}` }],
-    h2,
+    altTexts: [{ context: 'hero', alt: copy.heroImageAlt || `${copy.h1} — ${SITE}` }],
+    h2: copy.h2,
   };
 }
