@@ -14339,6 +14339,35 @@ export type SeoGenerationJobView = {
   lastActivityAt: string;
   etaSeconds: number | null;
   logs: Array<{ at: string; level: string; message: string }>;
+  skipReasons?: Record<string, number>;
+  recentResults?: SeoJobResultItem[];
+};
+
+export type SeoJobResultItem = {
+  at: string;
+  action: 'created' | 'updated';
+  pageId: string;
+  title: string | null;
+  slug: string;
+  publicUrl: string;
+  adminPreviewUrl: string;
+  status: string;
+  indexable: boolean;
+  intentSlug: string;
+  locationName?: string;
+};
+
+export type SeoSkippedItemDetail = {
+  at: string;
+  reason: string;
+  intentSlug: string;
+  locationSlug: string;
+  locationName?: string;
+  offerType?: string;
+  propertyType?: string;
+  expectedSlug?: string;
+  existingPageId?: string;
+  message: string;
 };
 
 export type SeoGenerationStats = {
@@ -14359,6 +14388,7 @@ export type SeoGenerationTestResult = {
   action: string;
   pageId: string;
   pageKey: string;
+  slug: string;
   publicPath: string;
   publicUrl: string;
   status: string;
@@ -14368,6 +14398,8 @@ export type SeoGenerationTestResult = {
   metaDescription: string | null;
   canonical: string | null;
   h1: string | null;
+  adminPreviewUrl: string;
+  skipReason?: string | null;
 };
 
 async function nestAdminSeoJson<T>(
@@ -14442,11 +14474,17 @@ export async function nestAdminSeoDashboard(token: string | null): Promise<SeoDa
 
 export async function nestAdminSeoGenerateTest(
   token: string | null,
+  body?: {
+    intentSlug?: string;
+    locationSlug?: string;
+    offerType?: string;
+    propertyType?: string;
+  },
 ): Promise<SeoGenerationTestResult | null> {
   return nestAdminSeoJson<SeoGenerationTestResult>(token, '/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body ?? {}),
   });
 }
 
@@ -14537,6 +14575,60 @@ export async function nestAdminSeoGenerationStats(
   token: string | null,
 ): Promise<SeoGenerationStats | null> {
   return nestAdminSeoJson<SeoGenerationStats>(token, '/stats');
+}
+
+export async function nestAdminSeoJobResults(
+  token: string | null,
+  jobId: string,
+): Promise<{
+  jobId: string;
+  status: string;
+  skipReasons: Record<string, number>;
+  recentResults: SeoJobResultItem[];
+} | null> {
+  return nestAdminSeoJson(token, `/jobs/${encodeURIComponent(jobId)}/results`);
+}
+
+export async function nestAdminSeoJobSkipped(
+  token: string | null,
+  jobId: string,
+): Promise<{ total: number; skipReasons: Record<string, number>; items: SeoSkippedItemDetail[] } | null> {
+  return nestAdminSeoJson(token, `/jobs/${encodeURIComponent(jobId)}/skipped`);
+}
+
+export async function nestAdminSeoPagePreview(
+  token: string | null,
+  pageId: string,
+): Promise<import('@/lib/seo/programmatic-seo').ProgrammaticSeoPageData | null> {
+  return nestAdminSeoJson(token, `/pages/${encodeURIComponent(pageId)}/preview`);
+}
+
+export async function nestAdminSeoPageRegenerate(
+  token: string | null,
+  pageId: string,
+): Promise<unknown> {
+  return nestAdminSeoJson(token, `/pages/${encodeURIComponent(pageId)}/regenerate`, { method: 'POST' });
+}
+
+export async function nestAdminSeoPagePublish(
+  token: string | null,
+  pageId: string,
+): Promise<unknown> {
+  return nestAdminSeoJson(token, `/pages/${encodeURIComponent(pageId)}/publish`, { method: 'POST' });
+}
+
+export async function nestAdminSeoPageUnpublish(
+  token: string | null,
+  pageId: string,
+): Promise<unknown> {
+  return nestAdminSeoJson(token, `/pages/${encodeURIComponent(pageId)}/unpublish`, { method: 'POST' });
+}
+
+export async function nestAdminSeoPageDelete(
+  token: string | null,
+  pageId: string,
+): Promise<unknown> {
+  return nestAdminSeoJson(token, `/pages/${encodeURIComponent(pageId)}`, { method: 'DELETE' });
 }
 
 export async function nestAdminSeoPagesList(

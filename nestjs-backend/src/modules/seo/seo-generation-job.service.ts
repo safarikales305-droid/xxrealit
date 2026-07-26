@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, SeoContentStatus, SeoGenerationJobStatus, SeoGenerationJobType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { PROGRAMMATIC_SEO_INTENT_SLUGS } from './programmatic-seo-intents';
+import { getProgrammaticSeoIntent, PROGRAMMATIC_SEO_INTENT_SLUGS } from './programmatic-seo-intents';
 import { buildProgrammaticSeoPath } from './programmatic-seo.util';
 import { SeoContentService } from './seo-content.service';
 import {
@@ -12,7 +12,11 @@ import {
   SEO_GENERATION_STALE_JOB_MS,
   SEO_GENERATION_WORKER_TICK_MS,
   type SeoGenerationFilters,
+  type SeoGenerationJobMeta,
   type SeoGenerationLogEntry,
+  type SeoJobResultItem,
+  type SeoSkippedItemDetail,
+  type SeoSkipReason,
 } from './seo-generation-job.constants';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import {
@@ -21,12 +25,39 @@ import {
   cursorToPair,
   filterIntents,
   getLocationQualityTier,
+  intentToOfferProperty,
   pairLabel,
+  shouldFilterByQualityTier,
 } from './seo-generation.util';
+import { incrementSkipReason, SEO_SKIP_REASON_LABELS } from './seo-skip-reasons';
 
 function progressPct(processed: number, total: number): number {
   if (!total) return 0;
   return Math.round((processed / total) * 1000) / 10;
+}
+
+function adminPreviewPath(pageId: string): string {
+  return `/admin/seo/pages/${pageId}/preview`;
+}
+
+function resolveIntentFromInput(input?: {
+  intentSlug?: string;
+  offerType?: string;
+  propertyType?: string;
+}): string {
+  if (input?.intentSlug?.trim()) return input.intentSlug.trim();
+  const offer = input?.offerType?.trim().toLowerCase();
+  const prop = input?.propertyType?.trim().toLowerCase();
+  if (offer === 'pronajem' || offer === 'pronájem') {
+    if (prop === 'byt') return 'pronajem-bytu';
+    if (prop === 'dum' || prop === 'dům' || prop === 'dom') return 'prodej-domu';
+  }
+  if (offer === 'prodej' || !offer) {
+    if (prop === 'byt' || !prop) return 'prodej-bytu';
+    if (prop === 'dum' || prop === 'dům' || prop === 'dom') return 'prodej-domu';
+    if (prop === 'pozemek' || prop === 'pozem') return 'prodej-pozemku';
+  }
+  return 'prodej-bytu';
 }
 
 @Injectable()
@@ -86,6 +117,37 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     return rows.map((r) => this.serializeJob(r));
   }
 
+  async getJobResults(jobId: string) {
+    const job = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new BadRequestException('Úloha nenalezena.');
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
+    return {
+      jobId: job.id,
+      status: job.status,
+      totalItems: job.totalItems,
+      processedItems: job.processedItems,
+      createdItems: job.createdItems,
+      updatedItems: job.updatedItems,
+      skippedItems: job.skippedItems,
+      failedItems: job.failedItems,
+      skipReasons: meta.skipReasons ?? {},
+      recentResults: meta.recentResults ?? [],
+    };
+  }
+
+  async getJobSkipped(jobId: string, limit = 200) {
+    const job = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new BadRequestException('Úloha nenalezena.');
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
+    const items = meta.skippedDetails ?? [];
+    return {
+      jobId: job.id,
+      total: items.length,
+      skipReasons: meta.skipReasons ?? {},
+      items: items.slice(-Math.min(500, Math.max(1, limit))),
+    };
+  }
+
   async getProgress() {
     const job = await this.getActiveJob();
     if (!job) {
@@ -100,10 +162,23 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     return { active: true, job: this.serializeJob(job) };
   }
 
-  async generateTest(createdById?: string) {
+  async generateTest(
+    input?: {
+      intentSlug?: string;
+      locationSlug?: string;
+      offerType?: string;
+      propertyType?: string;
+    },
+    createdById?: string,
+  ) {
+    const intentSlug = resolveIntentFromInput(input);
+    const intent = getProgrammaticSeoIntent(intentSlug);
+    if (!intent) throw new BadRequestException('Neznámý intent.');
+
+    const locationSlug = input?.locationSlug?.trim() || 'pardubice';
     const location =
       (await this.prisma.seoLocation.findFirst({
-        where: { isActive: true, slug: 'pardubice' },
+        where: { isActive: true, slug: locationSlug },
       })) ??
       (await this.prisma.seoLocation.findFirst({
         where: buildLocationWhere(),
@@ -115,19 +190,21 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     }
 
     const result = await this.content.upsertFromTemplate({
-      intentSlug: 'prodej-bytu',
+      intentSlug,
       locationSlug: location.slug,
       publish: true,
       createdBy: createdById,
+      forceUpdate: true,
     });
 
-    const publicPath = buildProgrammaticSeoPath('prodej-bytu', location.slug);
+    const publicPath = buildProgrammaticSeoPath(intentSlug, location.slug);
 
     return {
       success: true,
-      action: result.action,
+      action: result.action === 'skipped' ? 'UPDATED' : result.action.toUpperCase(),
       pageId: result.page.id,
       pageKey: result.page.pageKey,
+      slug: result.slug,
       publicPath,
       publicUrl: publicPath,
       status: result.page.status,
@@ -137,6 +214,8 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
       metaDescription: result.page.description,
       canonical: result.page.canonical,
       h1: result.page.h1,
+      adminPreviewUrl: adminPreviewPath(result.page.id),
+      skipReason: result.skipReason ?? null,
     };
   }
 
@@ -192,7 +271,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
         totalItems,
         batchSize,
         filtersJson: { ...filters, limit: opts.limit ?? null } as Prisma.InputJsonValue,
-        jobMeta: { logs: [] } as Prisma.InputJsonValue,
+        jobMeta: { logs: [], skipReasons: {}, skippedDetails: [], recentResults: [] } as Prisma.InputJsonValue,
         createdById: opts.createdById ?? null,
       },
     });
@@ -289,7 +368,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     updatedAt: Date;
     jobMeta?: unknown;
   }) {
-    const meta = (job.jobMeta ?? {}) as { logs?: SeoGenerationLogEntry[] };
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
     const pct = progressPct(job.processedItems, job.totalItems);
     const remaining = Math.max(0, job.totalItems - job.processedItems);
     const elapsedMs = job.startedAt ? Date.now() - job.startedAt.getTime() : 0;
@@ -317,6 +396,8 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
       lastActivityAt: job.updatedAt.toISOString(),
       etaSeconds,
       logs: (meta.logs ?? []).slice(-50),
+      skipReasons: meta.skipReasons ?? {},
+      recentResults: (meta.recentResults ?? []).slice(-20),
     };
   }
 
@@ -424,14 +505,26 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
 
       const intentSlug = intents[intentIndex];
       const tier = getLocationQualityTier(location);
-      const allowedTiers = filters.qualityTiers ?? ['HIGH', 'MEDIUM'];
-      if (!allowedTiers.includes(tier) && job.type !== SEO_GENERATION_JOB_TYPE.TEST) {
+      const itemLabel = pairLabel(intentSlug, location.slug, location.name);
+      const publicPath = buildProgrammaticSeoPath(intentSlug, location.slug);
+      const expectedSlug = publicPath.replace(/^\//, '');
+      const { offerType, propertyType } = intentToOfferProperty(intentSlug);
+
+      if (shouldFilterByQualityTier(tier, filters.qualityTiers)) {
         skipped++;
         processed++;
+        await this.recordSkip(jobId, {
+          reason: 'FILTERED_BY_JOB',
+          intentSlug,
+          locationSlug: location.slug,
+          locationName: location.name,
+          offerType,
+          propertyType,
+          expectedSlug,
+          message: `Přeskočeno: ${expectedSlug} — důvod FILTERED_BY_JOB (tier ${tier})`,
+        });
         continue;
       }
-
-      const itemLabel = pairLabel(intentSlug, location.slug, location.name);
 
       if (filters.onlyMissing) {
         const pageKey = buildProgrammaticSeoPageKey(intentSlug, location.slug);
@@ -439,6 +532,17 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
         if (exists) {
           skipped++;
           processed++;
+          await this.recordSkip(jobId, {
+            reason: 'ALREADY_EXISTS',
+            intentSlug,
+            locationSlug: location.slug,
+            locationName: location.name,
+            offerType,
+            propertyType,
+            expectedSlug,
+            existingPageId: exists.id,
+            message: `Přeskočeno: ${expectedSlug} — důvod ALREADY_EXISTS, existující SEO page ID: ${exists.id}`,
+          });
           continue;
         }
       }
@@ -455,16 +559,54 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
           publish: true,
           createdBy: job.createdById ?? undefined,
         });
-        if (result.action === 'created') created++;
-        else if (result.action === 'updated') updated++;
-        else skipped++;
+        if (result.action === 'created') {
+          created++;
+          await this.recordResult(jobId, {
+            action: 'created',
+            pageId: result.page.id,
+            title: result.page.title,
+            slug: result.slug,
+            publicUrl: result.publicPath,
+            status: result.page.status,
+            indexable: !result.page.noindex,
+            intentSlug,
+            locationName: location.name,
+          });
+        } else if (result.action === 'updated') {
+          updated++;
+          await this.recordResult(jobId, {
+            action: 'updated',
+            pageId: result.page.id,
+            title: result.page.title,
+            slug: result.slug,
+            publicUrl: result.publicPath,
+            status: result.page.status,
+            indexable: !result.page.noindex,
+            intentSlug,
+            locationName: location.name,
+          });
+        } else {
+          skipped++;
+          const reason = result.skipReason ?? 'UNKNOWN';
+          await this.recordSkip(jobId, {
+            reason,
+            intentSlug,
+            locationSlug: location.slug,
+            locationName: location.name,
+            offerType,
+            propertyType,
+            expectedSlug,
+            existingPageId: result.existingPageId,
+            message: `Přeskočeno: ${expectedSlug} — důvod ${reason}${result.existingPageId ? `, existující SEO page ID: ${result.existingPageId}` : ''}`,
+          });
+        }
       } catch (err) {
         failed++;
         const msg = err instanceof Error ? err.message : String(err);
         this.log.warn(`SEO gen failed ${itemLabel}: ${msg}`);
         await this.appendLog(jobId, 'error', `${itemLabel}: ${msg}`);
         await this.prisma.seoPageContent.updateMany({
-          where: { pageKey: `${intentSlug}:${location.slug}` },
+          where: { pageKey: buildProgrammaticSeoPageKey(intentSlug, location.slug) },
           data: { lastError: msg },
         });
       }
@@ -496,7 +638,16 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     if (!done && !this.cancelRequested) {
       setTimeout(() => void this.tick(), SEO_GENERATION_HEARTBEAT_MS / 3);
     } else if (done) {
-      await this.appendLog(jobId, 'info', `Generování dokončeno. Vytvořeno ${created}, aktualizováno ${updated}, chyby ${failed}.`);
+      const jobAfter = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
+      const meta = (jobAfter?.jobMeta ?? {}) as SeoGenerationJobMeta;
+      const skipSummary = Object.entries(meta.skipReasons ?? {})
+        .map(([k, n]) => `${SEO_SKIP_REASON_LABELS[k as SeoSkipReason] ?? k}: ${n}`)
+        .join(', ');
+      await this.appendLog(
+        jobId,
+        'info',
+        `Generování dokončeno. Kandidátů: ${job.totalItems}. Vytvořeno: ${created}, aktualizováno: ${updated}, přeskočeno: ${skipped}, chyby: ${failed}.${skipSummary ? ` Přeskočeno: ${skipSummary}.` : ''}`,
+      );
     }
   }
 
@@ -520,6 +671,13 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
       if (!row.intentSlug || !row.location?.slug) {
         counters.skipped++;
         counters.processed++;
+        await this.recordSkip(job.id, {
+          reason: 'INVALID_COMBINATION',
+          intentSlug: row.intentSlug ?? '',
+          locationSlug: row.location?.slug ?? '',
+          locationName: row.location?.name,
+          message: 'Chybí intent nebo lokalita u DRAFT záznamu.',
+        });
         idx++;
         continue;
       }
@@ -534,10 +692,21 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
           locationSlug: row.location.slug,
           publish: true,
           createdBy: job.createdById ?? undefined,
+          forceUpdate: true,
         });
         if (result.action === 'created') counters.created++;
         else if (result.action === 'updated') counters.updated++;
-        else counters.skipped++;
+        else {
+          counters.skipped++;
+          await this.recordSkip(job.id, {
+            reason: result.skipReason ?? 'UNKNOWN',
+            intentSlug: row.intentSlug,
+            locationSlug: row.location.slug,
+            locationName: row.location.name,
+            existingPageId: result.existingPageId,
+            message: `Přeskočeno při přegenerování DRAFT: ${result.skipReason ?? 'UNKNOWN'}`,
+          });
+        }
       } catch (err) {
         counters.failed++;
         await this.appendLog(job.id, 'error', `${itemLabel}: ${err instanceof Error ? err.message : String(err)}`);
@@ -585,6 +754,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
           locationSlug: row.location.slug,
           publish: true,
           createdBy: job.createdById ?? undefined,
+          forceUpdate: true,
         });
         if (result.action === 'created') counters.created++;
         else if (result.action === 'updated') counters.updated++;
@@ -630,10 +800,46 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async recordSkip(jobId: string, detail: Omit<SeoSkippedItemDetail, 'at'>) {
+    const job = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
+    const entry: SeoSkippedItemDetail = { ...detail, at: new Date().toISOString() };
+    const skipReasons = incrementSkipReason(meta.skipReasons ?? {}, detail.reason);
+    const skippedDetails = [...(meta.skippedDetails ?? []), entry].slice(-500);
+    const logs = [
+      ...(meta.logs ?? []),
+      { at: entry.at, level: 'warn' as const, message: detail.message },
+    ].slice(-100);
+    await this.prisma.seoGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        jobMeta: { ...meta, skipReasons, skippedDetails, logs } as Prisma.InputJsonValue,
+      },
+    });
+    this.log.debug(detail.message);
+  }
+
+  private async recordResult(jobId: string, item: Omit<SeoJobResultItem, 'at' | 'adminPreviewUrl'>) {
+    const job = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
+    const entry: SeoJobResultItem = {
+      ...item,
+      at: new Date().toISOString(),
+      adminPreviewUrl: adminPreviewPath(item.pageId),
+    };
+    const recentResults = [...(meta.recentResults ?? []), entry].slice(-50);
+    await this.prisma.seoGenerationJob.update({
+      where: { id: jobId },
+      data: { jobMeta: { ...meta, recentResults } as Prisma.InputJsonValue },
+    });
+  }
+
   private async appendLog(jobId: string, level: SeoGenerationLogEntry['level'], message: string) {
     const job = await this.prisma.seoGenerationJob.findUnique({ where: { id: jobId } });
     if (!job) return;
-    const meta = (job.jobMeta ?? {}) as { logs?: SeoGenerationLogEntry[] };
+    const meta = (job.jobMeta ?? {}) as SeoGenerationJobMeta;
     const logs = [...(meta.logs ?? []), { at: new Date().toISOString(), level, message }].slice(-100);
     await this.prisma.seoGenerationJob.update({
       where: { id: jobId },

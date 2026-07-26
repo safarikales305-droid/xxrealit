@@ -152,9 +152,17 @@ export default function AdminSeoStrankyPage() {
                       Generovat
                     </Link>
                   ) : (
-                    <Link href={`/admin/seo/stranky/${row.id}`} className="text-orange-600 hover:underline">
-                      Upravit
-                    </Link>
+                    <span className="flex flex-wrap gap-2">
+                      <Link href={`/admin/seo/pages/${row.id}/preview`} className="text-orange-600 hover:underline">
+                        Náhled
+                      </Link>
+                      <Link href={row.url} target="_blank" className="text-zinc-600 hover:underline">
+                        Veřejně
+                      </Link>
+                      <Link href={`/admin/seo/stranky/${row.id}`} className="text-orange-600 hover:underline">
+                        Upravit
+                      </Link>
+                    </span>
                   )}
                 </td>
               </tr>

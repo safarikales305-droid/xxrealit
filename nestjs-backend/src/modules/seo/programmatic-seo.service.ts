@@ -186,6 +186,96 @@ export class ProgrammaticSeoService {
     limit = 24,
   ): Promise<ProgrammaticSeoPagePayload> {
     const base = await this.resolvePage(intentSlug, locationSlug);
+    return this.attachListings(base, intentSlug, locationSlug, limit);
+  }
+
+  /** Admin náhled — načte stránku včetně DRAFT obsahu z DB. */
+  async resolvePageByContentId(contentId: string, limit = 24): Promise<ProgrammaticSeoPagePayload & { contentId: string; contentStatus: string }> {
+    const row = await this.prisma.seoPageContent.findUnique({
+      where: { id: contentId },
+      include: { location: true },
+    });
+    if (!row?.intentSlug) throw new NotFoundException('SEO stránka nenalezena.');
+    const locationSlug = row.location?.slug;
+    if (!locationSlug) throw new NotFoundException('SEO stránka nemá lokalitu.');
+
+    const intent = getProgrammaticSeoIntent(row.intentSlug);
+    if (!intent) throw new NotFoundException('Neznámý intent.');
+
+    const location = await this.resolveLocation(locationSlug);
+    if (!location) throw new NotFoundException('Lokalita nenalezena.');
+
+    const generated = buildProgrammaticSeoCopy(intent, location);
+    const extended = buildExtendedSeoMetadata(intent, location, generated);
+
+    const copy: ProgrammaticSeoCopy = row.h1
+      ? {
+          ...generated,
+          h1: row.h1,
+          title: row.title ?? generated.title,
+          description: row.description ?? generated.description,
+          bodyText: row.bodyText ?? generated.bodyText,
+          faq: Array.isArray(row.faq)
+            ? (row.faq as Array<{ question: string; answer: string }>)
+            : generated.faq,
+        }
+      : generated;
+
+    const seoMeta = row.canonical
+      ? {
+          canonical: row.canonical,
+          robots: row.robots ?? extended.robots,
+          noindex: Boolean(row.noindex),
+          ogTitle: row.ogTitle ?? extended.ogTitle,
+          ogDescription: row.ogDescription ?? extended.ogDescription,
+          ogImage: row.ogImage ?? extended.ogImage,
+          twitterCard: row.twitterCard ?? extended.twitterCard,
+          schemaJson:
+            row.schemaJson && typeof row.schemaJson === 'object'
+              ? (row.schemaJson as Record<string, unknown>)
+              : extended.schemaJson,
+        }
+      : {
+          canonical: extended.canonical,
+          robots: extended.robots,
+          noindex: row.noindex,
+          ogTitle: extended.ogTitle,
+          ogDescription: extended.ogDescription,
+          ogImage: extended.ogImage,
+          twitterCard: extended.twitterCard,
+          schemaJson: extended.schemaJson,
+        };
+
+    const base: ProgrammaticSeoPagePayload = {
+      ...copy,
+      intent,
+      location,
+      totalCount: 0,
+      hasListings: false,
+      listings: [],
+      relatedLocations: [],
+      internalLinks: {
+        sameIntentNearby: [],
+        otherIntents: [],
+        extra: extended.internalLinks,
+      },
+      seo: seoMeta,
+    };
+
+    const withListings = await this.attachListings(base, row.intentSlug, locationSlug, limit);
+    return {
+      ...withListings,
+      contentId: row.id,
+      contentStatus: row.status,
+    };
+  }
+
+  private async attachListings(
+    base: ProgrammaticSeoPagePayload,
+    intentSlug: string,
+    locationSlug: string,
+    limit: number,
+  ): Promise<ProgrammaticSeoPagePayload> {
     const { intent, location } = base;
 
     const dbLoc = await this.seoLocations.findBySlug(locationSlug);

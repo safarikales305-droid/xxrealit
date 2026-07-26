@@ -86,6 +86,30 @@ export function pairLabel(intentSlug: string, locationSlug: string, locationName
   return `${intentSlug}/${locationSlug}${locationName ? ` (${locationName})` : ''}`;
 }
 
+/** Vrátí true pouze pokud job explicitně filtruje kvalitu a tier do něj nepatří. */
+export function shouldFilterByQualityTier(
+  tier: SeoQualityTier,
+  allowedTiers?: SeoQualityTier[],
+): boolean {
+  if (!allowedTiers?.length) return false;
+  return !allowedTiers.includes(tier);
+}
+
+export function intentToOfferProperty(intentSlug: string): { offerType?: string; propertyType?: string } {
+  const map: Record<string, { offerType: string; propertyType: string }> = {
+    'prodej-bytu': { offerType: 'PRODEJ', propertyType: 'BYT' },
+    'pronajem-bytu': { offerType: 'PRONAJEM', propertyType: 'BYT' },
+    'prodej-domu': { offerType: 'PRODEJ', propertyType: 'DUM' },
+    'prodej-pozemku': { offerType: 'PRODEJ', propertyType: 'POZEMEK' },
+    'prodej-chaty': { offerType: 'PRODEJ', propertyType: 'CHATA' },
+    'prodej-garaze': { offerType: 'PRODEJ', propertyType: 'GARAZ' },
+    'prodej-komercnich-prostor': { offerType: 'PRODEJ', propertyType: 'KOMERCNI' },
+    'developerske-projekty': { offerType: 'PRODEJ', propertyType: 'PROJEKT' },
+    'realitni-kancelar': { offerType: 'PRODEJ', propertyType: 'KANCELAR' },
+  };
+  return map[intentSlug] ?? {};
+}
+
 export function seoLocationToCopyInput(loc: SeoLocation) {
   const kindMap: Partial<Record<SeoLocationKind, 'mesto' | 'obec' | 'cast'>> = {
     MESTO: 'mesto',

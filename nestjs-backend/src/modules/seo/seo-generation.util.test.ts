@@ -9,8 +9,11 @@ import {
   computeContentChecksum,
   cursorToPair,
   getLocationQualityTier,
+  intentToOfferProperty,
   resolveIndexability,
+  shouldFilterByQualityTier,
 } from './seo-generation.util';
+import { incrementSkipReason } from './seo-skip-reasons';
 
 test('clampBatchSize keeps batch between 50 and 200', () => {
   assert.equal(clampBatchSize(), 100);
@@ -84,4 +87,35 @@ test('HIGH tier published page is indexable when content is complete', () => {
   const r = resolveIndexability('HIGH', copy);
   assert.equal(r.noindex, false);
   assert.equal(r.robots, 'index,follow');
+});
+
+test('shouldFilterByQualityTier skips only when tiers explicitly set', () => {
+  assert.equal(shouldFilterByQualityTier('LOW', undefined), false);
+  assert.equal(shouldFilterByQualityTier('LOW', []), false);
+  assert.equal(shouldFilterByQualityTier('LOW', ['HIGH', 'MEDIUM']), true);
+  assert.equal(shouldFilterByQualityTier('HIGH', ['HIGH', 'MEDIUM']), false);
+});
+
+test('intentToOfferProperty maps prodej-bytu', () => {
+  assert.deepEqual(intentToOfferProperty('prodej-bytu'), { offerType: 'PRODEJ', propertyType: 'BYT' });
+  assert.deepEqual(intentToOfferProperty('pronajem-bytu'), { offerType: 'PRONAJEM', propertyType: 'BYT' });
+});
+
+test('incrementSkipReason counts skip reasons', () => {
+  const next = incrementSkipReason({ ALREADY_EXISTS: 2 }, 'ALREADY_EXISTS');
+  assert.equal(next.ALREADY_EXISTS, 3);
+  const added = incrementSkipReason({}, 'MISSING_LOCALITY');
+  assert.equal(added.MISSING_LOCALITY, 1);
+});
+
+test('LOW tier page is still created as noindex not skipped by default filter', () => {
+  const r = resolveIndexability('LOW', {
+    title: 'Prodej bytů Test',
+    description: 'Popis stránky s dostatečnou délkou pro SEO metadata a uživatele.',
+    bodyText: 'x '.repeat(200),
+    wordCount: 200,
+  });
+  assert.equal(r.noindex, true);
+  assert.equal(r.robots, 'noindex,follow');
+  assert.equal(shouldFilterByQualityTier('LOW'), false);
 });

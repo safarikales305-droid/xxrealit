@@ -17,6 +17,7 @@ import {
 } from './seo-generation.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import { SeoLocationService } from './seo-location.service';
+import type { SeoSkipReason } from './seo-skip-reasons';
 
 export type SeoContentGenerateInput = {
   intentSlug: string;
@@ -27,8 +28,11 @@ export type SeoContentGenerateInput = {
 
 export type SeoUpsertResult = {
   action: 'created' | 'updated' | 'skipped';
+  skipReason?: SeoSkipReason;
+  existingPageId?: string;
   page: SeoPageContent & { location?: { name: string; slug: string } | null };
   publicPath: string;
+  slug: string;
 };
 
 export type SeoContentUpdateInput = {
@@ -76,6 +80,7 @@ export class SeoContentService {
     locationSlug: string;
     publish?: boolean;
     createdBy?: string;
+    forceUpdate?: boolean;
   }): Promise<SeoUpsertResult> {
     const intent = getProgrammaticSeoIntent(input.intentSlug);
     if (!intent) throw new BadRequestException('Neznámý intent.');
@@ -93,6 +98,10 @@ export class SeoContentService {
     const indexability = resolveIndexability(tier, copy);
     const pageKey = buildProgrammaticSeoPageKey(input.intentSlug, dbLoc.slug);
     const publicPath = buildProgrammaticSeoPath(input.intentSlug, dbLoc.slug);
+    const slug = publicPath.replace(/^\//, '');
+    if (!slug || !copy.h1?.trim() || !copy.title?.trim() || !copy.description?.trim()) {
+      throw new BadRequestException('INVALID_SLUG: Nelze vytvořit stránku — chybí slug nebo povinná metadata.');
+    }
     const checksum = computeContentChecksum({
       pageKey,
       title: copy.title,
@@ -103,7 +112,14 @@ export class SeoContentService {
 
     const existing = await this.prisma.seoPageContent.findUnique({ where: { pageKey } });
     if (existing?.isLocked) {
-      return { action: 'skipped', page: await this.getById(existing.id), publicPath };
+      return {
+        action: 'skipped',
+        skipReason: 'LOCKED_CONTENT',
+        existingPageId: existing.id,
+        page: await this.getById(existing.id),
+        publicPath,
+        slug,
+      };
     }
 
     const status = input.publish ? SeoContentStatus.PUBLISHED : SeoContentStatus.DRAFT;
@@ -139,8 +155,20 @@ export class SeoContentService {
     };
 
     if (existing) {
-      if (existing.checksum === checksum && existing.status === status && !existing.lastError) {
-        return { action: 'skipped', page: await this.getById(existing.id), publicPath };
+      if (
+        !input.forceUpdate &&
+        existing.checksum === checksum &&
+        existing.status === status &&
+        !existing.lastError
+      ) {
+        return {
+          action: 'skipped',
+          skipReason: 'ALREADY_EXISTS',
+          existingPageId: existing.id,
+          page: await this.getById(existing.id),
+          publicPath,
+          slug,
+        };
       }
 
       const nextVersion =
@@ -159,7 +187,7 @@ export class SeoContentService {
         data,
         include: { location: { select: { name: true, slug: true } } },
       });
-      return { action: 'updated', page, publicPath };
+      return { action: 'updated', page, publicPath, slug };
     }
 
     const page = await this.prisma.seoPageContent.create({
@@ -171,7 +199,29 @@ export class SeoContentService {
       },
       include: { location: { select: { name: true, slug: true } } },
     });
-    return { action: 'created', page, publicPath };
+    return { action: 'created', page, publicPath, slug };
+  }
+
+  async regenerateById(id: string, createdBy?: string): Promise<SeoUpsertResult> {
+    const row = await this.getById(id);
+    if (!row.intentSlug || !row.location?.slug) {
+      throw new BadRequestException('Stránka nemá intent nebo lokalitu.');
+    }
+    return this.upsertFromTemplate({
+      intentSlug: row.intentSlug,
+      locationSlug: row.location.slug,
+      publish: row.status === SeoContentStatus.PUBLISHED || row.status === SeoContentStatus.LOCKED,
+      createdBy,
+      forceUpdate: true,
+    });
+  }
+
+  async deleteContent(id: string) {
+    const row = await this.prisma.seoPageContent.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('SEO obsah nenalezen.');
+    if (row.isLocked) throw new BadRequestException('Obsah je zamčený.');
+    await this.prisma.seoPageContent.delete({ where: { id } });
+    return { success: true, id };
   }
 
   async getById(id: string) {

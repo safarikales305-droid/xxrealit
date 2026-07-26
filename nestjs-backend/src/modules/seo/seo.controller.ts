@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
 import { SeoContentStatus, SeoIndexStatus } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -72,6 +72,7 @@ export class SeoAdminController {
     private readonly content: SeoContentService,
     private readonly adminCenter: SeoAdminCenterService,
     private readonly generationJobs: SeoGenerationJobService,
+    private readonly programmaticSeo: ProgrammaticSeoService,
   ) {}
 
   @Get('settings')
@@ -164,9 +165,18 @@ export class SeoAdminController {
   }
 
   @Post('generate')
-  generateTestPage(@Req() req: { user?: { id?: string; sub?: string } }) {
+  generateTestPage(
+    @Body()
+    body: {
+      intentSlug?: string;
+      locationSlug?: string;
+      offerType?: string;
+      propertyType?: string;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
     const userId = req.user?.id ?? req.user?.sub;
-    return this.generationJobs.generateTest(userId);
+    return this.generationJobs.generateTest(body, userId);
   }
 
   @Post('generate-batch')
@@ -194,13 +204,13 @@ export class SeoAdminController {
 
   @Post('generate-all')
   generateAll(
-    @Body() body: { batchSize?: number; qualityTiers?: Array<'HIGH' | 'MEDIUM'> },
+    @Body() body: { batchSize?: number; qualityTiers?: Array<'HIGH' | 'MEDIUM' | 'LOW'> },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
     const userId = req.user?.id ?? req.user?.sub;
     return this.generationJobs.enqueueBatch('ALL', {
       batchSize: body.batchSize,
-      filters: { qualityTiers: body.qualityTiers ?? ['HIGH', 'MEDIUM'] },
+      filters: body.qualityTiers?.length ? { qualityTiers: body.qualityTiers } : {},
       createdById: userId,
     });
   }
@@ -254,6 +264,60 @@ export class SeoAdminController {
   @Get('jobs')
   listGenerationJobs(@Query('limit') limit?: string) {
     return this.generationJobs.listJobs(limit ? Number.parseInt(limit, 10) : 20);
+  }
+
+  @Get('jobs/:jobId/results')
+  getJobResults(@Param('jobId') jobId: string) {
+    return this.generationJobs.getJobResults(jobId);
+  }
+
+  @Get('jobs/:jobId/skipped')
+  getJobSkipped(@Param('jobId') jobId: string, @Query('limit') limit?: string) {
+    return this.generationJobs.getJobSkipped(jobId, limit ? Number.parseInt(limit, 10) : 200);
+  }
+
+  @Get('pages/:id')
+  getSeoPage(@Param('id') id: string) {
+    return this.content.getById(id);
+  }
+
+  @Get('pages/:id/preview')
+  getSeoPagePreview(@Param('id') id: string, @Query('limit') limit?: string) {
+    const n = limit ? Number.parseInt(limit, 10) : 24;
+    return this.programmaticSeo.resolvePageByContentId(id, Number.isFinite(n) ? n : 24);
+  }
+
+  @Post('pages/:id/regenerate')
+  regenerateSeoPage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.regenerateById(id, userId);
+  }
+
+  @Put('pages/:id')
+  updateSeoPage(
+    @Param('id') id: string,
+    @Body() body: SeoContentUpdateInput,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.updateContent(id, body, userId);
+  }
+
+  @Post('pages/:id/publish')
+  publishSeoPage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.updateStatus(id, SeoContentStatus.PUBLISHED, userId);
+  }
+
+  @Post('pages/:id/unpublish')
+  unpublishSeoPage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.content.updateStatus(id, SeoContentStatus.DRAFT, userId);
+  }
+
+  @Delete('pages/:id')
+  deleteSeoPage(@Param('id') id: string) {
+    return this.content.deleteContent(id);
   }
 
   @Get('stats')

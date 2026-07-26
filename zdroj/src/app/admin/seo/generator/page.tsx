@@ -13,12 +13,36 @@ import {
   nestAdminSeoGenerationProgress,
   nestAdminSeoGenerationResume,
   nestAdminSeoGenerationStats,
+  nestAdminSeoJobSkipped,
   nestAdminSeoRegenerateDrafts,
   nestAdminSeoRegenerateErrors,
   type SeoGenerationJobView,
   type SeoGenerationStats,
   type SeoGenerationTestResult,
+  type SeoJobResultItem,
+  type SeoSkippedItemDetail,
 } from '@/lib/nest-client';
+
+const SKIP_REASON_LABELS: Record<string, string> = {
+  DUPLICATE_SLUG: 'Duplicitní slug',
+  DUPLICATE_COMBINATION: 'Duplicitní kombinace',
+  ALREADY_EXISTS: 'Již existuje',
+  MISSING_LOCALITY: 'Chybí lokalita',
+  MISSING_LOCALITY_CODE: 'Chybí kód lokality',
+  MISSING_PROPERTY_TYPE: 'Chybí typ nemovitosti',
+  INVALID_COMBINATION: 'Neplatná kombinace',
+  LOW_QUALITY: 'Nízká kvalita',
+  NO_LISTINGS: 'Bez inzerátů',
+  NO_RUIAN_DATA: 'Chybí RÚIAN',
+  NO_CSU_DATA: 'Chybí ČSÚ',
+  NO_TEMPLATE: 'Chybí šablona',
+  INVALID_SLUG: 'Neplatný slug',
+  NOT_INDEXABLE: 'Není indexovatelná',
+  FILTERED_BY_JOB: 'Filtrováno jobem',
+  LOCKED_CONTENT: 'Zamčený obsah',
+  DATABASE_CONFLICT: 'Konflikt DB',
+  UNKNOWN: 'Neznámý',
+};
 
 export default function AdminSeoGeneratorPage() {
   const router = useRouter();
@@ -31,6 +55,10 @@ export default function AdminSeoGeneratorPage() {
   const [progress, setProgress] = useState<SeoGenerationJobView | null>(null);
   const [active, setActive] = useState(false);
   const [testResult, setTestResult] = useState<SeoGenerationTestResult | null>(null);
+  const [skippedDetails, setSkippedDetails] = useState<SeoSkippedItemDetail[]>([]);
+  const [expandedReason, setExpandedReason] = useState<string | null>(null);
+  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [testLocation, setTestLocation] = useState('pardubice');
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -42,6 +70,10 @@ export default function AdminSeoGeneratorPage() {
     if (p) {
       setActive(p.active);
       setProgress(p.job);
+      if (p.job && p.job.status === 'COMPLETED' && p.job.jobId) {
+        const skipped = await nestAdminSeoJobSkipped(token, p.job.jobId);
+        if (skipped?.items) setSkippedDetails(skipped.items);
+      }
     }
   }, [token]);
 
@@ -67,6 +99,7 @@ export default function AdminSeoGeneratorPage() {
     setBusy(true);
     setError(null);
     setMsg(null);
+    setSkippedDetails([]);
     try {
       const res = (await fn()) as { success?: boolean; error?: string; jobId?: string } | null;
       if (res && res.success === false) {
@@ -89,13 +122,17 @@ export default function AdminSeoGeneratorPage() {
     setMsg(null);
     setTestResult(null);
     try {
-      const res = await nestAdminSeoGenerateTest(token);
+      const res = await nestAdminSeoGenerateTest(token, {
+        offerType: 'PRODEJ',
+        propertyType: 'BYT',
+        locationSlug: testLocation.trim() || 'pardubice',
+      });
       if (!res) {
         setError('API nevrátilo odpověď. Zkontrolujte přihlášení a backend.');
         return;
       }
       setTestResult(res);
-      setMsg(`Testovací stránka vytvořena (${res.action}).`);
+      setMsg(`Testovací stránka: ${res.action} (${res.slug}).`);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Testovací generování selhalo');
@@ -108,12 +145,17 @@ export default function AdminSeoGeneratorPage() {
 
   const job = progress;
   const pct = job?.progressPct ?? 0;
+  const skipReasons = job?.skipReasons ?? {};
+  const recentResults = job?.recentResults ?? [];
 
   return (
     <>
       <p className="mb-4 text-sm text-zinc-600">
         Šablonový generátor SEO stránek bez AI. Texty se skládají z lokálních šablon podle lokality,
-        typu nabídky a dat RÚIAN/ČSÚ.
+        typu nabídky a dat RÚIAN/ČSÚ.{' '}
+        <Link href="/admin/seo/stranky" className="text-orange-600 underline">
+          Přehled SEO stránek →
+        </Link>
       </p>
 
       {stats ? (
@@ -136,15 +178,29 @@ export default function AdminSeoGeneratorPage() {
 
       <section className="mb-6 space-y-3 rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="text-lg font-semibold">Generování</h2>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />
+            Pouze chybějící kombinace
+          </label>
+        </div>
         <div className="flex flex-wrap gap-2">
-          <ActionButton disabled={busy} onClick={() => void generateTest()}>
-            Generovat testovací stránku
-          </ActionButton>
+          <div className="flex items-center gap-2">
+            <input
+              value={testLocation}
+              onChange={(e) => setTestLocation(e.target.value)}
+              placeholder="pardubice"
+              className="rounded-lg border px-2 py-1.5 text-sm"
+            />
+            <ActionButton disabled={busy} onClick={() => void generateTest()}>
+              Generovat testovací stránku
+            </ActionButton>
+          </div>
           <ActionButton
             disabled={busy}
             onClick={() =>
               void runAction('Generování 100 stránek', () =>
-                nestAdminSeoGenerateBatch(token, { limit: 100, onlyMissing: true }),
+                nestAdminSeoGenerateBatch(token, { limit: 100, onlyMissing }),
               )
             }
           >
@@ -154,7 +210,7 @@ export default function AdminSeoGeneratorPage() {
             disabled={busy}
             onClick={() =>
               void runAction('Generování 1 000 stránek', () =>
-                nestAdminSeoGenerateBatch(token, { limit: 1000, onlyMissing: true }),
+                nestAdminSeoGenerateBatch(token, { limit: 1000, onlyMissing }),
               )
             }
           >
@@ -222,7 +278,8 @@ export default function AdminSeoGeneratorPage() {
             <div className="h-full bg-orange-600 transition-all" style={{ width: `${pct}%` }} />
           </div>
           <p className="text-sm font-medium">
-            {job.processedItems.toLocaleString('cs-CZ')} / {job.totalItems.toLocaleString('cs-CZ')}
+            Kandidátů: {job.totalItems.toLocaleString('cs-CZ')} — zpracováno{' '}
+            {job.processedItems.toLocaleString('cs-CZ')}
           </p>
           <div className="mt-2 grid gap-1 text-sm text-zinc-600 sm:grid-cols-2 lg:grid-cols-4">
             <span>Vytvořeno: {job.createdItems}</span>
@@ -234,6 +291,50 @@ export default function AdminSeoGeneratorPage() {
             <p className="mt-2 text-sm text-zinc-500">Aktuálně: {job.currentItem}</p>
           ) : null}
           {job.lastError ? <p className="mt-2 text-sm text-red-600">Poslední chyba: {job.lastError}</p> : null}
+
+          {Object.keys(skipReasons).length > 0 ? (
+            <div className="mt-4">
+              <h3 className="mb-2 text-sm font-semibold">Důvody přeskočení</h3>
+              <ul className="space-y-1 text-sm">
+                {Object.entries(skipReasons).map(([reason, count]) => (
+                  <li key={reason}>
+                    <button
+                      type="button"
+                      className="text-left text-orange-700 underline"
+                      onClick={() => setExpandedReason(expandedReason === reason ? null : reason)}
+                    >
+                      {SKIP_REASON_LABELS[reason] ?? reason}: {count}
+                    </button>
+                    {expandedReason === reason ? (
+                      <ul className="ml-4 mt-1 max-h-40 overflow-y-auto border-l border-zinc-200 pl-2 text-xs text-zinc-600">
+                        {skippedDetails
+                          .filter((d) => d.reason === reason)
+                          .slice(-20)
+                          .map((d, i) => (
+                            <li key={`${d.at}-${i}`} className="mb-1">
+                              {d.locationName ?? d.locationSlug} — {d.expectedSlug ?? d.intentSlug}
+                              {d.existingPageId ? ` (ID: ${d.existingPageId})` : ''}
+                            </li>
+                          ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {recentResults.length > 0 ? (
+            <div className="mt-4">
+              <h3 className="mb-2 text-sm font-semibold">Nově vytvořené / aktualizované stránky</h3>
+              <ul className="space-y-2 text-sm">
+                {recentResults.slice(-20).map((r) => (
+                  <RecentResultRow key={`${r.pageId}-${r.at}`} item={r} />
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {job.logs.length ? (
             <div className="mt-4 max-h-48 overflow-y-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs">
               {job.logs.map((l, i) => (
@@ -250,6 +351,7 @@ export default function AdminSeoGeneratorPage() {
         <section className="rounded-2xl border border-green-200 bg-green-50 p-5">
           <h2 className="mb-2 text-lg font-semibold text-green-900">Výsledek testu</h2>
           <ul className="space-y-1 text-sm text-green-900">
+            <li>Slug: {testResult.slug}</li>
             <li>
               Veřejná URL:{' '}
               <Link href={testResult.publicPath} className="underline" target="_blank">
@@ -262,13 +364,19 @@ export default function AdminSeoGeneratorPage() {
             <li>Meta Title: {testResult.metaTitle}</li>
             <li>Canonical: {testResult.canonical}</li>
           </ul>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href={testResult.adminPreviewUrl}
+              className="rounded-lg bg-green-700 px-3 py-1.5 text-sm text-white"
+            >
+              Admin náhled
+            </Link>
             <Link
               href={testResult.publicPath}
               target="_blank"
-              className="rounded-lg bg-green-700 px-3 py-1.5 text-sm text-white"
+              className="rounded-lg border border-green-700 px-3 py-1.5 text-sm text-green-900"
             >
-              Otevřít náhled
+              Veřejná URL
             </Link>
             <Link
               href={`/admin/seo/stranky/${testResult.pageId}`}
@@ -280,6 +388,25 @@ export default function AdminSeoGeneratorPage() {
         </section>
       ) : null}
     </>
+  );
+}
+
+function RecentResultRow({ item }: { item: SeoJobResultItem }) {
+  return (
+    <li className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+      <p className="font-medium">{item.title ?? item.slug}</p>
+      <p className="text-xs text-zinc-500">
+        Stav: {item.status} / {item.indexable ? 'index' : 'noindex'} — {item.action}
+      </p>
+      <div className="mt-1 flex gap-2">
+        <Link href={item.adminPreviewUrl} className="text-xs text-orange-600 underline">
+          Náhled
+        </Link>
+        <Link href={item.publicUrl} target="_blank" className="text-xs text-orange-600 underline">
+          Veřejná URL
+        </Link>
+      </div>
+    </li>
   );
 }
 

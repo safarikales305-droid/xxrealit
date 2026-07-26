@@ -52,3 +52,6 @@ export type SeoGenerationLogEntry = {
   level: 'info' | 'warn' | 'error';
   message: string;
 };
+
+export type { SeoGenerationJobMeta, SeoJobResultItem, SeoSkippedItemDetail, SeoSkipReason } from './seo-skip-reasons';
+export { SEO_SKIP_REASON_LABELS, SEO_SKIP_REASONS } from './seo-skip-reasons';
