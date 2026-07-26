@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
@@ -7,34 +7,48 @@ import { OpenAiSeoService } from './openai-seo.service';
 import { OpenAiService } from './openai.service';
 import { OpenAiSettingsService } from './openai-settings.service';
 
-@Controller('admin/ai/openai')
+@Controller('admin/ai')
 @UseGuards(JwtAuthGuard, AdminGuard)
-export class OpenAiAdminController {
+export class AiAdminController {
+  private readonly log = new Logger(AiAdminController.name);
+
   constructor(
     private readonly openai: OpenAiService,
     private readonly settings: OpenAiSettingsService,
-    private readonly seoAi: OpenAiSeoService,
   ) {}
 
   @Get('status')
-  getStatus() {
-    return this.openai.getStatus();
+  async getStatus() {
+    const started = Date.now();
+    const status = await this.openai.getStatus();
+    this.log.log(`GET /admin/ai/status → 200 (${Date.now() - started}ms)`);
+    return status;
   }
 
   @Get('settings')
-  getSettings() {
-    return this.openai.getSettingsView();
+  async getSettings() {
+    const started = Date.now();
+    const data = await this.openai.getSettingsView();
+    this.log.log(`GET /admin/ai/settings → 200 (${Date.now() - started}ms)`);
+    return data;
   }
 
   @Patch('settings')
+  @Put('settings')
   updateSettings(@Body() body: UpdateAiSettingsDto) {
+    this.log.log('PATCH/PUT /admin/ai/settings');
     return this.settings.update(body);
   }
 
   @Post('test')
-  testConnection(@Req() req: { user?: { id?: string; sub?: string } }) {
+  async testConnection(@Req() req: { user?: { id?: string; sub?: string } }) {
+    const started = Date.now();
     const userId = req.user?.id ?? req.user?.sub;
-    return this.openai.testConnection(userId);
+    const result = await this.openai.testConnection(userId);
+    this.log.log(
+      `POST /admin/ai/test → success=${result.success} code=${result.code ?? 'ok'} (${Date.now() - started}ms)`,
+    );
+    return result;
   }
 
   @Get('usage')
@@ -43,9 +57,18 @@ export class OpenAiAdminController {
   }
 }
 
+/** Zpětná kompatibilita: /admin/ai/openai/* → stejné handlery */
+@Controller('admin/ai/openai')
+@UseGuards(JwtAuthGuard, AdminGuard)
+export class AiAdminLegacyController extends AiAdminController {
+  constructor(openai: OpenAiService, settings: OpenAiSettingsService) {
+    super(openai, settings);
+  }
+}
+
 @Controller('admin/ai/seo')
 @UseGuards(JwtAuthGuard, AdminGuard)
-export class OpenAiSeoAdminController {
+export class AiSeoAdminController {
   constructor(private readonly seoAi: OpenAiSeoService) {}
 
   @Post('improve/:contentId')

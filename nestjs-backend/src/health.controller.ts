@@ -9,7 +9,7 @@ export class HealthController {
   async getHealth() {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
-      return { status: 'ok', database: 'connected' };
+      return { status: 'ok', database: 'connected', timestamp: new Date().toISOString() };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown';
       throw new ServiceUnavailableException({

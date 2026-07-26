@@ -4,14 +4,35 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  aiAdminUrl,
+  nestAdminHealthCheck,
   nestAdminOpenAiSettings,
+  nestAdminOpenAiStatus,
   nestAdminOpenAiTest,
   nestAdminOpenAiUpdateSettings,
+  nestAdminOpenAiUsage,
   type AiSettingsResponse,
   type AiSettingsView,
+  type AiUsageSummary,
+  type OpenAiStatus,
 } from '@/lib/ai-admin-api';
+import { API_BASE_URL } from '@/lib/api';
 
 const MODELS = ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'];
+
+const EMPTY_USAGE: AiUsageSummary = {
+  requestsToday: 0,
+  requestsThisMonth: 0,
+  successfulToday: 0,
+  failedToday: 0,
+  inputTokensToday: 0,
+  outputTokensToday: 0,
+  inputTokensMonth: 0,
+  outputTokensMonth: 0,
+  estimatedCostCzkToday: 0,
+  estimatedCostCzkMonth: 0,
+  avgDurationMsToday: 0,
+};
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
@@ -26,14 +47,68 @@ export default function AdminAiCentrumPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [httpStatus, setHttpStatus] = useState<number | null>(null);
+  const [status, setStatus] = useState<OpenAiStatus | null>(null);
   const [data, setData] = useState<AiSettingsResponse | null>(null);
+  const [usage, setUsage] = useState<AiUsageSummary>(EMPTY_USAGE);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [healthMsg, setHealthMsg] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    const res = await nestAdminOpenAiSettings(token);
-    setData(res);
+  const loadAiCenter = useCallback(async () => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setHttpStatus(null);
+
+    try {
+      const statusResult = await nestAdminOpenAiStatus(token).then(
+        (value) => ({ ok: true as const, value }),
+        (err: Error & { httpStatus?: number }) => ({
+          ok: false as const,
+          err,
+          status: err.httpStatus ?? 0,
+        }),
+      );
+
+      if (!statusResult.ok) {
+        setHttpStatus(statusResult.status);
+        throw statusResult.err;
+      }
+
+      setStatus(statusResult.value);
+
+      const [settingsResult, usageResult] = await Promise.allSettled([
+        nestAdminOpenAiSettings(token),
+        nestAdminOpenAiUsage(token),
+      ]);
+
+      if (settingsResult.status === 'fulfilled') {
+        setData(settingsResult.value);
+        setUsage(settingsResult.value.usage);
+      } else {
+        const err = settingsResult.reason as Error & { httpStatus?: number };
+        setHttpStatus(err.httpStatus ?? null);
+        throw err;
+      }
+
+      if (usageResult.status === 'fulfilled') {
+        setUsage(usageResult.value);
+      }
+    } catch (e) {
+      const err = e as Error & { httpStatus?: number };
+      setError(err.message || 'AI centrum se nepodařilo načíst.');
+      if (err.httpStatus) setHttpStatus(err.httpStatus);
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
 
   useEffect(() => {
@@ -41,8 +116,8 @@ export default function AdminAiCentrumPage() {
   }, [isLoading, token, user, router]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (token && user?.role === 'ADMIN') void loadAiCenter();
+  }, [token, user, loadAiCenter]);
 
   async function save(patch: Partial<AiSettingsView>) {
     if (!token) return;
@@ -50,7 +125,7 @@ export default function AdminAiCentrumPage() {
     setMsg(null);
     try {
       await nestAdminOpenAiUpdateSettings(token, patch);
-      await refresh();
+      await loadAiCenter();
       setMsg('Nastavení uloženo.');
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Uložení selhalo');
@@ -66,7 +141,7 @@ export default function AdminAiCentrumPage() {
     try {
       const res = await nestAdminOpenAiTest(token);
       setMsg(res.message);
-      await refresh();
+      await loadAiCenter();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Test selhal');
     } finally {
@@ -74,49 +149,137 @@ export default function AdminAiCentrumPage() {
     }
   }
 
-  if (!token || user?.role !== 'ADMIN') return null;
-  if (!data) return <p className="text-sm text-zinc-500">Načítám AI centrum…</p>;
+  async function verifyBackend() {
+    setHealthMsg(null);
+    const health = await nestAdminHealthCheck();
+    if (!health.ok) {
+      setHealthMsg(`Backend: ${health.error} (HTTP ${health.status || '—'})`);
+      return;
+    }
+    setHealthMsg(
+      `Backend OK (${health.data.status}, DB: ${health.data.database}) · ${health.data.timestamp ?? ''}`,
+    );
+    if (token) {
+      try {
+        await nestAdminOpenAiStatus(token);
+        setHealthMsg((prev) => `${prev ?? ''} · AI endpoint: dostupný (${aiAdminUrl('/status')})`);
+      } catch (e) {
+        setHealthMsg((prev) => `${prev ?? ''} · AI endpoint: ${e instanceof Error ? e.message : 'chyba'}`);
+      }
+    }
+  }
 
-  const { settings, env, usage, status } = data;
-  const connectedLabel = status.configured
-    ? status.connected
+  if (!token || user?.role !== 'ADMIN') return null;
+
+  if (loading) {
+    return <p className="text-sm text-zinc-500">Načítám AI centrum…</p>;
+  }
+
+  if (error && !status && !data) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
+        <h2 className="text-lg font-semibold text-red-800">AI centrum se nepodařilo načíst.</h2>
+        <p className="mt-2 text-sm text-red-700">{error}</p>
+        {httpStatus != null ? <p className="mt-1 text-xs text-red-600">HTTP status: {httpStatus || 'síťová chyba'}</p> : null}
+        <p className="mt-2 text-xs text-red-600">API URL: {API_BASE_URL || '(nenastaveno)'}</p>
+        <p className="text-xs text-red-600">AI status URL: {API_BASE_URL ? aiAdminUrl('/status') : '—'}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void loadAiCenter()}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Načíst znovu
+          </button>
+          <button
+            type="button"
+            onClick={() => void verifyBackend()}
+            className="rounded-lg border border-red-300 px-4 py-2 text-sm"
+          >
+            Ověřit backend
+          </button>
+        </div>
+        {healthMsg ? <p className="mt-3 text-sm text-red-800">{healthMsg}</p> : null}
+      </div>
+    );
+  }
+
+  const settings = data?.settings;
+  const env = data?.env;
+  const displayStatus = status ?? data?.status;
+  const connectedLabel = !displayStatus?.configured
+    ? 'Nepřipojeno'
+    : displayStatus.connected === true
       ? 'Připojeno'
-      : 'Nakonfigurováno, netestováno'
-    : 'Nepřipojeno';
+      : displayStatus.connected === false
+        ? 'Test selhal'
+        : 'Nekonfigurováno / netestováno';
 
   return (
     <>
       <p className="mb-6 text-sm text-zinc-600">
-        Centrální správa OpenAI pro portál XXREALIT. Veškerá komunikace probíhá přes backend — API klíč není
+        Centrální správa OpenAI pro portál XXREALIT. Veškerá komunikace probíhá přes NestJS backend — API klíč není
         dostupný ve frontendu.
       </p>
 
+      {error ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          Částečná chyba: {error}
+          {httpStatus != null ? ` (HTTP ${httpStatus})` : ''}
+        </p>
+      ) : null}
+
       {msg ? <p className="mb-4 rounded-lg bg-zinc-100 px-4 py-2 text-sm">{msg}</p> : null}
+      {healthMsg ? <p className="mb-4 rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-900">{healthMsg}</p> : null}
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void loadAiCenter()}
+          disabled={busy}
+          className="rounded-lg border px-3 py-1.5 text-sm"
+        >
+          Obnovit stav
+        </button>
+        <button
+          type="button"
+          onClick={() => void verifyBackend()}
+          disabled={busy}
+          className="rounded-lg border px-3 py-1.5 text-sm"
+        >
+          Ověřit backend
+        </button>
+      </div>
 
       <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
-        <h2 className="mb-4 text-lg font-semibold">Stav OpenAI</h2>
+        <h2 className="mb-4 text-lg font-semibold">Připojení OpenAI</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Stav" value={connectedLabel} />
-          <Stat label="AI zapnuta" value={settings.enabled ? 'Ano' : 'Ne'} />
-          <Stat label="API klíč" value={env.apiKeyConfigured ? 'Nakonfigurován' : 'Chybí'} />
-          <Stat label="Model" value={settings.defaultModel} />
+          <Stat label="AI zapnuta" value={displayStatus?.enabled ? 'Ano' : 'Ne'} />
+          <Stat label="API klíč nastaven" value={displayStatus?.apiKeyConfigured ? 'Ano' : 'Ne'} />
+          <Stat label="Model" value={displayStatus?.model ?? settings?.defaultModel ?? '—'} />
         </div>
         <div className="mt-4 space-y-1 text-sm text-zinc-600">
-          {env.apiKeyMasked ? <p>Maskovaný klíč: {env.apiKeyMasked}</p> : <p>{status.message ?? 'OpenAI není připojeno.'}</p>}
-          <p>{env.apiKeyHelp}</p>
-          {settings.lastConnectionTestAt ? (
+          <p>{displayStatus?.message ?? 'OpenAI není připojeno.'}</p>
+          {env?.apiKeyMasked ? <p>Maskovaný klíč: {env.apiKeyMasked}</p> : null}
+          <p>{env?.apiKeyHelp ?? 'API klíč je bezpečně uložen v proměnných backendu (Railway).'}</p>
+          {settings?.lastConnectionTestAt ? (
             <p>
               Poslední test: {new Date(settings.lastConnectionTestAt).toLocaleString('cs-CZ')}
               {settings.lastConnectionSuccess ? ' — úspěch' : ' — chyba'}
             </p>
+          ) : displayStatus?.configured ? (
+            <p>OpenAI je nakonfigurováno, ale připojení ještě nebylo otestováno.</p>
           ) : null}
-          {settings.lastConnectionError ? (
-            <p className="text-red-600">Poslední chyba: {settings.lastConnectionError}</p>
+          {settings?.lastConnectionError || displayStatus?.lastError ? (
+            <p className="text-red-600">
+              Poslední chyba: {settings?.lastConnectionError ?? displayStatus?.lastError}
+            </p>
           ) : null}
         </div>
         <button
           type="button"
-          disabled={busy || !env.apiKeyConfigured}
+          disabled={busy || !displayStatus?.apiKeyConfigured}
           onClick={() => void testConnection()}
           className="mt-4 rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -124,100 +287,104 @@ export default function AdminAiCentrumPage() {
         </button>
       </section>
 
-      <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
-        <h2 className="mb-4 text-lg font-semibold">Konfigurace</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(e) => void save({ enabled: e.target.checked })}
-              disabled={busy}
-            />
-            Povolit OpenAI
-          </label>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Model</label>
-            <select
-              value={settings.defaultModel}
-              onChange={(e) => void save({ defaultModel: e.target.value })}
-              disabled={busy}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            >
-              {MODELS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Denní limit požadavků</label>
-            <input
-              type="number"
-              value={settings.dailyRequestLimit}
-              onChange={(e) => void save({ dailyRequestLimit: Number(e.target.value) })}
-              disabled={busy}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Měsíční rozpočet (Kč)</label>
-            <input
-              type="number"
-              value={settings.monthlyBudgetCzk}
-              onChange={(e) => void save({ monthlyBudgetCzk: Number(e.target.value) })}
-              disabled={busy}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Max. délka výstupu (tokeny)</label>
-            <input
-              type="number"
-              value={settings.maxOutputTokens}
-              onChange={(e) => void save({ maxOutputTokens: Number(e.target.value) })}
-              disabled={busy}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium">Timeout (ms)</label>
-            <input
-              type="number"
-              value={settings.timeoutMs}
-              onChange={(e) => void save({ timeoutMs: Number(e.target.value) })}
-              disabled={busy}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-      </section>
+      {settings ? (
+        <>
+          <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="mb-4 text-lg font-semibold">Konfigurace</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.enabled}
+                  onChange={(e) => void save({ enabled: e.target.checked })}
+                  disabled={busy}
+                />
+                Povolit OpenAI
+              </label>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Model</label>
+                <select
+                  value={settings.defaultModel}
+                  onChange={(e) => void save({ defaultModel: e.target.value })}
+                  disabled={busy}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                >
+                  {MODELS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Denní limit požadavků</label>
+                <input
+                  type="number"
+                  value={settings.dailyRequestLimit}
+                  onChange={(e) => void save({ dailyRequestLimit: Number(e.target.value) })}
+                  disabled={busy}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Měsíční rozpočet (Kč)</label>
+                <input
+                  type="number"
+                  value={settings.monthlyBudgetCzk}
+                  onChange={(e) => void save({ monthlyBudgetCzk: Number(e.target.value) })}
+                  disabled={busy}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Max. délka výstupu (tokeny)</label>
+                <input
+                  type="number"
+                  value={settings.maxOutputTokens}
+                  onChange={(e) => void save({ maxOutputTokens: Number(e.target.value) })}
+                  disabled={busy}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Timeout (ms)</label>
+                <input
+                  type="number"
+                  value={settings.timeoutMs}
+                  onChange={(e) => void save({ timeoutMs: Number(e.target.value) })}
+                  disabled={busy}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          </section>
 
-      <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
-        <h2 className="mb-4 text-lg font-semibold">Povolené funkce</h2>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {(
-            [
-              ['seoEnabled', 'SEO generování'],
-              ['listingDescriptionEnabled', 'Popisy inzerátů'],
-              ['socialPostEnabled', 'Sociální příspěvky'],
-              ['emailEnabled', 'E-maily'],
-              ['supportEnabled', 'Zákaznická podpora'],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={settings[key]}
-                onChange={(e) => void save({ [key]: e.target.checked })}
-                disabled={busy}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-      </section>
+          <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="mb-4 text-lg font-semibold">Povolené funkce</h2>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  ['seoEnabled', 'SEO generování'],
+                  ['listingDescriptionEnabled', 'Popisy inzerátů'],
+                  ['socialPostEnabled', 'Sociální příspěvky'],
+                  ['emailEnabled', 'E-maily'],
+                  ['supportEnabled', 'Zákaznická podpora'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings[key]}
+                    onChange={(e) => void save({ [key]: e.target.checked })}
+                    disabled={busy}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="mb-4 text-lg font-semibold">Přehled využití</h2>

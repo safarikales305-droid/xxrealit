@@ -9,6 +9,7 @@ import { AiProvider } from '@prisma/client';
 import OpenAI from 'openai';
 import { PrismaService } from '../../database/prisma.service';
 import { estimateCostCzk } from './openai-cost.util';
+import { EMPTY_AI_USAGE } from './openai-settings.defaults';
 import { OpenAiConfigService } from './openai-config.service';
 import { redactSecrets } from './openai-mask.util';
 import { OpenAiSettingsService } from './openai-settings.service';
@@ -65,16 +66,23 @@ export class OpenAiService {
     const db = await this.settings.getOrCreate();
     const configured = this.config.isApiKeyConfigured();
     const enabled = db.enabled || this.config.envEnabled;
+    const tested = db.lastConnectionTestAt != null;
     return {
       enabled,
       configured,
-      connected: Boolean(db.lastConnectionSuccess),
+      connected: tested ? Boolean(db.lastConnectionSuccess) : null,
       model: db.defaultModel || this.config.envModel,
       apiKeyConfigured: configured,
       apiKeyMasked: this.config.getMaskedApiKey(),
       lastSuccessfulTestAt: db.lastConnectionTestAt?.toISOString() ?? null,
       lastError: db.lastConnectionError ?? null,
-      message: configured ? null : 'OpenAI není připojeno.',
+      message: configured
+        ? tested
+          ? db.lastConnectionSuccess
+            ? 'OpenAI je připojeno.'
+            : 'Poslední test připojení selhal.'
+          : 'OpenAI je nakonfigurováno. Spusťte test připojení.'
+        : 'OpenAI není připojeno.',
       seoEnabled: db.seoEnabled,
       listingDescriptionEnabled: db.listingDescriptionEnabled,
       socialPostEnabled: db.socialPostEnabled,
@@ -86,6 +94,7 @@ export class OpenAiService {
   async getSettingsView() {
     const db = await this.settings.getOrCreate();
     const usage = await this.getUsageSummary();
+    const status = await this.getStatus();
     return {
       settings: {
         enabled: db.enabled,
@@ -112,54 +121,81 @@ export class OpenAiService {
           'API klíč je bezpečně uložen v proměnných backendu (Railway). Do administrace se neukládá.',
       },
       usage,
-      status: await this.getStatus(),
+      status,
     };
   }
 
   async getUsageSummary() {
-    const now = new Date();
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    try {
+      const now = new Date();
+      const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [today, month, successToday, failedToday] = await Promise.all([
-      this.prisma.aiUsageLog.findMany({ where: { createdAt: { gte: dayStart } } }),
-      this.prisma.aiUsageLog.findMany({ where: { createdAt: { gte: monthStart } } }),
-      this.prisma.aiUsageLog.count({ where: { createdAt: { gte: dayStart }, success: true } }),
-      this.prisma.aiUsageLog.count({ where: { createdAt: { gte: dayStart }, success: false } }),
-    ]);
+      const [today, month, successToday, failedToday] = await Promise.all([
+        this.prisma.aiUsageLog.findMany({ where: { createdAt: { gte: dayStart } } }),
+        this.prisma.aiUsageLog.findMany({ where: { createdAt: { gte: monthStart } } }),
+        this.prisma.aiUsageLog.count({ where: { createdAt: { gte: dayStart }, success: true } }),
+        this.prisma.aiUsageLog.count({ where: { createdAt: { gte: dayStart }, success: false } }),
+      ]);
 
-    const sum = (rows: typeof today) =>
-      rows.reduce(
-        (acc, r) => ({
-          requests: acc.requests + 1,
-          inputTokens: acc.inputTokens + r.inputTokens,
-          outputTokens: acc.outputTokens + r.outputTokens,
-          costCzk: acc.costCzk + (r.estimatedCostCzk ?? 0),
-          durationMs: acc.durationMs + (r.durationMs ?? 0),
-        }),
-        { requests: 0, inputTokens: 0, outputTokens: 0, costCzk: 0, durationMs: 0 },
-      );
+      const sum = (rows: typeof today) =>
+        rows.reduce(
+          (acc, r) => ({
+            requests: acc.requests + 1,
+            inputTokens: acc.inputTokens + r.inputTokens,
+            outputTokens: acc.outputTokens + r.outputTokens,
+            costCzk: acc.costCzk + (r.estimatedCostCzk ?? 0),
+            durationMs: acc.durationMs + (r.durationMs ?? 0),
+          }),
+          { requests: 0, inputTokens: 0, outputTokens: 0, costCzk: 0, durationMs: 0 },
+        );
 
-    const t = sum(today);
-    const m = sum(month);
+      const t = sum(today);
+      const m = sum(month);
 
-    return {
-      requestsToday: t.requests,
-      requestsThisMonth: m.requests,
-      successfulToday: successToday,
-      failedToday: failedToday,
-      inputTokensToday: t.inputTokens,
-      outputTokensToday: t.outputTokens,
-      inputTokensMonth: m.inputTokens,
-      outputTokensMonth: m.outputTokens,
-      estimatedCostCzkToday: Math.round(t.costCzk * 100) / 100,
-      estimatedCostCzkMonth: Math.round(m.costCzk * 100) / 100,
-      avgDurationMsToday: t.requests ? Math.round(t.durationMs / t.requests) : 0,
-    };
+      return {
+        requestsToday: t.requests,
+        requestsThisMonth: m.requests,
+        successfulToday: successToday,
+        failedToday: failedToday,
+        inputTokensToday: t.inputTokens,
+        outputTokensToday: t.outputTokens,
+        inputTokensMonth: m.inputTokens,
+        outputTokensMonth: m.outputTokens,
+        estimatedCostCzkToday: Math.round(t.costCzk * 100) / 100,
+        estimatedCostCzkMonth: Math.round(m.costCzk * 100) / 100,
+        avgDurationMsToday: t.requests ? Math.round(t.durationMs / t.requests) : 0,
+      };
+    } catch (err) {
+      this.log.warn(`AiUsageLog nedostupný: ${err instanceof Error ? err.message : String(err)}`);
+      return { ...EMPTY_AI_USAGE };
+    }
   }
 
   async testConnection(userId?: string) {
     const started = Date.now();
+    const model = (await this.settings.getOrCreate()).defaultModel || this.config.envModel;
+
+    if (!this.config.isApiKeyConfigured()) {
+      return {
+        success: false,
+        code: 'OPENAI_NOT_CONFIGURED',
+        message: 'OPENAI_API_KEY není nastaven.',
+        model,
+        durationMs: Date.now() - started,
+      };
+    }
+
+    if (!(await this.settings.getOrCreate()).enabled && !this.config.envEnabled) {
+      return {
+        success: false,
+        code: 'OPENAI_DISABLED',
+        message: 'OpenAI je vypnuto v nastavení.',
+        model,
+        durationMs: Date.now() - started,
+      };
+    }
+
     try {
       const result = await this.complete({
         feature: 'connection_test',
@@ -171,18 +207,21 @@ export class OpenAiService {
       await this.settings.recordConnectionTest(true);
       return {
         success: true,
+        code: 'OK',
         message: 'OpenAI je správně připojeno.',
         model: result.model,
         durationMs: Date.now() - started,
         response: result.text.trim(),
       };
     } catch (err) {
-      const msg = this.translateError(err);
+      const code = this.testErrorCode(err);
+      const msg = this.testErrorMessage(code, err);
       await this.settings.recordConnectionTest(false, msg);
       return {
         success: false,
+        code,
         message: msg,
-        model: (await this.settings.getOrCreate()).defaultModel,
+        model,
         durationMs: Date.now() - started,
       };
     }
@@ -413,5 +452,35 @@ export class OpenAiService {
       return new ForbiddenException(msg);
     }
     return new ServiceUnavailableException(msg);
+  }
+
+  private testErrorCode(err: unknown): string {
+    if (!this.config.isApiKeyConfigured()) return 'OPENAI_NOT_CONFIGURED';
+    const code = this.errorCode(err);
+    if (code === 'invalid_key') return 'OPENAI_INVALID_KEY';
+    if (code === 'billing' || code === 'rate_limit') return 'OPENAI_QUOTA_EXCEEDED';
+    if (code === 'timeout' || code === 'server_error') return 'OPENAI_UNAVAILABLE';
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/model/i.test(msg) && /not found|does not exist|unavailable/i.test(msg)) {
+      return 'OPENAI_MODEL_UNAVAILABLE';
+    }
+    return 'OPENAI_ERROR';
+  }
+
+  private testErrorMessage(code: string, err: unknown): string {
+    switch (code) {
+      case 'OPENAI_NOT_CONFIGURED':
+        return 'OPENAI_API_KEY není nastaven.';
+      case 'OPENAI_INVALID_KEY':
+        return 'OpenAI API klíč není platný.';
+      case 'OPENAI_QUOTA_EXCEEDED':
+        return 'OpenAI účet nemá dostupný kredit nebo byl překročen limit.';
+      case 'OPENAI_MODEL_UNAVAILABLE':
+        return 'Vybraný model není dostupný.';
+      case 'OPENAI_UNAVAILABLE':
+        return 'Služba dočasně neodpovídá.';
+      default:
+        return this.translateError(err);
+    }
   }
 }
