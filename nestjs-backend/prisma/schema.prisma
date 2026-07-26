@@ -2947,6 +2947,8 @@ model SeoSettings {
   programmaticSeoScoreCheck                Boolean @default(true)
   /// Kontrola indexace
   programmaticIndexationCheck              Boolean @default(true)
+  programmaticIndexabilityMinScore       Int     @default(70)
+  programmaticIndexabilityReviewScore    Int     @default(50)
   /// Náhled stránky před publikací
   programmaticPreviewBeforePublish         Boolean @default(false)
   updatedAt                       DateTime @updatedAt
@@ -3229,6 +3231,13 @@ model SeoPageContent {
   canonical        String?
   robots           String?          @default("index,follow")
   noindex          Boolean          @default(false)
+  indexable        Boolean          @default(false)
+  indexabilityReason String?
+  indexabilityScore  Int              @default(0)
+  indexabilityChecksJson Json?
+  lastIndexabilityCheckAt DateTime?
+  inSitemap        Boolean          @default(false)
+  lastHttpStatus   Int?
   ogTitle          String?
   ogDescription    String?          @db.Text
   ogImage          String?

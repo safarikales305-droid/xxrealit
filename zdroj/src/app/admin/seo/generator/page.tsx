@@ -16,6 +16,8 @@ import {
   nestAdminSeoJobSkipped,
   nestAdminSeoRegenerateDrafts,
   nestAdminSeoRegenerateErrors,
+  nestAdminSeoRecalculateIndexability,
+  nestAdminSeoSitemapStats,
   type SeoGenerationJobView,
   type SeoGenerationStats,
   type SeoGenerationTestResult,
@@ -59,14 +61,29 @@ export default function AdminSeoGeneratorPage() {
   const [expandedReason, setExpandedReason] = useState<string | null>(null);
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [testLocation, setTestLocation] = useState('pardubice');
+  const [sitemapStats, setSitemapStats] = useState<{
+    indexableInSitemap: number;
+    excludedFromSitemap: number;
+    lastGeneratedAt: string | null;
+    sitemapUrls: string[];
+  } | null>(null);
+  const [recalcResult, setRecalcResult] = useState<{
+    processed: number;
+    changedToIndexable: number;
+    keptNoindex: number;
+    errors: number;
+    byReason: Record<string, number>;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [s, p] = await Promise.all([
+    const [s, p, sm] = await Promise.all([
       nestAdminSeoGenerationStats(token),
       nestAdminSeoGenerationProgress(token),
+      nestAdminSeoSitemapStats(token),
     ]);
     setStats(s);
+    setSitemapStats(sm);
     if (p) {
       setActive(p.active);
       setProgress(p.job);
@@ -236,7 +253,74 @@ export default function AdminSeoGeneratorPage() {
           >
             Přegenerovat ERROR
           </ActionButton>
+          <ActionButton
+            disabled={busy}
+            variant="secondary"
+            onClick={() =>
+              void runAction('Přehodnocení indexovatelnosti', async () => {
+                const res = await nestAdminSeoRecalculateIndexability(token, {
+                  scope: 'PUBLISHED_NOINDEX',
+                });
+                if (res) setRecalcResult(res);
+                return res;
+              })
+            }
+          >
+            Přehodnotit indexovatelnost
+          </ActionButton>
+          <ActionButton
+            disabled={busy}
+            variant="secondary"
+            onClick={() =>
+              void runAction('Přehodnocení všech publikovaných', async () => {
+                const res = await nestAdminSeoRecalculateIndexability(token, {
+                  scope: 'ALL_PUBLISHED',
+                });
+                if (res) setRecalcResult(res);
+                return res;
+              })
+            }
+          >
+            Přehodnotit vše publikované
+          </ActionButton>
         </div>
+
+        {sitemapStats ? (
+          <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+            <p className="font-semibold">Sitemap</p>
+            <p>V sitemap: {sitemapStats.indexableInSitemap} URL</p>
+            <p>Vyřazeno: {sitemapStats.excludedFromSitemap} URL</p>
+            <p>Poslední kontrola: {sitemapStats.lastGeneratedAt ?? '—'}</p>
+            <ul className="mt-1 list-disc pl-5">
+              {sitemapStats.sitemapUrls.map((url) => (
+                <li key={url}>
+                  <a href={url} target="_blank" rel="noreferrer" className="text-orange-600 underline">
+                    {url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {recalcResult ? (
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+            <p className="font-semibold">Výsledek přehodnocení</p>
+            <p>Zpracováno: {recalcResult.processed}</p>
+            <p>Změněno na indexable: {recalcResult.changedToIndexable}</p>
+            <p>Ponecháno noindex: {recalcResult.keptNoindex}</p>
+            <p>Chyby: {recalcResult.errors}</p>
+            {Object.keys(recalcResult.byReason).length > 0 ? (
+              <ul className="mt-2 list-disc pl-5">
+                {Object.entries(recalcResult.byReason).map(([reason, count]) => (
+                  <li key={reason}>
+                    {reason}: {count}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2 border-t border-zinc-100 pt-3">
           <ActionButton
@@ -360,6 +444,8 @@ export default function AdminSeoGeneratorPage() {
             </li>
             <li>Stav: {testResult.status}</li>
             <li>Indexovatelná: {testResult.indexable ? 'ano' : 'ne (noindex)'}</li>
+            <li>Důvod: {(testResult as { indexabilityReason?: string }).indexabilityReason ?? '—'}</li>
+            <li>Quality score: {(testResult as { indexabilityScore?: number }).indexabilityScore ?? '—'}</li>
             <li>H1: {testResult.h1}</li>
             <li>Meta Title: {testResult.metaTitle}</li>
             <li>Canonical: {testResult.canonical}</li>

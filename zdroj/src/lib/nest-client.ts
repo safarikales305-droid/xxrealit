@@ -14577,6 +14577,43 @@ export async function nestAdminSeoGenerationStats(
   return nestAdminSeoJson<SeoGenerationStats>(token, '/stats');
 }
 
+export type SeoIndexabilityRecalculateResult = {
+  processed: number;
+  changedToIndexable: number;
+  keptNoindex: number;
+  errors: number;
+  byReason: Record<string, number>;
+  samples: Array<{ pageKey: string; indexable: boolean; reason: string; score: number }>;
+};
+
+export type SeoSitemapStats = {
+  indexableInSitemap: number;
+  excludedFromSitemap: number;
+  lastGeneratedAt: string | null;
+  sitemapUrls: string[];
+};
+
+export async function nestAdminSeoRecalculateIndexability(
+  token: string | null,
+  body: {
+    scope?: 'ALL_PUBLISHED' | 'PUBLISHED_NOINDEX' | 'WITH_LISTINGS' | 'REGION' | 'LOCATION' | 'CHANGED_SINCE';
+    regionId?: string;
+    locationId?: string;
+    changedSince?: string;
+    checkHttp?: boolean;
+  },
+): Promise<SeoIndexabilityRecalculateResult | null> {
+  return nestAdminSeoJson<SeoIndexabilityRecalculateResult>(token, '/indexability/recalculate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoSitemapStats(token: string | null): Promise<SeoSitemapStats | null> {
+  return nestAdminSeoJson<SeoSitemapStats>(token, '/indexability/sitemap-stats');
+}
+
 export async function nestAdminSeoJobResults(
   token: string | null,
   jobId: string,

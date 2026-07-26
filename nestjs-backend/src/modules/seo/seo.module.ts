@@ -17,6 +17,7 @@ import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
 import { SeoPublicListingsService } from './seo-public-listings.service';
 import { SeoAdminCenterService } from './seo-admin-center.service';
 import { SeoGenerationJobService } from './seo-generation-job.service';
+import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService } from './seo.service';
 
 @Module({
@@ -34,6 +35,7 @@ import { SeoService } from './seo.service';
     SeoContentService,
     SeoAdminCenterService,
     SeoGenerationJobService,
+    SeoIndexabilityService,
     SeoPublicListingsService,
     SeoIndexQueueService,
     GoogleIndexingService,

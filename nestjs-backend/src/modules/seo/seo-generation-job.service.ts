@@ -85,7 +85,9 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
     const [possibleLocations, contentByStatus, indexable, noindex, activeJob] = await Promise.all([
       this.prisma.seoLocation.count({ where: buildLocationWhere() }),
       this.prisma.seoPageContent.groupBy({ by: ['status'], _count: { _all: true } }),
-      this.prisma.seoPageContent.count({ where: { noindex: false, status: SeoContentStatus.PUBLISHED } }),
+      this.prisma.seoPageContent.count({
+        where: { indexable: true, status: SeoContentStatus.PUBLISHED },
+      }),
       this.prisma.seoPageContent.count({ where: { noindex: true } }),
       this.getActiveJob(),
     ]);
@@ -208,7 +210,9 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
       publicPath,
       publicUrl: publicPath,
       status: result.page.status,
-      indexable: !result.page.noindex,
+      indexable: result.page.indexable ?? !result.page.noindex,
+      indexabilityReason: result.page.indexabilityReason ?? null,
+      indexabilityScore: result.page.indexabilityScore ?? 0,
       title: result.page.title,
       metaTitle: result.page.title,
       metaDescription: result.page.description,
@@ -568,7 +572,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
             slug: result.slug,
             publicUrl: result.publicPath,
             status: result.page.status,
-            indexable: !result.page.noindex,
+            indexable: result.page.indexable ?? !result.page.noindex,
             intentSlug,
             locationName: location.name,
           });
@@ -581,7 +585,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
             slug: result.slug,
             publicUrl: result.publicPath,
             status: result.page.status,
-            indexable: !result.page.noindex,
+            indexable: result.page.indexable ?? !result.page.noindex,
             intentSlug,
             locationName: location.name,
           });

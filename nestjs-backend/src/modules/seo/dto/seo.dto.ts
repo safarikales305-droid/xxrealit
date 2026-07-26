@@ -105,6 +105,12 @@ export class UpdateSeoSettingsDto {
   programmaticIndexationCheck?: boolean;
 
   @IsOptional()
+  programmaticIndexabilityMinScore?: number;
+
+  @IsOptional()
+  programmaticIndexabilityReviewScore?: number;
+
+  @IsOptional()
   @IsBoolean()
   programmaticPreviewBeforePublish?: boolean;
 }

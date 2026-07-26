@@ -95,10 +95,35 @@ export class SeoContentService {
     extended.relatedLocations = related;
 
     const tier = getLocationQualityTier(dbLoc);
-    const indexability = resolveIndexability(tier, copy);
     const pageKey = buildProgrammaticSeoPageKey(input.intentSlug, dbLoc.slug);
     const publicPath = buildProgrammaticSeoPath(input.intentSlug, dbLoc.slug);
     const slug = publicPath.replace(/^\//, '');
+
+    const settings = await this.prisma.seoSettings.findUnique({ where: { id: 'default' } });
+    const intent = getProgrammaticSeoIntent(input.intentSlug);
+    const listingCount = await this.countListingsForPage(
+      dbLoc.id,
+      intent?.offerType,
+      intent?.propertyTypeKey,
+    );
+    const status = input.publish ? SeoContentStatus.PUBLISHED : SeoContentStatus.DRAFT;
+    const indexability = resolveIndexability(tier, copy, {
+      publicPath,
+      canonical: extended.canonical,
+      status,
+      h1: copy.h1,
+      faq: copy.faq,
+      internalLinks: extended.internalLinks,
+      relatedLocations: extended.relatedLocations,
+      locationActive: dbLoc.isActive,
+      hasLocalityData: Boolean(
+        dbLoc.officialCode &&
+          (dbLoc.latitude != null || dbLoc.population != null || dbLoc.dataSource != null),
+      ),
+      listingCount,
+      minScore: settings?.programmaticIndexabilityMinScore ?? 70,
+      reviewScore: settings?.programmaticIndexabilityReviewScore ?? 50,
+    });
     if (!slug || !copy.h1?.trim() || !copy.title?.trim() || !copy.description?.trim()) {
       throw new BadRequestException('INVALID_SLUG: Nelze vytvořit stránku — chybí slug nebo povinná metadata.');
     }
@@ -122,8 +147,6 @@ export class SeoContentService {
       };
     }
 
-    const status = input.publish ? SeoContentStatus.PUBLISHED : SeoContentStatus.DRAFT;
-
     const data = {
       status,
       title: copy.title,
@@ -139,6 +162,12 @@ export class SeoContentService {
       canonical: extended.canonical,
       robots: indexability.robots,
       noindex: indexability.noindex,
+      indexable: indexability.indexable,
+      indexabilityReason: indexability.indexabilityReason,
+      indexabilityScore: indexability.indexabilityScore,
+      indexabilityChecksJson: indexability.indexabilityChecksJson as Prisma.InputJsonValue,
+      lastIndexabilityCheckAt: new Date(),
+      inSitemap: indexability.inSitemap,
       ogTitle: extended.ogTitle,
       ogDescription: extended.ogDescription,
       ogImage: extended.ogImage,
@@ -390,5 +419,37 @@ export class SeoContentService {
     if (copy.bodyText.length >= 200) score += 15;
     if (copy.faq.length >= 3) score += 15;
     return Math.min(100, score);
+  }
+
+  private async countListingsForPage(
+    locationId: string,
+    offerType?: string,
+    propertyTypeKey?: string,
+  ): Promise<number> {
+    const where: Prisma.PropertyWhereInput = {
+      deletedAt: null,
+      approved: true,
+      isActive: true,
+      isVisible: true,
+      seoLocationId: locationId,
+    };
+    if (offerType) {
+      const variants =
+        offerType === 'pronajem'
+          ? ['pronájem', 'pronajem', 'nájem', 'najem']
+          : ['prodej', 'prodej'];
+      where.OR = variants.map((v) => ({ offerType: { equals: v, mode: 'insensitive' } }));
+    }
+    if (propertyTypeKey) {
+      where.AND = [
+        {
+          OR: [
+            { propertyTypeKey: { equals: propertyTypeKey, mode: 'insensitive' } },
+            { propertyType: { contains: propertyTypeKey.replace('_', ' '), mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+    return this.prisma.property.count({ where });
   }
 }

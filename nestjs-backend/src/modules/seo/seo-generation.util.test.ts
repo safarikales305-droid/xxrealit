@@ -14,6 +14,7 @@ import {
   shouldFilterByQualityTier,
 } from './seo-generation.util';
 import { incrementSkipReason } from './seo-skip-reasons';
+import { SeoContentStatus } from '@prisma/client';
 
 test('clampBatchSize keeps batch between 50 and 200', () => {
   assert.equal(clampBatchSize(), 100);
@@ -53,15 +54,35 @@ test('getLocationQualityTier classifies cities as HIGH', () => {
   assert.equal(getLocationQualityTier({ kind: 'OBEC', population: 6000 }), 'HIGH');
 });
 
-test('resolveIndexability marks LOW tier as noindex', () => {
-  const r = resolveIndexability('LOW', {
-    title: 'Title',
-    description: 'Description long enough',
-    bodyText: 'x '.repeat(200),
-    wordCount: 200,
-  });
-  assert.equal(r.noindex, true);
-  assert.equal(r.robots, 'noindex,follow');
+test('LOW tier with quality content can be indexable via score', () => {
+  const r = resolveIndexability(
+    'LOW',
+    {
+      title: 'Prodej bytů Malá obec | XXREALIT',
+      description:
+        'Kompletní průvodce prodejem bytů v malé obci. Trh, ceny, tipy a aktuální nabídky s fotografiemi a videem na XXREALIT.',
+      bodyText: `${'Kvalitní obsah. '.repeat(80)}`,
+      h1: 'Prodej bytů Malá obec',
+      faq: [
+        { question: 'Q1', answer: 'A1' },
+        { question: 'Q2', answer: 'A2' },
+        { question: 'Q3', answer: 'A3' },
+      ],
+      internalLinks: [{ label: 'A', path: '/a' }, { label: 'B', path: '/b' }],
+      relatedLocations: [{ slug: 'okoli', name: 'Okolí' }],
+    },
+    {
+      publicPath: '/prodej-bytu/mala-obec',
+      canonical: 'https://www.xxrealit.cz/prodej-bytu/mala-obec',
+      status: SeoContentStatus.PUBLISHED,
+      hasLocalityData: true,
+      minScore: 70,
+      reviewScore: 50,
+    },
+  );
+  assert.equal(r.indexable, true);
+  assert.equal(r.noindex, false);
+  assert.equal(r.robots, 'index,follow');
 });
 
 test('buildProgrammaticSeoPageKey is unique per intent and location', () => {
@@ -84,7 +105,19 @@ test('HIGH tier published page is indexable when content is complete', () => {
   const intent = getProgrammaticSeoIntent('prodej-bytu')!;
   const loc = findCzGeoLocation('pardubice')!;
   const copy = buildProgrammaticSeoCopy(intent, loc);
-  const r = resolveIndexability('HIGH', copy);
+  const r = resolveIndexability('HIGH', copy, {
+    publicPath: copy.path,
+    canonical: `https://www.xxrealit.cz${copy.path}`,
+    status: SeoContentStatus.PUBLISHED,
+    h1: copy.h1,
+    faq: copy.faq,
+    internalLinks: [{ label: 'A', path: '/a' }, { label: 'B', path: '/b' }],
+    relatedLocations: [{ slug: 'chrudim', name: 'Chrudim' }],
+    hasLocalityData: true,
+    minScore: 70,
+    reviewScore: 50,
+  });
+  assert.equal(r.indexable, true);
   assert.equal(r.noindex, false);
   assert.equal(r.robots, 'index,follow');
 });
@@ -106,16 +139,4 @@ test('incrementSkipReason counts skip reasons', () => {
   assert.equal(next.ALREADY_EXISTS, 3);
   const added = incrementSkipReason({}, 'MISSING_LOCALITY');
   assert.equal(added.MISSING_LOCALITY, 1);
-});
-
-test('LOW tier page is still created as noindex not skipped by default filter', () => {
-  const r = resolveIndexability('LOW', {
-    title: 'Prodej bytů Test',
-    description: 'Popis stránky s dostatečnou délkou pro SEO metadata a uživatele.',
-    bodyText: 'x '.repeat(200),
-    wordCount: 200,
-  });
-  assert.equal(r.noindex, true);
-  assert.equal(r.robots, 'noindex,follow');
-  assert.equal(shouldFilterByQualityTier('LOW'), false);
 });

@@ -23,6 +23,7 @@ import {
 import { SeoContentService } from './seo-content.service';
 import { SeoLocationService } from './seo-location.service';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
+import { getRobotsMetadata } from './seo-indexability.util';
 import type { SitemapEntry } from './seo.service';
 
 export type ProgrammaticSeoListingPreview = {
@@ -54,6 +55,7 @@ export type ProgrammaticSeoPagePayload = ProgrammaticSeoCopy & {
     canonical: string;
     robots: string;
     noindex: boolean;
+    indexable?: boolean;
     ogTitle: string;
     ogDescription: string;
     ogImage: string;
@@ -138,24 +140,33 @@ export class ProgrammaticSeoService {
         }
       : generated;
 
-    const seoMeta = published?.canonical
-      ? {
-          canonical: published.canonical,
-          robots: published.robots ?? extended.robots,
-          noindex: Boolean(published.noindex),
-          ogTitle: published.ogTitle ?? extended.ogTitle,
-          ogDescription: published.ogDescription ?? extended.ogDescription,
-          ogImage: published.ogImage ?? extended.ogImage,
-          twitterCard: published.twitterCard ?? extended.twitterCard,
-          schemaJson:
-            published.schemaJson && typeof published.schemaJson === 'object'
-              ? (published.schemaJson as Record<string, unknown>)
-              : extended.schemaJson,
-        }
+    const seoMeta = published
+      ? (() => {
+          const robots = getRobotsMetadata({
+            noindex: published.noindex,
+            robots: published.robots,
+            indexable: published.indexable,
+          });
+          return {
+            canonical: published.canonical ?? extended.canonical,
+            robots: robots.robots,
+            noindex: !robots.index,
+            indexable: published.indexable,
+            ogTitle: published.ogTitle ?? extended.ogTitle,
+            ogDescription: published.ogDescription ?? extended.ogDescription,
+            ogImage: published.ogImage ?? extended.ogImage,
+            twitterCard: published.twitterCard ?? extended.twitterCard,
+            schemaJson:
+              published.schemaJson && typeof published.schemaJson === 'object'
+                ? (published.schemaJson as Record<string, unknown>)
+                : extended.schemaJson,
+          };
+        })()
       : {
           canonical: extended.canonical,
           robots: extended.robots,
           noindex: false,
+          indexable: true,
           ogTitle: extended.ogTitle,
           ogDescription: extended.ogDescription,
           ogImage: extended.ogImage,
@@ -457,24 +468,34 @@ export class ProgrammaticSeoService {
 
   async getProgrammaticSitemapEntries(origin: string): Promise<SitemapEntry[]> {
     const base = origin.replace(/\/+$/, '');
-    const now = new Date().toISOString();
-    const dbSlugs = await this.seoLocations.listSlugsForSitemap();
-    const slugs = dbSlugs.length ? dbSlugs : listCzGeoSlugsForSitemap();
-    const entries: SitemapEntry[] = [];
+    const pages = await this.prisma.seoPageContent.findMany({
+      where: {
+        status: 'PUBLISHED',
+        indexable: true,
+        noindex: false,
+      },
+      select: {
+        intentSlug: true,
+        canonical: true,
+        updatedAt: true,
+        location: { select: { slug: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50000,
+    });
 
-    for (const intentSlug of PROGRAMMATIC_SEO_INTENT_SLUGS) {
-      const intent = getProgrammaticSeoIntent(intentSlug)!;
-      for (const locSlug of slugs) {
-        entries.push({
-          loc: `${base}${buildProgrammaticSeoPath(intentSlug, locSlug)}`,
-          lastmod: now,
-          changefreq: 'weekly',
-          priority: intent.sitemapPriority,
-        });
-      }
-    }
-
-    return entries;
+    return pages
+      .filter((p) => p.intentSlug && p.location?.slug)
+      .map((p) => {
+        const path = buildProgrammaticSeoPath(p.intentSlug!, p.location!.slug);
+        const loc = p.canonical?.trim() || `${base}${path}`;
+        return {
+          loc,
+          lastmod: p.updatedAt.toISOString(),
+          changefreq: 'weekly' as const,
+          priority: 0.55,
+        };
+      });
   }
 
   getRegionSitemapEntries(origin: string): SitemapEntry[] {

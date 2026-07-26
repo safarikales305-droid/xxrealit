@@ -35,6 +35,27 @@ function buildHreflang(path: string): Record<string, string> {
 }
 
 /** Centrální builder metadat pro Metadata API Next.js. */
+export function getRobotsMetadata(page: {
+  noindex?: boolean;
+  robots?: string | null;
+  indexable?: boolean;
+}): { index: boolean; follow: boolean; robots: string; googlebot: string } {
+  const noindex = page.indexable === false || page.noindex === true;
+  if (noindex) {
+    return { robots: 'noindex,follow', googlebot: 'noindex,follow', index: false, follow: true };
+  }
+  const robots = page.robots?.trim() || 'index,follow';
+  const index = !/noindex/i.test(robots);
+  const follow = !/nofollow/i.test(robots);
+  return {
+    robots: index ? 'index,follow' : 'noindex,follow',
+    googlebot: index ? 'index,follow' : 'noindex,follow',
+    index,
+    follow: follow || !index,
+  };
+}
+
+/** Centrální builder metadat pro Metadata API Next.js. */
 export function buildSiteMetadata(input: BuildSiteMetadataInput): Metadata {
   const path = input.path ?? '/';
   const canonical = absoluteUrl(path);
@@ -45,14 +66,13 @@ export function buildSiteMetadata(input: BuildSiteMetadataInput): Metadata {
       : `${input.title} | ${SITE_NAME}`;
   const description = input.description ?? DEFAULT_DESCRIPTION;
   const image = input.image?.trim() || `${getAppOrigin()}/icons/icon-192.png`;
+  const robotsMeta = getRobotsMetadata({ noindex: input.noindex });
 
   return {
     title,
     description,
     keywords: input.keywords,
-    robots: input.noindex
-      ? { index: false, follow: false }
-      : { index: true, follow: true },
+    robots: { index: robotsMeta.index, follow: robotsMeta.follow },
     alternates: {
       canonical,
       languages: buildHreflang(path),

@@ -54,6 +54,12 @@ export class SeoAdminCenterService {
           schemaJson: true,
           canonical: true,
           noindex: true,
+          indexable: true,
+          indexabilityReason: true,
+          indexabilityScore: true,
+          inSitemap: true,
+          lastHttpStatus: true,
+          lastIndexabilityCheckAt: true,
           googleIndexed: true,
           qualityScore: true,
           pageKey: true,
@@ -71,7 +77,7 @@ export class SeoAdminCenterService {
     const published = contentRows.filter(
       (r) => r.status === SeoContentStatus.PUBLISHED || r.status === SeoContentStatus.LOCKED,
     );
-    const indexable = contentRows.filter((r) => !r.noindex && published.some((p) => p.id === r.id));
+    const indexable = contentRows.filter((r) => r.indexable && published.some((p) => p.id === r.id));
     const googleIndexed = contentRows.filter((r) => r.googleIndexed && !r.noindex);
     const noindex = contentRows.filter((r) => r.noindex);
     const withoutTitle = contentRows.filter((r) => !r.title?.trim());
@@ -272,6 +278,12 @@ export class SeoAdminCenterService {
           metaDescription: content?.description ?? fallback.description,
           canonical: content?.canonical ?? `https://www.xxrealit.cz${url}`,
           robots: content?.robots ?? 'index,follow',
+          indexable: content?.indexable ?? false,
+          indexabilityReason: content?.indexabilityReason ?? null,
+          indexabilityScore: content?.indexabilityScore ?? 0,
+          inSitemap: content?.inSitemap ?? false,
+          lastHttpStatus: content?.lastHttpStatus ?? null,
+          lastIndexabilityCheckAt: content?.lastIndexabilityCheckAt?.toISOString() ?? null,
           status: content?.status ?? 'MISSING',
           listingCount,
           seoScore: content?.qualityScore ?? 0,

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { SeoContentStatus } from '@prisma/client';
 import type { SeoLocation, SeoLocationKind } from '@prisma/client';
 import {
   PROGRAMMATIC_SEO_INTENT_SLUGS,
   type ProgrammaticSeoIntentSlug,
 } from './programmatic-seo-intents';
+import { computeIndexability, type IndexabilityInput } from './seo-indexability.util';
 import {
   SEO_GENERATION_VERSION,
   SEO_LOCATION_KINDS_FOR_PAGES,
@@ -36,20 +38,48 @@ export function getLocationQualityTier(loc: Pick<SeoLocation, 'kind' | 'populati
   return 'LOW';
 }
 
+/** @deprecated Použijte computeIndexability — tier už není automatický důvod noindex. */
 export function resolveIndexability(
-  tier: SeoQualityTier,
-  copy: { title: string; description: string; bodyText: string; wordCount?: number },
-): { noindex: boolean; robots: string } {
-  const wordCount = copy.wordCount ?? copy.bodyText.split(/\s+/).filter(Boolean).length;
-  if (tier === 'LOW') return { noindex: true, robots: 'noindex,follow' };
-  if (!copy.title.trim() || !copy.description.trim() || !copy.bodyText.trim()) {
-    return { noindex: true, robots: 'noindex,follow' };
-  }
-  if (wordCount < 200) return { noindex: true, robots: 'noindex,follow' };
-  if (copy.title.length > 70 || copy.description.length > 170) {
-    return { noindex: true, robots: 'noindex,follow' };
-  }
-  return { noindex: false, robots: 'index,follow' };
+  _tier: SeoQualityTier,
+  copy: {
+    title: string;
+    description: string;
+    bodyText: string;
+    h1?: string;
+    wordCount?: number;
+    faq?: unknown;
+    internalLinks?: unknown;
+    relatedLocations?: unknown;
+  },
+  opts?: Partial<IndexabilityInput>,
+) {
+  const result = computeIndexability({
+    title: copy.title,
+    description: copy.description,
+    h1: copy.h1 ?? copy.title,
+    bodyText: copy.bodyText,
+    faq: copy.faq,
+    internalLinks: copy.internalLinks,
+    relatedLocations: copy.relatedLocations,
+    publicPath: opts?.publicPath ?? '/',
+    canonical: opts?.canonical,
+    status: opts?.status ?? SeoContentStatus.PUBLISHED,
+    locationActive: opts?.locationActive ?? true,
+    hasLocalityData: opts?.hasLocalityData ?? true,
+    listingCount: opts?.listingCount ?? 0,
+    minScore: opts?.minScore,
+    reviewScore: opts?.reviewScore,
+    ...opts,
+  });
+  return {
+    noindex: result.noindex,
+    robots: result.robots,
+    indexable: result.indexable,
+    indexabilityReason: result.indexabilityReason,
+    indexabilityScore: result.indexabilityScore,
+    indexabilityChecksJson: result.indexabilityChecksJson,
+    inSitemap: result.inSitemap,
+  };
 }
 
 export function filterIntents(filters?: SeoGenerationFilters): ProgrammaticSeoIntentSlug[] {

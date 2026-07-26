@@ -10,6 +10,7 @@ import { SeoIndexQueueService } from './seo-index-queue.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
 import { SeoGenerationJobService } from './seo-generation-job.service';
+import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService, type SitemapKind } from './seo.service';
 
 @Controller('seo')
@@ -72,6 +73,7 @@ export class SeoAdminController {
     private readonly content: SeoContentService,
     private readonly adminCenter: SeoAdminCenterService,
     private readonly generationJobs: SeoGenerationJobService,
+    private readonly indexability: SeoIndexabilityService,
     private readonly programmaticSeo: ProgrammaticSeoService,
   ) {}
 
@@ -323,6 +325,54 @@ export class SeoAdminController {
   @Get('stats')
   getGenerationStats() {
     return this.generationJobs.getStats();
+  }
+
+  @Post('indexability/recalculate')
+  recalculateIndexability(
+    @Body()
+    body: {
+      scope?: 'ALL_PUBLISHED' | 'PUBLISHED_NOINDEX' | 'WITH_LISTINGS' | 'REGION' | 'LOCATION' | 'CHANGED_SINCE';
+      regionId?: string;
+      locationId?: string;
+      changedSince?: string;
+      checkHttp?: boolean;
+    },
+  ) {
+    return this.indexability.recalculate({
+      scope: body.scope ?? 'PUBLISHED_NOINDEX',
+      regionId: body.regionId,
+      locationId: body.locationId,
+      changedSince: body.changedSince,
+      checkHttp: body.checkHttp,
+    });
+  }
+
+  @Post('indexability/pages/:id/test')
+  testPageIndexability(@Param('id') id: string) {
+    return this.indexability.evaluatePageById(id, true);
+  }
+
+  @Post('indexability/pages/:id/enable')
+  enablePageIndexability(
+    @Param('id') id: string,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.indexability.setManualIndexable(id, true, userId);
+  }
+
+  @Post('indexability/pages/:id/disable')
+  disablePageIndexability(
+    @Param('id') id: string,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.indexability.setManualIndexable(id, false, userId);
+  }
+
+  @Get('indexability/sitemap-stats')
+  getSitemapStats() {
+    return this.indexability.getSitemapStats();
   }
 
   @Patch('content/:id/status')
