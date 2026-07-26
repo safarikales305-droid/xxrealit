@@ -87,16 +87,14 @@ export function pairLabel(intentSlug: string, locationSlug: string, locationName
 }
 
 export function seoLocationToCopyInput(loc: SeoLocation) {
-  const kindMap: Record<SeoLocationKind, 'mesto' | 'obec' | 'cast'> = {
+  const kindMap: Partial<Record<SeoLocationKind, 'mesto' | 'obec' | 'cast'>> = {
     MESTO: 'mesto',
     MESTYS: 'mesto',
     OBEC: 'obec',
     MESTSKA_CAST: 'cast',
     KRAJ: 'mesto',
     OKRES: 'mesto',
-    STAT: 'mesto',
     CAST_OBCE: 'obec',
-    VES: 'obec',
   };
   return {
     slug: loc.slug,

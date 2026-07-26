@@ -57,6 +57,7 @@ import { BrokerDatabaseModule } from './modules/broker-database/broker-database.
 import { RegistrationGamificationModule } from './modules/registration-gamification/registration-gamification.module';
 import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
 import { MetaCenterModule } from './modules/meta-center/meta-center.module';
+import { OpenAiModule } from './modules/openai/openai.module';
 
 @Module({
   imports: [
@@ -120,6 +121,7 @@ import { MetaCenterModule } from './modules/meta-center/meta-center.module';
     RegistrationGamificationModule,
     MetaCatalogModule,
     MetaCenterModule,
+    OpenAiModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

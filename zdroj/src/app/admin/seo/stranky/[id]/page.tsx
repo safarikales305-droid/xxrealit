@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { SeoAiImproveDialog } from '@/components/admin/seo/SeoAiImproveDialog';
 import {
   nestAdminSeoContentGet,
   nestAdminSeoContentStatus,
@@ -90,6 +91,15 @@ export default function AdminSeoStrankaEditorPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <SeoAiImproveDialog
+            token={token}
+            contentId={row.id}
+            row={row}
+            onApplied={(page) => {
+              setRow(page);
+              setMsg('AI návrh použit jako koncept. Zkontrolujte a publikujte ručně.');
+            }}
+          />
           <button type="button" onClick={() => void save()} disabled={busy} className="rounded-lg border px-3 py-1.5 text-sm">
             Uložit
           </button>

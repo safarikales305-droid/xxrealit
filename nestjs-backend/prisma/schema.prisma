@@ -3295,6 +3295,86 @@ model SeoPageAnalytics {
   @@index([measuredAt(sort: Desc)])
 }
 
+enum AiProvider {
+  OPENAI
+}
+
+enum AiGenerationStatus {
+  PENDING
+  COMPLETED
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+/// Globální nastavení AI služeb (bez uloženého API klíče).
+model AiSettings {
+  id                        String     @id @default("default")
+  provider                  AiProvider @default(OPENAI)
+  enabled                   Boolean    @default(false)
+  defaultModel              String     @default("gpt-4.1-mini")
+  dailyRequestLimit         Int        @default(100)
+  monthlyBudgetCzk          Int        @default(1000)
+  maxOutputTokens           Int        @default(2000)
+  timeoutMs                 Int        @default(60000)
+  maxRetries                Int        @default(2)
+  seoEnabled                Boolean    @default(true)
+  listingDescriptionEnabled Boolean    @default(false)
+  socialPostEnabled         Boolean    @default(false)
+  emailEnabled              Boolean    @default(false)
+  supportEnabled            Boolean    @default(false)
+  lastConnectionTestAt      DateTime?
+  lastConnectionSuccess     Boolean?
+  lastConnectionError       String?    @db.Text
+  createdAt                 DateTime   @default(now())
+  updatedAt                 DateTime   @updatedAt
+}
+
+/// Auditní log AI požadavků (bez citlivých dat).
+model AiUsageLog {
+  id               String   @id @default(cuid())
+  provider         AiProvider @default(OPENAI)
+  feature          String
+  model            String?
+  userId           String?
+  requestId        String?
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  totalTokens      Int      @default(0)
+  estimatedCostCzk Float?
+  durationMs       Int?
+  success          Boolean  @default(false)
+  errorCode        String?
+  safeErrorMessage String?  @db.Text
+  createdAt        DateTime @default(now())
+
+  @@index([feature])
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+  @@index([success])
+}
+
+/// Uložené AI návrhy čekající na schválení.
+model AiGeneration {
+  id               String             @id @default(cuid())
+  feature          String
+  entityType       String
+  entityId         String
+  promptVersion    String             @default("v1")
+  model            String?
+  status           AiGenerationStatus @default(PENDING)
+  generatedContent Json?
+  approvedContent  Json?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([feature, entityType, entityId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
 model MarketingPopupUserView {
   id          String    @id @default(cuid())
   popupId     String

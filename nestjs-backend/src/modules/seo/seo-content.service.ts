@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, SeoContentStatus } from '@prisma/client';
+import { Prisma, SeoContentStatus, SeoPageContent } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import type { CzGeoLocation } from './cz-geo-locations.data';
 import { getProgrammaticSeoIntent } from './programmatic-seo-intents';
@@ -27,7 +27,7 @@ export type SeoContentGenerateInput = {
 
 export type SeoUpsertResult = {
   action: 'created' | 'updated' | 'skipped';
-  page: Awaited<ReturnType<SeoContentService['getById']>>;
+  page: SeoPageContent & { location?: { name: string; slug: string } | null };
   publicPath: string;
 };
 

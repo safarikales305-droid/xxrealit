@@ -193,7 +193,7 @@ export class SeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
         batchSize,
         filtersJson: { ...filters, limit: opts.limit ?? null } as Prisma.InputJsonValue,
         jobMeta: { logs: [] } as Prisma.InputJsonValue,
-        createdById: createdById ?? null,
+        createdById: opts.createdById ?? null,
       },
     });
 
