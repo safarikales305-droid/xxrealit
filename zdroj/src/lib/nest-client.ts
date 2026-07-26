@@ -15176,3 +15176,305 @@ export async function nestAdminUpdateStatisticsSettings(
   return { ok: true, data };
 }
 
+// --- AI OpenAI admin (centrální klient — stejný vzor jako meta-center / seo) ---
+
+const AI_OPENAI_FETCH_TIMEOUT_MS = 15_000;
+
+/** Plná URL: ${API_BASE_URL}/admin/ai/openai/... kde API_BASE_URL už obsahuje /api */
+export function nestAdminAiOpenAiUrl(path: string): string {
+  if (!API_BASE_URL) return '';
+  const base = API_BASE_URL.replace(/\/$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${base}/admin/ai/openai${suffix}`;
+}
+
+export type NestAdminAiApiError = Error & { httpStatus?: number; requestUrl?: string };
+
+export type NestAdminOpenAiStatus = {
+  enabled: boolean;
+  configured: boolean;
+  connected: boolean | null;
+  model: string;
+  apiKeyConfigured: boolean;
+  apiKeyMasked: string | null;
+  lastSuccessfulTestAt: string | null;
+  lastError: string | null;
+  message: string | null;
+  seoEnabled?: boolean;
+};
+
+export type NestAdminAiSettingsView = {
+  enabled: boolean;
+  defaultModel: string;
+  dailyRequestLimit: number;
+  monthlyBudgetCzk: number;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  maxRetries: number;
+  seoEnabled: boolean;
+  listingDescriptionEnabled: boolean;
+  socialPostEnabled: boolean;
+  emailEnabled: boolean;
+  supportEnabled: boolean;
+  lastConnectionTestAt: string | null;
+  lastConnectionSuccess: boolean | null;
+  lastConnectionError: string | null;
+};
+
+export type NestAdminAiUsageSummary = {
+  requestsToday: number;
+  requestsThisMonth: number;
+  successfulToday: number;
+  failedToday: number;
+  inputTokensToday: number;
+  outputTokensToday: number;
+  inputTokensMonth: number;
+  outputTokensMonth: number;
+  estimatedCostCzkToday: number;
+  estimatedCostCzkMonth: number;
+  avgDurationMsToday: number;
+};
+
+export type NestAdminAiSettingsResponse = {
+  settings: NestAdminAiSettingsView;
+  env: {
+    apiKeyConfigured: boolean;
+    apiKeyMasked: string | null;
+    apiKeySource: string;
+    apiKeyHelp: string;
+  };
+  usage: NestAdminAiUsageSummary;
+  status: NestAdminOpenAiStatus;
+};
+
+function nestAdminAiHumanizeError(status: number, message?: string): string {
+  if (status === 401) return 'Přihlášení vypršelo. Přihlaste se znovu.';
+  if (status === 403) return 'Do AI centra má přístup pouze administrátor.';
+  if (status === 404) return 'Backendový endpoint nebyl nalezen.';
+  if (status >= 500) return message ?? `Chyba serveru (${status}).`;
+  return message ?? `Chyba ${status}`;
+}
+
+export async function nestAdminAiOpenAiFetch<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<
+  | { ok: true; data: T; status: number; requestUrl: string }
+  | { ok: false; error: NestAdminAiApiError; status: number; requestUrl: string }
+> {
+  const requestUrl = nestAdminAiOpenAiUrl(path);
+  if (!requestUrl) {
+    const err = new Error(
+      'NEXT_PUBLIC_API_URL není nastaveno — nelze kontaktovat NestJS backend.',
+    ) as NestAdminAiApiError;
+    err.httpStatus = 0;
+    err.requestUrl = '';
+    return { ok: false, error: err, status: 0, requestUrl: '' };
+  }
+  if (!token) {
+    const err = new Error('Přihlášení vypršelo. Přihlaste se znovu.') as NestAdminAiApiError;
+    err.httpStatus = 401;
+    err.requestUrl = requestUrl;
+    return { ok: false, error: err, status: 401, requestUrl };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_OPENAI_FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(requestUrl, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    });
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+      const raw = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+      const err = new Error(nestAdminAiHumanizeError(res.status, raw)) as NestAdminAiApiError;
+      err.httpStatus = res.status;
+      err.requestUrl = requestUrl;
+      return { ok: false, error: err, status: res.status, requestUrl };
+    }
+
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (data == null) {
+      const err = new Error('Neplatná odpověď serveru (JSON).') as NestAdminAiApiError;
+      err.httpStatus = res.status;
+      err.requestUrl = requestUrl;
+      return { ok: false, error: err, status: res.status, requestUrl };
+    }
+
+    return { ok: true, data, status: res.status, requestUrl };
+  } catch (e) {
+    const err = (
+      e instanceof Error && e.name === 'AbortError'
+        ? new Error('Vypršel časový limit požadavku (15 s).')
+        : e instanceof Error
+          ? e
+          : new Error('Síťová chyba při komunikaci s backendem.')
+    ) as NestAdminAiApiError;
+    err.httpStatus = err.httpStatus ?? 0;
+    err.requestUrl = requestUrl;
+    return { ok: false, error: err, status: err.httpStatus ?? 0, requestUrl };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function nestAdminOpenAiSettings(
+  token: string | null,
+): Promise<NestAdminAiSettingsResponse> {
+  const res = await nestAdminAiOpenAiFetch<NestAdminAiSettingsResponse>(token, '/settings');
+  if (!res.ok) throw res.error;
+  return res.data;
+}
+
+export async function nestAdminOpenAiStatus(token: string | null): Promise<NestAdminOpenAiStatus> {
+  const res = await nestAdminAiOpenAiFetch<NestAdminOpenAiStatus>(token, '/status');
+  if (!res.ok) throw res.error;
+  return res.data;
+}
+
+export async function nestAdminOpenAiUsage(token: string | null): Promise<NestAdminAiUsageSummary> {
+  const res = await nestAdminAiOpenAiFetch<NestAdminAiUsageSummary>(token, '/usage');
+  if (!res.ok) throw res.error;
+  return res.data;
+}
+
+export async function nestAdminOpenAiUpdateSettings(
+  token: string | null,
+  patch: Partial<NestAdminAiSettingsView>,
+): Promise<NestAdminAiSettingsView> {
+  const res = await nestAdminAiOpenAiFetch<NestAdminAiSettingsView>(token, '/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw res.error;
+  return res.data;
+}
+
+export async function nestAdminOpenAiTest(token: string | null): Promise<{
+  success: boolean;
+  code?: string;
+  message: string;
+  model: string;
+  durationMs: number;
+}> {
+  const res = await nestAdminAiOpenAiFetch<{
+    success: boolean;
+    code?: string;
+    message: string;
+    model: string;
+    durationMs: number;
+  }>(token, '/test', { method: 'POST' });
+  if (!res.ok) throw res.error;
+  return res.data;
+}
+
+export async function nestAdminHealthCheck(): Promise<
+  | { ok: true; data: { status: string; database: string; timestamp?: string } }
+  | { ok: false; error: string; status: number }
+> {
+  if (!API_BASE_URL) return { ok: false, error: 'API URL není nastaveno.', status: 0 };
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/health`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_OPENAI_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) return { ok: false, error: `Health check HTTP ${res.status}`, status: res.status };
+    const data = (await res.json()) as { status: string; database: string; timestamp?: string };
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        e instanceof Error && e.name === 'AbortError'
+          ? 'Health check timeout (15 s).'
+          : 'Backend nedostupný.',
+      status: 0,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type NestAdminSeoAiProposal = {
+  generationId: string;
+  status: string;
+  model: string;
+  durationMs: number;
+  context: {
+    locationName: string;
+    offerLabel: string;
+    propertyLabel: string;
+    intentSlug: string | null;
+    locationSlug: string | undefined;
+  };
+  current: {
+    title: string;
+    description: string;
+    h1: string;
+    bodyText: string;
+    faq: unknown[];
+  };
+  proposal: {
+    metaTitle: string;
+    metaDescription: string;
+    h1: string;
+    introText: string;
+    mainContent: string;
+    faq: Array<{ question: string; answer: string }>;
+  };
+};
+
+export async function nestAdminSeoAiImprove(
+  token: string | null,
+  contentId: string,
+): Promise<NestAdminSeoAiProposal> {
+  if (!API_BASE_URL || !token) throw new Error('Nejste přihlášeni nebo API není dostupné.');
+  const res = await fetch(`${API_BASE_URL}/admin/ai/seo/improve/${encodeURIComponent(contentId)}`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json()) as NestAdminSeoAiProposal;
+}
+
+export async function nestAdminSeoAiApply(token: string | null, generationId: string) {
+  if (!API_BASE_URL || !token) throw new Error('Nejste přihlášeni nebo API není dostupné.');
+  const res = await fetch(`${API_BASE_URL}/admin/ai/seo/apply`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generationId }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json()) as { page: unknown; generationId: string };
+}
+
+export async function nestAdminSeoAiReject(token: string | null, generationId: string) {
+  if (!API_BASE_URL || !token) throw new Error('Nejste přihlášeni nebo API není dostupné.');
+  const res = await fetch(`${API_BASE_URL}/admin/ai/seo/reject`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generationId }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? `Chyba ${res.status}`);
+  }
+  return (await res.json()) as { success: boolean };
+}
+

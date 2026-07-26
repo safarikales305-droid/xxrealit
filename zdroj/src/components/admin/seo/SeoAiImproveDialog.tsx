@@ -6,8 +6,8 @@ import {
   nestAdminSeoAiApply,
   nestAdminSeoAiImprove,
   nestAdminSeoAiReject,
-  type SeoAiProposal,
-} from '@/lib/ai-admin-api';
+  type NestAdminSeoAiProposal,
+} from '@/lib/nest-client';
 import type { SeoPageContentRow } from '@/lib/nest-client';
 
 type Props = {
@@ -22,7 +22,7 @@ export function SeoAiImproveDialog({ token, contentId, row, onApplied }: Props) 
   const [aiReady, setAiReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [proposal, setProposal] = useState<SeoAiProposal | null>(null);
+  const [proposal, setProposal] = useState<NestAdminSeoAiProposal | null>(null);
 
   const checkAi = useCallback(async () => {
     try {
@@ -170,7 +170,7 @@ function formatCurrent(row: SeoPageContentRow): string {
   ].join('\n\n');
 }
 
-function formatProposal(proposal: SeoAiProposal): string {
+function formatProposal(proposal: NestAdminSeoAiProposal): string {
   const p = proposal.proposal;
   return [
     `Title: ${p.metaTitle}`,

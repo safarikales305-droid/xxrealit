@@ -4,23 +4,24 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  aiAdminUrl,
+  API_BASE_URL,
+} from '@/lib/api';
+import {
+  nestAdminAiOpenAiUrl,
   nestAdminHealthCheck,
   nestAdminOpenAiSettings,
-  nestAdminOpenAiStatus,
   nestAdminOpenAiTest,
   nestAdminOpenAiUpdateSettings,
-  nestAdminOpenAiUsage,
-  type AiSettingsResponse,
-  type AiSettingsView,
-  type AiUsageSummary,
-  type OpenAiStatus,
-} from '@/lib/ai-admin-api';
-import { API_BASE_URL } from '@/lib/api';
+  type NestAdminAiApiError,
+  type NestAdminAiSettingsResponse,
+  type NestAdminAiSettingsView,
+  type NestAdminAiUsageSummary,
+  type NestAdminOpenAiStatus,
+} from '@/lib/nest-client';
 
-const MODELS = ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'];
+const MODELS = ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o', 'gpt-5-mini'];
 
-const EMPTY_USAGE: AiUsageSummary = {
+const EMPTY_USAGE: NestAdminAiUsageSummary = {
   requestsToday: 0,
   requestsThisMonth: 0,
   successfulToday: 0,
@@ -51,61 +52,37 @@ export default function AdminAiCentrumPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [httpStatus, setHttpStatus] = useState<number | null>(null);
-  const [status, setStatus] = useState<OpenAiStatus | null>(null);
-  const [data, setData] = useState<AiSettingsResponse | null>(null);
-  const [usage, setUsage] = useState<AiUsageSummary>(EMPTY_USAGE);
+  const [requestUrl, setRequestUrl] = useState<string>(nestAdminAiOpenAiUrl('/settings'));
+  const [status, setStatus] = useState<NestAdminOpenAiStatus | null>(null);
+  const [data, setData] = useState<NestAdminAiSettingsResponse | null>(null);
+  const [usage, setUsage] = useState<NestAdminAiUsageSummary>(EMPTY_USAGE);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [healthMsg, setHealthMsg] = useState<string | null>(null);
 
-  const loadAiCenter = useCallback(async () => {
+  const loadAiSettings = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setHttpStatus(null);
+    setRequestUrl(nestAdminAiOpenAiUrl('/settings'));
+
     if (!token) {
+      setError('Nejste přihlášeni.');
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setHttpStatus(null);
-
     try {
-      const statusResult = await nestAdminOpenAiStatus(token).then(
-        (value) => ({ ok: true as const, value }),
-        (err: Error & { httpStatus?: number }) => ({
-          ok: false as const,
-          err,
-          status: err.httpStatus ?? 0,
-        }),
-      );
-
-      if (!statusResult.ok) {
-        setHttpStatus(statusResult.status);
-        throw statusResult.err;
-      }
-
-      setStatus(statusResult.value);
-
-      const [settingsResult, usageResult] = await Promise.allSettled([
-        nestAdminOpenAiSettings(token),
-        nestAdminOpenAiUsage(token),
-      ]);
-
-      if (settingsResult.status === 'fulfilled') {
-        setData(settingsResult.value);
-        setUsage(settingsResult.value.usage);
-      } else {
-        const err = settingsResult.reason as Error & { httpStatus?: number };
-        setHttpStatus(err.httpStatus ?? null);
-        throw err;
-      }
-
-      if (usageResult.status === 'fulfilled') {
-        setUsage(usageResult.value);
-      }
+      const settingsData = await nestAdminOpenAiSettings(token);
+      setData(settingsData);
+      setStatus(settingsData.status);
+      setUsage(settingsData.usage ?? EMPTY_USAGE);
     } catch (e) {
-      const err = e as Error & { httpStatus?: number };
+      console.error('AI centrum load error:', e);
+      const err = e as NestAdminAiApiError;
       setError(err.message || 'AI centrum se nepodařilo načíst.');
-      if (err.httpStatus) setHttpStatus(err.httpStatus);
+      setHttpStatus(err.httpStatus ?? null);
+      if (err.requestUrl) setRequestUrl(err.requestUrl);
     } finally {
       setLoading(false);
     }
@@ -116,16 +93,18 @@ export default function AdminAiCentrumPage() {
   }, [isLoading, token, user, router]);
 
   useEffect(() => {
-    if (token && user?.role === 'ADMIN') void loadAiCenter();
-  }, [token, user, loadAiCenter]);
+    if (!isLoading && token && user?.role === 'ADMIN') {
+      void loadAiSettings();
+    }
+  }, [isLoading, token, user, loadAiSettings]);
 
-  async function save(patch: Partial<AiSettingsView>) {
+  async function save(patch: Partial<NestAdminAiSettingsView>) {
     if (!token) return;
     setBusy(true);
     setMsg(null);
     try {
       await nestAdminOpenAiUpdateSettings(token, patch);
-      await loadAiCenter();
+      await loadAiSettings();
       setMsg('Nastavení uloženo.');
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Uložení selhalo');
@@ -141,7 +120,7 @@ export default function AdminAiCentrumPage() {
     try {
       const res = await nestAdminOpenAiTest(token);
       setMsg(res.message);
-      await loadAiCenter();
+      await loadAiSettings();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Test selhal');
     } finally {
@@ -157,16 +136,12 @@ export default function AdminAiCentrumPage() {
       return;
     }
     setHealthMsg(
-      `Backend OK (${health.data.status}, DB: ${health.data.database}) · ${health.data.timestamp ?? ''}`,
+      `Backend OK (${health.data.status}, DB: ${health.data.database}) · ${health.data.timestamp ?? ''} · AI endpoint: ${nestAdminAiOpenAiUrl('/settings')}`,
     );
-    if (token) {
-      try {
-        await nestAdminOpenAiStatus(token);
-        setHealthMsg((prev) => `${prev ?? ''} · AI endpoint: dostupný (${aiAdminUrl('/status')})`);
-      } catch (e) {
-        setHealthMsg((prev) => `${prev ?? ''} · AI endpoint: ${e instanceof Error ? e.message : 'chyba'}`);
-      }
-    }
+  }
+
+  if (isLoading || (!token && user?.role === 'ADMIN')) {
+    return <p className="text-sm text-zinc-500">Načítám AI centrum…</p>;
   }
 
   if (!token || user?.role !== 'ADMIN') return null;
@@ -175,18 +150,28 @@ export default function AdminAiCentrumPage() {
     return <p className="text-sm text-zinc-500">Načítám AI centrum…</p>;
   }
 
-  if (error && !status && !data) {
+  if (error && !data) {
     return (
       <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
-        <h2 className="text-lg font-semibold text-red-800">AI centrum se nepodařilo načíst.</h2>
-        <p className="mt-2 text-sm text-red-700">{error}</p>
-        {httpStatus != null ? <p className="mt-1 text-xs text-red-600">HTTP status: {httpStatus || 'síťová chyba'}</p> : null}
-        <p className="mt-2 text-xs text-red-600">API URL: {API_BASE_URL || '(nenastaveno)'}</p>
-        <p className="text-xs text-red-600">AI status URL: {API_BASE_URL ? aiAdminUrl('/status') : '—'}</p>
+        <h2 className="text-lg font-semibold text-red-800">AI centrum se nepodařilo načíst</h2>
+        <p className="mt-2 text-sm text-red-700">
+          <strong>Chyba:</strong> {error}
+        </p>
+        {httpStatus != null ? (
+          <p className="mt-1 text-sm text-red-700">
+            <strong>HTTP status:</strong> {httpStatus || 'síťová chyba / timeout'}
+          </p>
+        ) : null}
+        <p className="mt-2 text-xs text-red-600">
+          <strong>GET</strong> {requestUrl || nestAdminAiOpenAiUrl('/settings')}
+        </p>
+        <p className="mt-1 text-xs text-red-600">
+          NEXT_PUBLIC_API_URL → {API_BASE_URL || '(nenastaveno)'}
+        </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void loadAiCenter()}
+            onClick={() => void loadAiSettings()}
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
           >
             Načíst znovu
@@ -207,7 +192,7 @@ export default function AdminAiCentrumPage() {
   const settings = data?.settings;
   const env = data?.env;
   const displayStatus = status ?? data?.status;
-  const connectedLabel = !displayStatus?.configured
+  const connectedLabel = !displayStatus?.apiKeyConfigured
     ? 'Nepřipojeno'
     : displayStatus.connected === true
       ? 'Připojeno'
@@ -218,8 +203,9 @@ export default function AdminAiCentrumPage() {
   return (
     <>
       <p className="mb-6 text-sm text-zinc-600">
-        Centrální správa OpenAI pro portál XXREALIT. Veškerá komunikace probíhá přes NestJS backend — API klíč není
-        dostupný ve frontendu.
+        Centrální správa OpenAI pro portál XXREALIT. Requesty jdou na NestJS backend (
+        <code className="text-xs">{nestAdminAiOpenAiUrl('/settings')}</code>
+        ).
       </p>
 
       {error ? (
@@ -235,7 +221,7 @@ export default function AdminAiCentrumPage() {
       <div className="mb-4 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => void loadAiCenter()}
+          onClick={() => void loadAiSettings()}
           disabled={busy}
           className="rounded-lg border px-3 py-1.5 text-sm"
         >
@@ -262,13 +248,13 @@ export default function AdminAiCentrumPage() {
         <div className="mt-4 space-y-1 text-sm text-zinc-600">
           <p>{displayStatus?.message ?? 'OpenAI není připojeno.'}</p>
           {env?.apiKeyMasked ? <p>Maskovaný klíč: {env.apiKeyMasked}</p> : null}
-          <p>{env?.apiKeyHelp ?? 'API klíč je bezpečně uložen v proměnných backendu (Railway).'}</p>
+          <p>{env?.apiKeyHelp ?? 'API klíč je bezpečně uložen v Railway proměnných backendu.'}</p>
           {settings?.lastConnectionTestAt ? (
             <p>
               Poslední test: {new Date(settings.lastConnectionTestAt).toLocaleString('cs-CZ')}
               {settings.lastConnectionSuccess ? ' — úspěch' : ' — chyba'}
             </p>
-          ) : displayStatus?.configured ? (
+          ) : displayStatus?.apiKeyConfigured ? (
             <p>OpenAI je nakonfigurováno, ale připojení ještě nebylo otestováno.</p>
           ) : null}
           {settings?.lastConnectionError || displayStatus?.lastError ? (

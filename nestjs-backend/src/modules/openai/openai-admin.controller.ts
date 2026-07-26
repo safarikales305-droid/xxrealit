@@ -7,10 +7,10 @@ import { OpenAiSeoService } from './openai-seo.service';
 import { OpenAiService } from './openai.service';
 import { OpenAiSettingsService } from './openai-settings.service';
 
-@Controller('admin/ai')
+@Controller('admin/ai/openai')
 @UseGuards(JwtAuthGuard, AdminGuard)
-export class AiAdminController {
-  private readonly log = new Logger(AiAdminController.name);
+export class OpenAiAdminController {
+  private readonly log = new Logger(OpenAiAdminController.name);
 
   constructor(
     private readonly openai: OpenAiService,
@@ -21,7 +21,7 @@ export class AiAdminController {
   async getStatus() {
     const started = Date.now();
     const status = await this.openai.getStatus();
-    this.log.log(`GET /admin/ai/status → 200 (${Date.now() - started}ms)`);
+    this.log.log(`GET /admin/ai/openai/status → 200 (${Date.now() - started}ms)`);
     return status;
   }
 
@@ -29,14 +29,14 @@ export class AiAdminController {
   async getSettings() {
     const started = Date.now();
     const data = await this.openai.getSettingsView();
-    this.log.log(`GET /admin/ai/settings → 200 (${Date.now() - started}ms)`);
+    this.log.log(`GET /admin/ai/openai/settings → 200 (${Date.now() - started}ms)`);
     return data;
   }
 
   @Patch('settings')
   @Put('settings')
   updateSettings(@Body() body: UpdateAiSettingsDto) {
-    this.log.log('PATCH/PUT /admin/ai/settings');
+    this.log.log('PUT/PATCH /admin/ai/openai/settings');
     return this.settings.update(body);
   }
 
@@ -46,7 +46,7 @@ export class AiAdminController {
     const userId = req.user?.id ?? req.user?.sub;
     const result = await this.openai.testConnection(userId);
     this.log.log(
-      `POST /admin/ai/test → success=${result.success} code=${result.code ?? 'ok'} (${Date.now() - started}ms)`,
+      `POST /admin/ai/openai/test → success=${result.success} code=${result.code ?? 'ok'} (${Date.now() - started}ms)`,
     );
     return result;
   }
@@ -54,15 +54,6 @@ export class AiAdminController {
   @Get('usage')
   getUsage() {
     return this.openai.getUsageSummary();
-  }
-}
-
-/** Zpětná kompatibilita: /admin/ai/openai/* → stejné handlery */
-@Controller('admin/ai/openai')
-@UseGuards(JwtAuthGuard, AdminGuard)
-export class AiAdminLegacyController extends AiAdminController {
-  constructor(openai: OpenAiService, settings: OpenAiSettingsService) {
-    super(openai, settings);
   }
 }
 
