@@ -15,6 +15,8 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { OpenAiConfigService } from '../openai/openai-config.service';
+import { OpenAiSettingsService } from '../openai/openai-settings.service';
 import { OpenAiService } from '../openai/openai.service';
 import {
   AI_CHAT_FALLBACK_MESSAGE,
@@ -37,6 +39,8 @@ export class AiChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openai: OpenAiService,
+    private readonly openaiSettings: OpenAiSettingsService,
+    private readonly openaiConfig: OpenAiConfigService,
     private readonly settings: AiChatSettingsService,
     private readonly prompts: AiChatPromptService,
     private readonly knowledge: AiChatKnowledgeService,
@@ -45,9 +49,14 @@ export class AiChatService {
   ) {}
 
   async getPublicConfig(ctx: { pageType?: string; path?: string }) {
-    const s = await this.settings.getOrCreate();
+    const [s, aiDb] = await Promise.all([
+      this.settings.getOrCreate(),
+      this.openaiSettings.getOrCreate(),
+    ]);
+    const globallyOn = aiDb.enabled || this.openaiConfig.envEnabled;
+    const chatOn = aiDb.chatEnabled && aiDb.publicChatEnabled && s.globallyEnabled;
     return {
-      enabled: this.settings.shouldShowOnPage(s, ctx),
+      enabled: globallyOn && chatOn && this.settings.shouldShowOnPage(s, ctx),
       greeting: AI_CHAT_GREETING,
       openDelaySeconds: s.openDelaySeconds,
       greetingDelaySeconds: s.greetingDelaySeconds,
@@ -65,8 +74,12 @@ export class AiChatService {
     isTestSession?: boolean;
   }) {
     const settings = await this.settings.getOrCreate();
+    const aiDb = await this.openaiSettings.getOrCreate();
     if (!settings.globallyEnabled && !input.isTestSession) {
       throw new ForbiddenException('AI chat je vypnutý.');
+    }
+    if (!aiDb.chatEnabled || !aiDb.publicChatEnabled) {
+      throw new ForbiddenException('Veřejný AI chat je vypnutý v nastavení AI centra.');
     }
 
     const publicSessionId = randomUUID();

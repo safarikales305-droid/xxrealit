@@ -254,7 +254,9 @@ export default function AdminAiChatPage() {
                 <DiagRow label="Databáze" value={diagnostics.database.available ? 'dostupná' : 'nedostupná'} />
                 <DiagRow label="OpenAI globálně povoleno" value={diagnostics.openAi.globallyEnabled ? 'ano' : 'ne'} />
                 <DiagRow label="AI chat povolen" value={diagnostics.openAi.chatEnabled ? 'ano' : 'ne'} />
-                <DiagRow label="Testovací režim" value={diagnostics.openAi.adminTestEnabled ? 'ano' : 'ne'} />
+                <DiagRow label="Veřejný chat" value={diagnostics.openAi.publicChatEnabled ? 'ano' : 'ne'} />
+                <DiagRow label="Testovací režim" value={diagnostics.openAi.testModeEnabled ? 'ano' : 'ne'} />
+                <DiagRow label="AI podpora" value={diagnostics.openAi.supportEnabled ? 'ano' : 'ne'} />
                 <DiagRow label="API klíč nastaven" value={diagnostics.openAi.apiKeyConfigured ? 'ano' : 'ne'} />
                 <DiagRow label="Model" value={diagnostics.openAi.model ?? '—'} />
                 <DiagRow label="Poslední úspěšný test" value={diagnostics.lastSuccessfulTest ? new Date(diagnostics.lastSuccessfulTest).toLocaleString('cs-CZ') : '—'} />
@@ -265,6 +267,16 @@ export default function AdminAiChatPage() {
             ) : (
               <p className="text-xs text-zinc-500">{diagBusy ? 'Načítám diagnostiku…' : 'Diagnostika není dostupná.'}</p>
             )}
+            {diagnostics?.disabledReasons?.length ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <p className="font-semibold">Vypnutá nastavení:</p>
+                <ul className="mt-1 list-inside list-disc">
+                  {diagnostics.disabledReasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="mt-3">
               <button
                 type="button"

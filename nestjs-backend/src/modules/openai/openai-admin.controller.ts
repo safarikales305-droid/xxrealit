@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Logger, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UpdateAiChatSettingsDto } from './dto/update-ai-chat-settings.dto';
 import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
 import { SeoAiApplyDto, SeoAiRejectDto } from './dto/seo-ai.dto';
 import { OpenAiSeoService } from './openai-seo.service';
@@ -54,6 +55,20 @@ export class OpenAiAdminController {
   @Get('usage')
   getUsage() {
     return this.openai.getUsageSummary();
+  }
+}
+
+@Controller('admin/ai')
+@UseGuards(JwtAuthGuard, AdminGuard)
+export class AiSettingsAdminController {
+  private readonly log = new Logger(AiSettingsAdminController.name);
+
+  constructor(private readonly settings: OpenAiSettingsService) {}
+
+  @Put('settings/chat')
+  updateChatSettings(@Body() body: UpdateAiChatSettingsDto) {
+    this.log.log('PUT /admin/ai/settings/chat');
+    return this.settings.updateChatSettings(body);
   }
 }
 

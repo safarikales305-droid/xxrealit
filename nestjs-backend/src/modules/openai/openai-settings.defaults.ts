@@ -15,6 +15,9 @@ export type AiSettingsRecord = {
   socialPostEnabled: boolean;
   emailEnabled: boolean;
   supportEnabled: boolean;
+  chatEnabled: boolean;
+  publicChatEnabled: boolean;
+  testModeEnabled: boolean;
   lastConnectionTestAt: Date | null;
   lastConnectionSuccess: boolean | null;
   lastConnectionError: string | null;
@@ -31,18 +34,21 @@ export function buildDefaultAiSettings(env: {
   return {
     id: 'default',
     provider: 'OPENAI',
-    enabled: env.envEnabled,
+    enabled: true,
     defaultModel: env.envModel,
     dailyRequestLimit: env.envDailyLimit,
     monthlyBudgetCzk: env.envMonthlyBudgetCzk,
     maxOutputTokens: 2000,
     timeoutMs: env.envTimeoutMs,
     maxRetries: env.envMaxRetries,
-    seoEnabled: true,
+    seoEnabled: false,
     listingDescriptionEnabled: false,
     socialPostEnabled: false,
     emailEnabled: false,
-    supportEnabled: false,
+    supportEnabled: true,
+    chatEnabled: true,
+    publicChatEnabled: true,
+    testModeEnabled: true,
     lastConnectionTestAt: null,
     lastConnectionSuccess: null,
     lastConnectionError: null,

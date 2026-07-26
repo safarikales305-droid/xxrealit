@@ -32,6 +32,8 @@ export type OpenAiCompleteInput = {
   userId?: string;
   maxOutputTokens?: number;
   jsonMode?: boolean;
+  /** Admin test — neblokuje chatEnabled / publicChatEnabled */
+  adminTest?: boolean;
 };
 
 export type OpenAiCompleteResult = {
@@ -91,6 +93,9 @@ export class OpenAiService {
       socialPostEnabled: db.socialPostEnabled,
       emailEnabled: db.emailEnabled,
       supportEnabled: db.supportEnabled,
+      chatEnabled: db.chatEnabled,
+      publicChatEnabled: db.publicChatEnabled,
+      testModeEnabled: db.testModeEnabled,
     };
   }
 
@@ -112,6 +117,9 @@ export class OpenAiService {
         socialPostEnabled: db.socialPostEnabled,
         emailEnabled: db.emailEnabled,
         supportEnabled: db.supportEnabled,
+        chatEnabled: db.chatEnabled,
+        publicChatEnabled: db.publicChatEnabled,
+        testModeEnabled: db.testModeEnabled,
         lastConnectionTestAt: db.lastConnectionTestAt?.toISOString() ?? null,
         lastConnectionSuccess: db.lastConnectionSuccess,
         lastConnectionError: db.lastConnectionError,
@@ -231,7 +239,7 @@ export class OpenAiService {
   }
 
   async complete(input: OpenAiCompleteInput): Promise<OpenAiCompleteResult> {
-    await this.assertCanRun(input.feature, input.userId);
+    await this.assertCanRun(input.feature, input.userId, { adminTest: input.adminTest });
 
     const db = await this.settings.getOrCreate();
     const client = this.getClient();
@@ -324,7 +332,11 @@ export class OpenAiService {
     throw this.toHttpException(lastError);
   }
 
-  private async assertCanRun(feature: AiFeature, userId?: string) {
+  private async assertCanRun(
+    feature: AiFeature,
+    userId?: string,
+    options?: { adminTest?: boolean },
+  ) {
     const db = await this.settings.getOrCreate();
     if (!db.enabled && !this.config.envEnabled) {
       throw new ForbiddenException('OpenAI je vypnuto v nastavení.');
@@ -340,12 +352,16 @@ export class OpenAiService {
       social_post: db.socialPostEnabled,
       email: db.emailEnabled,
       support: db.supportEnabled,
-      ai_chat: db.supportEnabled,
-      ai_chat_intent: db.supportEnabled,
-      ai_chat_eval: db.supportEnabled,
+      ai_chat: db.chatEnabled,
+      ai_chat_intent: db.chatEnabled,
+      ai_chat_eval: db.chatEnabled,
     };
-    if (!featureEnabled[feature]) {
-      throw new ForbiddenException('Tato AI funkce není povolena.');
+    if (!options?.adminTest && !featureEnabled[feature]) {
+      const label =
+        feature === 'ai_chat' || feature === 'ai_chat_intent' || feature === 'ai_chat_eval'
+          ? 'AI chat je vypnutý v nastavení AI centra.'
+          : 'Tato AI funkce není povolena.';
+      throw new ForbiddenException(label);
     }
 
     const dayStart = new Date();

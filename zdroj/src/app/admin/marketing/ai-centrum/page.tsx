@@ -9,6 +9,7 @@ import {
 import {
   nestAdminAiOpenAiUrl,
   nestAdminHealthCheck,
+  nestAdminAiChatSettingsUpdate,
   nestAdminOpenAiSettings,
   nestAdminOpenAiTest,
   nestAdminOpenAiUpdateSettings,
@@ -97,6 +98,42 @@ export default function AdminAiCentrumPage() {
       void loadAiSettings();
     }
   }, [isLoading, token, user, loadAiSettings]);
+
+  async function saveChatFlags(patch: {
+    chatEnabled?: boolean;
+    publicChatEnabled?: boolean;
+    testModeEnabled?: boolean;
+    supportEnabled?: boolean;
+    seoEnabled?: boolean;
+  }) {
+    if (!token) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { chatEnabled, publicChatEnabled, testModeEnabled, supportEnabled, seoEnabled } = patch;
+      await Promise.all([
+        chatEnabled !== undefined || publicChatEnabled !== undefined || testModeEnabled !== undefined
+          ? nestAdminAiChatSettingsUpdate(token, {
+              ...(chatEnabled !== undefined ? { chatEnabled } : {}),
+              ...(publicChatEnabled !== undefined ? { publicChatEnabled } : {}),
+              ...(testModeEnabled !== undefined ? { testModeEnabled } : {}),
+            })
+          : Promise.resolve(),
+        supportEnabled !== undefined || seoEnabled !== undefined
+          ? nestAdminOpenAiUpdateSettings(token, {
+              ...(supportEnabled !== undefined ? { supportEnabled } : {}),
+              ...(seoEnabled !== undefined ? { seoEnabled } : {}),
+            })
+          : Promise.resolve(),
+      ]);
+      await loadAiSettings();
+      setMsg('Nastavení AI chatu uloženo.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Uložení selhalo');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save(patch: Partial<NestAdminAiSettingsView>) {
     if (!token) return;
@@ -352,15 +389,49 @@ export default function AdminAiCentrumPage() {
           </section>
 
           <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
-            <h2 className="mb-4 text-lg font-semibold">Povolené funkce</h2>
+            <h2 className="mb-4 text-lg font-semibold">AI chat a funkce</h2>
             <div className="grid gap-2 sm:grid-cols-2">
               {(
                 [
-                  ['seoEnabled', 'SEO generování'],
+                  ['chatEnabled', 'Povolit AI chat'],
+                  ['publicChatEnabled', 'Povolit veřejný chat'],
+                  ['testModeEnabled', 'Povolit testovací chat'],
+                  ['supportEnabled', 'Povolit AI podporu'],
+                  ['seoEnabled', 'Povolit AI SEO'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings[key])}
+                    onChange={(e) =>
+                      void saveChatFlags({ [key]: e.target.checked } as {
+                        chatEnabled?: boolean;
+                        publicChatEnabled?: boolean;
+                        testModeEnabled?: boolean;
+                        supportEnabled?: boolean;
+                        seoEnabled?: boolean;
+                      })
+                    }
+                    disabled={busy}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-zinc-500">
+              Testovací chat v administraci vyžaduje pouze globální OpenAI a testovací režim — veřejný chat může být vypnutý.
+            </p>
+          </section>
+
+          <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5">
+            <h2 className="mb-4 text-lg font-semibold">Ostatní AI funkce</h2>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
                   ['listingDescriptionEnabled', 'Popisy inzerátů'],
                   ['socialPostEnabled', 'Sociální příspěvky'],
                   ['emailEnabled', 'E-maily'],
-                  ['supportEnabled', 'Zákaznická podpora / AI chat'],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-sm">

@@ -15280,6 +15280,14 @@ export function nestAdminAiOpenAiUrl(path: string): string {
   return `${base}/admin/ai/openai${suffix}`;
 }
 
+/** Plná URL: ${API_BASE_URL}/admin/ai/... */
+export function nestAdminAiSettingsUrl(path: string): string {
+  if (!API_BASE_URL) return '';
+  const base = API_BASE_URL.replace(/\/$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${base}/admin/ai${suffix}`;
+}
+
 export type NestAdminAiApiError = Error & { httpStatus?: number; requestUrl?: string };
 
 export type NestAdminOpenAiStatus = {
@@ -15308,6 +15316,9 @@ export type NestAdminAiSettingsView = {
   socialPostEnabled: boolean;
   emailEnabled: boolean;
   supportEnabled: boolean;
+  chatEnabled: boolean;
+  publicChatEnabled: boolean;
+  testModeEnabled: boolean;
   lastConnectionTestAt: string | null;
   lastConnectionSuccess: boolean | null;
   lastConnectionError: string | null;
@@ -15450,6 +15461,31 @@ export async function nestAdminOpenAiUpdateSettings(
   });
   if (!res.ok) throw res.error;
   return res.data;
+}
+
+export type NestAdminAiChatSettingsView = {
+  chatEnabled: boolean;
+  publicChatEnabled: boolean;
+  testModeEnabled: boolean;
+};
+
+export async function nestAdminAiChatSettingsUpdate(
+  token: string | null,
+  patch: Partial<NestAdminAiChatSettingsView>,
+): Promise<NestAdminAiChatSettingsView> {
+  if (!API_BASE_URL || !token) {
+    throw new Error('API nebo token chybí');
+  }
+  const res = await fetch(nestAdminAiSettingsUrl('/settings/chat'), {
+    method: 'PUT',
+    headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(body || `Chyba ${res.status}`);
+  }
+  return (await res.json()) as NestAdminAiChatSettingsView;
 }
 
 export async function nestAdminOpenAiTest(token: string | null): Promise<{

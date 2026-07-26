@@ -44,6 +44,7 @@ export class AiChatAdminService {
     const openAiEnabledEnv = this.openaiConfig.envEnabled;
     const globallyEnabled = aiDb.enabled || openAiEnabledEnv;
     const model = (aiDb.defaultModel || this.openaiConfig.envModel)?.trim() || null;
+    const disabledReasons = this.collectDisabledReasons(aiDb, globallyEnabled, apiKeyConfigured);
 
     return {
       backend: { available: true },
@@ -51,12 +52,17 @@ export class AiChatAdminService {
       openAi: {
         openAiEnabledEnv,
         globallyEnabled,
-        chatEnabled: aiDb.supportEnabled,
+        chatEnabled: aiDb.chatEnabled,
+        publicChatEnabled: aiDb.publicChatEnabled,
+        testModeEnabled: aiDb.testModeEnabled,
+        supportEnabled: aiDb.supportEnabled,
+        seoEnabled: aiDb.seoEnabled,
         adminTestEnabled: chatSettings.adminTestEnabled,
         apiKeyConfigured,
         modelConfigured: Boolean(model),
         model,
       },
+      disabledReasons,
       lastSuccessfulTest: chatSettings.lastAdminTestSuccess
         ? chatSettings.lastAdminTestAt?.toISOString() ?? aiDb.lastConnectionTestAt?.toISOString() ?? null
         : aiDb.lastConnectionSuccess
@@ -113,6 +119,7 @@ export class AiChatAdminService {
         userPrompt: safeMessage,
         userId,
         maxOutputTokens: 500,
+        adminTest: true,
       });
 
       let intent: string | null = null;
@@ -126,6 +133,7 @@ export class AiChatAdminService {
           userId,
           maxOutputTokens: 300,
           jsonMode: true,
+          adminTest: true,
         });
         const parsed = parseIntentClassification(intentResult.text);
         intent = parsed?.intent ?? null;
@@ -182,7 +190,7 @@ export class AiChatAdminService {
         model: model ?? null,
       });
     }
-    if (!chatSettings.adminTestEnabled) {
+    if (!aiDb.testModeEnabled) {
       return buildAdminError('AI_TEST_MODE_DISABLED', 'Testovací režim AI chatu je vypnutý.', 403, {
         stage: 'CONFIG',
         model: model ?? null,
@@ -198,13 +206,11 @@ export class AiChatAdminService {
     const aiDb = await this.openaiSettings.getOrCreate();
     const model = (aiDb.defaultModel || this.openaiConfig.envModel)?.trim();
 
-    if (!aiDb.supportEnabled) {
-      return buildAdminError(
-        'AI_CHAT_DISABLED',
-        'AI chat je vypnutý v nastavení AI centra.',
-        403,
-        { stage: 'CONFIG', model: model ?? null },
-      );
+    if (!aiDb.testModeEnabled) {
+      return buildAdminError('AI_TEST_MODE_DISABLED', 'Testovací režim AI chatu je vypnutý.', 403, {
+        stage: 'CONFIG',
+        model: model ?? null,
+      });
     }
 
     if (!model) {
@@ -215,6 +221,20 @@ export class AiChatAdminService {
     }
 
     return null;
+  }
+
+  private collectDisabledReasons(
+    aiDb: Awaited<ReturnType<OpenAiSettingsService['getOrCreate']>>,
+    globallyEnabled: boolean,
+    apiKeyConfigured: boolean,
+  ): string[] {
+    const reasons: string[] = [];
+    if (!globallyEnabled) reasons.push('AiSettings.enabled = false');
+    if (!apiKeyConfigured) reasons.push('OPENAI_API_KEY není nastaven');
+    if (!aiDb.chatEnabled) reasons.push('AiSettings.chatEnabled = false');
+    if (!aiDb.publicChatEnabled) reasons.push('AiSettings.publicChatEnabled = false');
+    if (!aiDb.testModeEnabled) reasons.push('AiSettings.testModeEnabled = false');
+    return reasons;
   }
 
   private mapRunError(err: unknown, model?: string) {

@@ -1,18 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AiProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { OpenAiConfigService } from './openai-config.service';
+import type { UpdateAiChatSettingsDto } from './dto/update-ai-chat-settings.dto';
 import type { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
 import { buildDefaultAiSettings, type AiSettingsRecord } from './openai-settings.defaults';
 
 @Injectable()
-export class OpenAiSettingsService {
+export class OpenAiSettingsService implements OnModuleInit {
   private readonly log = new Logger(OpenAiSettingsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: OpenAiConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.getOrCreate();
+  }
 
   getDefaultSettings(): AiSettingsRecord {
     return buildDefaultAiSettings({
@@ -25,12 +30,35 @@ export class OpenAiSettingsService {
     });
   }
 
+  private buildCreateData(): Prisma.AiSettingsCreateInput {
+    const defaults = this.getDefaultSettings();
+    return {
+      id: 'default',
+      provider: AiProvider.OPENAI,
+      enabled: defaults.enabled || this.config.envEnabled,
+      defaultModel: defaults.defaultModel,
+      dailyRequestLimit: defaults.dailyRequestLimit,
+      monthlyBudgetCzk: defaults.monthlyBudgetCzk,
+      maxOutputTokens: defaults.maxOutputTokens,
+      timeoutMs: defaults.timeoutMs,
+      maxRetries: defaults.maxRetries,
+      seoEnabled: defaults.seoEnabled,
+      listingDescriptionEnabled: defaults.listingDescriptionEnabled,
+      socialPostEnabled: defaults.socialPostEnabled,
+      emailEnabled: defaults.emailEnabled,
+      supportEnabled: defaults.supportEnabled,
+      chatEnabled: defaults.chatEnabled,
+      publicChatEnabled: defaults.publicChatEnabled,
+      testModeEnabled: defaults.testModeEnabled,
+    };
+  }
+
   async getOrCreate(): Promise<AiSettingsRecord> {
     try {
-      const existing = await this.prisma.aiSettings.findUnique({ where: { id: 'default' } });
-      if (existing) return existing;
-      return await this.prisma.aiSettings.create({
-        data: { id: 'default', provider: AiProvider.OPENAI },
+      return await this.prisma.aiSettings.upsert({
+        where: { id: 'default' },
+        create: this.buildCreateData(),
+        update: {},
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -63,6 +91,50 @@ export class OpenAiSettingsService {
       this.log.error(`AiSettings update selhal: ${msg}`);
       throw err;
     }
+  }
+
+  async updateChatSettings(patch: UpdateAiChatSettingsDto) {
+    await this.getOrCreate();
+    const data: Prisma.AiSettingsUpdateInput = {};
+    if (patch.chatEnabled !== undefined) data.chatEnabled = patch.chatEnabled;
+    if (patch.publicChatEnabled !== undefined) data.publicChatEnabled = patch.publicChatEnabled;
+    if (patch.testModeEnabled !== undefined) data.testModeEnabled = patch.testModeEnabled;
+
+    const updated = await this.prisma.aiSettings.update({
+      where: { id: 'default' },
+      data,
+    });
+
+    if (patch.publicChatEnabled !== undefined || patch.testModeEnabled !== undefined) {
+      try {
+        await this.prisma.aiChatSettings.upsert({
+          where: { id: 'default' },
+          create: {
+            id: 'default',
+            globallyEnabled: patch.publicChatEnabled ?? true,
+            adminTestEnabled: patch.testModeEnabled ?? true,
+          },
+          update: {
+            ...(patch.publicChatEnabled !== undefined
+              ? { globallyEnabled: patch.publicChatEnabled }
+              : {}),
+            ...(patch.testModeEnabled !== undefined
+              ? { adminTestEnabled: patch.testModeEnabled }
+              : {}),
+          },
+        });
+      } catch (err) {
+        this.log.warn(
+          `Sync AiChatSettings selhal: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return {
+      chatEnabled: updated.chatEnabled,
+      publicChatEnabled: updated.publicChatEnabled,
+      testModeEnabled: updated.testModeEnabled,
+    };
   }
 
   async recordConnectionTest(success: boolean, error?: string | null) {

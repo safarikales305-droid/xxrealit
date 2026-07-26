@@ -10,11 +10,16 @@ export type AiChatDiagnostics = {
     openAiEnabledEnv: boolean;
     globallyEnabled: boolean;
     chatEnabled: boolean;
+    publicChatEnabled: boolean;
+    testModeEnabled: boolean;
+    supportEnabled: boolean;
+    seoEnabled: boolean;
     adminTestEnabled: boolean;
     apiKeyConfigured: boolean;
     modelConfigured: boolean;
     model: string | null;
   };
+  disabledReasons: string[];
   lastSuccessfulTest: string | null;
   lastError: string | null;
   lastErrorCode: string | null;

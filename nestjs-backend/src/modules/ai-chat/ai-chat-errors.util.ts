@@ -76,7 +76,7 @@ export function mapExceptionToAdminError(
       return buildAdminError('AI_DAILY_LIMIT_REACHED', msg, 403, fallbackContext);
     }
     if (/funkce není povolena|chat je vypnutý/i.test(msg)) {
-      return buildAdminError('AI_CHAT_DISABLED', 'AI chat je vypnutý v nastavení AI centra.', 403, fallbackContext);
+      return buildAdminError('AI_CHAT_DISABLED', 'AI chat je vypnutý v nastavení AI centra (AiSettings.chatEnabled = false).', 403, fallbackContext);
     }
     return buildAdminError('UNKNOWN_AI_ERROR', 'Testovací AI chat může používat pouze administrátor.', 403, fallbackContext);
   }

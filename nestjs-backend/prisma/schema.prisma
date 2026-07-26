@@ -3333,6 +3333,9 @@ model AiSettings {
   socialPostEnabled         Boolean    @default(false)
   emailEnabled              Boolean    @default(false)
   supportEnabled            Boolean    @default(false)
+  chatEnabled               Boolean    @default(true)
+  publicChatEnabled         Boolean    @default(true)
+  testModeEnabled           Boolean    @default(true)
   lastConnectionTestAt      DateTime?
   lastConnectionSuccess     Boolean?
   lastConnectionError       String?    @db.Text
