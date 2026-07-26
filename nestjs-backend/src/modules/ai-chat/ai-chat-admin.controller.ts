@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Logger,
   Param,
@@ -144,22 +145,56 @@ export class AiChatAdminController {
     });
   }
 
+  @Get('knowledge/:id')
+  getKnowledge(@Param('id') id: string) {
+    return this.knowledge.getById(id);
+  }
+
   @Get('knowledge')
-  listKnowledge(@Query('status') status?: AiKnowledgeStatus, @Query('category') category?: string, @Query('q') q?: string) {
-    return this.knowledge.list({ status, category, q });
+  listKnowledge(
+    @Query('status') status?: AiKnowledgeStatus,
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('minPriority') minPriority?: string,
+  ) {
+    return this.knowledge.list({
+      status,
+      category,
+      q,
+      minPriority: minPriority ? Number.parseInt(minPriority, 10) : undefined,
+    });
   }
 
   @Post('knowledge')
   createKnowledge(
-    @Body() body: { title: string; category: string; question: string; answer: string; keywordsJson?: string[] },
+    @Body()
+    body: {
+      title: string;
+      category: string;
+      question: string;
+      answer: string;
+      keywordsJson?: string[];
+      priority?: number;
+      validFrom?: string;
+      validTo?: string;
+    },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.knowledge.create({ ...body, createdById: req.user?.id ?? req.user?.sub });
+    return this.knowledge.create({
+      ...body,
+      validFrom: body.validFrom ? new Date(body.validFrom) : undefined,
+      validTo: body.validTo ? new Date(body.validTo) : undefined,
+      createdById: req.user?.id ?? req.user?.sub,
+    });
   }
 
   @Put('knowledge/:id')
-  updateKnowledge(@Param('id') id: string, @Body() body: Record<string, unknown>) {
-    return this.knowledge.update(id, body as never);
+  updateKnowledge(
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.knowledge.update(id, body as never, req.user?.id ?? req.user?.sub);
   }
 
   @Post('knowledge/:id/approve')
@@ -168,8 +203,28 @@ export class AiChatAdminController {
   }
 
   @Post('knowledge/:id/archive')
-  archiveKnowledge(@Param('id') id: string) {
-    return this.knowledge.archive(id);
+  archiveKnowledge(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.knowledge.archive(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('knowledge/:id/duplicate')
+  duplicateKnowledge(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.knowledge.duplicate(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('knowledge/:id/test')
+  testKnowledge(@Param('id') id: string, @Body() body: { message: string }) {
+    return this.knowledge.testInChat(id, body.message ?? '');
+  }
+
+  @Delete('knowledge/:id')
+  deleteKnowledge(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.knowledge.delete(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Get('prompts/active/:type')
+  getActivePrompt(@Param('type') type: string) {
+    return this.prompts.getActiveByType(type);
   }
 
   @Get('prompts')
@@ -177,17 +232,67 @@ export class AiChatAdminController {
     return this.prompts.listPrompts(feature);
   }
 
+  @Get('prompts/:id')
+  getPrompt(@Param('id') id: string) {
+    return this.prompts.getById(id);
+  }
+
   @Post('prompts')
   createPrompt(
-    @Body() body: { feature: string; version: string; systemPrompt: string; changeDescription?: string },
+    @Body()
+    body: {
+      feature: string;
+      name?: string;
+      version: string;
+      systemPrompt: string;
+      changeDescription?: string;
+    },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
     return this.prompts.createPrompt({ ...body, createdById: req.user?.id ?? req.user?.sub });
   }
 
+  @Put('prompts/:id')
+  updatePrompt(
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.prompts.updatePrompt(id, body as never, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('prompts/:id/test')
+  testPrompt(
+    @Param('id') id: string,
+    @Body() body: { message: string; pageType?: string; userRole?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.adminChat.testPromptVersion(id, body, req.user?.id ?? req.user?.sub);
+  }
+
   @Post('prompts/:id/activate')
   activatePrompt(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
     return this.prompts.activatePrompt(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('prompts/:id/archive')
+  archivePrompt(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.prompts.archivePrompt(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('prompts/:id/duplicate')
+  duplicatePrompt(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.prompts.duplicatePrompt(id, req.user?.id ?? req.user?.sub);
+  }
+
+  @Post('prompts/restore/:feature')
+  restorePrompt(@Param('feature') feature: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.prompts.restorePreviousVersion(feature, req.user?.id ?? req.user?.sub);
+  }
+
+  @Delete('prompts/:id')
+  deletePrompt(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.prompts.deletePrompt(id, req.user?.id ?? req.user?.sub);
   }
 
   @Get('diagnostics')

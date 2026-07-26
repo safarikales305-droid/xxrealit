@@ -4,7 +4,9 @@ import { OpenAiModule } from '../openai/openai.module';
 import { AiChatAdminController } from './ai-chat-admin.controller';
 import { AiChatAdminService } from './ai-chat-admin.service';
 import { AiChatKnowledgeService } from './ai-chat-knowledge.service';
+import { AiChatPromptResolverService } from './ai-chat-prompt-resolver.service';
 import { AiChatPromptService } from './ai-chat-prompt.service';
+import { AiChatSeedService } from './ai-chat-seed.service';
 import { AiChatPublicController } from './ai-chat-public.controller';
 import { AiChatRateLimitService } from './ai-chat-rate-limit.service';
 import { AiChatSettingsService } from './ai-chat-settings.service';
@@ -19,7 +21,9 @@ import { AiChatService } from './ai-chat.service';
     AiChatAdminService,
     AiChatSettingsService,
     AiChatPromptService,
+    AiChatPromptResolverService,
     AiChatKnowledgeService,
+    AiChatSeedService,
     AiChatToolsService,
     AiChatRateLimitService,
   ],

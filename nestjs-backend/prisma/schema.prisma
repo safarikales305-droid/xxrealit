@@ -3659,9 +3659,13 @@ model AiKnowledgeItem {
   question     String            @db.Text
   answer       String            @db.Text
   keywordsJson Json?
+  priority     Int               @default(0)
   status       AiKnowledgeStatus @default(DRAFT)
   source       String            @default("MANUAL")
   version      Int               @default(1)
+  validFrom    DateTime?
+  validTo      DateTime?
+  archivedAt   DateTime?
   createdById  String?
   approvedById String?
   approvedAt   DateTime?
@@ -3672,11 +3676,13 @@ model AiKnowledgeItem {
   approvedBy User? @relation("AiKnowledgeApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([status, category])
+  @@index([priority])
   @@index([updatedAt(sort: Desc)])
 }
 
 model AiPromptVersion {
   id                String         @id @default(cuid())
+  name              String?
   feature           String
   version           String
   systemPrompt      String         @db.Text
@@ -3685,6 +3691,7 @@ model AiPromptVersion {
   createdById       String?
   approvedById      String?
   activatedAt       DateTime?
+  archivedAt        DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -3693,6 +3700,34 @@ model AiPromptVersion {
 
   @@unique([feature, version])
   @@index([feature, status])
+}
+
+model AiPromptAuditLog {
+  id                String   @id @default(cuid())
+  promptId          String
+  action            String
+  previousContent   String?  @db.Text
+  newContent        String?  @db.Text
+  changeDescription String?  @db.Text
+  performedById     String?
+  createdAt         DateTime @default(now())
+
+  @@index([promptId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AiKnowledgeAuditLog {
+  id                String   @id @default(cuid())
+  knowledgeId       String
+  action            String
+  previousAnswer    String?  @db.Text
+  newAnswer         String?  @db.Text
+  changeDescription String?  @db.Text
+  performedById     String?
+  createdAt         DateTime @default(now())
+
+  @@index([knowledgeId])
+  @@index([createdAt(sort: Desc)])
 }
 
 model AiChatEvaluation {

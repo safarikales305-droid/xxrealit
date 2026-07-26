@@ -15,6 +15,8 @@ import {
   type AiChatTestState,
   type AiChatTestSuccess,
 } from '@/lib/ai-chat-admin-api';
+import { AiChatKnowledgePanel } from '@/components/admin/ai-chat/AiChatKnowledgePanel';
+import { AiChatPromptsPanel } from '@/components/admin/ai-chat/AiChatPromptsPanel';
 
 type Dashboard = {
   chatsToday: number;
@@ -66,20 +68,27 @@ export default function AdminAiChatPage() {
   const [diagBusy, setDiagBusy] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionResult, setConnectionResult] = useState<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  const [promptsError, setPromptsError] = useState<string | null>(null);
+
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, s, k, p] = await Promise.all([
+    setKnowledgeError(null);
+    setPromptsError(null);
+    const results = await Promise.allSettled([
       adminChatFetch<Dashboard>(token, '/dashboard'),
       adminChatFetch<SessionRow[]>(token, '/sessions?limit=50'),
       adminChatFetch<Array<Record<string, unknown>>>(token, '/knowledge'),
       adminChatFetch<Array<Record<string, unknown>>>(token, '/prompts'),
     ]);
-    setDashboard(d);
-    setSessions(s);
-    setKnowledge(k);
-    setPrompts(p);
+    if (results[0].status === 'fulfilled') setDashboard(results[0].value);
+    if (results[1].status === 'fulfilled') setSessions(results[1].value);
+    if (results[2].status === 'fulfilled') setKnowledge(results[2].value);
+    else setKnowledgeError('Znalosti se nepodařilo načíst.');
+    if (results[3].status === 'fulfilled') setPrompts(results[3].value);
+    else setPromptsError('Prompty se nepodařilo načíst.');
   }, [token]);
 
   useEffect(() => {
@@ -213,26 +222,9 @@ export default function AdminAiChatPage() {
         </div>
       ) : null}
 
-      {tab === 'knowledge' ? (
-        <ul className="space-y-2">
-          {knowledge.map((k) => (
-            <li key={String(k.id)} className="rounded-xl border border-zinc-200 bg-white p-3 text-sm">
-              <p className="font-semibold">{String(k.title)} <span className="text-xs text-zinc-500">({String(k.status)})</span></p>
-              <p className="text-zinc-600">{String(k.question)}</p>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {tab === 'knowledge' ? <AiChatKnowledgePanel token={token} /> : null}
 
-      {tab === 'prompts' ? (
-        <ul className="space-y-2">
-          {prompts.map((p) => (
-            <li key={String(p.id)} className="rounded-xl border border-zinc-200 bg-white p-3 text-sm">
-              <p className="font-semibold">{String(p.feature)} v{String(p.version)} <span className="text-xs text-zinc-500">({String(p.status)})</span></p>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {tab === 'prompts' ? <AiChatPromptsPanel token={token} /> : null}
 
       {tab === 'test' ? (
         <div className="space-y-4">

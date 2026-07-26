@@ -144,3 +144,121 @@ export function runAiChatAdminTest(token: string, message: string) {
     body: JSON.stringify({ message }),
   });
 }
+
+export type AiKnowledgeItem = {
+  id: string;
+  title: string;
+  category: string;
+  question: string;
+  answer: string;
+  keywordsJson?: string[] | null;
+  priority: number;
+  status: string;
+  source: string;
+  version: number;
+  updatedAt: string;
+};
+
+export type AiPromptItem = {
+  id: string;
+  name: string | null;
+  feature: string;
+  version: string;
+  systemPrompt: string;
+  status: string;
+  changeDescription: string | null;
+  activatedAt: string | null;
+  updatedAt: string;
+};
+
+export const PROMPT_TYPES = [
+  'MAIN_CHAT', 'INTENT_CLASSIFICATION', 'PROPERTY_SEARCH', 'AGENT_REGISTRATION',
+  'AGENCY_COOPERATION', 'CONSTRUCTION_COMPANY', 'INVESTOR', 'SELL_PROPERTY',
+  'RENT_PROPERTY', 'SUPPORT', 'LEAD_QUALIFICATION', 'CONVERSATION_SUMMARY',
+  'QUALITY_EVALUATION', 'PROFILE_EXTRACTION',
+] as const;
+
+export const KNOWLEDGE_CATEGORIES = [
+  'PORTAL_GENERAL', 'REGISTRATION', 'LISTINGS', 'AGENTS', 'AGENCIES',
+  'CONSTRUCTION_COMPANIES', 'INVESTORS', 'CREDITS', 'PAYMENTS', 'PRIVACY',
+  'SUPPORT', 'SEO', 'SOCIAL_NETWORKS', 'COOPERATION', 'PROPERTY_SEARCH',
+  'SELL_PROPERTY', 'RENT_PROPERTY',
+] as const;
+
+export function listAiKnowledge(token: string, qs?: string) {
+  return adminAiChatRequest<AiKnowledgeItem[]>(token, `/knowledge${qs ? `?${qs}` : ''}`);
+}
+
+export function createAiKnowledge(token: string, body: Record<string, unknown>) {
+  return adminAiChatRequest<AiKnowledgeItem>(token, '/knowledge', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateAiKnowledge(token: string, id: string, body: Record<string, unknown>) {
+  return adminAiChatRequest<AiKnowledgeItem>(token, `/knowledge/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function approveAiKnowledge(token: string, id: string) {
+  return adminAiChatRequest<AiKnowledgeItem>(token, `/knowledge/${id}/approve`, { method: 'POST', body: '{}' });
+}
+
+export function archiveAiKnowledge(token: string, id: string) {
+  return adminAiChatRequest<AiKnowledgeItem>(token, `/knowledge/${id}/archive`, { method: 'POST', body: '{}' });
+}
+
+export function duplicateAiKnowledge(token: string, id: string) {
+  return adminAiChatRequest<AiKnowledgeItem>(token, `/knowledge/${id}/duplicate`, { method: 'POST', body: '{}' });
+}
+
+export function testAiKnowledge(token: string, id: string, message: string) {
+  return adminAiChatRequest<Record<string, unknown>>(token, `/knowledge/${id}/test`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function deleteAiKnowledge(token: string, id: string) {
+  return adminAiChatRequest<{ success: boolean }>(token, `/knowledge/${id}`, { method: 'DELETE' });
+}
+
+export function listAiPrompts(token: string, feature?: string) {
+  const qs = feature ? `?feature=${encodeURIComponent(feature)}` : '';
+  return adminAiChatRequest<AiPromptItem[]>(token, `/prompts${qs}`);
+}
+
+export function createAiPrompt(token: string, body: Record<string, unknown>) {
+  return adminAiChatRequest<AiPromptItem>(token, '/prompts', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateAiPrompt(token: string, id: string, body: Record<string, unknown>) {
+  return adminAiChatRequest<AiPromptItem>(token, `/prompts/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function activateAiPrompt(token: string, id: string) {
+  return adminAiChatRequest<AiPromptItem>(token, `/prompts/${id}/activate`, { method: 'POST', body: '{}' });
+}
+
+export function archiveAiPrompt(token: string, id: string) {
+  return adminAiChatRequest<AiPromptItem>(token, `/prompts/${id}/archive`, { method: 'POST', body: '{}' });
+}
+
+export function duplicateAiPrompt(token: string, id: string) {
+  return adminAiChatRequest<AiPromptItem>(token, `/prompts/${id}/duplicate`, { method: 'POST', body: '{}' });
+}
+
+export function testAiPrompt(token: string, id: string, body: { message: string; pageType?: string; userRole?: string }) {
+  return adminAiChatRequest<Record<string, unknown>>(token, `/prompts/${id}/test`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteAiPrompt(token: string, id: string) {
+  return adminAiChatRequest<{ success: boolean }>(token, `/prompts/${id}`, { method: 'DELETE' });
+}
+
+export function restoreAiPrompt(token: string, feature: string) {
+  return adminAiChatRequest<AiPromptItem>(token, `/prompts/restore/${encodeURIComponent(feature)}`, {
+    method: 'POST',
+    body: '{}',
+  });
+}

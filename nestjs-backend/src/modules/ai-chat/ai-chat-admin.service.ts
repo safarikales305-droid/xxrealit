@@ -11,6 +11,7 @@ import {
   mapExceptionToAdminError,
 } from './ai-chat-errors.util';
 import { parseIntentClassification } from './ai-chat-intent.validator';
+import { AiChatKnowledgeService } from './ai-chat-knowledge.service';
 import { AiChatPromptService } from './ai-chat-prompt.service';
 import { AiChatSettingsService } from './ai-chat-settings.service';
 import { AI_CHAT_PROMPT_FEATURES } from './ai-chat.constants';
@@ -30,6 +31,7 @@ export class AiChatAdminService {
     private readonly openaiSettings: OpenAiSettingsService,
     private readonly chatSettings: AiChatSettingsService,
     private readonly prompts: AiChatPromptService,
+    private readonly knowledge: AiChatKnowledgeService,
   ) {}
 
   async getDiagnostics() {
@@ -332,5 +334,59 @@ export class AiChatAdminService {
         `Zápis testovací konverzace selhal: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  async testPromptVersion(
+    promptId: string,
+    body: { message: string; pageType?: string; userRole?: string },
+    userId?: string,
+  ) {
+    const started = Date.now();
+    const prompt = await this.prisma.aiPromptVersion.findUnique({ where: { id: promptId } });
+    if (!prompt) {
+      throw new AiChatAdminException(
+        buildAdminError('UNKNOWN_AI_ERROR', 'Prompt nenalezen.', 404, { stage: 'PROMPT_TEST' }),
+      );
+    }
+
+    const precheck = await this.assertAdminTestAllowed();
+    if (precheck) throw new AiChatAdminException(precheck);
+
+    const safeMessage = sanitizeUserInput(body.message ?? '', 2000).trim();
+    const knowledge = await this.knowledge.retrieveRelevant({ query: safeMessage, limit: 4 });
+
+    const userPrompt = `Simulace stránky: ${body.pageType ?? 'PORTAL'}
+Role: ${body.userRole ?? 'GUEST'}
+Schválené znalosti:
+${knowledge.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n\n')}
+
+Uživatel: ${safeMessage}`;
+
+    const result = await this.openai.complete({
+      feature: 'ai_chat',
+      systemPrompt: prompt.systemPrompt,
+      userPrompt,
+      userId,
+      maxOutputTokens: 600,
+      adminTest: true,
+    });
+
+    return {
+      success: true,
+      promptId: prompt.id,
+      promptStatus: prompt.status,
+      feature: prompt.feature,
+      version: prompt.version,
+      reply: result.text,
+      knowledgeUsed: knowledge,
+      model: result.model,
+      durationMs: Date.now() - started,
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        totalTokens: result.totalTokens,
+      },
+      note: 'DRAFT prompt nebyl aktivován — pouze test.',
+    };
   }
 }

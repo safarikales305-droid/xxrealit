@@ -21,8 +21,11 @@ import { OpenAiService } from '../openai/openai.service';
 import {
   AI_CHAT_FALLBACK_MESSAGE,
   AI_CHAT_GREETING,
+  AI_CHAT_NO_RESULTS_MESSAGE,
   AI_CHAT_PROMPT_FEATURES,
 } from './ai-chat.constants';
+import { isVagueAiResponse } from './ai-chat-prompt-variables.util';
+import { AiChatPromptResolverService } from './ai-chat-prompt-resolver.service';
 import { parseIntentClassification } from './ai-chat-intent.validator';
 import { AiChatKnowledgeService } from './ai-chat-knowledge.service';
 import { computeLeadScore } from './ai-chat-lead-score.util';
@@ -43,6 +46,7 @@ export class AiChatService {
     private readonly openaiConfig: OpenAiConfigService,
     private readonly settings: AiChatSettingsService,
     private readonly prompts: AiChatPromptService,
+    private readonly promptResolver: AiChatPromptResolverService,
     private readonly knowledge: AiChatKnowledgeService,
     private readonly tools: AiChatToolsService,
     private readonly rateLimit: AiChatRateLimitService,
@@ -177,6 +181,8 @@ export class AiChatService {
     });
 
     let propertyCards: AiChatPropertyCard[] = [];
+    let searchMeta: Record<string, unknown> | null = null;
+    let promptVersionId: string | null = null;
     let assistantText = AI_CHAT_FALLBACK_MESSAGE;
     let model: string | null = null;
     let promptVersion = 'builtin-v1';
@@ -203,21 +209,72 @@ export class AiChatService {
       }
 
       const profile = await this.extractProfile(session.id, transcript, input.userId);
-      const knowledge = await this.knowledge.searchApproved(safeContent || raw, 4);
-      const mainPrompt = await this.prompts.getActivePrompt(AI_CHAT_PROMPT_FEATURES.MAIN_CHAT);
-      promptVersion = mainPrompt.version;
+      const knowledge = await this.knowledge.retrieveRelevant({
+        query: safeContent || raw,
+        intent: intentResult?.intent ?? session.detectedIntent,
+        limit: 4,
+      });
 
       const searchIntents: AiChatIntent[] = [AiChatIntent.BUY_PROPERTY, AiChatIntent.RENT_PROPERTY];
-      if (intentResult && searchIntents.includes(intentResult.intent)) {
-        propertyCards = await this.tools.searchProperties(input.userId, {
-          location: profile?.location ?? this.guessLocation(safeContent),
-          propertyType: profile?.propertyType ?? undefined,
-          offerType: profile?.offerType ?? (intentResult.intent === AiChatIntent.RENT_PROPERTY ? 'pronajem' : 'prodej'),
-          priceMax: profile?.budgetMax ?? undefined,
-          priceMin: profile?.budgetMin ?? undefined,
-          limit: settings.maxPropertyRecommendations,
-        });
+      const guessedLocation = profile?.location ?? this.guessLocation(safeContent);
+      const shouldSearch =
+        (intentResult && searchIntents.includes(intentResult.intent)) ||
+        Boolean(guessedLocation && /byt|dům|nemovitost|pronájem|prodej|hledám/i.test(safeContent));
+
+      if (shouldSearch) {
+        if (!guessedLocation) {
+          searchMeta = { status: 'SKIPPED', reason: 'MISSING_REQUIRED_FIELDS', field: 'location' };
+        } else {
+          try {
+            propertyCards = await this.tools.searchProperties(input.userId, {
+              location: guessedLocation,
+              propertyType: profile?.propertyType ?? undefined,
+              offerType:
+                profile?.offerType ??
+                (intentResult?.intent === AiChatIntent.RENT_PROPERTY ? 'pronajem' : 'prodej'),
+              priceMax: profile?.budgetMax ?? undefined,
+              priceMin: profile?.budgetMin ?? undefined,
+              limit: Math.min(6, settings.maxPropertyRecommendations),
+            });
+            searchMeta = {
+              status: propertyCards.length ? 'OK' : 'NO_RESULTS',
+              reason: propertyCards.length ? null : 'NO_RESULTS',
+              count: propertyCards.length,
+              location: guessedLocation,
+            };
+          } catch (searchErr) {
+            searchMeta = {
+              status: 'ERROR',
+              reason: 'DATABASE_ERROR',
+              message: searchErr instanceof Error ? searchErr.message : String(searchErr),
+            };
+          }
+        }
+      } else {
+        searchMeta = { status: 'SKIPPED', reason: 'MISSING_REQUIRED_FIELDS' };
       }
+
+      const listingsBlock =
+        propertyCards.length > 0
+          ? propertyCards
+              .map((p) => `- ${p.title} | ${p.city} | ${p.priceHidden ? 'cena po přihlášení' : p.priceLabel ?? '—'} | ${p.path}`)
+              .join('\n')
+          : 'žádné výsledky zatím nenačteny';
+
+      const knowledgeBlock = knowledge.map((k) => `Q: ${k.question}\nA: ${k.answer}`).join('\n\n');
+
+      const mainPrompt = await this.promptResolver.resolveActive(AI_CHAT_PROMPT_FEATURES.MAIN_CHAT, {
+        portalName: 'XXREALIT',
+        currentUrl: session.sourceUrl ?? '',
+        pageType: session.sourcePageType ?? 'PORTAL',
+        detectedIntent: intentResult?.intent ?? session.detectedIntent ?? '',
+        searchProfile: JSON.stringify(profile ?? {}),
+        approvedKnowledge: knowledgeBlock,
+        availableListings: listingsBlock,
+        conversationHistory: transcript.slice(-3000),
+      });
+      promptVersion = mainPrompt.version;
+      promptVersionId = mainPrompt.id;
 
       const contextBlock = this.buildContextBlock(session, profile, propertyCards, knowledge);
       const userPrompt = `${contextBlock}\n\nKonverzace:\n${transcript}\n\nOdpověz jako AI průvodce XXREALIT.`;
@@ -231,6 +288,20 @@ export class AiChatService {
       });
 
       assistantText = result.text || AI_CHAT_FALLBACK_MESSAGE;
+
+      if (isVagueAiResponse(assistantText)) {
+        if (propertyCards.length > 0) {
+          assistantText = `Našel jsem ${propertyCards.length} nabídek odpovídajících vašemu hledání. Podívejte se na doporučené inzeráty níže. Chcete upřesnit rozpočet nebo dispozici?`;
+        } else if (searchMeta?.reason === 'NO_RESULTS' && guessedLocation) {
+          assistantText = AI_CHAT_NO_RESULTS_MESSAGE;
+        } else if (!guessedLocation && shouldSearch) {
+          assistantText = 'Rád vám pomohu. V jaké lokalitě hledáte a jde o koupi, nebo pronájem?';
+        }
+      }
+
+      if (propertyCards.length === 0 && searchMeta?.reason === 'NO_RESULTS' && !isVagueAiResponse(assistantText)) {
+        assistantText = `${assistantText}\n\n${AI_CHAT_NO_RESULTS_MESSAGE}`.trim();
+      }
       model = result.model;
       inputTokens = result.inputTokens;
       outputTokens = result.outputTokens;
@@ -254,9 +325,11 @@ export class AiChatService {
         inputTokens,
         outputTokens,
         latencyMs,
-        structuredPayload: propertyCards.length
-          ? ({ type: 'properties', items: propertyCards } as Prisma.InputJsonValue)
-          : undefined,
+        structuredPayload: {
+          ...(propertyCards.length ? { type: 'properties', items: propertyCards } : {}),
+          ...(searchMeta ? { search: searchMeta } : {}),
+          ...(promptVersionId ? { promptVersionId } : {}),
+        } as Prisma.InputJsonValue,
         success,
       },
     });
