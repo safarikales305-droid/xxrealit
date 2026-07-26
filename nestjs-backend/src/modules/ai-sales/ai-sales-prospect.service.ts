@@ -150,6 +150,16 @@ export class AiSalesProspectService {
     });
   }
 
+  async reject(id: string, reason?: string) {
+    return this.prisma.aiSalesProspect.update({
+      where: { id },
+      data: {
+        status: AiSalesProspectStatus.REJECTED,
+        notes: reason,
+      },
+    });
+  }
+
   async markDoNotContact(id: string, reason?: string, userId?: string) {
     const prospect = await this.getById(id);
     if (prospect.email) {

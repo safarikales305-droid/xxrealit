@@ -14,6 +14,9 @@ import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSeedService } from './ai-sales-seed.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
+import { PartnerSearchService } from './partner-search.service';
+import { InternalDatabaseSearchProvider } from './providers/internal-database-search.provider';
+import { WebSearchProvider } from './providers/web-search.provider';
 
 @Module({
   imports: [OpenAiModule, EmailsModule],
@@ -31,8 +34,11 @@ import { AiSalesSuppressionService } from './ai-sales-suppression.service';
     AiSalesPromptResolverService,
     AiSalesAdminService,
     AiSalesSeedService,
+    PartnerSearchService,
+    InternalDatabaseSearchProvider,
+    WebSearchProvider,
   ],
-  exports: [AiSalesProspectService, AiSalesMessageService],
+  exports: [AiSalesProspectService, AiSalesMessageService, PartnerSearchService],
 })
 export class AiSalesModule implements OnModuleInit {
   constructor(private readonly seed: AiSalesSeedService) {}

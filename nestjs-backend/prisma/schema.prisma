@@ -562,6 +562,7 @@ model User {
   aiSalesTasksAssigned         AiSalesTask[] @relation("AiSalesTaskAssignee")
   aiSalesTasksCreated          AiSalesTask[] @relation("AiSalesTaskCreator")
   aiSalesMeetingsAssigned      AiSalesMeeting[] @relation("AiSalesMeetingAssignee")
+  aiSalesSearchesCreated       AiSalesSearch[] @relation("AiSalesSearchCreator")
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -3801,8 +3802,36 @@ enum AiSalesProspectStatus {
 
 enum AiSalesVerificationStatus {
   UNVERIFIED
+  PARTIALLY_VERIFIED
   VERIFIED
   INVALID
+  DUPLICATE
+  DO_NOT_CONTACT
+}
+
+enum AiSalesSearchStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AiSalesSearchResultVerification {
+  UNVERIFIED
+  PARTIALLY_VERIFIED
+  VERIFIED
+  INVALID
+  DUPLICATE
+  DO_NOT_CONTACT
+}
+
+enum AiSalesAnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
 }
 
 enum AiSalesPriority {
@@ -3890,6 +3919,18 @@ model AiSalesSettings {
   timezone                     String   @default("Europe/Prague")
   senderEmail                  String?
   senderName                   String?
+  internalDatabaseEnabled      Boolean  @default(true)
+  manualContactsEnabled        Boolean  @default(true)
+  csvImportEnabled             Boolean  @default(true)
+  webProviderEnabled           Boolean  @default(false)
+  dailySearchResultLimit       Int      @default(100)
+  dailyAnalysisLimit           Int      @default(50)
+  lastSearchAt                 DateTime?
+  lastSearchSuccessAt          DateTime?
+  lastSearchErrorCode          String?
+  lastSearchErrorMessage       String?  @db.Text
+  lastProviderTestAt           DateTime?
+  lastProviderTestSuccess      Boolean?
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 }
@@ -3925,6 +3966,10 @@ model AiSalesProspect {
   lastContactAt      DateTime?
   nextActionAt       DateTime?
   notes              String?                   @db.Text
+  sourceSearchResultId String?                 @unique
+  publicDataCheckedAt  DateTime?
+  analysisStatus     AiSalesAnalysisStatus     @default(PENDING)
+  analyzedAt         DateTime?
   createdById        String?
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
@@ -3935,13 +3980,18 @@ model AiSalesProspect {
   messages AiSalesMessage[]
   leads    AiSalesLead[]
   tasks    AiSalesTask[]
+  sourceSearchResult AiSalesSearchResult? @relation("ProspectFromSearchResult", fields: [sourceSearchResultId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt(sort: Desc)])
   @@index([partnerType])
   @@index([email])
+  @@index([phone])
+  @@index([website])
   @@index([companyName])
+  @@index([region])
   @@index([doNotContact])
   @@index([fitScore(sort: Desc)])
+  @@index([analysisStatus])
 }
 
 model AiSalesCampaign {
@@ -4129,6 +4179,94 @@ model AiSalesMeeting {
 
   @@index([leadId])
   @@index([scheduledAt])
+}
+
+model AiSalesSearchProvider {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  name            String
+  providerType    String
+  domain          String?
+  enabled         Boolean  @default(true)
+  configured      Boolean  @default(false)
+  maxRequestsDay  Int      @default(100)
+  lastCheckedAt   DateTime?
+  lastErrorCode   String?
+  lastErrorMessage String? @db.Text
+  configJson      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model AiSalesSearch {
+  id                String            @id @default(cuid())
+  partnerType       AiSalesPartnerType?
+  region            String?
+  district          String?
+  city              String?
+  keywordsJson      Json?
+  sourcesJson       Json?
+  specialization    String?
+  minFitScore       Int?
+  limit             Int               @default(30)
+  status            AiSalesSearchStatus @default(PENDING)
+  totalFound        Int                 @default(0)
+  newResults        Int                 @default(0)
+  duplicateResults  Int                 @default(0)
+  suppressedResults Int                 @default(0)
+  currentSource     String?
+  progressPercent   Int                 @default(0)
+  errorCode         String?
+  errorMessage      String?             @db.Text
+  createdById       String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  createdBy User? @relation("AiSalesSearchCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  results   AiSalesSearchResult[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdById])
+}
+
+model AiSalesSearchResult {
+  id                 String                          @id @default(cuid())
+  searchId           String
+  partnerType        AiSalesPartnerType
+  companyName        String
+  contactName        String?
+  publicEmail        String?
+  publicPhone        String?
+  website            String?
+  city               String?
+  region             String?
+  specializationJson Json?
+  source             String
+  sourceUrl          String?
+  relevanceReason    String?                         @db.Text
+  verificationStatus AiSalesSearchResultVerification @default(UNVERIFIED)
+  duplicateOfId      String?
+  doNotContact       Boolean                         @default(false)
+  rawDataJson        Json?
+  savedProspectId    String?
+  fitScore           Int?
+  analysisJson       Json?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  search    AiSalesSearch  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  prospect  AiSalesProspect? @relation("ProspectFromSearchResult")
+
+  @@index([searchId])
+  @@index([companyName])
+  @@index([publicEmail])
+  @@index([website])
+  @@index([verificationStatus])
+  @@index([doNotContact])
 }
 
 model MarketingPopupUserView {

@@ -26,7 +26,9 @@ import { AiSalesDashboardService } from './ai-sales-dashboard.service';
 import { AiSalesMessageService } from './ai-sales-message.service';
 import { parseCsv, AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
+import { PartnerSearchService } from './partner-search.service';
 import { PrismaService } from '../../database/prisma.service';
+import { AiSalesAdminException, mapExceptionToSalesAdminError } from './ai-sales-errors.util';
 
 @Controller('admin/ai-sales')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -39,6 +41,7 @@ export class AiSalesAdminController {
     private readonly dashboard: AiSalesDashboardService,
     private readonly admin: AiSalesAdminService,
     private readonly settings: AiSalesSettingsService,
+    private readonly search: PartnerSearchService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -129,6 +132,11 @@ export class AiSalesAdminController {
   @Post('prospects/:id/approve')
   approveProspect(@Param('id') id: string) {
     return this.prospects.approve(id);
+  }
+
+  @Post('prospects/:id/reject')
+  rejectProspect(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.prospects.reject(id, body.reason);
   }
 
   @Post('prospects/:id/do-not-contact')
@@ -303,6 +311,134 @@ export class AiSalesAdminController {
     return this.campaigns.pause(id);
   }
 
+  // ── Search ──
+
+  @Get('diagnostics')
+  getDiagnostics() {
+    return this.admin.getDiagnostics();
+  }
+
+  @Get('prompts')
+  listPrompts() {
+    return this.prisma.aiPromptVersion.findMany({
+      where: { feature: { startsWith: 'AI_SALES_' } },
+      orderBy: [{ feature: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  @Get('knowledge')
+  listKnowledge() {
+    return this.prisma.aiKnowledgeItem.findMany({
+      where: {
+        category: {
+          in: [
+            'XXREALIT_GENERAL', 'AGENT_OFFER', 'AGENCY_OFFER', 'CONSTRUCTION_COMPANY_OFFER',
+            'DEVELOPER_OFFER', 'FINANCIAL_ADVISOR_OFFER', 'INVESTOR_OFFER', 'PRICING',
+            'REGISTRATION', 'MARKETING', 'LEADS', 'SOCIAL_PUBLISHING', 'CONTACT_RULES',
+            'LEGAL_AND_PRIVACY', 'FREQUENT_OBJECTIONS',
+          ],
+        },
+      },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  @Get('search-providers')
+  listSearchProviders() {
+    return this.search.listProviders();
+  }
+
+  @Post('search-providers/:id/test')
+  testSearchProvider(@Param('id') id: string) {
+    return this.wrap(() => this.admin.testSearchProvider({ providerKey: id }));
+  }
+
+  @Put('search-providers/:id')
+  async updateSearchProvider(@Param('id') id: string, @Body() body: { enabled?: boolean }) {
+    return this.prisma.aiSalesSearchProvider.update({
+      where: { id },
+      data: { enabled: body.enabled },
+    });
+  }
+
+  @Post('search')
+  startSearch(
+    @Body()
+    body: {
+      partnerType?: AiSalesPartnerType;
+      region?: string;
+      district?: string;
+      city?: string;
+      keywords?: string[];
+      specialization?: string;
+      sources?: string[];
+      limit?: number;
+      minFitScore?: number;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() =>
+      this.search.startSearch(
+        {
+          ...body,
+          sources: body.sources as never,
+        },
+        this.userId(req),
+      ),
+    );
+  }
+
+  @Get('searches')
+  listSearches() {
+    return this.search.listSearches();
+  }
+
+  @Get('searches/:id')
+  getSearch(@Param('id') id: string) {
+    return this.search.getSearch(id);
+  }
+
+  @Get('searches/:id/results')
+  getSearchResults(@Param('id') id: string) {
+    return this.search.getSearchResults(id);
+  }
+
+  @Post('searches/:id/cancel')
+  cancelSearch(@Param('id') id: string) {
+    return this.search.cancelSearch(id);
+  }
+
+  @Post('search-results/:id/save')
+  saveSearchResult(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.search.saveSearchResult(id, this.userId(req));
+  }
+
+  @Post('search-results/:id/reject')
+  rejectSearchResult(@Param('id') id: string) {
+    return this.search.rejectSearchResult(id);
+  }
+
+  @Post('search-results/:id/verify')
+  verifySearchResult(@Param('id') id: string) {
+    return this.search.verifySearchResult(id);
+  }
+
+  @Post('search-results/:id/analyze')
+  analyzeSearchResult(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.wrap(async () => {
+      const result = await this.prisma.aiSalesSearchResult.findUnique({ where: { id } });
+      if (!result) throw new BadRequestException('Výsledek nenalezen.');
+      const prospect = await this.search.saveSearchResult(id, this.userId(req));
+      if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
+      return this.analysis.analyzeProspect(prospect.id, this.userId(req));
+    });
+  }
+
+  @Post('search-results/:id/do-not-contact')
+  dncSearchResult(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.search.markResultDoNotContact(id, body.reason);
+  }
+
   // ── Test ──
 
   @Post('test')
@@ -314,10 +450,38 @@ export class AiSalesAdminController {
       city?: string;
       website?: string;
       publicInfo?: string;
+      publicInformation?: string;
     },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.admin.runTest({ ...body, userId: this.userId(req) });
+    return this.wrap(() => this.admin.testAnalysis({ ...body, userId: this.userId(req) }));
+  }
+
+  @Post('test-openai')
+  testOpenAi(@Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.wrap(() => this.admin.testOpenAi(this.userId(req)));
+  }
+
+  @Post('test-analysis')
+  testAnalysis(
+    @Body()
+    body: {
+      companyName: string;
+      partnerType: string;
+      city?: string;
+      website?: string;
+      publicInformation?: string;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() => this.admin.testAnalysis({ ...body, userId: this.userId(req) }));
+  }
+
+  @Post('test-search-provider')
+  testSearchProviderBody(
+    @Body() body: { providerKey?: string; partnerType?: string; city?: string; limit?: number },
+  ) {
+    return this.wrap(() => this.admin.testSearchProvider(body));
   }
 
   @Post('seed')
@@ -326,5 +490,15 @@ export class AiSalesAdminController {
     const seed = new AiSalesSeedService(this.prisma);
     await seed.seedIfEmpty();
     return { success: true };
+  }
+
+  private async wrap<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof AiSalesAdminException) throw err;
+      const mapped = mapExceptionToSalesAdminError(err);
+      throw new AiSalesAdminException(mapped);
+    }
   }
 }

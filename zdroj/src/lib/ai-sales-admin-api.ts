@@ -1,20 +1,74 @@
 import { API_BASE_URL } from '@/lib/api';
 import { nestAuthHeaders } from '@/lib/nest-client';
 
+export type AiSalesApiError = {
+  success: false;
+  code: string;
+  message: string;
+  httpStatus: number;
+  phase?: string;
+  technicalContext?: Record<string, string | number | boolean | null>;
+};
+
+const REQUEST_TIMEOUT_MS = 60_000;
+
 async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}/admin/ai-sales${path}`, {
-    ...init,
-    headers: {
-      ...nestAuthHeaders(token),
-      'Content-Type': 'application/json',
-      ...(init?.headers as Record<string, string>),
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { message?: string }).message ?? `Chyba ${res.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/ai-sales${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        ...(init?.headers as Record<string, string>),
+      },
+    });
+
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+
+    if (!res.ok) {
+      const err = body as Partial<AiSalesApiError> | null;
+      const code =
+        err?.code ??
+        (res.status === 404 ? 'ENDPOINT_NOT_FOUND' : res.status === 401 ? 'UNAUTHORIZED' : 'UNKNOWN_ERROR');
+      const message =
+        err?.message ??
+        (res.status === 404
+          ? 'Endpoint AI obchodníka nebyl nalezen. Zkontrolujte, zda běží aktuální verze backendu.'
+          : res.status >= 500
+            ? `Server vrátil chybu ${res.status}.`
+            : `Chyba ${res.status}`);
+      const error = new Error(message) as Error & AiSalesApiError;
+      error.success = false;
+      error.code = code;
+      error.httpStatus = res.status;
+      error.phase = err?.phase;
+      error.technicalContext = err?.technicalContext;
+      throw error;
+    }
+
+    return body as T;
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      const error = new Error('Požadavek vypršel (timeout 60 s).') as Error & AiSalesApiError;
+      error.success = false;
+      error.code = 'TIMEOUT';
+      error.httpStatus = 504;
+      error.phase = 'request';
+      throw error;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
   }
-  return (await res.json()) as T;
 }
 
 export type AiSalesDashboard = {
@@ -70,6 +124,37 @@ export type AiSalesMessage = {
   prospect?: AiSalesProspect;
 };
 
+export type AiSalesSearchResult = {
+  id: string;
+  companyName: string;
+  partnerType: string;
+  contactName: string | null;
+  publicEmail: string | null;
+  publicPhone: string | null;
+  website: string | null;
+  city: string | null;
+  region: string | null;
+  source: string;
+  sourceUrl: string | null;
+  verificationStatus: string;
+  doNotContact: boolean;
+  relevanceReason: string | null;
+  savedProspectId: string | null;
+};
+
+export type AiSalesSearchJob = {
+  id: string;
+  status: string;
+  totalFound: number;
+  newResults: number;
+  duplicateResults: number;
+  suppressedResults: number;
+  currentSource: string | null;
+  progressPercent: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
 export const PARTNER_TYPES = [
   'REAL_ESTATE_AGENT', 'REAL_ESTATE_AGENCY', 'CONSTRUCTION_COMPANY', 'DEVELOPER',
   'FINANCIAL_ADVISOR', 'MORTGAGE_SPECIALIST', 'INVESTOR', 'CRAFTSMAN',
@@ -85,7 +170,7 @@ export const PARTNER_TYPE_LABELS: Record<string, string> = {
   FINANCIAL_ADVISOR: 'Finanční poradce',
   MORTGAGE_SPECIALIST: 'Hypoteční specialista',
   INVESTOR: 'Investor',
-  CRAFTSMAN: 'Řemeslník',
+  CRAFTSMAN: 'Řemeslník / řemeslník',
   PROPERTY_SERVICES: 'Služby pro nemovitosti',
   PROPERTY_MANAGER: 'Správce nemovitostí',
   PROPERTY_PHOTOGRAPHER: 'Fotograf nemovitostí',
@@ -93,16 +178,21 @@ export const PARTNER_TYPE_LABELS: Record<string, string> = {
   OTHER: 'Jiný partner',
 };
 
+export const SEARCH_SOURCES = [
+  { id: 'INTERNAL_DATABASE', label: 'Interní databáze XXREALIT' },
+  { id: 'APPROVED_WEB_PROVIDER', label: 'Schválený webový provider' },
+] as const;
+
 export function getDashboard(token: string, days = 7) {
   return aiSalesRequest<AiSalesDashboard>(token, `/dashboard?days=${days}`);
 }
 
-export function listProspects(token: string, qs?: string) {
-  return aiSalesRequest<AiSalesProspect[]>(token, `/prospects${qs ? `?${qs}` : ''}`);
+export function getDiagnostics(token: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/diagnostics');
 }
 
-export function getProspect(token: string, id: string) {
-  return aiSalesRequest<AiSalesProspect>(token, `/prospects/${id}`);
+export function listProspects(token: string, qs?: string) {
+  return aiSalesRequest<AiSalesProspect[]>(token, `/prospects${qs ? `?${qs}` : ''}`);
 }
 
 export function createProspect(token: string, body: Record<string, unknown>) {
@@ -113,26 +203,70 @@ export function analyzeProspect(token: string, id: string) {
   return aiSalesRequest<Record<string, unknown>>(token, `/prospects/${id}/analyze`, { method: 'POST', body: '{}' });
 }
 
+export function approveProspect(token: string, id: string) {
+  return aiSalesRequest(token, `/prospects/${id}/approve`, { method: 'POST', body: '{}' });
+}
+
 export function generateMessage(token: string, id: string) {
   return aiSalesRequest<{ message: AiSalesMessage }>(token, `/prospects/${id}/generate-message`, { method: 'POST', body: '{}' });
 }
 
 export function markDoNotContact(token: string, id: string, reason?: string) {
-  return aiSalesRequest(token, `/prospects/${id}/do-not-contact`, {
-    method: 'POST',
-    body: JSON.stringify({ reason }),
-  });
+  return aiSalesRequest(token, `/prospects/${id}/do-not-contact`, { method: 'POST', body: JSON.stringify({ reason }) });
 }
 
 export function importPreview(token: string, csv: string) {
-  return aiSalesRequest<Record<string, unknown>>(token, '/prospects/import/preview', {
-    method: 'POST',
-    body: JSON.stringify({ csv }),
-  });
+  return aiSalesRequest<Record<string, unknown>>(token, '/prospects/import/preview', { method: 'POST', body: JSON.stringify({ csv }) });
 }
 
 export function importProspects(token: string, rows: Array<Record<string, unknown>>) {
   return aiSalesRequest(token, '/prospects/import', { method: 'POST', body: JSON.stringify({ rows }) });
+}
+
+export function startSearch(token: string, body: Record<string, unknown>) {
+  return aiSalesRequest<{ success: boolean; searchId: string; status: string }>(token, '/search', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getSearch(token: string, id: string) {
+  return aiSalesRequest<AiSalesSearchJob>(token, `/searches/${id}`);
+}
+
+export function getSearchResults(token: string, id: string) {
+  return aiSalesRequest<AiSalesSearchResult[]>(token, `/searches/${id}/results`);
+}
+
+export function saveSearchResult(token: string, id: string) {
+  return aiSalesRequest<AiSalesProspect>(token, `/search-results/${id}/save`, { method: 'POST', body: '{}' });
+}
+
+export function analyzeSearchResult(token: string, id: string) {
+  return aiSalesRequest(token, `/search-results/${id}/analyze`, { method: 'POST', body: '{}' });
+}
+
+export function rejectSearchResult(token: string, id: string) {
+  return aiSalesRequest(token, `/search-results/${id}/reject`, { method: 'POST', body: '{}' });
+}
+
+export function verifySearchResult(token: string, id: string) {
+  return aiSalesRequest<AiSalesSearchResult & { checks?: string[] }>(token, `/search-results/${id}/verify`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export function dncSearchResult(token: string, id: string) {
+  return aiSalesRequest(token, `/search-results/${id}/do-not-contact`, { method: 'POST', body: '{}' });
+}
+
+export function listSearchProviders(token: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/search-providers');
+}
+
+export function testSearchProvider(token: string, providerKey: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, `/search-providers/${providerKey}/test`, { method: 'POST', body: '{}' });
 }
 
 export function listMessages(token: string, status?: string) {
@@ -160,10 +294,6 @@ export function listReplies(token: string) {
   return aiSalesRequest<Array<Record<string, unknown>>>(token, '/replies');
 }
 
-export function listCampaigns(token: string) {
-  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/campaigns');
-}
-
 export function getSettings(token: string) {
   return aiSalesRequest<Record<string, unknown>>(token, '/settings');
 }
@@ -172,8 +302,24 @@ export function updateSettings(token: string, body: Record<string, unknown>) {
   return aiSalesRequest(token, '/settings', { method: 'PUT', body: JSON.stringify(body) });
 }
 
-export function runAiSalesTest(token: string, body: Record<string, unknown>) {
-  return aiSalesRequest<Record<string, unknown>>(token, '/test', { method: 'POST', body: JSON.stringify(body) });
+export function testOpenAi(token: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/test-openai', { method: 'POST', body: '{}' });
+}
+
+export function testAnalysis(token: string, body: Record<string, unknown>) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/test-analysis', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function testSearchProviderApi(token: string, body: Record<string, unknown>) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/test-search-provider', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function listPrompts(token: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/prompts');
+}
+
+export function listKnowledge(token: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/knowledge');
 }
 
 export function getAnalytics(token: string, days = 30) {

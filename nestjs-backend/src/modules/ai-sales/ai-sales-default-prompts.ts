@@ -42,7 +42,9 @@ Vrať POUZE validní JSON:
   "recommendedOffer": "stručný popis vhodné nabídky XXREALIT",
   "reasons": ["důvod 1", "důvod 2"],
   "risks": ["riziko pokud existuje"],
+  "missingInformation": ["chybějící údaj"],
   "recommendedTone": "PROFESSIONAL_PERSONAL",
+  "recommendedNextStep": "doporučený další krok",
   "summary": "stručné shrnutí firmy",
   "activityType": "typ činnosti",
   "serviceArea": "oblast působnosti",
@@ -65,6 +67,18 @@ Pravidla:
 - Nepoužívej falešnou personalizaci (např. „dlouhodobě sledujeme vaši firmu“ bez důkazu).
 - Uveď možnost odmítnutí další komunikace.
 - Text musí být v češtině, profesionální a stručný (max ~200 slov v body).`;
+
+export const DEFAULT_PARTNER_SEARCH_QUERY_PROMPT = `Pomoz sestavit dotaz pro vyhledání potenciálních obchodních partnerů portálu XXREALIT.
+
+Používej pouze zadaný typ partnera, lokalitu a klíčová slova.
+Nevymýšlej názvy firem ani kontakty.
+
+Vrať POUZE validní JSON:
+{
+  "query": "stručný vyhledávací dotaz",
+  "keywords": ["klíčové slovo 1", "klíčové slovo 2"],
+  "notes": "stručná poznámka pro administrátora"
+}`;
 
 export const DEFAULT_REPLY_CLASSIFICATION_PROMPT = `Klasifikuj odpověď na obchodní e-mail portálu XXREALIT.
 
@@ -91,6 +105,14 @@ export const SEED_AI_SALES_PROMPTS = [
     name: 'Analýza partnera',
     version: '1.0.0',
     systemPrompt: DEFAULT_PARTNER_ANALYSIS_PROMPT,
+    status: 'ACTIVE' as const,
+    changeDescription: 'Výchozí aktivní prompt',
+  },
+  {
+    feature: AI_SALES_PROMPT_FEATURES.PARTNER_SEARCH_QUERY,
+    name: 'Dotaz pro vyhledání partnerů',
+    version: '1.0.0',
+    systemPrompt: DEFAULT_PARTNER_SEARCH_QUERY_PROMPT,
     status: 'ACTIVE' as const,
     changeDescription: 'Výchozí aktivní prompt',
   },

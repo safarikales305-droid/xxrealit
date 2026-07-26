@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   approveMessage,
   analyzeProspect,
+  approveProspect,
   createProspect,
   generateMessage,
   getDashboard,
@@ -15,12 +16,14 @@ import {
   importProspects,
   listMessages,
   listProspects,
+  listPrompts,
+  listKnowledge,
+  listSearchProviders,
   listReplies,
   markDoNotContact,
   PARTNER_TYPE_LABELS,
   PARTNER_TYPES,
   rejectMessage,
-  runAiSalesTest,
   sendMessage,
   updateMessage,
   updateSettings,
@@ -28,6 +31,8 @@ import {
   type AiSalesMessage,
   type AiSalesProspect,
 } from '@/lib/ai-sales-admin-api';
+import { AiSalesSearchPanel } from '@/components/admin/ai-sales/AiSalesSearchPanel';
+import { AiSalesTestPanel } from '@/components/admin/ai-sales/AiSalesTestPanel';
 
 type Tab =
   | 'overview'
@@ -38,6 +43,8 @@ type Tab =
   | 'replies'
   | 'followup'
   | 'campaigns'
+  | 'prompts'
+  | 'knowledge'
   | 'settings'
   | 'stats'
   | 'test';
@@ -51,6 +58,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'replies', label: 'Odpovědi' },
   { id: 'followup', label: 'Follow-up' },
   { id: 'campaigns', label: 'Kampaně' },
+  { id: 'prompts', label: 'Prompty' },
+  { id: 'knowledge', label: 'Znalosti' },
   { id: 'settings', label: 'Nastavení' },
   { id: 'stats', label: 'Statistiky' },
   { id: 'test', label: 'Test' },
@@ -87,15 +96,9 @@ export default function AdminAiSalesPage() {
 
   const [csvText, setCsvText] = useState('');
   const [importPreviewData, setImportPreviewData] = useState<Record<string, unknown> | null>(null);
-
-  const [testForm, setTestForm] = useState({
-    companyName: 'Test Reality Pardubice',
-    partnerType: 'REAL_ESTATE_AGENCY',
-    city: 'Pardubice',
-    website: 'https://test-reality-pardubice.example',
-    publicInfo: 'Realitní kancelář nabízí byty a domy v Pardubickém kraji.',
-  });
-  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [prompts, setPrompts] = useState<Array<Record<string, unknown>>>([]);
+  const [knowledge, setKnowledge] = useState<Array<Record<string, unknown>>>([]);
+  const [providers, setProviders] = useState<Array<Record<string, unknown>>>([]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -134,6 +137,12 @@ export default function AdminAiSalesPage() {
       void listMessages(token, 'PENDING_APPROVAL').then(setMessages).catch(() => setMessages([]));
     } else if (tab === 'sent') {
       void listMessages(token, 'SENT').then(setMessages).catch(() => setMessages([]));
+    } else if (tab === 'prompts') {
+      void listPrompts(token).then(setPrompts).catch(() => setPrompts([]));
+    } else if (tab === 'knowledge') {
+      void listKnowledge(token).then(setKnowledge).catch(() => setKnowledge([]));
+    } else if (tab === 'settings') {
+      void listSearchProviders(token).then(setProviders).catch(() => setProviders([]));
     }
   }, [tab, token]);
 
@@ -288,8 +297,11 @@ export default function AdminAiSalesPage() {
                       ) : null}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      <button type="button" disabled={busy} onClick={() => void handleAnalyze(p.id)} className="rounded border px-2 py-0.5 text-xs">Analyzovat</button>
-                      <button type="button" disabled={busy || p.doNotContact} onClick={() => void handleGenerate(p.id)} className="rounded border px-2 py-0.5 text-xs">Vytvořit nabídku</button>
+                  <button type="button" disabled={busy} onClick={() => void handleAnalyze(p.id)} className="rounded border px-2 py-0.5 text-xs">Analyzovat</button>
+                  {p.status === 'NEEDS_REVIEW' ? (
+                    <button type="button" disabled={busy} onClick={() => void approveProspect(token, p.id).then(() => refresh())} className="rounded border px-2 py-0.5 text-xs">Schválit</button>
+                  ) : null}
+                  <button type="button" disabled={busy || p.doNotContact} onClick={() => void handleGenerate(p.id)} className="rounded border px-2 py-0.5 text-xs">Vytvořit nabídku</button>
                       <button type="button" disabled={busy} onClick={() => void markDoNotContact(token, p.id)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-red-700">DO_NOT_CONTACT</button>
                     </div>
                   </div>
@@ -300,12 +312,7 @@ export default function AdminAiSalesPage() {
         </div>
       ) : null}
 
-      {tab === 'search' ? (
-        <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
-          <p>Bezpečné vyhledávání partnerů ze schválených zdrojů bude dostupné v etapě 4.</p>
-          <p className="mt-2">Zatím použijte ruční vložení, CSV import nebo databázi makléřů portálu.</p>
-        </div>
-      ) : null}
+      {tab === 'search' ? <AiSalesSearchPanel token={token} onSaved={() => void refresh()} /> : null}
 
       {tab === 'approval' ? (
         <div className="space-y-4">
@@ -373,13 +380,62 @@ export default function AdminAiSalesPage() {
         <EmptyState title="Kampaně" action="Vytvořte kampaň přes API nebo v další verzi UI. Backend endpointy jsou připravené." />
       ) : null}
 
+      {tab === 'prompts' ? (
+        prompts.length === 0 ? (
+          <EmptyState title="Žádné prompty AI obchodníka." action="Spusťte seed backendu nebo vytvořte prompty v AI centru." />
+        ) : (
+          <ul className="space-y-2">
+            {prompts.map((p) => (
+              <li key={String(p.id)} className="rounded-xl border bg-white p-3 text-sm">
+                <p className="font-semibold">{String(p.name ?? p.feature)} <span className="text-xs text-zinc-500">v{String(p.version)} · {String(p.status)}</span></p>
+                <p className="text-xs text-zinc-500">{String(p.feature)}</p>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+
+      {tab === 'knowledge' ? (
+        knowledge.length === 0 ? (
+          <EmptyState title="Žádné znalosti AI obchodníka." action="Schválené znalosti se načtou ze seedu." />
+        ) : (
+          <ul className="space-y-2">
+            {knowledge.map((k) => (
+              <li key={String(k.id)} className="rounded-xl border bg-white p-3 text-sm">
+                <p className="font-semibold">{String(k.title)} <span className="text-xs text-zinc-500">{String(k.status)} · {String(k.category)}</span></p>
+                <p className="text-zinc-600">{String(k.question)}</p>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+
       {tab === 'settings' && settings ? (
-        <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-lg">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.testModeEnabled)} onChange={(e) => void updateSettings(token, { testModeEnabled: e.target.checked }).then(() => refresh())} /> Testovací režim (neodesílá skutečné e-maily)</label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.requireManualApproval)} onChange={(e) => void updateSettings(token, { requireManualApproval: e.target.checked }).then(() => refresh())} /> Vyžadovat ruční schválení</label>
-          <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
-          <label>Denní limit follow-upů: <input type="number" defaultValue={Number(settings.dailyFollowUpLimit)} onBlur={(e) => void updateSettings(token, { dailyFollowUpLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
-          <label>Max follow-upů na kontakt: <input type="number" defaultValue={Number(settings.maxFollowUpsPerProspect)} onBlur={(e) => void updateSettings(token, { maxFollowUpsPerProspect: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
+        <div className="space-y-4">
+          <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-lg">
+            <h3 className="font-semibold">Obecné</h3>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.testModeEnabled)} onChange={(e) => void updateSettings(token, { testModeEnabled: e.target.checked }).then(() => refresh())} /> Testovací režim (neodesílá skutečné e-maily)</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.requireManualApproval)} onChange={(e) => void updateSettings(token, { requireManualApproval: e.target.checked }).then(() => refresh())} /> Vyžadovat ruční schválení</label>
+            <label>Denní limit vyhledávání: <input type="number" defaultValue={Number(settings.dailySearchResultLimit ?? 100)} onBlur={(e) => void updateSettings(token, { dailySearchResultLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
+            <label>Denní limit AI analýz: <input type="number" defaultValue={Number(settings.dailyAnalysisLimit ?? 50)} onBlur={(e) => void updateSettings(token, { dailyAnalysisLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
+            <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
+          </div>
+          <div className="rounded-2xl border bg-white p-4 space-y-2 text-sm">
+            <h3 className="font-semibold">Zdroje vyhledávání</h3>
+            {providers.length === 0 ? (
+              <p className="text-zinc-500">Načítám providery…</p>
+            ) : (
+              <ul className="space-y-1">
+                {providers.map((p) => (
+                  <li key={String(p.id)} className="flex justify-between gap-2 border-b border-zinc-100 py-1">
+                    <span>{String(p.name)}</span>
+                    <span className="text-xs text-zinc-500">{p.configured ? 'nakonfigurován' : 'nenakonfigurován'} · {p.enabled ? 'zapnuto' : 'vypnuto'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-zinc-500">Webový provider: nastavte BING_SEARCH_API_KEY nebo SERPAPI_API_KEY na backendu.</p>
+          </div>
         </div>
       ) : null}
 
@@ -387,27 +443,7 @@ export default function AdminAiSalesPage() {
         <EmptyState title="Statistiky" action="Přehled metrik je na záložce Přehled. Detailní analytika přes /analytics endpoint." />
       ) : null}
 
-      {tab === 'test' ? (
-        <div className="space-y-4">
-          <div className="rounded-2xl border bg-white p-4 space-y-2">
-            <h3 className="font-semibold">Testovací analýza (nic se neodešle)</h3>
-            <input value={testForm.companyName} onChange={(e) => setTestForm({ ...testForm, companyName: e.target.value })} className="w-full rounded border px-2 py-1 text-sm" placeholder="Firma" />
-            <select value={testForm.partnerType} onChange={(e) => setTestForm({ ...testForm, partnerType: e.target.value })} className="w-full rounded border px-2 py-1 text-sm">
-              {PARTNER_TYPES.map((t) => <option key={t} value={t}>{PARTNER_TYPE_LABELS[t]}</option>)}
-            </select>
-            <textarea value={testForm.publicInfo} onChange={(e) => setTestForm({ ...testForm, publicInfo: e.target.value })} className="w-full rounded border px-2 py-1 text-sm" rows={3} />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runAiSalesTest(token, testForm).then(setTestResult).catch((e) => setError(e.message))}
-              className="rounded bg-orange-600 px-4 py-2 text-sm text-white disabled:opacity-50"
-            >
-              Spustit test
-            </button>
-          </div>
-          {testResult ? <pre className="max-h-96 overflow-auto rounded bg-zinc-50 p-3 text-xs">{JSON.stringify(testResult, null, 2)}</pre> : null}
-        </div>
-      ) : null}
+      {tab === 'test' ? <AiSalesTestPanel token={token} /> : null}
 
       {tab === 'prospects' && (
         <div className="mt-6 rounded-2xl border bg-white p-4">

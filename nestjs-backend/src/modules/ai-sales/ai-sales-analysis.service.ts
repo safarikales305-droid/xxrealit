@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AiSalesAnalysisStatus,
   AiSalesPartnerType,
   AiSalesPriority,
   AiSalesProspectStatus,
@@ -10,6 +11,7 @@ import { AI_SALES_PROMPT_FEATURES } from './ai-sales.constants';
 import { AiSalesKnowledgeService } from './ai-sales-knowledge.service';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
+import { AiSalesSettingsService } from './ai-sales-settings.service';
 
 type PartnerAnalysisResult = {
   partnerType?: string;
@@ -18,6 +20,8 @@ type PartnerAnalysisResult = {
   recommendedOffer?: string;
   reasons?: string[];
   risks?: string[];
+  missingInformation?: string[];
+  recommendedNextStep?: string;
   recommendedTone?: string;
   summary?: string;
   activityType?: string;
@@ -33,9 +37,11 @@ export class AiSalesAnalysisService {
     private readonly knowledge: AiSalesKnowledgeService,
     private readonly promptResolver: AiSalesPromptResolverService,
     private readonly openai: OpenAiService,
+    private readonly settings: AiSalesSettingsService,
   ) {}
 
   async analyzeProspect(prospectId: string, userId?: string, testMode = false) {
+    if (!testMode) await this.assertDailyAnalysisLimit();
     const prospect = await this.prospects.getById(prospectId);
 
     const knowledge = await this.knowledge.retrieveRelevant({
@@ -94,6 +100,8 @@ Zdroj: ${prospect.source}`;
           fitReasonsJson: parsed.reasons ?? [],
           fitRisksJson: parsed.risks ?? [],
           analysisJson: parsed,
+          analysisStatus: AiSalesAnalysisStatus.COMPLETED,
+          analyzedAt: new Date(),
           status:
             fitScore >= 60
               ? AiSalesProspectStatus.READY_FOR_OUTREACH
@@ -125,7 +133,14 @@ Zdroj: ${prospect.source}`;
   ) {
     const prospect = await this.prospects.getById(prospectId);
     if (prospect.doNotContact) {
-      throw new NotFoundException('Kontakt je v režimu DO_NOT_CONTACT.');
+      throw new ForbiddenException('Kontakt je v režimu DO_NOT_CONTACT.');
+    }
+    if (
+      !options?.testMode &&
+      prospect.status !== AiSalesProspectStatus.APPROVED &&
+      prospect.status !== AiSalesProspectStatus.READY_FOR_OUTREACH
+    ) {
+      throw new ForbiddenException('Partner musí být nejdříve schválen administrátorem.');
     }
 
     const analysis = (prospect.analysisJson ?? {}) as PartnerAnalysisResult;
@@ -222,5 +237,17 @@ Personalizační body: ${(analysis.personalizationPoints ?? []).join('; ') || '�
     if (raw === 'HIGH' || fitScore >= 80) return AiSalesPriority.HIGH;
     if (raw === 'LOW' || fitScore < 30) return AiSalesPriority.LOW;
     return AiSalesPriority.MEDIUM;
+  }
+
+  private async assertDailyAnalysisLimit() {
+    const settings = await this.settings.getOrCreate();
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const count = await this.prisma.aiSalesProspect.count({
+      where: { analyzedAt: { gte: dayStart }, analysisStatus: AiSalesAnalysisStatus.COMPLETED },
+    });
+    if (count >= settings.dailyAnalysisLimit) {
+      throw new ForbiddenException(`Denní limit AI analýz (${settings.dailyAnalysisLimit}) byl překročen.`);
+    }
   }
 }
