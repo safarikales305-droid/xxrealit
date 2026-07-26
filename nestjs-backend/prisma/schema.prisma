@@ -549,6 +549,20 @@ model User {
   aiPromptsCreated             AiPromptVersion[] @relation("AiPromptCreator")
   aiPromptsApproved            AiPromptVersion[] @relation("AiPromptApprover")
 
+  aiSalesProspectsAssigned     AiSalesProspect[] @relation("AiSalesProspectAssignee")
+  aiSalesProspectsCreated      AiSalesProspect[] @relation("AiSalesProspectCreator")
+  aiSalesCampaignsCreated      AiSalesCampaign[] @relation("AiSalesCampaignCreator")
+  aiSalesCampaignsApproved     AiSalesCampaign[] @relation("AiSalesCampaignApprover")
+  aiSalesMessagesApproved      AiSalesMessage[] @relation("AiSalesMessageApprover")
+  aiSalesMessagesCreated       AiSalesMessage[] @relation("AiSalesMessageCreator")
+  aiSalesRepliesReviewed       AiSalesReplyAnalysis[] @relation("AiSalesReplyReviewer")
+  aiSalesLeadsAssigned         AiSalesLead[] @relation("AiSalesLeadAssignee")
+  aiSalesLeadsConverted        AiSalesLead[] @relation("AiSalesLeadConvertedUser")
+  aiSalesFeedbackReviewed      AiSalesFeedback[] @relation("AiSalesFeedbackReviewer")
+  aiSalesTasksAssigned         AiSalesTask[] @relation("AiSalesTaskAssignee")
+  aiSalesTasksCreated          AiSalesTask[] @relation("AiSalesTaskCreator")
+  aiSalesMeetingsAssigned      AiSalesMeeting[] @relation("AiSalesMeetingAssignee")
+
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
 
@@ -3748,6 +3762,373 @@ model AiChatEvaluation {
 
   @@index([sessionId])
   @@index([createdAt(sort: Desc)])
+}
+
+// ─── AI Obchodník (akvizice partnerů) ───────────────────────────────────────
+
+enum AiSalesPartnerType {
+  REAL_ESTATE_AGENT
+  REAL_ESTATE_AGENCY
+  CONSTRUCTION_COMPANY
+  DEVELOPER
+  FINANCIAL_ADVISOR
+  MORTGAGE_SPECIALIST
+  INVESTOR
+  CRAFTSMAN
+  PROPERTY_SERVICES
+  PROPERTY_MANAGER
+  PROPERTY_PHOTOGRAPHER
+  LEGAL_TECH_SPECIALIST
+  OTHER
+}
+
+enum AiSalesProspectStatus {
+  NEW
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+  READY_FOR_OUTREACH
+  CONTACTED
+  REPLIED
+  INTERESTED
+  FOLLOW_UP
+  CONVERTED
+  NOT_INTERESTED
+  DO_NOT_CONTACT
+  INVALID
+  DUPLICATE
+}
+
+enum AiSalesVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  INVALID
+}
+
+enum AiSalesPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AiSalesCampaignStatus {
+  DRAFT
+  REVIEW
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum AiSalesMessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum AiSalesMessageStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SCHEDULED
+  SENT
+  DELIVERED
+  OPENED
+  REPLIED
+  BOUNCED
+  FAILED
+  REJECTED
+  CANCELLED
+}
+
+enum AiSalesReplyClassification {
+  INTERESTED
+  REQUEST_MORE_INFO
+  WANTS_CALL
+  WANTS_MEETING
+  NOT_NOW
+  NOT_INTERESTED
+  UNSUBSCRIBE
+  WRONG_CONTACT
+  AUTO_REPLY
+  BOUNCE
+  UNKNOWN
+}
+
+enum AiSalesLeadStatus {
+  NEW
+  QUALIFIED
+  CONTACT_REQUESTED
+  MEETING_PROPOSED
+  MEETING_SCHEDULED
+  OFFER_SENT
+  NEGOTIATION
+  WON
+  LOST
+  ON_HOLD
+}
+
+enum AiSalesTaskStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+model AiSalesSettings {
+  id                           String   @id @default("default")
+  enabled                      Boolean  @default(true)
+  testModeEnabled              Boolean  @default(true)
+  requireManualApproval        Boolean  @default(true)
+  dailyFirstOutreachLimit      Int      @default(20)
+  dailyFollowUpLimit           Int      @default(10)
+  maxFollowUpsPerProspect      Int      @default(2)
+  maxFirstOutreachPerCompany   Int      @default(1)
+  sendWindowStartHour          Int      @default(9)
+  sendWindowEndHour            Int      @default(17)
+  sendOnWeekends               Boolean  @default(false)
+  autoSequenceEnabled          Boolean  @default(false)
+  timezone                     String   @default("Europe/Prague")
+  senderEmail                  String?
+  senderName                   String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+}
+
+model AiSalesProspect {
+  id                 String                    @id @default(cuid())
+  partnerType        AiSalesPartnerType
+  companyName        String
+  contactName        String?
+  position           String?
+  email              String?
+  phone              String?
+  website            String?
+  city               String?
+  region             String?
+  serviceArea        String?
+  specialization     String?
+  companySize        String?
+  source             String                    @default("MANUAL")
+  sourceUrl          String?
+  sourceNote         String?                   @db.Text
+  publicInfo         String?                   @db.Text
+  verificationStatus AiSalesVerificationStatus @default(UNVERIFIED)
+  fitScore           Int?
+  priority           AiSalesPriority?
+  fitReasonsJson     Json?
+  fitRisksJson       Json?
+  analysisJson       Json?
+  status             AiSalesProspectStatus     @default(NEW)
+  doNotContact       Boolean                   @default(false)
+  doNotContactReason String?
+  assignedToId       String?
+  lastContactAt      DateTime?
+  nextActionAt       DateTime?
+  notes              String?                   @db.Text
+  createdById        String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  assignedTo User? @relation("AiSalesProspectAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy  User? @relation("AiSalesProspectCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  messages AiSalesMessage[]
+  leads    AiSalesLead[]
+  tasks    AiSalesTask[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([partnerType])
+  @@index([email])
+  @@index([companyName])
+  @@index([doNotContact])
+  @@index([fitScore(sort: Desc)])
+}
+
+model AiSalesCampaign {
+  id                String                @id @default(cuid())
+  name              String
+  partnerType       AiSalesPartnerType?
+  description       String?               @db.Text
+  region            String?
+  productOffer      String?               @db.Text
+  promptFeature     String?
+  knowledgeCategory String?
+  emailTemplateKey  String?
+  targetAction      String?
+  dailyLimit        Int                   @default(20)
+  followUpLimit     Int                   @default(2)
+  followUpDays1     Int                   @default(6)
+  followUpDays2     Int                   @default(12)
+  status            AiSalesCampaignStatus @default(DRAFT)
+  createdById       String?
+  approvedById      String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  createdBy  User? @relation("AiSalesCampaignCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy User? @relation("AiSalesCampaignApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  messages AiSalesMessage[]
+  leads    AiSalesLead[]
+
+  @@index([status])
+  @@index([partnerType])
+}
+
+model AiSalesMessage {
+  id                String                  @id @default(cuid())
+  prospectId        String
+  campaignId        String?
+  direction         AiSalesMessageDirection @default(OUTBOUND)
+  messageType       String                  @default("FIRST_OUTREACH")
+  subject           String?
+  content           String                  @db.Text
+  htmlContent       String?                 @db.Text
+  status            AiSalesMessageStatus    @default(DRAFT)
+  outreachReason    String?                 @db.Text
+  recommendedOffer  String?                 @db.Text
+  knowledgeUsedJson Json?
+  promptVersionId   String?
+  promptFeature     String?
+  approvedById      String?
+  approvedAt        DateTime?
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  repliedAt         DateTime?
+  openedAt          DateTime?
+  errorCode         String?
+  providerMessageId String?
+  emailLogId        String?
+  isTest            Boolean                 @default(false)
+  createdById       String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  prospect   AiSalesProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  campaign   AiSalesCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  approvedBy User?           @relation("AiSalesMessageApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  createdBy  User?           @relation("AiSalesMessageCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  replyAnalysis AiSalesReplyAnalysis?
+  feedback      AiSalesFeedback[]
+
+  @@index([prospectId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([campaignId])
+  @@index([scheduledAt])
+}
+
+model AiSalesReplyAnalysis {
+  id                String                      @id @default(cuid())
+  messageId         String                      @unique
+  classification    AiSalesReplyClassification?
+  confidence        Float?
+  summary           String?                     @db.Text
+  recommendedAction String?                     @db.Text
+  proposedReply     String?                     @db.Text
+  reviewedById      String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  message    AiSalesMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reviewedBy User?          @relation("AiSalesReplyReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([classification])
+}
+
+model AiSalesLead {
+  id              String            @id @default(cuid())
+  prospectId      String
+  campaignId      String?
+  status          AiSalesLeadStatus @default(NEW)
+  interestScore   Int?
+  summary         String?           @db.Text
+  nextAction      String?
+  assignedToId    String?
+  nextActionAt    DateTime?
+  convertedUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  prospect      AiSalesProspect  @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  campaign      AiSalesCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  assignedTo    User?            @relation("AiSalesLeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  convertedUser User?            @relation("AiSalesLeadConvertedUser", fields: [convertedUserId], references: [id], onDelete: SetNull)
+
+  meetings AiSalesMeeting[]
+
+  @@index([status])
+  @@index([prospectId])
+}
+
+model AiSalesFeedback {
+  id               String   @id @default(cuid())
+  messageId        String
+  rating           Int?
+  category         String?
+  correctedContent String?  @db.Text
+  notes            String?  @db.Text
+  reviewedById     String?
+  createdAt        DateTime @default(now())
+
+  message    AiSalesMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reviewedBy User?          @relation("AiSalesFeedbackReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+}
+
+model AiSalesSuppression {
+  id        String   @id @default(cuid())
+  email     String?
+  domain    String?
+  reason    String?
+  source    String   @default("MANUAL")
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([domain])
+}
+
+model AiSalesTask {
+  id           String            @id @default(cuid())
+  prospectId   String?
+  leadId       String?
+  title        String
+  description  String?           @db.Text
+  status       AiSalesTaskStatus @default(PENDING)
+  assignedToId String?
+  dueAt        DateTime?
+  createdById  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  prospect   AiSalesProspect? @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  assignedTo User?            @relation("AiSalesTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy  User?            @relation("AiSalesTaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, dueAt])
+  @@index([assignedToId])
+}
+
+model AiSalesMeeting {
+  id           String   @id @default(cuid())
+  leadId       String
+  title        String
+  scheduledAt  DateTime?
+  notes        String?  @db.Text
+  assignedToId String?
+  confirmed    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lead       AiSalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedTo User?       @relation("AiSalesMeetingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([leadId])
+  @@index([scheduledAt])
 }
 
 model MarketingPopupUserView {

@@ -240,9 +240,13 @@ export default function AdminAiCentrumPage() {
   return (
     <>
       <p className="mb-4 text-sm text-zinc-600">
-        Centrální OpenAI integrace pro SEO, popisy, e-maily a{' '}
+        Centrální OpenAI integrace pro SEO, popisy, e-maily,{' '}
         <a href="/admin/marketing/ai-chat" className="font-semibold text-orange-600 underline">
-          veřejný AI chat →
+          veřejný AI chat
+        </a>
+        {' '}a{' '}
+        <a href="/admin/marketing/ai-sales" className="font-semibold text-orange-600 underline">
+          AI obchodník →
         </a>
       </p>
       <p className="mb-6 text-sm text-zinc-600">

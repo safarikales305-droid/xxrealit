@@ -23,7 +23,8 @@ export type AiFeature =
   | 'support'
   | 'ai_chat'
   | 'ai_chat_intent'
-  | 'ai_chat_eval';
+  | 'ai_chat_eval'
+  | 'ai_sales';
 
 export type OpenAiCompleteInput = {
   feature: AiFeature;
@@ -355,6 +356,7 @@ export class OpenAiService {
       ai_chat: db.chatEnabled,
       ai_chat_intent: db.chatEnabled,
       ai_chat_eval: db.chatEnabled,
+      ai_sales: db.chatEnabled,
     };
     if (!options?.adminTest && !featureEnabled[feature]) {
       const label =

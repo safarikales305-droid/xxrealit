@@ -59,6 +59,7 @@ import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
 import { MetaCenterModule } from './modules/meta-center/meta-center.module';
 import { OpenAiModule } from './modules/openai/openai.module';
 import { AiChatModule } from './modules/ai-chat/ai-chat.module';
+import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { AiChatModule } from './modules/ai-chat/ai-chat.module';
     MetaCenterModule,
     OpenAiModule,
     AiChatModule,
+    AiSalesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

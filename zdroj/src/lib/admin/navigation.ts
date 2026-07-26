@@ -109,6 +109,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'meta-center', label: 'Meta Centrum', href: '/admin/marketing/meta-centrum', icon: 'Ⓜ️', tone: 'blue' },
       { id: 'ai-centrum', label: 'AI centrum', href: '/admin/marketing/ai-centrum', icon: '🤖', tone: 'purple' },
       { id: 'ai-chat', label: 'AI chat', href: '/admin/marketing/ai-chat', icon: '💬', tone: 'purple' },
+      { id: 'ai-sales', label: 'AI obchodník', href: '/admin/marketing/ai-sales', icon: '🤝', tone: 'purple' },
       { id: 'meta-catalog', label: 'Meta katalog', href: '/admin/marketing/meta-katalog-inzeratu', icon: '🛒' },
       { id: 'push', label: 'Push notifikace', href: '/admin/marketing/push-notifikace', icon: '🔔' },
       { id: 'wa-campaigns', label: 'WhatsApp kampaně', href: '/admin/marketing/whatsapp-kampane', icon: '📱' },
