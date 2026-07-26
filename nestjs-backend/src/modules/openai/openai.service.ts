@@ -20,7 +20,10 @@ export type AiFeature =
   | 'listing_description'
   | 'social_post'
   | 'email'
-  | 'support';
+  | 'support'
+  | 'ai_chat'
+  | 'ai_chat_intent'
+  | 'ai_chat_eval';
 
 export type OpenAiCompleteInput = {
   feature: AiFeature;
@@ -337,6 +340,9 @@ export class OpenAiService {
       social_post: db.socialPostEnabled,
       email: db.emailEnabled,
       support: db.supportEnabled,
+      ai_chat: db.supportEnabled,
+      ai_chat_intent: db.supportEnabled,
+      ai_chat_eval: db.supportEnabled,
     };
     if (!featureEnabled[feature]) {
       throw new ForbiddenException('Tato AI funkce není povolena.');

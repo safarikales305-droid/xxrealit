@@ -539,6 +539,16 @@ model User {
   socialPublishSchedulesCreated SocialPublishSchedule[] @relation("SocialPublishScheduleCreator")
   socialPublishLogsTriggered   SocialPublishLog[] @relation("SocialPublishLogTrigger")
 
+  aiChatSessions               AiChatSession[] @relation("AiChatSessionUser")
+  aiChatSessionsAssigned       AiChatSession[] @relation("AiChatSessionAssignee")
+  aiChatLeadsAssigned          AiChatLead[] @relation("AiChatLeadAssignee")
+  aiChatFeedbackSubmitted      AiChatFeedback[] @relation("AiChatFeedbackSubmitter")
+  aiChatFeedbackReviewed       AiChatFeedback[] @relation("AiChatFeedbackReviewer")
+  aiKnowledgeCreated           AiKnowledgeItem[] @relation("AiKnowledgeCreator")
+  aiKnowledgeApproved          AiKnowledgeItem[] @relation("AiKnowledgeApprover")
+  aiPromptsCreated             AiPromptVersion[] @relation("AiPromptCreator")
+  aiPromptsApproved            AiPromptVersion[] @relation("AiPromptApprover")
+
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
 
@@ -3372,6 +3382,328 @@ model AiGeneration {
 
   @@index([feature, entityType, entityId])
   @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+enum AiChatSessionStatus {
+  ACTIVE
+  CLOSED
+  ESCALATED
+  SPAM
+}
+
+enum AiChatIntent {
+  BUY_PROPERTY
+  RENT_PROPERTY
+  SELL_PROPERTY
+  RENT_OUT_PROPERTY
+  FIND_AGENT
+  AGENT_REGISTRATION
+  AGENCY_COOPERATION
+  CONSTRUCTION_COMPANY
+  FINANCIAL_ADVISOR
+  INVESTOR
+  PROPERTY_OWNER
+  SERVICE_PROVIDER
+  PORTAL_SUPPORT
+  GENERAL_QUESTION
+  UNKNOWN
+}
+
+enum AiChatConversationStage {
+  DISCOVERY
+  ACTIVE_SEARCH
+  COMPARISON
+  READY_FOR_LEAD
+  CONTACT_COLLECTED
+  CLOSED
+}
+
+enum AiChatLeadStatus {
+  NEW
+  QUALIFIED
+  CONTACT_REQUESTED
+  ASSIGNED
+  CONTACTED
+  CONVERTED
+  LOST
+  SPAM
+}
+
+enum AiChatMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum AiKnowledgeStatus {
+  DRAFT
+  APPROVED
+  ARCHIVED
+}
+
+enum AiPromptStatus {
+  DRAFT
+  TESTING
+  ACTIVE
+  ARCHIVED
+}
+
+enum AiChatFeedbackRating {
+  UP
+  DOWN
+}
+
+enum AiChatReviewStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum AiChatAdminReviewVerdict {
+  CORRECT
+  PARTIAL
+  INCORRECT
+  IRRELEVANT
+  HALLUCINATION
+  BAD_TONE
+  TOO_LONG
+  MISSING_HUMAN_HANDOFF
+  GOOD_EXAMPLE
+}
+
+/// Globální nastavení veřejného AI chatu (singleton).
+model AiChatSettings {
+  id                       String   @id @default("default")
+  globallyEnabled          Boolean  @default(true)
+  visibilityMode           String   @default("PORTAL")
+  enabledPageTypes         String[] @default([])
+  disabledUrlPatterns      String[] @default([])
+  allowedUrlPatterns       String[] @default([])
+  openDelaySeconds         Int      @default(0)
+  greetingDelaySeconds     Int      @default(0)
+  doNotReopenMinutes       Int      @default(60)
+  retentionDays            Int      @default(90)
+  maxMessagesPerMinute     Int      @default(8)
+  maxMessagesPerHour       Int      @default(40)
+  maxMessageLength         Int      @default(2000)
+  maxSessionMessages       Int      @default(80)
+  dailyChatRequestLimit    Int      @default(500)
+  dailyChatBudgetCzk       Int      @default(200)
+  monthlyChatBudgetCzk     Int      @default(2000)
+  maxOutputTokens          Int      @default(1500)
+  classificationModel      String   @default("gpt-4.1-mini")
+  chatModel                String   @default("gpt-4.1-mini")
+  maxPropertyRecommendations Int    @default(5)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+/// Veřejná relace AI chatu.
+model AiChatSession {
+  id                 String                  @id @default(cuid())
+  publicSessionId    String                  @unique
+  userId             String?
+  status             AiChatSessionStatus     @default(ACTIVE)
+  isTestSession      Boolean                 @default(false)
+  sourcePageType     String?
+  sourceUrl          String?                 @db.Text
+  sourceEntityId     String?
+  sourceContextJson  Json?
+  detectedIntent     AiChatIntent?
+  intentConfidence   Float?
+  leadScore          Int                     @default(0)
+  leadScoreBreakdown Json?
+  conversationStage  AiChatConversationStage @default(DISCOVERY)
+  assignedToUserId   String?
+  adminNotes         String?                 @db.Text
+  qualityFlag        String?
+  anonymizedAt       DateTime?
+  startedAt          DateTime                @default(now())
+  lastMessageAt      DateTime                @default(now())
+  closedAt           DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  user       User?            @relation("AiChatSessionUser", fields: [userId], references: [id], onDelete: SetNull)
+  assignedTo User?            @relation("AiChatSessionAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages   AiChatMessage[]
+  profile    AiChatProfile?
+  feedback   AiChatFeedback[]
+  leads      AiChatLead[]
+  evaluations AiChatEvaluation[]
+
+  @@index([userId])
+  @@index([status, lastMessageAt])
+  @@index([detectedIntent])
+  @@index([leadScore])
+  @@index([isTestSession])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AiChatMessage {
+  id                String           @id @default(cuid())
+  sessionId         String
+  role              AiChatMessageRole
+  content           String           @db.Text
+  safeContent       String?          @db.Text
+  model             String?
+  promptVersion     String?
+  inputTokens       Int              @default(0)
+  outputTokens      Int              @default(0)
+  latencyMs         Int?
+  toolName          String?
+  toolResultSummary String?          @db.Text
+  structuredPayload Json?
+  success           Boolean          @default(true)
+  errorCode         String?
+  createdAt         DateTime         @default(now())
+
+  session  AiChatSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  feedback AiChatFeedback[]
+
+  @@index([sessionId, createdAt])
+  @@index([role])
+}
+
+model AiChatProfile {
+  id                  String    @id @default(cuid())
+  sessionId           String    @unique
+  offerType           String?
+  propertyType        String?
+  location            String?
+  radiusKm            Int?
+  budgetMin           Int?
+  budgetMax           Int?
+  minArea             Int?
+  layoutsJson         Json?
+  featuresJson        Json?
+  desiredMoveDate     DateTime?
+  companyType         String?
+  cooperationInterest String?
+  structuredDataJson  Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AiChatLead {
+  id               String           @id @default(cuid())
+  sessionId        String
+  status           AiChatLeadStatus @default(NEW)
+  intent           AiChatIntent?
+  summary          String?          @db.Text
+  structuredParams Json?
+  leadScore        Int              @default(0)
+  contactName      String?
+  contactEmail     String?
+  contactPhone     String?
+  consentStorage   Boolean          @default(false)
+  consentTransfer  Boolean          @default(false)
+  consentContact   Boolean          @default(false)
+  sourceUrl        String?          @db.Text
+  assignedToUserId String?
+  notifiedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  session    AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  assignedTo User?         @relation("AiChatLeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([status, createdAt])
+  @@index([leadScore])
+}
+
+model AiChatFeedback {
+  id                String               @id @default(cuid())
+  sessionId         String
+  messageId         String?
+  rating            AiChatFeedbackRating
+  category          String?
+  comment           String?              @db.Text
+  submittedByUserId String?
+  reviewedByAdminId String?
+  reviewStatus      AiChatReviewStatus   @default(PENDING)
+  adminVerdict      AiChatAdminReviewVerdict?
+  correctAnswer     String?              @db.Text
+  knowledgeDraftId  String?
+  createdAt         DateTime             @default(now())
+  reviewedAt        DateTime?
+
+  session   AiChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message   AiChatMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  submitter User?          @relation("AiChatFeedbackSubmitter", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  reviewer  User?          @relation("AiChatFeedbackReviewer", fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([messageId])
+  @@index([reviewStatus])
+  @@index([rating])
+}
+
+model AiKnowledgeItem {
+  id           String            @id @default(cuid())
+  title        String
+  category     String
+  question     String            @db.Text
+  answer       String            @db.Text
+  keywordsJson Json?
+  status       AiKnowledgeStatus @default(DRAFT)
+  source       String            @default("MANUAL")
+  version      Int               @default(1)
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  createdBy  User? @relation("AiKnowledgeCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy User? @relation("AiKnowledgeApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, category])
+  @@index([updatedAt(sort: Desc)])
+}
+
+model AiPromptVersion {
+  id                String         @id @default(cuid())
+  feature           String
+  version           String
+  systemPrompt      String         @db.Text
+  status            AiPromptStatus @default(DRAFT)
+  changeDescription String?        @db.Text
+  createdById       String?
+  approvedById      String?
+  activatedAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  createdBy  User? @relation("AiPromptCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy User? @relation("AiPromptApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([feature, version])
+  @@index([feature, status])
+}
+
+model AiChatEvaluation {
+  id                      String   @id @default(cuid())
+  sessionId               String
+  evaluatorType           String   @default("AUTO")
+  scoreIntentDetection    Int?
+  scoreAnswerAccuracy     Int?
+  scoreUsefulness         Int?
+  scoreTone               Int?
+  scoreConversion         Int?
+  hallucinationDetected   Boolean  @default(false)
+  unsafeAnswerDetected    Boolean  @default(false)
+  notes                   String?  @db.Text
+  createdAt               DateTime @default(now())
+
+  session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
   @@index([createdAt(sort: Desc)])
 }
 

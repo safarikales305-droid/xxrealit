@@ -58,6 +58,7 @@ import { RegistrationGamificationModule } from './modules/registration-gamificat
 import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
 import { MetaCenterModule } from './modules/meta-center/meta-center.module';
 import { OpenAiModule } from './modules/openai/openai.module';
+import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { OpenAiModule } from './modules/openai/openai.module';
     MetaCatalogModule,
     MetaCenterModule,
     OpenAiModule,
+    AiChatModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -19,6 +19,7 @@ import { PwaPushOnboarding } from "@/components/pwa/PwaPushOnboarding";
 import { AppBadgeSync } from "@/components/pwa/AppBadgeSync";
 import { PwaServiceWorkerRegister } from "@/components/pwa/PwaServiceWorkerRegister";
 import { SupportContactProvider } from "@/components/support/SupportContactProvider";
+import { AiChatWidget } from "@/components/ai-chat/AiChatWidget";
 import { getSiteMetadataBase } from "@/lib/app-url";
 import { getOptionalInternalApiBaseUrl } from "@/lib/server-api";
 import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, SITE_NAME } from "@/lib/seo/metadata";
@@ -134,6 +135,9 @@ export default async function RootLayout({
           </Suspense>
           <Suspense fallback={null}>
             <PortalAnalyticsTracker />
+          </Suspense>
+          <Suspense fallback={null}>
+            <AiChatWidget />
           </Suspense>
           </SupportContactProvider>
         </AuthProvider>

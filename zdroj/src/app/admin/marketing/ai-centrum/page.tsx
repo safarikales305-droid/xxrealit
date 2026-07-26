@@ -202,6 +202,12 @@ export default function AdminAiCentrumPage() {
 
   return (
     <>
+      <p className="mb-4 text-sm text-zinc-600">
+        Centrální OpenAI integrace pro SEO, popisy, e-maily a{' '}
+        <a href="/admin/marketing/ai-chat" className="font-semibold text-orange-600 underline">
+          veřejný AI chat →
+        </a>
+      </p>
       <p className="mb-6 text-sm text-zinc-600">
         Centrální správa OpenAI pro portál XXREALIT. Requesty jdou na NestJS backend (
         <code className="text-xs">{nestAdminAiOpenAiUrl('/settings')}</code>
@@ -354,7 +360,7 @@ export default function AdminAiCentrumPage() {
                   ['listingDescriptionEnabled', 'Popisy inzerátů'],
                   ['socialPostEnabled', 'Sociální příspěvky'],
                   ['emailEnabled', 'E-maily'],
-                  ['supportEnabled', 'Zákaznická podpora'],
+                  ['supportEnabled', 'Zákaznická podpora / AI chat'],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 text-sm">
