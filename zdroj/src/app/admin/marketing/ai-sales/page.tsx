@@ -32,7 +32,9 @@ import {
   type AiSalesDashboard,
   type AiSalesMessage,
   type AiSalesProspect,
+  type AiSalesSearchProviderInfo,
 } from '@/lib/ai-sales-admin-api';
+import { API_BASE_URL } from '@/lib/api';
 import { AiSalesSearchPanel } from '@/components/admin/ai-sales/AiSalesSearchPanel';
 import { AiSalesTestPanel } from '@/components/admin/ai-sales/AiSalesTestPanel';
 import { AiSalesCrmPanel } from '@/components/admin/ai-sales/AiSalesCrmPanel';
@@ -108,7 +110,9 @@ export default function AdminAiSalesPage() {
   const [prompts, setPrompts] = useState<Array<Record<string, unknown>>>([]);
   const [knowledge, setKnowledge] = useState<Array<Record<string, unknown>>>([]);
   const [providers, setProviders] = useState<Array<Record<string, unknown>>>([]);
-  const [searchProviders, setSearchProviders] = useState<Array<{ id: string; enabled: boolean; configured: boolean; available: boolean; missingVariable?: string }>>([]);
+  const [searchProviders, setSearchProviders] = useState<AiSalesSearchProviderInfo[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providerTestMessage, setProviderTestMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -146,6 +150,25 @@ export default function AdminAiSalesPage() {
     void refresh();
   }, [refresh]);
 
+  const loadSearchProviders = useCallback(async () => {
+    if (!token) return;
+    setProvidersLoading(true);
+    setProviderTestMessage(null);
+    try {
+      const [p, d] = await Promise.all([listSearchProviders(token), getDiagnostics(token)]);
+      setSearchProviders(p.providers ?? []);
+      setProviders(p.legacy ?? []);
+      setDiagnostics(d);
+    } catch (e) {
+      setProviders([]);
+      setSearchProviders([]);
+      setDiagnostics(null);
+      setError(e instanceof Error ? e.message : 'Načtení providerů selhalo.');
+    } finally {
+      setProvidersLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!token) return;
     if (tab === 'approval') {
@@ -157,19 +180,9 @@ export default function AdminAiSalesPage() {
     } else if (tab === 'knowledge') {
       void listKnowledge(token).then(setKnowledge).catch(() => setKnowledge([]));
     } else if (tab === 'settings') {
-      void Promise.all([listSearchProviders(token), getDiagnostics(token)])
-        .then(([p, d]) => {
-          setSearchProviders(p.providers ?? []);
-          setProviders(p.legacy ?? []);
-          setDiagnostics(d);
-        })
-        .catch(() => {
-          setProviders([]);
-          setSearchProviders([]);
-          setDiagnostics(null);
-        });
+      void loadSearchProviders();
     }
-  }, [tab, token]);
+  }, [tab, token, loadSearchProviders]);
 
   async function handleCreateProspect() {
     if (!token) return;
@@ -230,6 +243,38 @@ export default function AdminAiSalesPage() {
   if (!token || user?.role !== 'ADMIN') return null;
 
   const activeWeb = (diagnostics?.aiSales as { activeWebProvider?: { name?: string; envVar?: string } } | undefined)?.activeWebProvider;
+  const deployment = diagnostics?.deployment as {
+    environment?: string;
+    serviceName?: string | null;
+    deploymentId?: string | null;
+    applicationVersion?: string | null;
+    serpApiConfigured?: boolean;
+    serpApiKeyLength?: number;
+    serpApiKeyMasked?: string | null;
+  } | undefined;
+
+  async function handleTestProvider(id: 'SERPAPI' | 'BING') {
+    if (!token) return;
+    setProviderTestMessage(null);
+    setBusy(true);
+    try {
+      const res = await testSearchProvider(token, id === 'SERPAPI' ? 'SERPAPI' : 'BING_WEB_SEARCH') as {
+        resultCount?: number;
+        count?: number;
+      };
+      const count = res.resultCount ?? res.count ?? 0;
+      setProviderTestMessage(
+        id === 'SERPAPI'
+          ? `SerpAPI je správně připojeno. Nalezeno ${count} testovacích výsledků.`
+          : `Bing je správně připojeno. Nalezeno ${count} testovacích výsledků.`,
+      );
+      await loadSearchProviders();
+    } catch (e) {
+      setProviderTestMessage(e instanceof Error ? e.message : 'Test providera selhal.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
@@ -439,21 +484,43 @@ export default function AdminAiSalesPage() {
             <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
           </div>
           <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-2xl">
-            <h3 className="font-semibold">Webové vyhledávání</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold">Webové vyhledávání</h3>
+              <button
+                type="button"
+                className="rounded border px-2 py-1 text-xs"
+                disabled={providersLoading || busy}
+                onClick={() => void loadSearchProviders()}
+              >
+                {providersLoading ? 'Načítám…' : 'Obnovit'}
+              </button>
+            </div>
+            {providerTestMessage ? (
+              <p className={`rounded p-2 text-sm ${providerTestMessage.includes('správně') ? 'bg-green-50 text-green-900' : 'bg-amber-50 text-amber-900'}`}>
+                {providerTestMessage}
+              </p>
+            ) : null}
+            {providersLoading ? (
+              <p className="text-zinc-500">Načítám providery…</p>
+            ) : (
+              <>
             {(['SERPAPI', 'BING'] as const).map((id) => {
               const p = searchProviders.find((x) => x.id === id);
               const label = id === 'SERPAPI' ? 'SerpAPI' : 'Bing';
               const envVar = id === 'SERPAPI' ? 'SERPAPI_API_KEY' : 'BING_SEARCH_API_KEY';
+              const ready = p?.configured && p?.available;
               return (
                 <div key={id} className="rounded border border-zinc-100 p-3 space-y-1">
                   <p className="font-medium">{label}</p>
                   <p>API klíč nastaven: <strong>{p?.configured ? 'Ano' : 'Ne'}</strong></p>
                   <p>Aktivní: <strong>{p?.enabled && p?.available ? 'Ano' : 'Ne'}</strong></p>
+                  <p>Stav: <strong>{ready ? 'Připraveno' : p?.status === 'DISABLED' ? 'Vypnuto' : 'Nenakonfigurováno'}</strong></p>
                   {!p?.configured ? <p className="text-xs text-zinc-500">Chybí proměnná: {p?.missingVariable ?? envVar}</p> : null}
                   <button
                     type="button"
-                    className="mt-1 rounded border px-2 py-1 text-xs"
-                    onClick={() => void testSearchProvider(token, id === 'SERPAPI' ? 'SERPAPI' : 'BING_WEB_SEARCH').then((r) => alert(`Test OK: ${JSON.stringify(r)}`)).catch((e) => alert(e instanceof Error ? e.message : 'Test selhal'))}
+                    className="mt-1 rounded border px-2 py-1 text-xs disabled:opacity-50"
+                    disabled={busy || !p?.configured}
+                    onClick={() => void handleTestProvider(id)}
                   >
                     Otestovat
                   </button>
@@ -469,11 +536,24 @@ export default function AdminAiSalesPage() {
             ) : (
               <p className="text-sm text-amber-800 bg-amber-50 rounded p-2">Webový provider není nastaven. Použijte interní databázi nebo nastavte API klíč na backendu.</p>
             )}
+            {deployment ? (
+              <div className="rounded border border-zinc-100 bg-zinc-50 p-2 text-xs text-zinc-600 space-y-0.5">
+                <p>Backend API: <code>{API_BASE_URL || '(same-origin)'}</code></p>
+                <p>Služba: {deployment.serviceName ?? '—'} · prostředí: {deployment.environment ?? '—'}</p>
+                <p>Deployment: {deployment.deploymentId ?? '—'} · verze: {deployment.applicationVersion ?? '—'}</p>
+                <p>SerpAPI v procesu: {deployment.serpApiConfigured ? `Ano (délka klíče ${deployment.serpApiKeyLength ?? 0})` : 'Ne'}</p>
+                {deployment.serpApiKeyMasked ? <p>Klíč: {deployment.serpApiKeyMasked}</p> : null}
+              </div>
+            ) : null}
+              </>
+            )}
           </div>
           <div className="rounded-2xl border bg-white p-4 space-y-2 text-sm max-w-2xl">
             <h3 className="font-semibold">Registry providerů (databáze)</h3>
-            {providers.length === 0 ? (
+            {providersLoading ? (
               <p className="text-zinc-500">Načítám providery…</p>
+            ) : providers.length === 0 ? (
+              <p className="text-zinc-500">Žádné záznamy v databázi — synchronizace proběhne při dalším načtení.</p>
             ) : (
               <ul className="space-y-1">
                 {providers.map((p) => (

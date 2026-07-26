@@ -21,6 +21,12 @@ export type AiSalesErrorCode =
   | 'ENDPOINT_NOT_FOUND'
   | 'SEARCH_PROVIDER_NOT_CONFIGURED'
   | 'NO_AVAILABLE_SEARCH_SOURCE'
+  | 'SERPAPI_NOT_CONFIGURED'
+  | 'SERPAPI_INVALID_KEY'
+  | 'SERPAPI_QUOTA_EXCEEDED'
+  | 'SERPAPI_CONNECTION_ERROR'
+  | 'SERPAPI_TIMEOUT'
+  | 'SERPAPI_INVALID_RESPONSE'
   | 'SEARCH_LIMIT_REACHED'
   | 'ANALYSIS_LIMIT_REACHED'
   | 'INVALID_REQUEST'
@@ -104,6 +110,24 @@ export function mapExceptionToSalesAdminError(
     const msg = extractMessage(err);
     if (/API klíč|not configured/i.test(msg)) {
       return buildSalesAdminError('OPENAI_NOT_CONFIGURED', msg, 400, phase);
+    }
+    if (/SERPAPI|SerpAPI/i.test(msg)) {
+      if (/not configured|není nakonfigurov/i.test(msg)) {
+        return buildSalesAdminError('SERPAPI_NOT_CONFIGURED', msg, 400, phase);
+      }
+      if (/invalid|odmítlo API klíč/i.test(msg)) {
+        return buildSalesAdminError('SERPAPI_INVALID_KEY', msg, 400, phase);
+      }
+      if (/quota/i.test(msg)) {
+        return buildSalesAdminError('SERPAPI_QUOTA_EXCEEDED', msg, 429, phase);
+      }
+      if (/timeout|vypršel/i.test(msg)) {
+        return buildSalesAdminError('SERPAPI_TIMEOUT', msg, 504, phase);
+      }
+      if (/connection|selhal/i.test(msg)) {
+        return buildSalesAdminError('SERPAPI_CONNECTION_ERROR', msg, 503, phase);
+      }
+      return buildSalesAdminError('SERPAPI_INVALID_RESPONSE', msg, 502, phase);
     }
     if (/provider|zdroj/i.test(msg)) {
       if (/žádný vyhledávací zdroj/i.test(msg)) {

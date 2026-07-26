@@ -1,17 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AiSalesPartnerType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { PartnerSearchInput, PartnerSearchProvider, PartnerSearchResultItem } from '../partner-search.types';
+import { SearchProvidersEnvService } from '../search-providers-env.service';
+import { buildSerpApiSearchUrl } from './serpapi.client';
 
 @Injectable()
 export class WebSearchProvider implements PartnerSearchProvider {
   private readonly log = new Logger(WebSearchProvider.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly env: SearchProvidersEnvService) {}
 
   getName() {
-    return this.serpApiKey() ? 'SerpAPI' : this.bingKey() ? 'Bing Web Search' : 'Webový provider';
+    return this.env.isSerpApiConfigured()
+      ? 'SerpAPI'
+      : this.env.isBingSearchConfigured()
+        ? 'Bing Web Search'
+        : 'Webový provider';
   }
 
   getSourceKey() {
@@ -19,24 +24,26 @@ export class WebSearchProvider implements PartnerSearchProvider {
   }
 
   isConfigured() {
-    return Boolean(this.bingKey() || this.serpApiKey());
+    return this.env.isWebSearchConfigured();
   }
 
   getActiveProvider() {
-    if (this.serpApiKey()) {
-      return { key: 'SERPAPI', name: 'SerpAPI', envVar: 'SERPAPI_API_KEY' };
-    }
-    if (this.bingKey()) {
-      return { key: 'BING_WEB_SEARCH', name: 'Bing Web Search API', envVar: 'BING_SEARCH_API_KEY' };
-    }
-    return null;
+    return this.env.getActiveWebProvider();
+  }
+
+  hasSerpApiKey() {
+    return this.env.isSerpApiConfigured();
+  }
+
+  hasBingKey() {
+    return this.env.isBingSearchConfigured();
   }
 
   async search(input: PartnerSearchInput): Promise<PartnerSearchResultItem[]> {
     if (!this.isConfigured()) return [];
 
     const query = this.buildQuery(input);
-    if (this.serpApiKey()) {
+    if (this.env.isSerpApiConfigured()) {
       return this.searchSerpApi(query, input);
     }
     return this.searchBing(query, input);
@@ -50,10 +57,10 @@ export class WebSearchProvider implements PartnerSearchProvider {
   }
 
   private async searchBing(query: string, input: PartnerSearchInput): Promise<PartnerSearchResultItem[]> {
-    const key = this.bingKey();
+    const key = this.env.getBingSearchApiKey();
     if (!key) return [];
 
-    const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=${Math.min(input.limit, 30)}&mkt=cs-CZ`;
+    const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=${Math.min(input.limit ?? 30, 30)}&mkt=cs-CZ`;
     const res = await fetch(url, { headers: { 'Ocp-Apim-Subscription-Key': key } });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
@@ -86,10 +93,10 @@ export class WebSearchProvider implements PartnerSearchProvider {
   }
 
   private async searchSerpApi(query: string, input: PartnerSearchInput): Promise<PartnerSearchResultItem[]> {
-    const key = this.serpApiKey();
+    const key = this.env.getSerpApiKey();
     if (!key) return [];
 
-    const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&hl=cs&gl=cz&num=${Math.min(input.limit, 30)}&api_key=${key}`;
+    const url = buildSerpApiSearchUrl(query, input.limit ?? 30, key);
     const res = await fetch(url);
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
@@ -98,7 +105,12 @@ export class WebSearchProvider implements PartnerSearchProvider {
 
     const data = (await res.json()) as {
       organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
+      error?: string;
     };
+
+    if (data.error) {
+      throw new Error(`SerpAPI error: ${data.error}`);
+    }
 
     return (data.organic_results ?? []).map((item) => ({
       temporaryId: randomUUID(),
@@ -119,21 +131,5 @@ export class WebSearchProvider implements PartnerSearchProvider {
       doNotContact: false,
       rawData: { provider: 'SERPAPI', snippet: item.snippet },
     }));
-  }
-
-  private bingKey() {
-    return this.config.get<string>('BING_SEARCH_API_KEY')?.trim() || null;
-  }
-
-  private serpApiKey() {
-    return this.config.get<string>('SERPAPI_API_KEY')?.trim() || null;
-  }
-
-  hasSerpApiKey() {
-    return Boolean(this.serpApiKey());
-  }
-
-  hasBingKey() {
-    return Boolean(this.bingKey());
   }
 }

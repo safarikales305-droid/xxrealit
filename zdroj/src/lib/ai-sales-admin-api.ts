@@ -19,6 +19,7 @@ async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit
   try {
     const res = await fetch(`${API_BASE_URL}/admin/ai-sales${path}`, {
       ...init,
+      cache: 'no-store',
       signal: controller.signal,
       headers: {
         ...nestAuthHeaders(token),
@@ -171,12 +172,22 @@ export type AiSalesSearchProviderInfo = {
   enabled: boolean;
   configured: boolean;
   available: boolean;
-  missingVariable?: string;
+  missingVariable?: string | null;
+  status?: string;
 };
 
 export type AiSalesSearchProvidersResponse = {
   providers: AiSalesSearchProviderInfo[];
   activeWebProvider?: { key: string; name: string; envVar: string } | null;
+  environment?: {
+    environment?: string;
+    serviceName?: string | null;
+    deploymentId?: string | null;
+    applicationVersion?: string | null;
+    serpApiConfigured?: boolean;
+    serpApiKeyLength?: number;
+    serpApiKeyMasked?: string | null;
+  };
   legacy?: Array<Record<string, unknown>>;
 };
 

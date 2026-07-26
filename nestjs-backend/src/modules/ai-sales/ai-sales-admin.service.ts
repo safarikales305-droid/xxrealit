@@ -13,6 +13,7 @@ import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { AI_SALES_PROMPT_FEATURES } from './ai-sales.constants';
 import { PartnerSearchService } from './partner-search.service';
+import { SearchProvidersEnvService } from './search-providers-env.service';
 import { WebSearchProvider } from './providers/web-search.provider';
 
 @Injectable()
@@ -29,6 +30,7 @@ export class AiSalesAdminService {
     private readonly promptResolver: AiSalesPromptResolverService,
     private readonly search: PartnerSearchService,
     private readonly webSearch: WebSearchProvider,
+    private readonly searchEnv: SearchProvidersEnvService,
   ) {}
 
   async getDiagnostics() {
@@ -52,6 +54,7 @@ export class AiSalesAdminService {
 
     return {
       backend: { available: true },
+      deployment: this.searchEnv.getDeploymentDiagnostics(),
       database: { available: dbOk },
       openAi: {
         globallyEnabled,
@@ -68,6 +71,7 @@ export class AiSalesAdminService {
         manualContactsEnabled: salesSettings.manualContactsEnabled,
         webProviderConfigured,
         activeWebProvider,
+        serpApi: this.searchEnv.getSerpApiDiagnostics(),
         autoAnalyzeOnSave: salesSettings.autoAnalyzeOnSave,
         followUpFirstDays: salesSettings.followUpFirstDays,
         followUpSecondDays: salesSettings.followUpSecondDays,
@@ -220,10 +224,8 @@ Veřejné informace: ${publicInfo || '—'}`;
   }
 
   async testSearchProvider(input: { providerKey?: string; partnerType?: string; city?: string; limit?: number }) {
-    return this.runGuarded('search_provider_test', async () => {
-      const key = input.providerKey ?? 'INTERNAL_DATABASE';
-      return this.search.testProvider(key);
-    });
+    const key = input.providerKey ?? 'INTERNAL_DATABASE';
+    return this.search.testProvider(key);
   }
 
   private async runGuarded<T>(phase: string, fn: () => Promise<T>): Promise<T> {

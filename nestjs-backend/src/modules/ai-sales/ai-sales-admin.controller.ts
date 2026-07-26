@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Post,
   Put,
@@ -378,6 +379,7 @@ export class AiSalesAdminController {
   // ── Search ──
 
   @Get('diagnostics')
+  @Header('Cache-Control', 'no-store')
   getDiagnostics() {
     return this.admin.getDiagnostics();
   }
@@ -443,13 +445,15 @@ export class AiSalesAdminController {
   }
 
   @Get('search-providers')
+  @Header('Cache-Control', 'no-store')
   listSearchProviders() {
     return this.search.listProviders();
   }
 
   @Post('search-providers/:id/test')
+  @Header('Cache-Control', 'no-store')
   testSearchProvider(@Param('id') id: string) {
-    return this.wrap(() => this.admin.testSearchProvider({ providerKey: id }));
+    return this.wrap(() => this.search.testProvider(id));
   }
 
   @Put('search-providers/:id')
@@ -620,7 +624,7 @@ export class AiSalesAdminController {
   testSearchProviderBody(
     @Body() body: { providerKey?: string; partnerType?: string; city?: string; limit?: number },
   ) {
-    return this.wrap(() => this.admin.testSearchProvider(body));
+    return this.wrap(() => this.search.testProvider(body.providerKey ?? 'INTERNAL_DATABASE'));
   }
 
   @Post('seed')

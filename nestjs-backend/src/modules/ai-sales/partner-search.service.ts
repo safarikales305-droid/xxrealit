@@ -19,7 +19,9 @@ import { EMAIL_RE } from './ai-sales-prospect.service';
 import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
 import type { PartnerSearchInput, PartnerSearchResultItem, PartnerSearchSource } from './partner-search.types';
 import { InternalDatabaseSearchProvider } from './providers/internal-database-search.provider';
+import { runSerpApiTest } from './providers/serpapi.client';
 import { WebSearchProvider } from './providers/web-search.provider';
+import { SearchProvidersEnvService } from './search-providers-env.service';
 
 export type SkippedSearchSource = {
   source: string;
@@ -45,6 +47,7 @@ export class PartnerSearchService {
     private readonly suppression: AiSalesSuppressionService,
     private readonly internalDb: InternalDatabaseSearchProvider,
     private readonly webSearch: WebSearchProvider,
+    private readonly searchEnv: SearchProvidersEnvService,
   ) {}
 
   async startSearch(
@@ -698,14 +701,18 @@ export class PartnerSearchService {
 
   async listProviders() {
     const settings = await this.settings.getOrCreate();
+    await this.syncProviderRegistry();
+
     const dbProviders = await this.prisma.aiSalesSearchProvider.findMany({ orderBy: { name: 'asc' } });
-    const serpConfigured = this.webSearch.hasSerpApiKey();
-    const bingConfigured = this.webSearch.hasBingKey();
-    const webConfigured = this.webSearch.isConfigured();
-    const activeWeb = this.webSearch.getActiveProvider();
+    const serpConfigured = this.searchEnv.isSerpApiConfigured();
+    const bingConfigured = this.searchEnv.isBingSearchConfigured();
+    const webConfigured = this.searchEnv.isWebSearchConfigured();
+    const activeWeb = this.searchEnv.getActiveWebProvider();
 
     const serpDb = dbProviders.find((p) => p.key === 'SERPAPI');
     const bingDb = dbProviders.find((p) => p.key === 'BING_WEB_SEARCH');
+    const serpEnabled = serpDb?.enabled ?? serpConfigured;
+    const bingEnabled = bingDb?.enabled ?? bingConfigured;
 
     const providers = [
       {
@@ -713,46 +720,135 @@ export class PartnerSearchService {
         enabled: settings.internalDatabaseEnabled,
         configured: true,
         available: settings.internalDatabaseEnabled,
+        status: settings.internalDatabaseEnabled ? 'READY' : 'DISABLED',
       },
       {
         id: 'APPROVED_WEB_PROVIDER',
-        enabled: Boolean(serpDb?.enabled ?? true) || Boolean(bingDb?.enabled ?? true),
+        enabled: webConfigured && (serpEnabled || bingEnabled),
         configured: webConfigured,
-        available: webConfigured,
+        available: webConfigured && (serpEnabled || bingEnabled),
+        status: webConfigured ? 'READY' : 'NOT_CONFIGURED',
       },
       {
         id: 'SERPAPI',
-        enabled: serpDb?.enabled ?? true,
+        enabled: serpEnabled,
         configured: serpConfigured,
-        available: serpConfigured && (serpDb?.enabled ?? true),
-        missingVariable: serpConfigured ? undefined : 'SERPAPI_API_KEY',
+        available: serpConfigured && serpEnabled,
+        missingVariable: serpConfigured ? null : 'SERPAPI_API_KEY',
+        status: serpConfigured ? (serpEnabled ? 'READY' : 'DISABLED') : 'NOT_CONFIGURED',
       },
       {
         id: 'BING',
-        enabled: bingDb?.enabled ?? true,
+        enabled: bingEnabled,
         configured: bingConfigured,
-        available: bingConfigured && (bingDb?.enabled ?? true),
-        missingVariable: bingConfigured ? undefined : 'BING_SEARCH_API_KEY',
+        available: bingConfigured && bingEnabled,
+        missingVariable: bingConfigured ? null : 'BING_SEARCH_API_KEY',
+        status: bingConfigured ? (bingEnabled ? 'READY' : 'DISABLED') : 'NOT_CONFIGURED',
       },
     ];
 
     return {
       providers,
       activeWebProvider: activeWeb,
+      environment: this.searchEnv.getDeploymentDiagnostics(),
       legacy: dbProviders.map((p) => ({
         ...p,
         configured:
-          p.key === 'BING_WEB_SEARCH' || p.key === 'SERPAPI'
-            ? p.key === activeWeb?.key
-            : p.configured,
+          p.key === 'SERPAPI'
+            ? serpConfigured
+            : p.key === 'BING_WEB_SEARCH'
+              ? bingConfigured
+              : p.configured,
+        enabled:
+          p.key === 'SERPAPI'
+            ? serpEnabled
+            : p.key === 'BING_WEB_SEARCH'
+              ? bingEnabled
+              : p.enabled,
         isActiveWebProvider: activeWeb?.key === p.key,
       })),
     };
   }
 
+  private async syncProviderRegistry() {
+    const serpConfigured = this.searchEnv.isSerpApiConfigured();
+    const bingConfigured = this.searchEnv.isBingSearchConfigured();
+
+    const defaults: Array<{
+      id: string;
+      key: string;
+      name: string;
+      providerType: string;
+      configured: boolean;
+    }> = [
+      {
+        id: 'internal-db',
+        key: 'INTERNAL_DATABASE',
+        name: 'Interní databáze XXREALIT',
+        providerType: 'INTERNAL_DATABASE',
+        configured: true,
+      },
+      {
+        id: 'serpapi',
+        key: 'SERPAPI',
+        name: 'SerpAPI',
+        providerType: 'WEB_SEARCH',
+        configured: serpConfigured,
+      },
+      {
+        id: 'bing',
+        key: 'BING_WEB_SEARCH',
+        name: 'Bing Web Search API',
+        providerType: 'WEB_SEARCH',
+        configured: bingConfigured,
+      },
+    ];
+
+    for (const row of defaults) {
+      const existing = await this.prisma.aiSalesSearchProvider.findUnique({ where: { key: row.key } });
+      await this.prisma.aiSalesSearchProvider.upsert({
+        where: { key: row.key },
+        create: {
+          id: row.id,
+          key: row.key,
+          name: row.name,
+          providerType: row.providerType,
+          configured: row.configured,
+          enabled: existing?.enabled ?? row.configured,
+          lastCheckedAt: new Date(),
+        },
+        update: {
+          configured: row.configured,
+          enabled: existing ? existing.enabled || row.configured : row.configured,
+          lastCheckedAt: new Date(),
+          lastErrorCode: row.configured ? null : 'NOT_CONFIGURED',
+          lastErrorMessage: row.configured
+            ? null
+            : row.key === 'SERPAPI'
+              ? 'Chybí SERPAPI_API_KEY'
+              : row.key === 'BING_WEB_SEARCH'
+                ? 'Chybí BING_SEARCH_API_KEY'
+                : null,
+        },
+      });
+    }
+  }
+
   async testProvider(providerKey: string) {
-    const settings = await this.settings.getOrCreate();
     const started = Date.now();
+
+    if (providerKey === 'SERPAPI') {
+      const result = await runSerpApiTest(this.searchEnv);
+      await this.prisma.aiSalesSettings.update({
+        where: { id: 'default' },
+        data: { lastProviderTestAt: new Date(), lastProviderTestSuccess: true, lastSearchErrorCode: null },
+      });
+      await this.prisma.aiSalesSearchProvider.updateMany({
+        where: { key: 'SERPAPI' },
+        data: { configured: true, lastCheckedAt: new Date(), lastErrorCode: null, lastErrorMessage: null },
+      });
+      return result;
+    }
 
     if (providerKey === 'INTERNAL_DATABASE') {
       const items = await this.internalDb.search({
@@ -774,7 +870,10 @@ export class PartnerSearchService {
       };
     }
 
-    if (providerKey === 'BING_WEB_SEARCH' || providerKey === 'SERPAPI' || providerKey === 'APPROVED_WEB_PROVIDER') {
+    if (providerKey === 'BING' || providerKey === 'BING_WEB_SEARCH' || providerKey === 'APPROVED_WEB_PROVIDER') {
+      if (!this.searchEnv.isBingSearchConfigured() && providerKey !== 'APPROVED_WEB_PROVIDER') {
+        throw new BadRequestException('Bing není nakonfigurován. Nastavte BING_SEARCH_API_KEY.');
+      }
       if (!this.webSearch.isConfigured()) {
         await this.prisma.aiSalesSettings.update({
           where: { id: 'default' },
@@ -799,9 +898,10 @@ export class PartnerSearchService {
       return {
         success: true,
         provider: this.webSearch.getName(),
+        configured: true,
         count: items.length,
+        resultCount: items.length,
         durationMs: Date.now() - started,
-        results: items.slice(0, 5),
       };
     }
 
