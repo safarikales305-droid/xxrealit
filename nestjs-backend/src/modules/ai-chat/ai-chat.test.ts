@@ -39,3 +39,10 @@ test('computeLeadScore adds points for contact consent', () => {
   assert.ok(score >= 25);
   assert.ok(breakdown.contactConsent === 20);
 });
+
+test('mapExceptionToAdminError maps AI chat disabled', async () => {
+  const { mapExceptionToAdminError } = await import('./ai-chat-errors.util');
+  const { ForbiddenException } = await import('@nestjs/common');
+  const err = mapExceptionToAdminError(new ForbiddenException('Tato AI funkce není povolena.'));
+  assert.equal(err.code, 'AI_CHAT_DISABLED');
+});

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -19,6 +20,7 @@ import {
 } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AiChatAdminService } from './ai-chat-admin.service';
 import { AiChatKnowledgeService } from './ai-chat-knowledge.service';
 import { AiChatPromptService } from './ai-chat-prompt.service';
 import { AiChatSettingsService } from './ai-chat-settings.service';
@@ -28,8 +30,11 @@ import { PrismaService } from '../../database/prisma.service';
 @Controller('admin/ai-chat')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiChatAdminController {
+  private readonly log = new Logger(AiChatAdminController.name);
+
   constructor(
     private readonly chat: AiChatService,
+    private readonly adminChat: AiChatAdminService,
     private readonly settings: AiChatSettingsService,
     private readonly knowledge: AiChatKnowledgeService,
     private readonly prompts: AiChatPromptService,
@@ -185,26 +190,36 @@ export class AiChatAdminController {
     return this.prompts.activatePrompt(id, req.user?.id ?? req.user?.sub);
   }
 
+  @Get('diagnostics')
+  getDiagnostics() {
+    return this.adminChat.getDiagnostics();
+  }
+
+  @Post('test-connection')
+  testConnection(@Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.adminChat.testConnectionOnly(userId);
+  }
+
   @Post('test')
-  testChat(
-    @Body() body: { message: string; sourcePageType?: string; sourceUrl?: string },
+  async testChat(
+    @Body() body: { message: string },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
     const userId = req.user?.id ?? req.user?.sub;
-    return this.chat
-      .createSession({
-        userId,
-        sourcePageType: body.sourcePageType ?? 'TEST',
-        sourceUrl: body.sourceUrl ?? '/admin/test',
-        isTestSession: true,
-      })
-      .then(async (session) => {
-        const result = await this.chat.sendMessage(session.publicSessionId, {
-          content: body.message,
-          userId,
-        });
-        return { session, result };
-      });
+    const started = Date.now();
+    try {
+      const result = await this.adminChat.runAdminTest(body.message ?? '', userId);
+      this.log.log(
+        `POST /admin/ai-chat/test success model=${result.model} durationMs=${Date.now() - started}`,
+      );
+      return result;
+    } catch (err) {
+      this.log.warn(
+        `POST /admin/ai-chat/test failed durationMs=${Date.now() - started}`,
+      );
+      throw err;
+    }
   }
 
   @Get('analytics')

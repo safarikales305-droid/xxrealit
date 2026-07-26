@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -31,6 +32,8 @@ import { AiChatToolsService, type AiChatPropertyCard } from './ai-chat-tools.ser
 
 @Injectable()
 export class AiChatService {
+  private readonly log = new Logger(AiChatService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly openai: OpenAiService,
@@ -220,7 +223,10 @@ export class AiChatService {
       outputTokens = result.outputTokens;
       latencyMs = result.durationMs;
       success = true;
-    } catch {
+    } catch (err) {
+      this.log.warn(
+        `AI chat sendMessage selhal (session=${publicSessionId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
       assistantText = AI_CHAT_FALLBACK_MESSAGE;
     }
 

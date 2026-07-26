@@ -32,6 +32,7 @@ export class AiChatSettingsService {
     classificationModel: string;
     chatModel: string;
     maxPropertyRecommendations: number;
+    adminTestEnabled: boolean;
   }>) {
     await this.getOrCreate();
     return this.prisma.aiChatSettings.update({ where: { id: 'default' }, data: patch });

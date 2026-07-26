@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PropertiesModule } from '../properties/properties.module';
 import { OpenAiModule } from '../openai/openai.module';
 import { AiChatAdminController } from './ai-chat-admin.controller';
+import { AiChatAdminService } from './ai-chat-admin.service';
 import { AiChatKnowledgeService } from './ai-chat-knowledge.service';
 import { AiChatPromptService } from './ai-chat-prompt.service';
 import { AiChatPublicController } from './ai-chat-public.controller';
@@ -15,6 +16,7 @@ import { AiChatService } from './ai-chat.service';
   controllers: [AiChatPublicController, AiChatAdminController],
   providers: [
     AiChatService,
+    AiChatAdminService,
     AiChatSettingsService,
     AiChatPromptService,
     AiChatKnowledgeService,

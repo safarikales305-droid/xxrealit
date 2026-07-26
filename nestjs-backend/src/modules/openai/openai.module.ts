@@ -8,6 +8,6 @@ import { OpenAiSettingsService } from './openai-settings.service';
 @Module({
   controllers: [OpenAiAdminController, AiSeoAdminController],
   providers: [OpenAiConfigService, OpenAiSettingsService, OpenAiService, OpenAiSeoService],
-  exports: [OpenAiService, OpenAiSeoService, OpenAiSettingsService],
+  exports: [OpenAiService, OpenAiSeoService, OpenAiSettingsService, OpenAiConfigService],
 })
 export class OpenAiModule {}

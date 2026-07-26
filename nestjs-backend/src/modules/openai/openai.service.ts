@@ -391,23 +391,29 @@ export class OpenAiService {
     errorCode?: string;
     safeErrorMessage?: string;
   }) {
-    await this.prisma.aiUsageLog.create({
-      data: {
-        provider: AiProvider.OPENAI,
-        feature: row.feature,
-        model: row.model,
-        userId: row.userId ?? null,
-        requestId: row.requestId,
-        inputTokens: row.inputTokens,
-        outputTokens: row.outputTokens,
-        totalTokens: row.totalTokens,
-        estimatedCostCzk: row.estimatedCostCzk,
-        durationMs: row.durationMs,
-        success: row.success,
-        errorCode: row.errorCode ?? null,
-        safeErrorMessage: row.safeErrorMessage ? redactSecrets(row.safeErrorMessage) : null,
-      },
-    });
+    try {
+      await this.prisma.aiUsageLog.create({
+        data: {
+          provider: AiProvider.OPENAI,
+          feature: row.feature,
+          model: row.model,
+          userId: row.userId ?? null,
+          requestId: row.requestId,
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          totalTokens: row.totalTokens,
+          estimatedCostCzk: row.estimatedCostCzk,
+          durationMs: row.durationMs,
+          success: row.success,
+          errorCode: row.errorCode ?? null,
+          safeErrorMessage: row.safeErrorMessage ? redactSecrets(row.safeErrorMessage) : null,
+        },
+      });
+    } catch (err) {
+      this.log.warn(
+        `AiUsageLog zápis selhal (feature=${row.feature}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private isRetryable(err: unknown): boolean {
@@ -460,33 +466,55 @@ export class OpenAiService {
     return new ServiceUnavailableException(msg);
   }
 
-  private testErrorCode(err: unknown): string {
+  resolveAdminErrorCode(err: unknown): string {
     if (!this.config.isApiKeyConfigured()) return 'OPENAI_NOT_CONFIGURED';
+    if (err instanceof Error && err.name === 'TimeoutError') return 'OPENAI_TIMEOUT';
     const code = this.errorCode(err);
     if (code === 'invalid_key') return 'OPENAI_INVALID_KEY';
-    if (code === 'billing' || code === 'rate_limit') return 'OPENAI_QUOTA_EXCEEDED';
-    if (code === 'timeout' || code === 'server_error') return 'OPENAI_UNAVAILABLE';
+    if (code === 'billing') return 'OPENAI_QUOTA_EXCEEDED';
+    if (code === 'rate_limit') return 'OPENAI_RATE_LIMIT';
+    if (code === 'timeout') return 'OPENAI_TIMEOUT';
+    if (code === 'server_error') return 'OPENAI_CONNECTION_ERROR';
     const msg = err instanceof Error ? err.message : String(err);
     if (/model/i.test(msg) && /not found|does not exist|unavailable/i.test(msg)) {
-      return 'OPENAI_MODEL_UNAVAILABLE';
+      return 'OPENAI_MODEL_NOT_AVAILABLE';
     }
-    return 'OPENAI_ERROR';
+    if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|fetch failed|network/i.test(msg)) {
+      return 'OPENAI_CONNECTION_ERROR';
+    }
+    return 'UNKNOWN_AI_ERROR';
   }
 
-  private testErrorMessage(code: string, err: unknown): string {
+  resolveAdminErrorMessage(code: string, err: unknown): string {
     switch (code) {
       case 'OPENAI_NOT_CONFIGURED':
         return 'OPENAI_API_KEY není nastaven.';
       case 'OPENAI_INVALID_KEY':
         return 'OpenAI API klíč není platný.';
+      case 'OPENAI_DISABLED':
+        return 'OpenAI je vypnuto v nastavení.';
       case 'OPENAI_QUOTA_EXCEEDED':
         return 'OpenAI účet nemá dostupný kredit nebo byl překročen limit.';
+      case 'OPENAI_MODEL_NOT_AVAILABLE':
       case 'OPENAI_MODEL_UNAVAILABLE':
-        return 'Vybraný model není dostupný.';
+        return 'Nastavený model není pro projekt dostupný.';
+      case 'OPENAI_RATE_LIMIT':
+        return 'Příliš mnoho požadavků na OpenAI API.';
+      case 'OPENAI_TIMEOUT':
+        return 'OpenAI neodpovědělo včas.';
+      case 'OPENAI_CONNECTION_ERROR':
       case 'OPENAI_UNAVAILABLE':
-        return 'Služba dočasně neodpovídá.';
+        return 'Síťová chyba při komunikaci s OpenAI.';
       default:
         return this.translateError(err);
     }
+  }
+
+  private testErrorCode(err: unknown): string {
+    return this.resolveAdminErrorCode(err);
+  }
+
+  private testErrorMessage(code: string, err: unknown): string {
+    return this.resolveAdminErrorMessage(code, err);
   }
 }

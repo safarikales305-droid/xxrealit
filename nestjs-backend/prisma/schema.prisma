@@ -3496,6 +3496,11 @@ model AiChatSettings {
   classificationModel      String   @default("gpt-4.1-mini")
   chatModel                String   @default("gpt-4.1-mini")
   maxPropertyRecommendations Int    @default(5)
+  adminTestEnabled         Boolean  @default(true)
+  lastAdminTestAt          DateTime?
+  lastAdminTestSuccess     Boolean?
+  lastAdminTestErrorCode   String?
+  lastAdminTestError       String?  @db.Text
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
