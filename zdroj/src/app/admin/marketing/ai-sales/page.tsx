@@ -22,6 +22,7 @@ import {
   listSearchProviders,
   listReplies,
   markDoNotContact,
+  testSearchProvider,
   PARTNER_TYPE_LABELS,
   PARTNER_TYPES,
   rejectMessage,
@@ -107,6 +108,7 @@ export default function AdminAiSalesPage() {
   const [prompts, setPrompts] = useState<Array<Record<string, unknown>>>([]);
   const [knowledge, setKnowledge] = useState<Array<Record<string, unknown>>>([]);
   const [providers, setProviders] = useState<Array<Record<string, unknown>>>([]);
+  const [searchProviders, setSearchProviders] = useState<Array<{ id: string; enabled: boolean; configured: boolean; available: boolean; missingVariable?: string }>>([]);
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -157,11 +159,13 @@ export default function AdminAiSalesPage() {
     } else if (tab === 'settings') {
       void Promise.all([listSearchProviders(token), getDiagnostics(token)])
         .then(([p, d]) => {
-          setProviders(p);
+          setSearchProviders(p.providers ?? []);
+          setProviders(p.legacy ?? []);
           setDiagnostics(d);
         })
         .catch(() => {
           setProviders([]);
+          setSearchProviders([]);
           setDiagnostics(null);
         });
     }
@@ -347,7 +351,13 @@ export default function AdminAiSalesPage() {
         </div>
       ) : null}
 
-      {tab === 'search' ? <AiSalesSearchPanel token={token} onSaved={() => void refresh()} /> : null}
+      {tab === 'search' ? (
+        <AiSalesSearchPanel
+          token={token}
+          onSaved={() => void refresh()}
+          onOpenSettings={() => setTab('settings')}
+        />
+      ) : null}
 
       {tab === 'approval' ? (
         <div className="space-y-4">
@@ -428,13 +438,40 @@ export default function AdminAiSalesPage() {
             <label>Denní limit AI analýz: <input type="number" defaultValue={Number(settings.dailyAnalysisLimit ?? 50)} onBlur={(e) => void updateSettings(token, { dailyAnalysisLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
             <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
           </div>
-          <div className="rounded-2xl border bg-white p-4 space-y-2 text-sm">
-            <h3 className="font-semibold">Zdroje vyhledávání</h3>
+          <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-2xl">
+            <h3 className="font-semibold">Webové vyhledávání</h3>
+            {(['SERPAPI', 'BING'] as const).map((id) => {
+              const p = searchProviders.find((x) => x.id === id);
+              const label = id === 'SERPAPI' ? 'SerpAPI' : 'Bing';
+              const envVar = id === 'SERPAPI' ? 'SERPAPI_API_KEY' : 'BING_SEARCH_API_KEY';
+              return (
+                <div key={id} className="rounded border border-zinc-100 p-3 space-y-1">
+                  <p className="font-medium">{label}</p>
+                  <p>API klíč nastaven: <strong>{p?.configured ? 'Ano' : 'Ne'}</strong></p>
+                  <p>Aktivní: <strong>{p?.enabled && p?.available ? 'Ano' : 'Ne'}</strong></p>
+                  {!p?.configured ? <p className="text-xs text-zinc-500">Chybí proměnná: {p?.missingVariable ?? envVar}</p> : null}
+                  <button
+                    type="button"
+                    className="mt-1 rounded border px-2 py-1 text-xs"
+                    onClick={() => void testSearchProvider(token, id === 'SERPAPI' ? 'SERPAPI' : 'BING_WEB_SEARCH').then((r) => alert(`Test OK: ${JSON.stringify(r)}`)).catch((e) => alert(e instanceof Error ? e.message : 'Test selhal'))}
+                  >
+                    Otestovat
+                  </button>
+                </div>
+              );
+            })}
+            <div className="rounded border border-zinc-100 p-3 space-y-1">
+              <p className="font-medium">Interní databáze</p>
+              <p>Aktivní: <strong>{searchProviders.find((x) => x.id === 'INTERNAL_DATABASE')?.enabled ? 'Ano' : 'Ne'}</strong></p>
+            </div>
             {activeWeb ? (
               <p className="text-sm text-green-800 bg-green-50 rounded p-2">Aktivní webový provider: <strong>{activeWeb.name}</strong> (env: {activeWeb.envVar})</p>
             ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 rounded p-2">Webový provider není nastaven. Použijte interní databázi, CSV nebo ruční vložení. Nastavte SERPAPI_API_KEY nebo BING_SEARCH_API_KEY na backendu.</p>
+              <p className="text-sm text-amber-800 bg-amber-50 rounded p-2">Webový provider není nastaven. Použijte interní databázi nebo nastavte API klíč na backendu.</p>
             )}
+          </div>
+          <div className="rounded-2xl border bg-white p-4 space-y-2 text-sm max-w-2xl">
+            <h3 className="font-semibold">Registry providerů (databáze)</h3>
             {providers.length === 0 ? (
               <p className="text-zinc-500">Načítám providery…</p>
             ) : (

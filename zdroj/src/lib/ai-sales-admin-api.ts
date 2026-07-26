@@ -160,6 +160,34 @@ export type AiSalesSearchJob = {
   progressPercent: number;
   errorCode: string | null;
   errorMessage: string | null;
+  partial?: boolean;
+  requestedSources?: string[];
+  usedSources?: string[];
+  skippedSources?: Array<{ source: string; code: string; message: string }>;
+};
+
+export type AiSalesSearchProviderInfo = {
+  id: string;
+  enabled: boolean;
+  configured: boolean;
+  available: boolean;
+  missingVariable?: string;
+};
+
+export type AiSalesSearchProvidersResponse = {
+  providers: AiSalesSearchProviderInfo[];
+  activeWebProvider?: { key: string; name: string; envVar: string } | null;
+  legacy?: Array<Record<string, unknown>>;
+};
+
+export type AiSalesStartSearchResponse = {
+  success: boolean;
+  partial?: boolean;
+  searchId: string;
+  status: string;
+  requestedSources?: string[];
+  usedSources?: string[];
+  skippedSources?: Array<{ source: string; code: string; message: string }>;
 };
 
 export const PARTNER_TYPES = [
@@ -254,7 +282,7 @@ export function importProspects(token: string, rows: Array<Record<string, unknow
 }
 
 export function startSearch(token: string, body: Record<string, unknown>) {
-  return aiSalesRequest<{ success: boolean; searchId: string; status: string }>(token, '/search', {
+  return aiSalesRequest<AiSalesStartSearchResponse>(token, '/search', {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -292,7 +320,7 @@ export function dncSearchResult(token: string, id: string) {
 }
 
 export function listSearchProviders(token: string) {
-  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/search-providers');
+  return aiSalesRequest<AiSalesSearchProvidersResponse>(token, '/search-providers');
 }
 
 export function testSearchProvider(token: string, providerKey: string) {

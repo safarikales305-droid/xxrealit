@@ -514,9 +514,23 @@ export class AiSalesAdminController {
       if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
       const settings = await this.settings.getOrCreate();
       if (settings.autoAnalyzeOnSave) {
-        await this.analysis.analyzeProspect(prospect.id, this.userId(req));
+        try {
+          await this.analysis.analyzeProspect(prospect.id, this.userId(req));
+        } catch (err) {
+          const mapped = mapExceptionToSalesAdminError(err, 'analysis');
+          return {
+            success: true,
+            partial: true,
+            prospect,
+            analysisUnavailable: true,
+            warning: {
+              code: mapped.code,
+              message: 'AI analýza je dočasně nedostupná. Partner byl uložen.',
+            },
+          };
+        }
       }
-      return prospect;
+      return { success: true, prospect };
     });
   }
 
@@ -537,7 +551,25 @@ export class AiSalesAdminController {
       if (!result) throw new BadRequestException('Výsledek nenalezen.');
       const prospect = await this.search.saveSearchResult(id, this.userId(req));
       if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
-      return this.analysis.analyzeProspect(prospect.id, this.userId(req));
+      try {
+        const analysis = await this.analysis.analyzeProspect(prospect.id, this.userId(req));
+        return { success: true, prospect, analysis };
+      } catch (err) {
+        const mapped = mapExceptionToSalesAdminError(err, 'analysis');
+        if (/OPENAI|analýz/i.test(mapped.code) || mapped.code === 'ANALYSIS_LIMIT_REACHED') {
+          return {
+            success: true,
+            partial: true,
+            prospect,
+            analysisUnavailable: true,
+            warning: {
+              code: mapped.code,
+              message: 'AI analýza je dočasně nedostupná.',
+            },
+          };
+        }
+        throw new AiSalesAdminException(mapped);
+      }
     });
   }
 

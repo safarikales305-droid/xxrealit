@@ -56,8 +56,8 @@ export class WebSearchProvider implements PartnerSearchProvider {
     const url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=${Math.min(input.limit, 30)}&mkt=cs-CZ`;
     const res = await fetch(url, { headers: { 'Ocp-Apim-Subscription-Key': key } });
     if (!res.ok) {
-      this.log.warn(`Bing search failed: ${res.status}`);
-      return [];
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Bing search failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 120)}` : ''}`);
     }
 
     const data = (await res.json()) as {
@@ -92,8 +92,8 @@ export class WebSearchProvider implements PartnerSearchProvider {
     const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&hl=cs&gl=cz&num=${Math.min(input.limit, 30)}&api_key=${key}`;
     const res = await fetch(url);
     if (!res.ok) {
-      this.log.warn(`SerpAPI search failed: ${res.status}`);
-      return [];
+      const detail = await res.text().catch(() => '');
+      throw new Error(`SerpAPI search failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 120)}` : ''}`);
     }
 
     const data = (await res.json()) as {
@@ -127,5 +127,13 @@ export class WebSearchProvider implements PartnerSearchProvider {
 
   private serpApiKey() {
     return this.config.get<string>('SERPAPI_API_KEY')?.trim() || null;
+  }
+
+  hasSerpApiKey() {
+    return Boolean(this.serpApiKey());
+  }
+
+  hasBingKey() {
+    return Boolean(this.bingKey());
   }
 }

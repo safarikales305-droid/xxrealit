@@ -1,0 +1,1 @@
+ALTER TABLE "AiSalesSearch" ADD COLUMN IF NOT EXISTS "searchMetaJson" JSONB;

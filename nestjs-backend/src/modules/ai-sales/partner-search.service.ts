@@ -16,9 +16,23 @@ import { PrismaService } from '../../database/prisma.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
+import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
 import type { PartnerSearchInput, PartnerSearchResultItem, PartnerSearchSource } from './partner-search.types';
 import { InternalDatabaseSearchProvider } from './providers/internal-database-search.provider';
 import { WebSearchProvider } from './providers/web-search.provider';
+
+export type SkippedSearchSource = {
+  source: string;
+  code: string;
+  message: string;
+};
+
+export type SearchSourceResolution = {
+  requestedSources: PartnerSearchSource[];
+  usedSources: PartnerSearchSource[];
+  skippedSources: SkippedSearchSource[];
+  partial: boolean;
+};
 
 @Injectable()
 export class PartnerSearchService {
@@ -54,15 +68,33 @@ export class PartnerSearchService {
 
     await this.assertDailySearchLimit(settings.dailySearchResultLimit);
 
-    const sources = input.sources?.length
+    const requestedSources = (input.sources?.length
       ? input.sources
-      : (['INTERNAL_DATABASE'] as PartnerSearchSource[]);
+      : ['INTERNAL_DATABASE']) as PartnerSearchSource[];
 
-    if (sources.includes('APPROVED_WEB_PROVIDER') && !this.webSearch.isConfigured()) {
-      throw new BadRequestException(
-        'Webový zdroj zatím není nakonfigurován. Použijte interní databázi, ruční vložení nebo CSV import.',
+    const resolution = this.resolveSources(requestedSources, settings.internalDatabaseEnabled);
+
+    if (resolution.usedSources.length === 0) {
+      const onlyWeb =
+        requestedSources.length === 1 && requestedSources[0] === 'APPROVED_WEB_PROVIDER';
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          onlyWeb ? 'SEARCH_PROVIDER_NOT_CONFIGURED' : 'NO_AVAILABLE_SEARCH_SOURCE',
+          onlyWeb
+            ? 'Webový provider není nakonfigurován. Nastavte SERPAPI_API_KEY nebo BING_SEARCH_API_KEY na backendu, nebo použijte interní databázi.'
+            : 'Žádný vyhledávací zdroj není dostupný.',
+          400,
+          'search',
+        ),
       );
     }
+
+    const searchMeta = {
+      requestedSources: resolution.requestedSources,
+      usedSources: resolution.usedSources,
+      skippedSources: resolution.skippedSources,
+      partial: resolution.partial,
+    };
 
     const search = await this.prisma.aiSalesSearch.create({
       data: {
@@ -71,7 +103,8 @@ export class PartnerSearchService {
         district: input.district,
         city: input.city,
         keywordsJson: input.keywords ?? [],
-        sourcesJson: sources,
+        sourcesJson: requestedSources,
+        searchMetaJson: searchMeta as Prisma.InputJsonValue,
         specialization: input.specialization,
         minFitScore: input.minFitScore,
         limit: Math.min(100, input.limit ?? 30),
@@ -81,7 +114,15 @@ export class PartnerSearchService {
     });
 
     void this.processSearchAsync(search.id);
-    return { success: true, searchId: search.id, status: 'PENDING' };
+    return {
+      success: true,
+      partial: resolution.partial,
+      searchId: search.id,
+      status: 'PENDING',
+      requestedSources: resolution.requestedSources,
+      usedSources: resolution.usedSources,
+      skippedSources: resolution.skippedSources,
+    };
   }
 
   async processSearchAsync(searchId: string) {
@@ -115,7 +156,10 @@ export class PartnerSearchService {
       data: { status: AiSalesSearchStatus.RUNNING, startedAt: new Date(), progressPercent: 5 },
     });
 
-    const sources = (search.sourcesJson as PartnerSearchSource[]) ?? ['INTERNAL_DATABASE'];
+    const requestedSources = this.parseRequestedSources(search.sourcesJson);
+    const settings = await this.settings.getOrCreate();
+    const resolution = this.resolveSources(requestedSources, settings.internalDatabaseEnabled);
+
     const input: PartnerSearchInput = {
       partnerType: search.partnerType ?? undefined,
       region: search.region ?? undefined,
@@ -123,44 +167,100 @@ export class PartnerSearchService {
       city: search.city ?? undefined,
       keywords: Array.isArray(search.keywordsJson) ? (search.keywordsJson as string[]) : [],
       specialization: search.specialization ?? undefined,
-      sources,
+      sources: resolution.usedSources,
       limit: search.limit,
     };
 
-    const allItems: PartnerSearchResultItem[] = [];
-    const sourceCount = sources.length || 1;
-    let idx = 0;
-
-    for (const source of sources) {
-      idx++;
-      await this.prisma.aiSalesSearch.update({
-        where: { id: searchId },
-        data: {
-          currentSource: source,
-          progressPercent: Math.round((idx / sourceCount) * 80),
-        },
-      });
-
-      if (source === 'INTERNAL_DATABASE') {
-        allItems.push(...(await this.internalDb.search(input)));
-      } else if (source === 'APPROVED_WEB_PROVIDER') {
-        if (this.webSearch.isConfigured()) {
-          allItems.push(...(await this.webSearch.search(input)));
+    const providerJobs = resolution.usedSources.map((source) => ({
+      source,
+      run: async (): Promise<PartnerSearchResultItem[]> => {
+        if (source === 'INTERNAL_DATABASE') {
+          return this.internalDb.search(input);
         }
+        if (source === 'APPROVED_WEB_PROVIDER') {
+          return this.webSearch.search(input);
+        }
+        return [];
+      },
+    }));
+
+    const settled = await Promise.allSettled(
+      providerJobs.map(async (job, index) => {
+        await this.prisma.aiSalesSearch.update({
+          where: { id: searchId },
+          data: {
+            currentSource: job.source,
+            progressPercent: Math.round(((index + 1) / Math.max(providerJobs.length, 1)) * 80),
+          },
+        });
+        const items = await job.run();
+        return { source: job.source, items };
+      }),
+    );
+
+    const allItems: PartnerSearchResultItem[] = [];
+    const failedSources: SkippedSearchSource[] = [...resolution.skippedSources];
+
+    for (let i = 0; i < settled.length; i++) {
+      const result = settled[i];
+      const source = providerJobs[i]?.source ?? 'UNKNOWN';
+      if (result.status === 'fulfilled') {
+        allItems.push(...result.value.items);
+      } else {
+        const message =
+          result.reason instanceof Error ? result.reason.message : String(result.reason);
+        this.log.warn(`Search provider ${source} failed: ${message}`);
+        failedSources.push({
+          source,
+          code: 'SEARCH_PROVIDER_FAILED',
+          message: `Zdroj ${source} selhal: ${message}`,
+        });
       }
     }
 
-    const deduped = await this.enrichAndDedupe(allItems, searchId);
+    const mergedItems = this.mergeSearchItems(allItems);
+    const deduped = await this.enrichAndDedupe(mergedItems, searchId);
+
+    const searchMeta = {
+      requestedSources: resolution.requestedSources,
+      usedSources: resolution.usedSources,
+      skippedSources: failedSources,
+      partial: failedSources.length > 0,
+      totalFound: mergedItems.length,
+    };
+
+    const hasAnySuccess =
+      settled.some((r) => r.status === 'fulfilled') || mergedItems.length > 0;
+
+    if (!hasAnySuccess && resolution.usedSources.length > 0) {
+      await this.prisma.aiSalesSearch.update({
+        where: { id: searchId },
+        data: {
+          status: AiSalesSearchStatus.FAILED,
+          errorCode: 'SEARCH_FAILED',
+          errorMessage: 'Všechny vybrané zdroje selhaly.',
+          searchMetaJson: searchMeta as Prisma.InputJsonValue,
+          finishedAt: new Date(),
+        },
+      });
+      return;
+    }
 
     await this.prisma.aiSalesSearch.update({
       where: { id: searchId },
       data: {
         status: AiSalesSearchStatus.COMPLETED,
-        totalFound: allItems.length,
+        totalFound: mergedItems.length,
         newResults: deduped.newCount,
         duplicateResults: deduped.duplicateCount,
         suppressedResults: deduped.suppressedCount,
         progressPercent: 100,
+        searchMetaJson: searchMeta as Prisma.InputJsonValue,
+        errorCode: failedSources.length > 0 ? 'PARTIAL' : null,
+        errorMessage:
+          failedSources.length > 0
+            ? failedSources.map((s) => s.message).join(' ')
+            : null,
         finishedAt: new Date(),
       },
     });
@@ -169,6 +269,140 @@ export class PartnerSearchService {
       where: { id: 'default' },
       data: { lastSearchAt: new Date(), lastSearchSuccessAt: new Date(), lastSearchErrorCode: null },
     });
+  }
+
+  private parseRequestedSources(sourcesJson: Prisma.JsonValue | null): PartnerSearchSource[] {
+    if (!sourcesJson) return ['INTERNAL_DATABASE'];
+    if (Array.isArray(sourcesJson)) {
+      return sourcesJson as PartnerSearchSource[];
+    }
+    if (typeof sourcesJson === 'object' && sourcesJson !== null && 'requested' in sourcesJson) {
+      return (sourcesJson as { requested: PartnerSearchSource[] }).requested;
+    }
+    return ['INTERNAL_DATABASE'];
+  }
+
+  resolveSources(
+    requestedSources: PartnerSearchSource[],
+    internalDatabaseEnabled = true,
+  ): SearchSourceResolution {
+    const usedSources: PartnerSearchSource[] = [];
+    const skippedSources: SkippedSearchSource[] = [];
+
+    for (const source of requestedSources) {
+      if (source === 'INTERNAL_DATABASE') {
+        if (internalDatabaseEnabled) {
+          usedSources.push(source);
+        } else {
+          skippedSources.push({
+            source,
+            code: 'SEARCH_SOURCE_DISABLED',
+            message: 'Interní databáze je vypnutá v nastavení.',
+          });
+        }
+        continue;
+      }
+
+      if (source === 'APPROVED_WEB_PROVIDER') {
+        if (this.webSearch.isConfigured()) {
+          usedSources.push(source);
+        } else {
+          skippedSources.push({
+            source,
+            code: 'SEARCH_PROVIDER_NOT_CONFIGURED',
+            message:
+              'Webový provider nebyl použit, protože není nakonfigurován (SERPAPI_API_KEY nebo BING_SEARCH_API_KEY).',
+          });
+        }
+        continue;
+      }
+
+      skippedSources.push({
+        source,
+        code: 'SEARCH_SOURCE_UNSUPPORTED',
+        message: `Zdroj ${source} zatím není podporován ve vyhledávání.`,
+      });
+    }
+
+    return {
+      requestedSources,
+      usedSources,
+      skippedSources,
+      partial: skippedSources.length > 0 && usedSources.length > 0,
+    };
+  }
+
+  private mergeSearchItems(items: PartnerSearchResultItem[]): PartnerSearchResultItem[] {
+    const map = new Map<string, PartnerSearchResultItem>();
+
+    for (const item of items) {
+      const key = this.dedupeKey(item);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...item,
+          rawData: {
+            ...(item.rawData ?? {}),
+            matchedSources: [item.source],
+          },
+        });
+        continue;
+      }
+
+      const matchedSources = [
+        ...new Set([
+          ...((existing.rawData?.matchedSources as string[]) ?? [existing.source]),
+          item.source,
+        ]),
+      ];
+      map.set(key, {
+        ...existing,
+        publicEmail: existing.publicEmail ?? item.publicEmail,
+        publicPhone: existing.publicPhone ?? item.publicPhone,
+        website: existing.website ?? item.website,
+        city: existing.city ?? item.city,
+        region: existing.region ?? item.region,
+        contactName: existing.contactName ?? item.contactName,
+        relevanceReason: [existing.relevanceReason, item.relevanceReason]
+          .filter(Boolean)
+          .join(' | '),
+        rawData: {
+          ...(existing.rawData ?? {}),
+          matchedSources,
+        },
+      });
+    }
+
+    return [...map.values()];
+  }
+
+  private dedupeKey(item: PartnerSearchResultItem): string {
+    if (item.publicEmail) {
+      return `email:${item.publicEmail.toLowerCase().trim()}`;
+    }
+    const domain = this.normalizeWebsiteDomain(item.website);
+    if (domain) return `web:${domain}`;
+    const phone = this.normalizePhone(item.publicPhone);
+    if (phone) return `phone:${phone}`;
+    const company = item.companyName.trim().toLowerCase();
+    const city = (item.city ?? '').trim().toLowerCase();
+    return `company:${company}|${city}`;
+  }
+
+  private normalizeWebsiteDomain(website: string | null): string | null {
+    if (!website) return null;
+    try {
+      const url = website.startsWith('http') ? website : `https://${website}`;
+      return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    } catch {
+      return website.toLowerCase().replace(/^www\./, '');
+    }
+  }
+
+  private normalizePhone(phone: string | null): string | null {
+    if (!phone) return null;
+    const digits = phone.replace(/\D/g, '');
+    return digits.length >= 9 ? digits : null;
   }
 
   private async enrichAndDedupe(items: PartnerSearchResultItem[], searchId: string) {
@@ -250,7 +484,22 @@ export class PartnerSearchService {
       include: { _count: { select: { results: true } } },
     });
     if (!row) throw new NotFoundException('Vyhledávání nenalezeno.');
-    return row;
+
+    const meta = row.searchMetaJson as {
+      requestedSources?: string[];
+      usedSources?: string[];
+      skippedSources?: SkippedSearchSource[];
+      partial?: boolean;
+      totalFound?: number;
+    } | null;
+
+    return {
+      ...row,
+      partial: meta?.partial ?? row.errorCode === 'PARTIAL',
+      requestedSources: meta?.requestedSources ?? (row.sourcesJson as string[]),
+      usedSources: meta?.usedSources ?? [],
+      skippedSources: meta?.skippedSources ?? [],
+    };
   }
 
   async listSearches(limit = 20) {
@@ -448,17 +697,57 @@ export class PartnerSearchService {
   }
 
   async listProviders() {
-    const providers = await this.prisma.aiSalesSearchProvider.findMany({ orderBy: { name: 'asc' } });
+    const settings = await this.settings.getOrCreate();
+    const dbProviders = await this.prisma.aiSalesSearchProvider.findMany({ orderBy: { name: 'asc' } });
+    const serpConfigured = this.webSearch.hasSerpApiKey();
+    const bingConfigured = this.webSearch.hasBingKey();
     const webConfigured = this.webSearch.isConfigured();
     const activeWeb = this.webSearch.getActiveProvider();
-    return providers.map((p) => ({
-      ...p,
-      configured:
-        p.key === 'BING_WEB_SEARCH' || p.key === 'SERPAPI'
-          ? p.key === activeWeb?.key
-          : p.configured,
-      isActiveWebProvider: activeWeb?.key === p.key,
-    }));
+
+    const serpDb = dbProviders.find((p) => p.key === 'SERPAPI');
+    const bingDb = dbProviders.find((p) => p.key === 'BING_WEB_SEARCH');
+
+    const providers = [
+      {
+        id: 'INTERNAL_DATABASE',
+        enabled: settings.internalDatabaseEnabled,
+        configured: true,
+        available: settings.internalDatabaseEnabled,
+      },
+      {
+        id: 'APPROVED_WEB_PROVIDER',
+        enabled: Boolean(serpDb?.enabled ?? true) || Boolean(bingDb?.enabled ?? true),
+        configured: webConfigured,
+        available: webConfigured,
+      },
+      {
+        id: 'SERPAPI',
+        enabled: serpDb?.enabled ?? true,
+        configured: serpConfigured,
+        available: serpConfigured && (serpDb?.enabled ?? true),
+        missingVariable: serpConfigured ? undefined : 'SERPAPI_API_KEY',
+      },
+      {
+        id: 'BING',
+        enabled: bingDb?.enabled ?? true,
+        configured: bingConfigured,
+        available: bingConfigured && (bingDb?.enabled ?? true),
+        missingVariable: bingConfigured ? undefined : 'BING_SEARCH_API_KEY',
+      },
+    ];
+
+    return {
+      providers,
+      activeWebProvider: activeWeb,
+      legacy: dbProviders.map((p) => ({
+        ...p,
+        configured:
+          p.key === 'BING_WEB_SEARCH' || p.key === 'SERPAPI'
+            ? p.key === activeWeb?.key
+            : p.configured,
+        isActiveWebProvider: activeWeb?.key === p.key,
+      })),
+    };
   }
 
   async testProvider(providerKey: string) {

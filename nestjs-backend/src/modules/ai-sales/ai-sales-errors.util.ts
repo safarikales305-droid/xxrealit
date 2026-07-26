@@ -20,6 +20,7 @@ export type AiSalesErrorCode =
   | 'DATABASE_ERROR'
   | 'ENDPOINT_NOT_FOUND'
   | 'SEARCH_PROVIDER_NOT_CONFIGURED'
+  | 'NO_AVAILABLE_SEARCH_SOURCE'
   | 'SEARCH_LIMIT_REACHED'
   | 'ANALYSIS_LIMIT_REACHED'
   | 'INVALID_REQUEST'
@@ -105,6 +106,9 @@ export function mapExceptionToSalesAdminError(
       return buildSalesAdminError('OPENAI_NOT_CONFIGURED', msg, 400, phase);
     }
     if (/provider|zdroj/i.test(msg)) {
+      if (/žádný vyhledávací zdroj/i.test(msg)) {
+        return buildSalesAdminError('NO_AVAILABLE_SEARCH_SOURCE', msg, 400, phase);
+      }
       return buildSalesAdminError('SEARCH_PROVIDER_NOT_CONFIGURED', msg, 400, phase);
     }
     return buildSalesAdminError('INVALID_REQUEST', msg, 400, phase);

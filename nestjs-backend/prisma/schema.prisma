@@ -4247,6 +4247,7 @@ model AiSalesSearch {
   progressPercent   Int                 @default(0)
   errorCode         String?
   errorMessage      String?             @db.Text
+  searchMetaJson    Json?
   createdById       String?
   startedAt         DateTime?
   finishedAt        DateTime?
