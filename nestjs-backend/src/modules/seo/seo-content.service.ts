@@ -6,7 +6,15 @@ import { getProgrammaticSeoIntent } from './programmatic-seo-intents';
 import {
   buildExtendedSeoMetadata,
   buildProgrammaticSeoCopy,
+  buildProgrammaticSeoPath,
 } from './programmatic-seo.util';
+import {
+  computeContentChecksum,
+  getLocationQualityTier,
+  resolveIndexability,
+  seoLocationToCopyInput,
+  SEO_GENERATION_VERSION,
+} from './seo-generation.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import { SeoLocationService } from './seo-location.service';
 
@@ -14,6 +22,13 @@ export type SeoContentGenerateInput = {
   intentSlug: string;
   locationSlug: string;
   useAi?: boolean;
+  publish?: boolean;
+};
+
+export type SeoUpsertResult = {
+  action: 'created' | 'updated' | 'skipped';
+  page: Awaited<ReturnType<SeoContentService['getById']>>;
+  publicPath: string;
 };
 
 export type SeoContentUpdateInput = {
@@ -47,34 +62,54 @@ export class SeoContentService {
   ) {}
 
   async generateDraft(input: SeoContentGenerateInput, createdBy?: string) {
+    const result = await this.upsertFromTemplate({
+      intentSlug: input.intentSlug,
+      locationSlug: input.locationSlug,
+      publish: Boolean(input.publish),
+      createdBy,
+    });
+    return result.page;
+  }
+
+  async upsertFromTemplate(input: {
+    intentSlug: string;
+    locationSlug: string;
+    publish?: boolean;
+    createdBy?: string;
+  }): Promise<SeoUpsertResult> {
     const intent = getProgrammaticSeoIntent(input.intentSlug);
     if (!intent) throw new BadRequestException('Neznámý intent.');
 
     const dbLoc = await this.locations.findBySlug(input.locationSlug);
     if (!dbLoc) throw new NotFoundException('Lokalita nenalezena v databázi.');
 
-    const locForCopy = {
-      slug: dbLoc.slug,
-      name: dbLoc.name,
-      locative: dbLoc.locative || dbLoc.name,
-      kind: 'mesto' as const,
-      searchTerms: dbLoc.searchTerms,
-    } satisfies Pick<CzGeoLocation, 'slug' | 'name' | 'locative' | 'kind' | 'searchTerms'>;
-
-    const copy = buildProgrammaticSeoCopy(intent, locForCopy as CzGeoLocation);
-    const extended = buildExtendedSeoMetadata(intent, locForCopy as CzGeoLocation, copy);
+    const locForCopy = seoLocationToCopyInput(dbLoc) as CzGeoLocation;
+    const copy = buildProgrammaticSeoCopy(intent, locForCopy);
+    const extended = buildExtendedSeoMetadata(intent, locForCopy, copy);
     const related = await this.locations.findRelated(dbLoc.slug, 6);
     extended.relatedLocations = related;
 
+    const tier = getLocationQualityTier(dbLoc);
+    const indexability = resolveIndexability(tier, copy);
     const pageKey = buildProgrammaticSeoPageKey(input.intentSlug, dbLoc.slug);
+    const publicPath = buildProgrammaticSeoPath(input.intentSlug, dbLoc.slug);
+    const checksum = computeContentChecksum({
+      pageKey,
+      title: copy.title,
+      description: copy.description,
+      h1: copy.h1,
+      bodyText: copy.bodyText,
+    });
 
     const existing = await this.prisma.seoPageContent.findUnique({ where: { pageKey } });
     if (existing?.isLocked) {
-      throw new BadRequestException('Obsah je zamčený — AI ho nesmí přepsat.');
+      return { action: 'skipped', page: await this.getById(existing.id), publicPath };
     }
 
+    const status = input.publish ? SeoContentStatus.PUBLISHED : SeoContentStatus.DRAFT;
+
     const data = {
-      status: SeoContentStatus.DRAFT,
+      status,
       title: copy.title,
       description: copy.description,
       keywords: copy.keywords,
@@ -86,19 +121,28 @@ export class SeoContentService {
       relatedLocations: extended.relatedLocations as Prisma.InputJsonValue,
       relatedPages: extended.relatedPages as Prisma.InputJsonValue,
       canonical: extended.canonical,
-      robots: extended.robots,
-      noindex: false,
+      robots: indexability.robots,
+      noindex: indexability.noindex,
       ogTitle: extended.ogTitle,
       ogDescription: extended.ogDescription,
       ogImage: extended.ogImage,
       twitterCard: extended.twitterCard,
       schemaJson: extended.schemaJson as Prisma.InputJsonValue,
       altTexts: extended.altTexts as Prisma.InputJsonValue,
-      aiGenerated: Boolean(input.useAi),
+      aiGenerated: false,
       qualityScore: this.scoreContent(copy),
+      lastGeneratedAt: new Date(),
+      generationVersion: SEO_GENERATION_VERSION,
+      checksum,
+      lastError: null,
+      publishedAt: input.publish ? new Date() : existing?.publishedAt ?? null,
     };
 
     if (existing) {
+      if (existing.checksum === checksum && existing.status === status && !existing.lastError) {
+        return { action: 'skipped', page: await this.getById(existing.id), publicPath };
+      }
+
       const nextVersion =
         (await this.prisma.seoPageContentVersion.count({ where: { contentId: existing.id } })) + 1;
       await this.prisma.seoPageContentVersion.create({
@@ -106,18 +150,19 @@ export class SeoContentService {
           contentId: existing.id,
           version: nextVersion,
           snapshot: existing as unknown as Prisma.InputJsonValue,
-          createdBy,
-          note: 'Před AI návrhem',
+          createdBy: input.createdBy,
+          note: 'Před šablonovým přegenerováním',
         },
       });
-      return this.prisma.seoPageContent.update({
+      const page = await this.prisma.seoPageContent.update({
         where: { id: existing.id },
         data,
         include: { location: { select: { name: true, slug: true } } },
       });
+      return { action: 'updated', page, publicPath };
     }
 
-    return this.prisma.seoPageContent.create({
+    const page = await this.prisma.seoPageContent.create({
       data: {
         pageKey,
         intentSlug: input.intentSlug,
@@ -126,6 +171,7 @@ export class SeoContentService {
       },
       include: { location: { select: { name: true, slug: true } } },
     });
+    return { action: 'created', page, publicPath };
   }
 
   async getById(id: string) {

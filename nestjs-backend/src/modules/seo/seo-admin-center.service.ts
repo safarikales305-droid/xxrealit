@@ -67,10 +67,12 @@ export class SeoAdminCenterService {
     ]);
 
     const totalPages = locationCount * intents;
+    const draft = contentRows.filter((r) => r.status === SeoContentStatus.DRAFT);
     const published = contentRows.filter(
       (r) => r.status === SeoContentStatus.PUBLISHED || r.status === SeoContentStatus.LOCKED,
     );
-    const indexed = contentRows.filter((r) => r.googleIndexed && !r.noindex);
+    const indexable = contentRows.filter((r) => !r.noindex && published.some((p) => p.id === r.id));
+    const googleIndexed = contentRows.filter((r) => r.googleIndexed && !r.noindex);
     const noindex = contentRows.filter((r) => r.noindex);
     const withoutTitle = contentRows.filter((r) => !r.title?.trim());
     const withoutH1 = contentRows.filter((r) => !r.h1?.trim());
@@ -115,10 +117,19 @@ export class SeoAdminCenterService {
 
     return {
       totalPages,
+      possibleCombinations: totalPages,
       withContent: contentRows.length,
+      createdRecords: contentRows.length,
+      draft: draft.length,
       published: published.length,
-      indexed: indexed.length,
-      notIndexed: totalPages - indexed.length,
+      indexable: indexable.length,
+      indexed: googleIndexed.length,
+      notIndexed: null,
+      searchConsoleConnected: totalImpressions > 0 || totalClicks > 0,
+      searchConsoleNote:
+        totalImpressions > 0 || totalClicks > 0
+          ? null
+          : 'Data Search Console nejsou připojena.',
       withoutMeta: withoutTitle.length + withoutH1.length,
       withoutTitle: withoutTitle.length,
       withoutDescription: contentRows.filter((r) => !r.description?.trim()).length,

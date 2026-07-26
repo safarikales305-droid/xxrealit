@@ -75,9 +75,29 @@ export default function AdminSeoDashboardPage() {
         <>
           <h2 className="mb-3 text-lg font-semibold">Programatické SEO stránky</h2>
           <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-            <StatCard value={dashboard.totalPages} label="Celkem SEO stránek" />
-            <StatCard value={dashboard.indexed} label="Indexovaných" />
-            <StatCard value={dashboard.notIndexed} label="Neindexovaných" warn />
+            <StatCard value={dashboard.possibleCombinations ?? dashboard.totalPages} label="Možné kombinace" />
+            <StatCard value={dashboard.createdRecords ?? dashboard.withContent} label="Vytvořené záznamy" />
+            <StatCard value={dashboard.draft ?? 0} label="DRAFT" />
+            <StatCard value={dashboard.published} label="Publikované" />
+            <StatCard value={dashboard.indexable ?? 0} label="Indexovatelné" />
+            <StatCard value={dashboard.noindex} label="noindex" />
+            <StatCard
+              value={
+                dashboard.searchConsoleConnected
+                  ? dashboard.indexed
+                  : '—'
+              }
+              label={
+                dashboard.searchConsoleConnected
+                  ? 'Indexovaných (GSC)'
+                  : 'Indexovaných'
+              }
+            />
+            {!dashboard.searchConsoleConnected ? (
+              <div className="col-span-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {dashboard.searchConsoleNote ?? 'Data Search Console nejsou připojena.'}
+              </div>
+            ) : null}
             <StatCard value={dashboard.withoutTitle} label="Bez Meta Title" warn />
             <StatCard value={dashboard.withoutDescription} label="Bez Description" warn />
             <StatCard value={dashboard.withoutH1} label="Bez H1" warn />

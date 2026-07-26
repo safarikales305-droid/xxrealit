@@ -14282,10 +14282,16 @@ export type SeoPageListItem = {
 
 export type SeoDashboard = {
   totalPages: number;
+  possibleCombinations?: number;
   withContent: number;
+  createdRecords?: number;
+  draft?: number;
   published: number;
+  indexable?: number;
   indexed: number;
-  notIndexed: number;
+  notIndexed: number | null;
+  searchConsoleConnected?: boolean;
+  searchConsoleNote?: string | null;
   withoutMeta: number;
   withoutTitle: number;
   withoutDescription: number;
@@ -14310,6 +14316,58 @@ export type SeoDashboard = {
   topPages: Array<{ pageKey: string; clicks: number; ctr: number | null; position: number | null }>;
   worstPages: Array<{ pageKey: string; clicks: number; ctr: number | null; position: number | null }>;
   newPages: Array<{ id: string; pageKey: string; title: string | null; createdAt: string; status: string }>;
+};
+
+export type SeoGenerationJobView = {
+  jobId: string;
+  type: string;
+  status: string;
+  totalItems: number;
+  processedItems: number;
+  createdItems: number;
+  updatedItems: number;
+  skippedItems: number;
+  failedItems: number;
+  batchSize: number;
+  currentCursor: number;
+  currentItem: string | null;
+  progressPct: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  pausedAt: string | null;
+  lastError: string | null;
+  lastActivityAt: string;
+  etaSeconds: number | null;
+  logs: Array<{ at: string; level: string; message: string }>;
+};
+
+export type SeoGenerationStats = {
+  possibleCombinations: number;
+  createdRecords: number;
+  draft: number;
+  published: number;
+  indexable: number;
+  noindex: number;
+  errors: number;
+  activeJob: SeoGenerationJobView | null;
+  searchConsoleConnected: boolean;
+  searchConsoleNote: string;
+};
+
+export type SeoGenerationTestResult = {
+  success: boolean;
+  action: string;
+  pageId: string;
+  pageKey: string;
+  publicPath: string;
+  publicUrl: string;
+  status: string;
+  indexable: boolean;
+  title: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  canonical: string | null;
+  h1: string | null;
 };
 
 async function nestAdminSeoJson<T>(
@@ -14380,6 +14438,105 @@ export async function nestAdminSeoContentVersions(
 
 export async function nestAdminSeoDashboard(token: string | null): Promise<SeoDashboard | null> {
   return nestAdminSeoJson<SeoDashboard>(token, '/dashboard');
+}
+
+export async function nestAdminSeoGenerateTest(
+  token: string | null,
+): Promise<SeoGenerationTestResult | null> {
+  return nestAdminSeoJson<SeoGenerationTestResult>(token, '/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function nestAdminSeoGenerateBatch(
+  token: string | null,
+  body: { limit?: number; batchSize?: number; onlyMissing?: boolean; intentSlug?: string },
+): Promise<{ success: boolean; jobId?: string; totalItems?: number; error?: string } | null> {
+  return nestAdminSeoJson(token, '/generate-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoGenerateAll(
+  token: string | null,
+  body?: { batchSize?: number },
+): Promise<{ success: boolean; jobId?: string; totalItems?: number; error?: string } | null> {
+  return nestAdminSeoJson(token, '/generate-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function nestAdminSeoRegenerateDrafts(
+  token: string | null,
+  body?: { limit?: number; batchSize?: number },
+): Promise<{ success: boolean; jobId?: string; error?: string } | null> {
+  return nestAdminSeoJson(token, '/regenerate-drafts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function nestAdminSeoRegenerateErrors(
+  token: string | null,
+  body?: { limit?: number; batchSize?: number },
+): Promise<{ success: boolean; jobId?: string; error?: string } | null> {
+  return nestAdminSeoJson(token, '/regenerate-errors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function nestAdminSeoGenerationPause(
+  token: string | null,
+  jobId?: string,
+): Promise<{ success: boolean; error?: string } | null> {
+  return nestAdminSeoJson(token, '/pause', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId }),
+  });
+}
+
+export async function nestAdminSeoGenerationResume(
+  token: string | null,
+  jobId?: string,
+): Promise<{ success: boolean; error?: string } | null> {
+  return nestAdminSeoJson(token, '/resume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId }),
+  });
+}
+
+export async function nestAdminSeoGenerationCancel(
+  token: string | null,
+  jobId?: string,
+): Promise<{ success: boolean; error?: string } | null> {
+  return nestAdminSeoJson(token, '/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId }),
+  });
+}
+
+export async function nestAdminSeoGenerationProgress(
+  token: string | null,
+): Promise<{ active: boolean; job: SeoGenerationJobView | null } | null> {
+  return nestAdminSeoJson(token, '/progress');
+}
+
+export async function nestAdminSeoGenerationStats(
+  token: string | null,
+): Promise<SeoGenerationStats | null> {
+  return nestAdminSeoJson<SeoGenerationStats>(token, '/stats');
 }
 
 export async function nestAdminSeoPagesList(

@@ -9,6 +9,7 @@ import { SeoContentService, type SeoContentUpdateInput } from './seo-content.ser
 import { SeoIndexQueueService } from './seo-index-queue.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
+import { SeoGenerationJobService } from './seo-generation-job.service';
 import { SeoService, type SitemapKind } from './seo.service';
 
 @Controller('seo')
@@ -70,6 +71,7 @@ export class SeoAdminController {
     private readonly locations: SeoLocationService,
     private readonly content: SeoContentService,
     private readonly adminCenter: SeoAdminCenterService,
+    private readonly generationJobs: SeoGenerationJobService,
   ) {}
 
   @Get('settings')
@@ -154,11 +156,109 @@ export class SeoAdminController {
 
   @Post('content/generate')
   generateSeoContent(
-    @Body() body: { intentSlug: string; locationSlug: string; useAi?: boolean },
+    @Body() body: { intentSlug: string; locationSlug: string; useAi?: boolean; publish?: boolean },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
     const userId = req.user?.id ?? req.user?.sub;
-    return this.content.generateDraft(body, userId);
+    return this.content.generateDraft({ ...body, publish: body.publish ?? false }, userId);
+  }
+
+  @Post('generate')
+  generateTestPage(@Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.generationJobs.generateTest(userId);
+  }
+
+  @Post('generate-batch')
+  generateBatch(
+    @Body()
+    body: {
+      limit?: number;
+      batchSize?: number;
+      intentSlug?: string;
+      regionId?: string;
+      districtId?: string;
+      onlyMissing?: boolean;
+      onlyWithListings?: boolean;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.generationJobs.enqueueBatch('BATCH', {
+      limit: body.limit ?? 100,
+      batchSize: body.batchSize,
+      filters: body,
+      createdById: userId,
+    });
+  }
+
+  @Post('generate-all')
+  generateAll(
+    @Body() body: { batchSize?: number; qualityTiers?: Array<'HIGH' | 'MEDIUM'> },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.generationJobs.enqueueBatch('ALL', {
+      batchSize: body.batchSize,
+      filters: { qualityTiers: body.qualityTiers ?? ['HIGH', 'MEDIUM'] },
+      createdById: userId,
+    });
+  }
+
+  @Post('regenerate-drafts')
+  regenerateDrafts(
+    @Body() body: { limit?: number; batchSize?: number },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.generationJobs.enqueueBatch('REGENERATE_DRAFTS', {
+      limit: body.limit,
+      batchSize: body.batchSize,
+      createdById: userId,
+    });
+  }
+
+  @Post('regenerate-errors')
+  regenerateErrors(
+    @Body() body: { limit?: number; batchSize?: number },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.generationJobs.enqueueBatch('REGENERATE_ERRORS', {
+      limit: body.limit,
+      batchSize: body.batchSize,
+      createdById: userId,
+    });
+  }
+
+  @Post('pause')
+  pauseGeneration(@Body() body: { jobId?: string }) {
+    return this.generationJobs.pauseJob(body.jobId);
+  }
+
+  @Post('resume')
+  resumeGeneration(@Body() body: { jobId?: string }) {
+    return this.generationJobs.resumeJob(body.jobId);
+  }
+
+  @Post('cancel')
+  cancelGeneration(@Body() body: { jobId?: string }) {
+    return this.generationJobs.cancelJob(body.jobId);
+  }
+
+  @Get('progress')
+  getGenerationProgress() {
+    return this.generationJobs.getProgress();
+  }
+
+  @Get('jobs')
+  listGenerationJobs(@Query('limit') limit?: string) {
+    return this.generationJobs.listJobs(limit ? Number.parseInt(limit, 10) : 20);
+  }
+
+  @Get('stats')
+  getGenerationStats() {
+    return this.generationJobs.getStats();
   }
 
   @Patch('content/:id/status')

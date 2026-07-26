@@ -3165,6 +3165,24 @@ enum SeoContentStatus {
   LOCKED
 }
 
+enum SeoGenerationJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SeoGenerationJobType {
+  TEST
+  BATCH
+  ALL
+  REGENERATE_DRAFTS
+  REGENERATE_ERRORS
+  REGENERATE_STALE
+}
+
 /// SEO obsah stránky (programatické SEO / lokality) s workflow schválení.
 model SeoPageContent {
   id               String           @id @default(cuid())
@@ -3198,6 +3216,10 @@ model SeoPageContent {
   qualityScore     Int              @default(0)
   googleIndexed    Boolean          @default(false)
   publishedAt      DateTime?
+  lastGeneratedAt  DateTime?
+  generationVersion Int             @default(1)
+  checksum         String?
+  lastError        String?          @db.Text
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -3207,6 +3229,35 @@ model SeoPageContent {
   @@index([intentSlug])
   @@index([status])
   @@index([noindex])
+  @@index([checksum])
+}
+
+/// Dávkové generování SEO stránek bez AI (DB fronta).
+model SeoGenerationJob {
+  id              String                 @id @default(cuid())
+  type            SeoGenerationJobType
+  status          SeoGenerationJobStatus @default(PENDING)
+  totalItems      Int                    @default(0)
+  processedItems  Int                    @default(0)
+  createdItems    Int                    @default(0)
+  updatedItems    Int                    @default(0)
+  skippedItems    Int                    @default(0)
+  failedItems     Int                    @default(0)
+  batchSize       Int                    @default(100)
+  currentCursor   Int                    @default(0)
+  currentItem     String?
+  filtersJson     Json?
+  jobMeta         Json?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  pausedAt        DateTime?
+  lastError       String?                @db.Text
+  createdById     String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
 }
 
 model SeoPageContentVersion {

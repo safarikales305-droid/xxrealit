@@ -16,6 +16,7 @@ import { RuianVfrService } from './ruian-vfr.service';
 import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
 import { SeoPublicListingsService } from './seo-public-listings.service';
 import { SeoAdminCenterService } from './seo-admin-center.service';
+import { SeoGenerationJobService } from './seo-generation-job.service';
 import { SeoService } from './seo.service';
 
 @Module({
@@ -32,6 +33,7 @@ import { SeoService } from './seo.service';
     SeoLocationSyncCronService,
     SeoContentService,
     SeoAdminCenterService,
+    SeoGenerationJobService,
     SeoPublicListingsService,
     SeoIndexQueueService,
     GoogleIndexingService,
