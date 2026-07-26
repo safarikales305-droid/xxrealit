@@ -11,6 +11,7 @@ import {
   createProspect,
   generateMessage,
   getDashboard,
+  getDiagnostics,
   getSettings,
   importPreview,
   importProspects,
@@ -33,9 +34,15 @@ import {
 } from '@/lib/ai-sales-admin-api';
 import { AiSalesSearchPanel } from '@/components/admin/ai-sales/AiSalesSearchPanel';
 import { AiSalesTestPanel } from '@/components/admin/ai-sales/AiSalesTestPanel';
+import { AiSalesCrmPanel } from '@/components/admin/ai-sales/AiSalesCrmPanel';
+import { AiSalesStatsPanel } from '@/components/admin/ai-sales/AiSalesStatsPanel';
+import { AiSalesFollowUpPanel } from '@/components/admin/ai-sales/AiSalesFollowUpPanel';
+import { AiSalesPromptsPanel } from '@/components/admin/ai-sales/AiSalesPromptsPanel';
+import { AiSalesKnowledgePanel } from '@/components/admin/ai-sales/AiSalesKnowledgePanel';
 
 type Tab =
   | 'overview'
+  | 'crm'
   | 'prospects'
   | 'search'
   | 'approval'
@@ -51,6 +58,7 @@ type Tab =
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: 'Přehled' },
+  { id: 'crm', label: 'CRM' },
   { id: 'prospects', label: 'Potenciální partneři' },
   { id: 'search', label: 'Vyhledávání' },
   { id: 'approval', label: 'Nabídky ke schválení' },
@@ -99,10 +107,13 @@ export default function AdminAiSalesPage() {
   const [prompts, setPrompts] = useState<Array<Record<string, unknown>>>([]);
   const [knowledge, setKnowledge] = useState<Array<Record<string, unknown>>>([]);
   const [providers, setProviders] = useState<Array<Record<string, unknown>>>([]);
+  const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!token) return;
     setError(null);
+    setPageLoading(true);
     try {
       const [d, p, pending, sent, r, s] = await Promise.allSettled([
         getDashboard(token, periodDays),
@@ -120,6 +131,8 @@ export default function AdminAiSalesPage() {
       if (s.status === 'fulfilled') setSettings(s.value);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Načtení selhalo.');
+    } finally {
+      setPageLoading(false);
     }
   }, [token, periodDays, tab]);
 
@@ -142,7 +155,15 @@ export default function AdminAiSalesPage() {
     } else if (tab === 'knowledge') {
       void listKnowledge(token).then(setKnowledge).catch(() => setKnowledge([]));
     } else if (tab === 'settings') {
-      void listSearchProviders(token).then(setProviders).catch(() => setProviders([]));
+      void Promise.all([listSearchProviders(token), getDiagnostics(token)])
+        .then(([p, d]) => {
+          setProviders(p);
+          setDiagnostics(d);
+        })
+        .catch(() => {
+          setProviders([]);
+          setDiagnostics(null);
+        });
     }
   }, [tab, token]);
 
@@ -204,6 +225,8 @@ export default function AdminAiSalesPage() {
 
   if (!token || user?.role !== 'ADMIN') return null;
 
+  const activeWeb = (diagnostics?.aiSales as { activeWebProvider?: { name?: string; envVar?: string } } | undefined)?.activeWebProvider;
+
   return (
     <>
       <p className="mb-4 text-sm text-zinc-600">
@@ -231,6 +254,10 @@ export default function AdminAiSalesPage() {
         </div>
       ) : null}
 
+      {pageLoading && tab === 'overview' && !dashboard ? (
+        <p className="text-sm text-zinc-500">Načítám přehled…</p>
+      ) : null}
+
       {tab === 'overview' && dashboard ? (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -247,8 +274,11 @@ export default function AdminAiSalesPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Nové kontakty" value={dashboard.newProspects} />
+            <Stat label="Analyzováno" value={dashboard.analyzedProspects ?? 0} />
+            <Stat label="Průměrný fit score" value={dashboard.avgFitScore ?? 0} />
             <Stat label="Čeká na kontrolu" value={dashboard.needsReview} />
             <Stat label="Ke schválení" value={dashboard.pendingApproval} />
+            <Stat label="Nalezeno ve vyhledávání" value={dashboard.foundInSearch ?? 0} />
             <Stat label="Odesláno dnes" value={dashboard.sentToday} />
             <Stat label="Odpovědi dnes" value={dashboard.repliesToday} />
             <Stat label="Pozitivní odpovědi" value={dashboard.positiveReplies} />
@@ -256,6 +286,9 @@ export default function AdminAiSalesPage() {
             <Stat label="Bez odpovědi" value={dashboard.noResponse} />
             <Stat label="Follow-upy" value={dashboard.scheduledFollowUps} />
             <Stat label="Konverze" value={dashboard.conversions} />
+            <Stat label="Nové kanceláře" value={dashboard.newAgencies ?? 0} />
+            <Stat label="Noví makléři" value={dashboard.newAgents ?? 0} />
+            <Stat label="Stavební firmy" value={dashboard.newConstruction ?? 0} />
             <Stat label="Leady" value={dashboard.leads} />
             <Stat label="Konverzní poměr %" value={dashboard.conversionRate} />
             <Stat label="Náklady AI (Kč)" value={dashboard.aiCostCzk} />
@@ -263,6 +296,8 @@ export default function AdminAiSalesPage() {
           </div>
         </div>
       ) : null}
+
+      {tab === 'crm' ? <AiSalesCrmPanel token={token} /> : null}
 
       {tab === 'prospects' ? (
         <div className="space-y-4">
@@ -372,43 +407,15 @@ export default function AdminAiSalesPage() {
         )
       ) : null}
 
-      {tab === 'followup' ? (
-        <EmptyState title="Follow-up fronta" action="Follow-upy se zobrazí po odeslání prvních nabídek. Ve výchozím režimu vyžadují schválení." />
-      ) : null}
+      {tab === 'followup' ? <AiSalesFollowUpPanel token={token} /> : null}
 
       {tab === 'campaigns' ? (
         <EmptyState title="Kampaně" action="Vytvořte kampaň přes API nebo v další verzi UI. Backend endpointy jsou připravené." />
       ) : null}
 
-      {tab === 'prompts' ? (
-        prompts.length === 0 ? (
-          <EmptyState title="Žádné prompty AI obchodníka." action="Spusťte seed backendu nebo vytvořte prompty v AI centru." />
-        ) : (
-          <ul className="space-y-2">
-            {prompts.map((p) => (
-              <li key={String(p.id)} className="rounded-xl border bg-white p-3 text-sm">
-                <p className="font-semibold">{String(p.name ?? p.feature)} <span className="text-xs text-zinc-500">v{String(p.version)} · {String(p.status)}</span></p>
-                <p className="text-xs text-zinc-500">{String(p.feature)}</p>
-              </li>
-            ))}
-          </ul>
-        )
-      ) : null}
+      {tab === 'prompts' ? <AiSalesPromptsPanel token={token} /> : null}
 
-      {tab === 'knowledge' ? (
-        knowledge.length === 0 ? (
-          <EmptyState title="Žádné znalosti AI obchodníka." action="Schválené znalosti se načtou ze seedu." />
-        ) : (
-          <ul className="space-y-2">
-            {knowledge.map((k) => (
-              <li key={String(k.id)} className="rounded-xl border bg-white p-3 text-sm">
-                <p className="font-semibold">{String(k.title)} <span className="text-xs text-zinc-500">{String(k.status)} · {String(k.category)}</span></p>
-                <p className="text-zinc-600">{String(k.question)}</p>
-              </li>
-            ))}
-          </ul>
-        )
-      ) : null}
+      {tab === 'knowledge' ? <AiSalesKnowledgePanel token={token} /> : null}
 
       {tab === 'settings' && settings ? (
         <div className="space-y-4">
@@ -416,12 +423,18 @@ export default function AdminAiSalesPage() {
             <h3 className="font-semibold">Obecné</h3>
             <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.testModeEnabled)} onChange={(e) => void updateSettings(token, { testModeEnabled: e.target.checked }).then(() => refresh())} /> Testovací režim (neodesílá skutečné e-maily)</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.requireManualApproval)} onChange={(e) => void updateSettings(token, { requireManualApproval: e.target.checked }).then(() => refresh())} /> Vyžadovat ruční schválení</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(settings.autoAnalyzeOnSave ?? true)} onChange={(e) => void updateSettings(token, { autoAnalyzeOnSave: e.target.checked }).then(() => refresh())} /> Automatická AI analýza po uložení partnera</label>
             <label>Denní limit vyhledávání: <input type="number" defaultValue={Number(settings.dailySearchResultLimit ?? 100)} onBlur={(e) => void updateSettings(token, { dailySearchResultLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
             <label>Denní limit AI analýz: <input type="number" defaultValue={Number(settings.dailyAnalysisLimit ?? 50)} onBlur={(e) => void updateSettings(token, { dailyAnalysisLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
             <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
           </div>
           <div className="rounded-2xl border bg-white p-4 space-y-2 text-sm">
             <h3 className="font-semibold">Zdroje vyhledávání</h3>
+            {activeWeb ? (
+              <p className="text-sm text-green-800 bg-green-50 rounded p-2">Aktivní webový provider: <strong>{activeWeb.name}</strong> (env: {activeWeb.envVar})</p>
+            ) : (
+              <p className="text-sm text-amber-800 bg-amber-50 rounded p-2">Webový provider není nastaven. Použijte interní databázi, CSV nebo ruční vložení. Nastavte SERPAPI_API_KEY nebo BING_SEARCH_API_KEY na backendu.</p>
+            )}
             {providers.length === 0 ? (
               <p className="text-zinc-500">Načítám providery…</p>
             ) : (
@@ -437,11 +450,11 @@ export default function AdminAiSalesPage() {
             <p className="text-xs text-zinc-500">Webový provider: nastavte BING_SEARCH_API_KEY nebo SERPAPI_API_KEY na backendu.</p>
           </div>
         </div>
+      ) : tab === 'settings' ? (
+        <p className="text-sm text-zinc-500">Načítám nastavení…</p>
       ) : null}
 
-      {tab === 'stats' ? (
-        <EmptyState title="Statistiky" action="Přehled metrik je na záložce Přehled. Detailní analytika přes /analytics endpoint." />
-      ) : null}
+      {tab === 'stats' ? <AiSalesStatsPanel token={token} periodDays={periodDays} /> : null}
 
       {tab === 'test' ? <AiSalesTestPanel token={token} /> : null}
 

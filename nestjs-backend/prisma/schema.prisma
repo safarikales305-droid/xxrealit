@@ -3785,14 +3785,19 @@ enum AiSalesPartnerType {
 
 enum AiSalesProspectStatus {
   NEW
+  ANALYZED
   NEEDS_REVIEW
   APPROVED
   REJECTED
   READY_FOR_OUTREACH
   CONTACTED
+  WAITING_REPLY
   REPLIED
   INTERESTED
+  IN_NEGOTIATION
   FOLLOW_UP
+  REGISTRATION
+  ACTIVE_PARTNER
   CONVERTED
   NOT_INTERESTED
   DO_NOT_CONTACT
@@ -3916,6 +3921,9 @@ model AiSalesSettings {
   sendWindowEndHour            Int      @default(17)
   sendOnWeekends               Boolean  @default(false)
   autoSequenceEnabled          Boolean  @default(false)
+  autoAnalyzeOnSave            Boolean  @default(true)
+  followUpFirstDays            Int      @default(5)
+  followUpSecondDays           Int      @default(15)
   timezone                     String   @default("Europe/Prague")
   senderEmail                  String?
   senderName                   String?
@@ -3970,6 +3978,8 @@ model AiSalesProspect {
   publicDataCheckedAt  DateTime?
   analysisStatus     AiSalesAnalysisStatus     @default(PENDING)
   analyzedAt         DateTime?
+  companyProfileJson Json?
+  aiRecommendationJson Json?
   createdById        String?
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
@@ -3980,6 +3990,7 @@ model AiSalesProspect {
   messages AiSalesMessage[]
   leads    AiSalesLead[]
   tasks    AiSalesTask[]
+  memories AiSalesPartnerMemory[]
   sourceSearchResult AiSalesSearchResult? @relation("ProspectFromSearchResult", fields: [sourceSearchResultId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt(sort: Desc)])
@@ -3992,6 +4003,22 @@ model AiSalesProspect {
   @@index([doNotContact])
   @@index([fitScore(sort: Desc)])
   @@index([analysisStatus])
+}
+
+model AiSalesPartnerMemory {
+  id          String   @id @default(cuid())
+  prospectId  String
+  memoryType  String
+  content     String   @db.Text
+  source      String   @default("MANUAL")
+  sourceId    String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  prospect AiSalesProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+
+  @@index([prospectId, createdAt(sort: Desc)])
+  @@index([memoryType])
 }
 
 model AiSalesCampaign {

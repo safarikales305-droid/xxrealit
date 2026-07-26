@@ -5,9 +5,13 @@ import { AiSalesAdminController } from './ai-sales-admin.controller';
 import { AiSalesAdminService } from './ai-sales-admin.service';
 import { AiSalesAnalysisService } from './ai-sales-analysis.service';
 import { AiSalesCampaignService } from './ai-sales-campaign.service';
+import { AiSalesCrmService } from './ai-sales-crm.service';
 import { AiSalesDashboardService } from './ai-sales-dashboard.service';
+import { AiSalesFollowUpService } from './ai-sales-followup.service';
+import { AiSalesKnowledgeAdminService } from './ai-sales-knowledge-admin.service';
 import { AiSalesKnowledgeService } from './ai-sales-knowledge.service';
 import { AiSalesMessageService } from './ai-sales-message.service';
+import { AiSalesPromptAdminService } from './ai-sales-prompt-admin.service';
 import { AiSalesPermissionsService } from './ai-sales-permissions.service';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
@@ -30,6 +34,10 @@ import { WebSearchProvider } from './providers/web-search.provider';
     AiSalesMessageService,
     AiSalesCampaignService,
     AiSalesDashboardService,
+    AiSalesCrmService,
+    AiSalesFollowUpService,
+    AiSalesPromptAdminService,
+    AiSalesKnowledgeAdminService,
     AiSalesKnowledgeService,
     AiSalesPromptResolverService,
     AiSalesAdminService,

@@ -42,6 +42,7 @@ export class AiSalesAdminService {
     const apiKeyConfigured = this.openaiConfig.isApiKeyConfigured();
     const globallyEnabled = aiDb.enabled || this.openaiConfig.envEnabled;
     const webProviderConfigured = this.webSearch.isConfigured();
+    const activeWebProvider = this.webSearch.getActiveProvider();
 
     const disabledReasons: string[] = [];
     if (!globallyEnabled) disabledReasons.push('OpenAI je globálně vypnuto.');
@@ -66,6 +67,10 @@ export class AiSalesAdminService {
         csvImportEnabled: salesSettings.csvImportEnabled,
         manualContactsEnabled: salesSettings.manualContactsEnabled,
         webProviderConfigured,
+        activeWebProvider,
+        autoAnalyzeOnSave: salesSettings.autoAnalyzeOnSave,
+        followUpFirstDays: salesSettings.followUpFirstDays,
+        followUpSecondDays: salesSettings.followUpSecondDays,
         lastSearchSuccessAt: salesSettings.lastSearchSuccessAt?.toISOString() ?? null,
         lastErrorCode: salesSettings.lastSearchErrorCode,
         lastError: salesSettings.lastSearchErrorMessage,

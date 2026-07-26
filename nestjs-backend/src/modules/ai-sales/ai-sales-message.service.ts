@@ -185,7 +185,7 @@ export class AiSalesMessageService {
       await this.prisma.aiSalesProspect.update({
         where: { id: msg.prospectId },
         data: {
-          status: AiSalesProspectStatus.CONTACTED,
+          status: AiSalesProspectStatus.WAITING_REPLY,
           lastContactAt: new Date(),
         },
       });
@@ -220,7 +220,7 @@ export class AiSalesMessageService {
     await this.prisma.aiSalesProspect.update({
       where: { id: msg.prospectId },
       data: {
-        status: AiSalesProspectStatus.CONTACTED,
+        status: AiSalesProspectStatus.WAITING_REPLY,
         lastContactAt: new Date(),
       },
     });
@@ -273,6 +273,41 @@ export class AiSalesMessageService {
       },
     });
 
+    await this.prisma.aiSalesMessage.update({
+      where: { id: messageId },
+      data: { repliedAt: new Date(), status: AiSalesMessageStatus.REPLIED },
+    });
+
+    const prospectStatus = this.mapReplyToProspectStatus(parsed.classification);
+    await this.prisma.aiSalesProspect.update({
+      where: { id: msg.prospectId },
+      data: { status: prospectStatus, lastContactAt: new Date() },
+    });
+
+    await this.prisma.aiSalesPartnerMemory.create({
+      data: {
+        prospectId: msg.prospectId,
+        memoryType: 'REPLY',
+        content: `Odpověď: ${parsed.summary ?? replyText.slice(0, 500)}`,
+        source: 'REPLY',
+        sourceId: analysis.id,
+        createdById: userId,
+      },
+    });
+
+    if (parsed.recommendedAction) {
+      await this.prisma.aiSalesPartnerMemory.create({
+        data: {
+          prospectId: msg.prospectId,
+          memoryType: 'NEXT_STEP',
+          content: parsed.recommendedAction,
+          source: 'REPLY',
+          sourceId: analysis.id,
+          createdById: userId,
+        },
+      });
+    }
+
     if (
       parsed.setDoNotContact ||
       parsed.classification === AiSalesReplyClassification.UNSUBSCRIBE ||
@@ -282,6 +317,23 @@ export class AiSalesMessageService {
     }
 
     return { analysis, usage: result };
+  }
+
+  private mapReplyToProspectStatus(classification?: AiSalesReplyClassification): AiSalesProspectStatus {
+    switch (classification) {
+      case AiSalesReplyClassification.INTERESTED:
+      case AiSalesReplyClassification.WANTS_CALL:
+      case AiSalesReplyClassification.WANTS_MEETING:
+      case AiSalesReplyClassification.REQUEST_MORE_INFO:
+        return AiSalesProspectStatus.IN_NEGOTIATION;
+      case AiSalesReplyClassification.NOT_INTERESTED:
+      case AiSalesReplyClassification.UNSUBSCRIBE:
+        return AiSalesProspectStatus.NOT_INTERESTED;
+      case AiSalesReplyClassification.NOT_NOW:
+        return AiSalesProspectStatus.FOLLOW_UP;
+      default:
+        return AiSalesProspectStatus.REPLIED;
+    }
   }
 
   private async assertSendLimits(messageType: string, prospectId: string) {

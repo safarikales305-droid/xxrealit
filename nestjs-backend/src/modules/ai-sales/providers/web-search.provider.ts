@@ -22,6 +22,16 @@ export class WebSearchProvider implements PartnerSearchProvider {
     return Boolean(this.bingKey() || this.serpApiKey());
   }
 
+  getActiveProvider() {
+    if (this.serpApiKey()) {
+      return { key: 'SERPAPI', name: 'SerpAPI', envVar: 'SERPAPI_API_KEY' };
+    }
+    if (this.bingKey()) {
+      return { key: 'BING_WEB_SEARCH', name: 'Bing Web Search API', envVar: 'BING_SEARCH_API_KEY' };
+    }
+    return null;
+  }
+
   async search(input: PartnerSearchInput): Promise<PartnerSearchResultItem[]> {
     if (!this.isConfigured()) return [];
 

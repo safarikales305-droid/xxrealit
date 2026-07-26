@@ -14,6 +14,7 @@ export class AiSalesDashboardService {
 
     const [
       newProspects,
+      analyzedProspects,
       needsReview,
       approvedProspects,
       pendingApproval,
@@ -24,10 +25,18 @@ export class AiSalesDashboardService {
       noResponse,
       scheduledFollowUps,
       conversions,
+      activePartners,
       leads,
       aiUsage,
+      foundInSearch,
+      newAgencies,
+      newAgents,
+      newConstruction,
     ] = await Promise.all([
       this.prisma.aiSalesProspect.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.aiSalesProspect.count({
+        where: { analysisStatus: 'COMPLETED', analyzedAt: { gte: since } },
+      }),
       this.prisma.aiSalesProspect.count({ where: { status: AiSalesProspectStatus.NEEDS_REVIEW } }),
       this.prisma.aiSalesProspect.count({ where: { status: AiSalesProspectStatus.APPROVED } }),
       this.prisma.aiSalesMessage.count({ where: { status: AiSalesMessageStatus.PENDING_APPROVAL } }),
@@ -62,11 +71,24 @@ export class AiSalesDashboardService {
       this.prisma.aiSalesProspect.count({
         where: { status: AiSalesProspectStatus.CONVERTED, updatedAt: { gte: since } },
       }),
+      this.prisma.aiSalesProspect.count({
+        where: { status: AiSalesProspectStatus.ACTIVE_PARTNER },
+      }),
       this.prisma.aiSalesLead.count({ where: { createdAt: { gte: since } } }),
       this.prisma.aiUsageLog.aggregate({
         where: { feature: 'ai_sales', createdAt: { gte: since }, success: true },
         _sum: { estimatedCostCzk: true, totalTokens: true },
         _count: true,
+      }),
+      this.prisma.aiSalesSearchResult.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.aiSalesProspect.count({
+        where: { partnerType: 'REAL_ESTATE_AGENCY', createdAt: { gte: since } },
+      }),
+      this.prisma.aiSalesProspect.count({
+        where: { partnerType: 'REAL_ESTATE_AGENT', createdAt: { gte: since } },
+      }),
+      this.prisma.aiSalesProspect.count({
+        where: { partnerType: 'CONSTRUCTION_COMPANY', createdAt: { gte: since } },
       }),
     ]);
 
@@ -77,9 +99,16 @@ export class AiSalesDashboardService {
     const conversionRate = contacted > 0 ? Math.round((conversions / contacted) * 100) : 0;
     const costPerLead = leads > 0 ? Math.round((aiUsage._sum.estimatedCostCzk ?? 0) / leads) : 0;
 
+    const avgFit = await this.prisma.aiSalesProspect.aggregate({
+      where: { fitScore: { not: null }, analyzedAt: { gte: since } },
+      _avg: { fitScore: true },
+    });
+
     return {
       periodDays,
       newProspects,
+      analyzedProspects,
+      avgFitScore: Math.round(avgFit._avg.fitScore ?? 0),
       needsReview,
       approvedProspects,
       pendingApproval,
@@ -90,7 +119,12 @@ export class AiSalesDashboardService {
       noResponse,
       scheduledFollowUps,
       conversions,
+      activePartners,
       leads,
+      foundInSearch,
+      newAgencies,
+      newAgents,
+      newConstruction,
       conversionRate,
       aiCostCzk: aiUsage._sum.estimatedCostCzk ?? 0,
       aiRequests: aiUsage._count,

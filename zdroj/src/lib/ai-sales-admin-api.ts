@@ -74,6 +74,8 @@ async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit
 export type AiSalesDashboard = {
   periodDays: number;
   newProspects: number;
+  analyzedProspects: number;
+  avgFitScore: number;
   needsReview: number;
   approvedProspects: number;
   pendingApproval: number;
@@ -84,7 +86,12 @@ export type AiSalesDashboard = {
   noResponse: number;
   scheduledFollowUps: number;
   conversions: number;
+  activePartners: number;
   leads: number;
+  foundInSearch: number;
+  newAgencies: number;
+  newAgents: number;
+  newConstruction: number;
   conversionRate: number;
   aiCostCzk: number;
   aiRequests: number;
@@ -178,9 +185,32 @@ export const PARTNER_TYPE_LABELS: Record<string, string> = {
   OTHER: 'Jiný partner',
 };
 
+export const PROSPECT_STATUS_LABELS: Record<string, string> = {
+  NEW: 'Nový',
+  ANALYZED: 'Analyzovaný',
+  NEEDS_REVIEW: 'Ke kontrole',
+  APPROVED: 'Schválený',
+  READY_FOR_OUTREACH: 'Připravená nabídka',
+  CONTACTED: 'Osloven',
+  WAITING_REPLY: 'Čeká na odpověď',
+  REPLIED: 'Odpověděl',
+  IN_NEGOTIATION: 'Probíhá jednání',
+  REGISTRATION: 'Registrace',
+  ACTIVE_PARTNER: 'Aktivní partner',
+  CONVERTED: 'Konvertován',
+  NOT_INTERESTED: 'Nezájem',
+  DO_NOT_CONTACT: 'Blacklist',
+};
+
+export const KNOWLEDGE_CATEGORIES = [
+  'AGENT_OFFER', 'AGENCY_OFFER', 'DEVELOPER_OFFER', 'CONSTRUCTION_COMPANY_OFFER',
+  'FINANCIAL_ADVISOR_OFFER', 'INVESTOR_OFFER', 'MORTGAGE_OFFER', 'CRAFTSMAN_OFFER',
+  'MARKETING', 'PRICING', 'PORTAL_BENEFITS', 'FAQ', 'IMPORTS', 'SOCIAL_PUBLISHING', 'LEADS',
+] as const;
+
 export const SEARCH_SOURCES = [
   { id: 'INTERNAL_DATABASE', label: 'Interní databáze XXREALIT' },
-  { id: 'APPROVED_WEB_PROVIDER', label: 'Schválený webový provider' },
+  { id: 'APPROVED_WEB_PROVIDER', label: 'Schválený webový provider (SerpAPI / Bing)' },
 ] as const;
 
 export function getDashboard(token: string, days = 7) {
@@ -328,4 +358,53 @@ export function getAnalytics(token: string, days = 30) {
 
 export function listTasks(token: string) {
   return aiSalesRequest<Array<Record<string, unknown>>>(token, '/tasks');
+}
+
+export function listCrmPartners(token: string, q?: string) {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, `/crm/partners${qs}`);
+}
+
+export function getCrmPartner(token: string, id: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, `/crm/partners/${id}`);
+}
+
+export function updateCrmPartner(token: string, id: string, body: Record<string, unknown>) {
+  return aiSalesRequest(token, `/crm/partners/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function addPartnerMemory(token: string, id: string, body: { memoryType: string; content: string }) {
+  return aiSalesRequest(token, `/crm/partners/${id}/memories`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function listFollowUps(token: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, '/follow-up');
+}
+
+export function scanFollowUps(token: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/follow-up/scan', { method: 'POST', body: '{}' });
+}
+
+export function updatePrompt(token: string, id: string, body: Record<string, unknown>) {
+  return aiSalesRequest(token, `/prompts/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function activatePrompt(token: string, id: string) {
+  return aiSalesRequest(token, `/prompts/${id}/activate`, { method: 'POST', body: '{}' });
+}
+
+export function createKnowledge(token: string, body: Record<string, unknown>) {
+  return aiSalesRequest(token, '/knowledge', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateKnowledge(token: string, id: string, body: Record<string, unknown>) {
+  return aiSalesRequest(token, `/knowledge/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function approveKnowledge(token: string, id: string) {
+  return aiSalesRequest(token, `/knowledge/${id}/approve`, { method: 'POST', body: '{}' });
+}
+
+export function updateSearchProvider(token: string, id: string, enabled: boolean) {
+  return aiSalesRequest(token, `/search-providers/${id}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
 }

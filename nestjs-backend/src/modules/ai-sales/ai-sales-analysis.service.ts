@@ -15,17 +15,35 @@ import { AiSalesSettingsService } from './ai-sales-settings.service';
 
 type PartnerAnalysisResult = {
   partnerType?: string;
+  companyName?: string;
+  website?: string;
+  city?: string;
+  region?: string;
+  companyType?: string;
+  specialization?: string[];
+  companySize?: string;
+  services?: string[];
+  references?: string;
+  publicContacts?: string;
+  socialNetworks?: string;
+  serviceArea?: string;
+  industries?: string[];
   fitScore?: number;
   priority?: string;
   recommendedOffer?: string;
   reasons?: string[];
   risks?: string[];
+  strengths?: string[];
+  weaknesses?: string[];
+  servicesOffered?: string[];
+  xxrealitBenefits?: string[];
+  cooperationProbability?: string;
   missingInformation?: string[];
   recommendedNextStep?: string;
   recommendedTone?: string;
   summary?: string;
+  aiRecommendation?: string;
   activityType?: string;
-  serviceArea?: string;
   personalizationPoints?: string[];
 };
 
@@ -90,6 +108,32 @@ Zdroj: ${prospect.source}`;
 
     const fitScore = Math.max(0, Math.min(100, Number(parsed.fitScore) || 50));
     const priority = this.mapPriority(parsed.priority, fitScore);
+    const companyProfile = {
+      companyName: parsed.companyName ?? prospect.companyName,
+      website: parsed.website ?? prospect.website ?? 'Nezjištěno',
+      city: parsed.city ?? prospect.city ?? 'Nezjištěno',
+      region: parsed.region ?? prospect.region ?? 'Nezjištěno',
+      companyType: parsed.companyType ?? parsed.activityType ?? 'Nezjištěno',
+      specialization: parsed.specialization ?? [],
+      companySize: parsed.companySize ?? prospect.companySize ?? 'Nezjištěno',
+      services: parsed.services ?? parsed.servicesOffered ?? [],
+      references: parsed.references ?? 'Nezjištěno',
+      publicContacts: parsed.publicContacts ?? 'Nezjištěno',
+      socialNetworks: parsed.socialNetworks ?? 'Nezjištěno',
+      serviceArea: parsed.serviceArea ?? 'Nezjištěno',
+      industries: parsed.industries ?? [],
+      strengths: parsed.strengths ?? [],
+      weaknesses: parsed.weaknesses ?? parsed.risks ?? [],
+      xxrealitBenefits: parsed.xxrealitBenefits ?? [],
+      cooperationProbability: parsed.cooperationProbability ?? 'Nezjištěno',
+    };
+
+    const aiRecommendation = {
+      action: parsed.aiRecommendation ?? parsed.recommendedNextStep ?? 'Zkontrolovat profil administrátorem',
+      recommendedOffer: parsed.recommendedOffer ?? 'Nezjištěno',
+      fitScore,
+      priority,
+    };
 
     if (!testMode) {
       await this.prisma.aiSalesProspect.update({
@@ -98,14 +142,30 @@ Zdroj: ${prospect.source}`;
           fitScore,
           priority,
           fitReasonsJson: parsed.reasons ?? [],
-          fitRisksJson: parsed.risks ?? [],
+          fitRisksJson: parsed.risks ?? parsed.weaknesses ?? [],
           analysisJson: parsed,
+          companyProfileJson: companyProfile,
+          aiRecommendationJson: aiRecommendation,
           analysisStatus: AiSalesAnalysisStatus.COMPLETED,
           analyzedAt: new Date(),
+          publicInfo: parsed.summary ?? prospect.publicInfo,
+          serviceArea: parsed.serviceArea !== 'Nezjištěno' ? parsed.serviceArea : prospect.serviceArea,
+          companySize: parsed.companySize !== 'Nezjištěno' ? parsed.companySize : prospect.companySize,
+          specialization: Array.isArray(parsed.specialization)
+            ? parsed.specialization.join(', ')
+            : prospect.specialization,
           status:
-            fitScore >= 60
-              ? AiSalesProspectStatus.READY_FOR_OUTREACH
-              : AiSalesProspectStatus.NEEDS_REVIEW,
+            fitScore >= 60 ? AiSalesProspectStatus.ANALYZED : AiSalesProspectStatus.NEEDS_REVIEW,
+        },
+      });
+
+      await this.prisma.aiSalesPartnerMemory.create({
+        data: {
+          prospectId,
+          memoryType: 'ANALYSIS',
+          content: `AI analýza: ${parsed.summary ?? '—'}. Doporučení: ${aiRecommendation.action}`,
+          source: 'ANALYSIS',
+          createdById: userId,
         },
       });
     }
@@ -113,6 +173,8 @@ Zdroj: ${prospect.source}`;
     return {
       prospectId,
       analysis: parsed,
+      companyProfile,
+      aiRecommendation,
       fitScore,
       priority,
       knowledge,

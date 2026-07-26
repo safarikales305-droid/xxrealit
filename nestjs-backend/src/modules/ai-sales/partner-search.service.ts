@@ -450,10 +450,14 @@ export class PartnerSearchService {
   async listProviders() {
     const providers = await this.prisma.aiSalesSearchProvider.findMany({ orderBy: { name: 'asc' } });
     const webConfigured = this.webSearch.isConfigured();
+    const activeWeb = this.webSearch.getActiveProvider();
     return providers.map((p) => ({
       ...p,
       configured:
-        p.key === 'BING_WEB_SEARCH' || p.key === 'SERPAPI' ? webConfigured : p.configured,
+        p.key === 'BING_WEB_SEARCH' || p.key === 'SERPAPI'
+          ? p.key === activeWeb?.key
+          : p.configured,
+      isActiveWebProvider: activeWeb?.key === p.key,
     }));
   }
 

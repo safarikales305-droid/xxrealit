@@ -22,8 +22,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiSalesAdminService } from './ai-sales-admin.service';
 import { AiSalesAnalysisService } from './ai-sales-analysis.service';
 import { AiSalesCampaignService } from './ai-sales-campaign.service';
+import { AiSalesCrmService } from './ai-sales-crm.service';
 import { AiSalesDashboardService } from './ai-sales-dashboard.service';
+import { AiSalesFollowUpService } from './ai-sales-followup.service';
+import { AiSalesKnowledgeAdminService } from './ai-sales-knowledge-admin.service';
 import { AiSalesMessageService } from './ai-sales-message.service';
+import { AiSalesPromptAdminService } from './ai-sales-prompt-admin.service';
 import { parseCsv, AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { PartnerSearchService } from './partner-search.service';
@@ -39,6 +43,10 @@ export class AiSalesAdminController {
     private readonly messages: AiSalesMessageService,
     private readonly campaigns: AiSalesCampaignService,
     private readonly dashboard: AiSalesDashboardService,
+    private readonly crm: AiSalesCrmService,
+    private readonly followUp: AiSalesFollowUpService,
+    private readonly promptAdmin: AiSalesPromptAdminService,
+    private readonly knowledgeAdmin: AiSalesKnowledgeAdminService,
     private readonly admin: AiSalesAdminService,
     private readonly settings: AiSalesSettingsService,
     private readonly search: PartnerSearchService,
@@ -126,7 +134,63 @@ export class AiSalesAdminController {
 
   @Post('prospects/:id/analyze')
   analyzeProspect(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.analysis.analyzeProspect(id, this.userId(req));
+    return this.wrap(() => this.analysis.analyzeProspect(id, this.userId(req)));
+  }
+
+  // ── CRM ──
+
+  @Get('crm/partners')
+  listCrmPartners(
+    @Query('status') status?: AiSalesProspectStatus,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.crm.listPartners({ status, q, limit: limit ? Number(limit) : 100 });
+  }
+
+  @Get('crm/partners/:id')
+  getCrmPartner(@Param('id') id: string) {
+    return this.crm.getPartnerCard(id);
+  }
+
+  @Put('crm/partners/:id')
+  updateCrmPartner(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.crm.updatePartnerCrm(id, body as never);
+  }
+
+  @Post('crm/partners/:id/memories')
+  addPartnerMemory(
+    @Param('id') id: string,
+    @Body() body: { memoryType: string; content: string; source?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.crm.addMemory(id, body, this.userId(req));
+  }
+
+  @Delete('crm/memories/:memoryId')
+  deletePartnerMemory(@Param('memoryId') memoryId: string) {
+    return this.crm.deleteMemory(memoryId);
+  }
+
+  // ── Follow-up ──
+
+  @Get('follow-up')
+  listFollowUps(@Query('limit') limit?: string) {
+    return this.followUp.listFollowUps(limit ? Number(limit) : 50);
+  }
+
+  @Post('follow-up/scan')
+  scanFollowUps(@Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.followUp.scanAndCreateSuggestions(this.userId(req));
+  }
+
+  @Post('follow-up/messages/:messageId/draft')
+  draftFollowUp(
+    @Param('messageId') messageId: string,
+    @Body() body: { tier: 1 | 2 },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.followUp.generateFollowUpDraft(messageId, body.tier ?? 1, this.userId(req));
   }
 
   @Post('prospects/:id/approve')
@@ -320,27 +384,62 @@ export class AiSalesAdminController {
 
   @Get('prompts')
   listPrompts() {
-    return this.prisma.aiPromptVersion.findMany({
-      where: { feature: { startsWith: 'AI_SALES_' } },
-      orderBy: [{ feature: 'asc' }, { createdAt: 'desc' }],
-    });
+    return this.promptAdmin.list();
+  }
+
+  @Get('prompts/:id')
+  getPrompt(@Param('id') id: string) {
+    return this.promptAdmin.getById(id);
+  }
+
+  @Post('prompts')
+  createPrompt(
+    @Body() body: { feature: string; name: string; version: string; systemPrompt: string; changeDescription?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.promptAdmin.create({ ...body, createdById: this.userId(req) });
+  }
+
+  @Put('prompts/:id')
+  updatePrompt(
+    @Param('id') id: string,
+    @Body() body: { name?: string; systemPrompt?: string; changeDescription?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.promptAdmin.update(id, body, this.userId(req));
+  }
+
+  @Post('prompts/:id/activate')
+  activatePrompt(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.promptAdmin.activate(id, this.userId(req));
   }
 
   @Get('knowledge')
-  listKnowledge() {
-    return this.prisma.aiKnowledgeItem.findMany({
-      where: {
-        category: {
-          in: [
-            'XXREALIT_GENERAL', 'AGENT_OFFER', 'AGENCY_OFFER', 'CONSTRUCTION_COMPANY_OFFER',
-            'DEVELOPER_OFFER', 'FINANCIAL_ADVISOR_OFFER', 'INVESTOR_OFFER', 'PRICING',
-            'REGISTRATION', 'MARKETING', 'LEADS', 'SOCIAL_PUBLISHING', 'CONTACT_RULES',
-            'LEGAL_AND_PRIVACY', 'FREQUENT_OBJECTIONS',
-          ],
-        },
-      },
-      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
-    });
+  listKnowledge(@Query('q') q?: string, @Query('category') category?: string) {
+    return this.knowledgeAdmin.list({ q, category });
+  }
+
+  @Get('knowledge/:id')
+  getKnowledge(@Param('id') id: string) {
+    return this.knowledgeAdmin.getById(id);
+  }
+
+  @Post('knowledge')
+  createKnowledge(
+    @Body() body: { title: string; category: string; question: string; answer: string; keywords?: string[]; priority?: number },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.knowledgeAdmin.create({ ...body, createdById: this.userId(req) });
+  }
+
+  @Put('knowledge/:id')
+  updateKnowledge(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.knowledgeAdmin.update(id, body as never);
+  }
+
+  @Post('knowledge/:id/approve')
+  approveKnowledge(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.knowledgeAdmin.approve(id, this.userId(req));
   }
 
   @Get('search-providers')
@@ -410,7 +509,15 @@ export class AiSalesAdminController {
 
   @Post('search-results/:id/save')
   saveSearchResult(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.search.saveSearchResult(id, this.userId(req));
+    return this.wrap(async () => {
+      const prospect = await this.search.saveSearchResult(id, this.userId(req));
+      if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
+      const settings = await this.settings.getOrCreate();
+      if (settings.autoAnalyzeOnSave) {
+        await this.analysis.analyzeProspect(prospect.id, this.userId(req));
+      }
+      return prospect;
+    });
   }
 
   @Post('search-results/:id/reject')

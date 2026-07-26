@@ -31,24 +31,43 @@ Firma: {{companyName}}
 Lokalita: {{city}}
 Veřejné informace: {{publicInfo}}`;
 
-export const DEFAULT_PARTNER_ANALYSIS_PROMPT = `Analyzuj potenciálního obchodního partnera pro portál XXREALIT.
-Používej POUZE poskytnutá data. Nevymýšlej fakta.
+export const DEFAULT_PARTNER_ANALYSIS_PROMPT = `Jsi AI obchodní asistent portálu XXREALIT.
+
+Vyhodnocuj POUZE informace, které ti byly skutečně poskytnuty.
+Nevymýšlej zaměstnance, počet poboček, objem zakázek, reference, kontakty ani zájem o spolupráci.
+Pokud údaj není k dispozici, použij přesně text: "Nezjištěno".
 
 Vrať POUZE validní JSON:
 {
   "partnerType": "REAL_ESTATE_AGENCY",
+  "companyName": "název nebo Nezjištěno",
+  "website": "web nebo Nezjištěno",
+  "city": "město nebo Nezjištěno",
+  "region": "kraj nebo Nezjištěno",
+  "companyType": "typ firmy nebo Nezjištěno",
+  "specialization": ["specializace"],
+  "companySize": "velikost nebo Nezjištěno",
+  "services": ["služby nebo Nezjištěno"],
+  "references": "reference nebo Nezjištěno",
+  "publicContacts": "veřejné kontakty nebo Nezjištěno",
+  "socialNetworks": "sociální sítě nebo Nezjištěno",
+  "serviceArea": "působnost nebo Nezjištěno",
+  "industries": ["obory"],
   "fitScore": 0-100,
   "priority": "LOW|MEDIUM|HIGH",
-  "recommendedOffer": "stručný popis vhodné nabídky XXREALIT",
-  "reasons": ["důvod 1", "důvod 2"],
-  "risks": ["riziko pokud existuje"],
-  "missingInformation": ["chybějící údaj"],
+  "summary": "shrnutí firmy",
+  "strengths": ["silné stránky"],
+  "weaknesses": ["slabé stránky nebo rizika"],
+  "servicesOffered": ["jaké služby firma nabízí"],
+  "xxrealitBenefits": ["jak může XXREALIT pomoci"],
+  "cooperationProbability": "nízká|střední|vysoká",
+  "recommendedOffer": "doporučená nabídka XXREALIT",
+  "reasons": ["důvody vhodnosti"],
+  "risks": ["rizika"],
+  "missingInformation": ["chybějící informace"],
   "recommendedTone": "PROFESSIONAL_PERSONAL",
   "recommendedNextStep": "doporučený další krok",
-  "summary": "stručné shrnutí firmy",
-  "activityType": "typ činnosti",
-  "serviceArea": "oblast působnosti",
-  "personalizationPoints": ["bod pro personalizaci"]
+  "aiRecommendation": "konkrétní doporučení pro administrátora (např. Navrhnout import inzerátů)"
 }`;
 
 export const DEFAULT_FIRST_OUTREACH_PROMPT = `Připrav návrh prvního obchodního e-mailu pro potenciálního partnera portálu XXREALIT.
@@ -79,6 +98,21 @@ Vrať POUZE validní JSON:
   "keywords": ["klíčové slovo 1", "klíčové slovo 2"],
   "notes": "stručná poznámka pro administrátora"
 }`;
+
+export const DEFAULT_FOLLOW_UP_PROMPT = `Připrav návrh follow-up e-mailu pro potenciálního partnera portálu XXREALIT.
+Používej pouze poskytnuté informace. Nevymýšlej fakta.
+
+Vrať POUZE validní JSON:
+{
+  "subject": "předmět",
+  "body": "tělo e-mailu v češtině, stručné, s možností odmítnutí další komunikace"
+}`;
+
+export const DEFAULT_FIT_SCORING_PROMPT = `Ohodnoť vhodnost partnera pro XXREALIT (0–100) pouze z poskytnutých dat.
+Vrať JSON: { "fitScore": 0-100, "priority": "LOW|MEDIUM|HIGH", "reasons": ["..."], "risks": ["..."] }`;
+
+export const DEFAULT_LEAD_SUMMARY_PROMPT = `Shrň stav obchodního jednání s partnerem pouze z poskytnutých dat.
+Vrať JSON: { "summary": "...", "nextStep": "...", "risks": ["..."] }`;
 
 export const DEFAULT_REPLY_CLASSIFICATION_PROMPT = `Klasifikuj odpověď na obchodní e-mail portálu XXREALIT.
 
@@ -129,6 +163,30 @@ export const SEED_AI_SALES_PROMPTS = [
     name: 'Klasifikace odpovědi',
     version: '1.0.0',
     systemPrompt: DEFAULT_REPLY_CLASSIFICATION_PROMPT,
+    status: 'ACTIVE' as const,
+    changeDescription: 'Výchozí aktivní prompt',
+  },
+  {
+    feature: AI_SALES_PROMPT_FEATURES.FOLLOW_UP,
+    name: 'Follow-up',
+    version: '1.0.0',
+    systemPrompt: DEFAULT_FOLLOW_UP_PROMPT,
+    status: 'ACTIVE' as const,
+    changeDescription: 'Výchozí aktivní prompt',
+  },
+  {
+    feature: AI_SALES_PROMPT_FEATURES.FIT_SCORING,
+    name: 'Skórování partnera',
+    version: '1.0.0',
+    systemPrompt: DEFAULT_FIT_SCORING_PROMPT,
+    status: 'ACTIVE' as const,
+    changeDescription: 'Výchozí aktivní prompt',
+  },
+  {
+    feature: AI_SALES_PROMPT_FEATURES.LEAD_SUMMARY,
+    name: 'Shrnutí leadu',
+    version: '1.0.0',
+    systemPrompt: DEFAULT_LEAD_SUMMARY_PROMPT,
     status: 'ACTIVE' as const,
     changeDescription: 'Výchozí aktivní prompt',
   },
