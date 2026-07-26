@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   analyzeSearchResult,
   dncSearchResult,
@@ -31,6 +31,7 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
     sources: ['INTERNAL_DATABASE'] as string[],
   });
   const [busy, setBusy] = useState(false);
+  const [processingResultId, setProcessingResultId] = useState<string | null>(null);
   const [error, setError] = useState<(AiSalesApiError & { message: string }) | null>(null);
   const [searchId, setSearchId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
@@ -38,8 +39,33 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
   const [results, setResults] = useState<AiSalesSearchResult[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const captureError = useCallback((e: unknown, fallbackMessage: string) => {
+    const err = e as Error & AiSalesApiError;
+    setError({
+      message: err.message || fallbackMessage,
+      code: err.code ?? 'UNKNOWN_ERROR',
+      httpStatus: err.httpStatus ?? 500,
+      success: false,
+      phase: err.phase,
+    });
+  }, []);
+
+  const ensureToken = useCallback((): boolean => {
+    if (!token) {
+      setError({
+        message: 'Přihlášení vypršelo. Přihlaste se znovu.',
+        code: 'UNAUTHORIZED',
+        httpStatus: 401,
+        success: false,
+      });
+      return false;
+    }
+    return true;
+  }, [token]);
+
   const pollSearch = useCallback(
     async (id: string) => {
+      if (!token) return;
       try {
         const job = await getSearch(token, id);
         setJobStatus(job.status);
@@ -52,15 +78,21 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
         }
         setTimeout(() => void pollSearch(id), 1500);
       } catch (e) {
-        const err = e as Error & AiSalesApiError;
-        setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false });
+        captureError(e, 'Nepodařilo se načíst stav vyhledávání.');
         setBusy(false);
       }
     },
-    [token],
+    [token, captureError],
   );
 
+  const refreshResults = useCallback(async () => {
+    if (searchId) {
+      await pollSearch(searchId);
+    }
+  }, [searchId, pollSearch]);
+
   async function runSearch() {
+    if (!ensureToken()) return;
     setBusy(true);
     setError(null);
     setResults([]);
@@ -80,33 +112,98 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
       setJobStatus(res.status);
       void pollSearch(res.searchId);
     } catch (e) {
-      const err = e as Error & AiSalesApiError;
-      setError({
-        message: err.message,
-        code: err.code ?? 'UNKNOWN_ERROR',
-        httpStatus: err.httpStatus ?? 500,
-        success: false,
-        phase: err.phase,
-      });
+      captureError(e, 'Vyhledávání se nepodařilo spustit.');
       setBusy(false);
     }
   }
 
   async function bulkSave() {
+    if (!ensureToken()) return;
     setBusy(true);
     try {
       for (const id of selected) {
         await saveSearchResult(token, id);
       }
       onSaved?.();
-      if (searchId) await pollSearch(searchId);
+      await refreshResults();
     } catch (e) {
-      const err = e as Error & AiSalesApiError;
-      setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false });
+      captureError(e, 'Hromadné uložení se nezdařilo.');
     } finally {
       setBusy(false);
     }
   }
+
+  const handleVerifyResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setProcessingResultId(resultId);
+    setError(null);
+    try {
+      await verifySearchResult(token, resultId);
+      await refreshResults();
+    } catch (e) {
+      console.error('Nepodařilo se ověřit výsledek vyhledávání:', e);
+      captureError(e, 'Výsledek se nepodařilo ověřit.');
+    } finally {
+      setProcessingResultId(null);
+    }
+  };
+
+  const handleSaveResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setProcessingResultId(resultId);
+    setError(null);
+    try {
+      await saveSearchResult(token, resultId);
+      onSaved?.();
+      await refreshResults();
+    } catch (e) {
+      captureError(e, 'Partnera se nepodařilo uložit.');
+    } finally {
+      setProcessingResultId(null);
+    }
+  };
+
+  const handleAnalyzeResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setProcessingResultId(resultId);
+    setError(null);
+    try {
+      await analyzeSearchResult(token, resultId);
+      await refreshResults();
+    } catch (e) {
+      captureError(e, 'AI analýzu se nepodařilo spustit.');
+    } finally {
+      setProcessingResultId(null);
+    }
+  };
+
+  const handleRejectResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setProcessingResultId(resultId);
+    setError(null);
+    try {
+      await rejectSearchResult(token, resultId);
+      await refreshResults();
+    } catch (e) {
+      captureError(e, 'Výsledek se nepodařilo zamítnout.');
+    } finally {
+      setProcessingResultId(null);
+    }
+  };
+
+  const handleDncResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setProcessingResultId(resultId);
+    setError(null);
+    try {
+      await dncSearchResult(token, resultId);
+      await refreshResults();
+    } catch (e) {
+      captureError(e, 'Kontakt se nepodařilo přidat do DO_NOT_CONTACT.');
+    } finally {
+      setProcessingResultId(null);
+    }
+  };
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -116,6 +213,8 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
       return next;
     });
   }
+
+  const rowBusy = (resultId: string) => busy || processingResultId === resultId;
 
   return (
     <div className="space-y-4">
@@ -150,7 +249,7 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
             </label>
           ))}
         </div>
-        <button type="button" disabled={busy} onClick={() => void runSearch()} className="rounded bg-orange-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+        <button type="button" disabled={busy || processingResultId !== null} onClick={() => void runSearch()} className="rounded bg-orange-600 px-4 py-2 text-sm text-white disabled:opacity-50">
           {busy ? 'Vyhledávám…' : 'Vyhledat partnery'}
         </button>
         {busy && jobStatus ? (
@@ -179,7 +278,7 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
       {results.length > 0 ? (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy || selected.size === 0} onClick={() => void bulkSave()} className="rounded border px-3 py-1 text-xs disabled:opacity-50">Uložit vybrané ({selected.size})</button>
+            <button type="button" disabled={busy || processingResultId !== null || selected.size === 0} onClick={() => void bulkSave()} className="rounded border px-3 py-1 text-xs disabled:opacity-50">Uložit vybrané ({selected.size})</button>
           </div>
           <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
             <table className="min-w-full text-left text-xs">
@@ -214,11 +313,13 @@ export function AiSalesSearchPanel({ token, onSaved }: Props) {
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-1">
                         {r.sourceUrl ? <a href={r.sourceUrl.startsWith('http') ? r.sourceUrl : '#'} target="_blank" rel="noreferrer" className="underline">Zdroj</a> : null}
-                        <button type="button" disabled={busy} onClick={() => void verifySearchResult(token, r.id).then(() => searchId && pollSearch(searchId))} className="underline">Zkontrolovat</button>
-                        <button type="button" disabled={busy || r.doNotContact} onClick={() => void saveSearchResult(token, r.id).then(() => onSaved?.())} className="underline">Uložit</button>
-                        <button type="button" disabled={busy} onClick={() => void analyzeSearchResult(token, r.id)} className="underline">Analyzovat</button>
-                        <button type="button" disabled={busy} onClick={() => void rejectSearchResult(token, r.id)} className="underline">Zamítnout</button>
-                        <button type="button" disabled={busy} onClick={() => void dncSearchResult(token, r.id)} className="text-red-700 underline">DNC</button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleVerifyResult(r.id)} className="underline">
+                          {processingResultId === r.id ? 'Ověřuji…' : 'Zkontrolovat'}
+                        </button>
+                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact} onClick={() => void handleSaveResult(r.id)} className="underline">Uložit</button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleAnalyzeResult(r.id)} className="underline">Analyzovat</button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleRejectResult(r.id)} className="underline">Zamítnout</button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleDncResult(r.id)} className="text-red-700 underline">DNC</button>
                       </div>
                     </td>
                   </tr>
