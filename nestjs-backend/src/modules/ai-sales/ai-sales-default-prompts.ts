@@ -70,22 +70,54 @@ Vrať POUZE validní JSON:
   "aiRecommendation": "konkrétní doporučení pro administrátora (např. Navrhnout import inzerátů)"
 }`;
 
-export const DEFAULT_FIRST_OUTREACH_PROMPT = `Připrav návrh prvního obchodního e-mailu pro potenciálního partnera portálu XXREALIT.
+export const DEFAULT_FIRST_OUTREACH_PROMPT = `Jsi zkušený obchodní asistent portálu XXREALIT.
+
+Tvým úkolem je vytvořit originální, profesionální a přirozený e-mail pro konkrétního potenciálního partnera.
+
+E-mail nesmí působit jako hromadná šablona.
+Používej pouze skutečně dostupné informace z kontextu.
+Nevymýšlej reference, velikost firmy, počet zaměstnanců, výsledky ani předchozí vztah.
+
+Nepoužívej fráze jako „dlouhodobě vás sledujeme“, „všimli jsme si vašich skvělých výsledků“, „jste lídrem trhu“, pokud nejsou doložené.
+
+Začni přirozeně a konkrétně.
+Vysvětli: proč partnera oslovujeme, co mu XXREALIT nabídne, praktický přínos, jednoduchý další krok.
+
+Tón: profesionální, lidský, stručný, důvěryhodný, bez agresivního prodeje.
+Délka: přibližně 120 až 220 slov v úvodu a přínosech.
+Střídej styl podle typu partnera.
+
+Schválené znalosti: {{approvedKnowledge}}
+Typ partnera: {{partnerType}}
+Firma: {{companyName}}
+Lokalita: {{city}}
+Veřejné informace: {{publicInfo}}
 
 Vrať POUZE validní JSON:
 {
-  "subject": "předmět e-mailu",
+  "subject": "originální předmět",
+  "preheader": "krátký preheader",
   "greeting": "oslovení",
-  "body": "tělo e-mailu včetně představení XXREALIT, konkrétního důvodu oslovení, přínosu pro partnera a výzvy k akci",
-  "outreachReason": "konkrétní pravdivý důvod oslovení",
-  "recommendedOffer": "doporučený produkt/služba XXREALIT",
-  "callToAction": "jednoduchá výzva k akci"
+  "intro": "personalizovaný úvod",
+  "benefits": [
+    { "title": "konkrétní přínos", "description": "popis přínosu pro tohoto partnera" }
+  ],
+  "ctaText": "text tlačítka",
+  "ctaUrl": "https://www.xxrealit.cz",
+  "closing": "zakončení",
+  "signature": "Tým XXREALIT",
+  "plainText": "celý e-mail jako prostý text",
+  "personalizationReasons": ["konkrétní důvod oslovení"],
+  "usedKnowledgeIds": [],
+  "confidence": 0.0-1.0,
+  "outreachReason": "hlavní důvod oslovení",
+  "recommendedOffer": "doporučený produkt XXREALIT"
 }
 
 Pravidla:
-- Nepoužívej falešnou personalizaci (např. „dlouhodobě sledujeme vaši firmu“ bez důkazu).
-- Uveď možnost odmítnutí další komunikace.
-- Text musí být v češtině, profesionální a stručný (max ~200 slov v body).`;
+- 2 až 4 konkrétní přínosy v benefits.
+- Uveď možnost odmítnutí další komunikace v plainText.
+- Nevytvářej stále stejnou strukturu vět.`;
 
 export const DEFAULT_PARTNER_SEARCH_QUERY_PROMPT = `Pomoz sestavit dotaz pro vyhledání potenciálních obchodních partnerů portálu XXREALIT.
 

@@ -18,7 +18,8 @@ import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSeedService } from './ai-sales-seed.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
-import { PartnerSearchService } from './partner-search.service';
+import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation.service';
+import { AiSalesMessageTemplateService } from './ai-sales-message-template.service';
 import { SearchProvidersEnvService } from './search-providers-env.service';
 import { InternalDatabaseSearchProvider } from './providers/internal-database-search.provider';
 import { WebSearchProvider } from './providers/web-search.provider';
@@ -43,6 +44,8 @@ import { WebSearchProvider } from './providers/web-search.provider';
     AiSalesPromptResolverService,
     AiSalesAdminService,
     AiSalesSeedService,
+    AiSalesOutreachGenerationService,
+    AiSalesMessageTemplateService,
     PartnerSearchService,
     SearchProvidersEnvService,
     InternalDatabaseSearchProvider,

@@ -149,7 +149,7 @@ export function AiSalesCrmPanel({ token }: Props) {
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" disabled={busy} onClick={() => void (async () => { await analyzeProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Analyzovat</button>
               <button type="button" disabled={busy} onClick={() => void (async () => { await approveProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Schválit</button>
-              <button type="button" disabled={busy} onClick={() => void generateMessage(token, String(detail.id))} className="rounded bg-orange-600 px-2 py-1 text-xs text-white">Vytvořit nabídku</button>
+              <button type="button" disabled={busy} onClick={() => void generateMessage(token, String(detail.id), { variantCount: 1 }).then((r) => alert(`Vytvořeno: ${r.variants?.[0]?.subject ?? 'OK'}`)).catch((e) => alert(e instanceof Error ? e.message : 'Chyba'))} className="rounded bg-orange-600 px-2 py-1 text-xs text-white">Vytvořit nabídku</button>
             </div>
           </div>
 

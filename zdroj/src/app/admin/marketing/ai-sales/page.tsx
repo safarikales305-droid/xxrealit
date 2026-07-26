@@ -10,6 +10,7 @@ import {
   approveProspect,
   createProspect,
   generateMessage,
+  generateManualMessage,
   getDashboard,
   getDiagnostics,
   getSettings,
@@ -33,8 +34,10 @@ import {
   type AiSalesMessage,
   type AiSalesProspect,
   type AiSalesSearchProviderInfo,
+  type AiSalesApiError,
 } from '@/lib/ai-sales-admin-api';
 import { API_BASE_URL } from '@/lib/api';
+import { AiSalesMessageEditorPanel } from '@/components/admin/ai-sales/AiSalesMessageEditorPanel';
 import { AiSalesSearchPanel } from '@/components/admin/ai-sales/AiSalesSearchPanel';
 import { AiSalesTestPanel } from '@/components/admin/ai-sales/AiSalesTestPanel';
 import { AiSalesCrmPanel } from '@/components/admin/ai-sales/AiSalesCrmPanel';
@@ -57,7 +60,8 @@ type Tab =
   | 'knowledge'
   | 'settings'
   | 'stats'
-  | 'test';
+  | 'test'
+  | 'message';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: 'Přehled' },
@@ -88,6 +92,8 @@ export default function AdminAiSalesPage() {
   const [replies, setReplies] = useState<Array<Record<string, unknown>>>([]);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<(AiSalesApiError & { message: string }) | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<AiSalesMessage | null>(null);
   const [editSubject, setEditSubject] = useState('');
@@ -201,11 +207,19 @@ export default function AdminAiSalesPage() {
   async function handleAnalyze(id: string) {
     if (!token) return;
     setBusy(true);
+    setActionError(null);
     try {
       await analyzeProspect(token, id);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Analýza selhala.');
+      const err = e as Error & AiSalesApiError;
+      setActionError({
+        message: err.message || 'Analýza selhala.',
+        code: err.code ?? 'UNKNOWN_ERROR',
+        httpStatus: err.httpStatus ?? 503,
+        success: false,
+        phase: err.phase ?? 'analysis',
+      });
     } finally {
       setBusy(false);
     }
@@ -214,12 +228,53 @@ export default function AdminAiSalesPage() {
   async function handleGenerate(id: string) {
     if (!token) return;
     setBusy(true);
+    setActionError(null);
+    setSelectedMessageId(null);
     try {
-      await generateMessage(token, id);
-      setTab('approval');
+      const res = await generateMessage(token, id, { variantCount: 3 });
+      const first = res.variants?.[0];
+      if (first?.messageId) {
+        setSelectedMessageId(first.messageId);
+        setTab('message');
+      }
+      if (res.analysisIncomplete) {
+        setActionError({
+          message: 'Nabídka byla vytvořena bez dokončené AI analýzy partnera.',
+          code: 'PARTIAL',
+          httpStatus: 200,
+          success: false,
+          phase: 'message_generation',
+        });
+      }
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Generování selhalo.');
+      const err = e as Error & AiSalesApiError;
+      if (/OPENAI/i.test(err.code ?? '')) {
+        setActionError({
+          message: `${err.message} Můžete vytvořit ruční návrh.`,
+          code: err.code ?? 'OPENAI_CONNECTION_ERROR',
+          httpStatus: err.httpStatus ?? 503,
+          success: false,
+          phase: err.phase ?? 'message_generation',
+        });
+        try {
+          const manual = await generateManualMessage(token, id);
+          if (manual.message?.id) {
+            setSelectedMessageId(manual.message.id);
+            setTab('message');
+          }
+        } catch {
+          // manual fallback failed too
+        }
+      } else {
+        setActionError({
+          message: err.message || 'Generování nabídky selhalo.',
+          code: err.code ?? 'UNKNOWN_ERROR',
+          httpStatus: err.httpStatus ?? 500,
+          success: false,
+          phase: err.phase ?? 'message_generation',
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -348,6 +403,26 @@ export default function AdminAiSalesPage() {
 
       {tab === 'crm' ? <AiSalesCrmPanel token={token} /> : null}
 
+      {actionError ? (
+        <div className={`mb-4 rounded-lg border p-3 text-sm ${actionError.code === 'PARTIAL' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          <p className="font-semibold">{actionError.code === 'PARTIAL' ? 'Upozornění' : 'Akce se nepodařila'}</p>
+          <p>Kód: {actionError.code}{actionError.phase ? ` · fáze: ${actionError.phase}` : ''} · HTTP {actionError.httpStatus}</p>
+          <p>{actionError.message}</p>
+          {actionError.code?.startsWith('OPENAI') ? (
+            <p className="mt-1 text-xs">Můžete pokračovat ručním návrhem nebo zkusit generování znovu po obnovení OpenAI.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === 'message' && selectedMessageId ? (
+        <AiSalesMessageEditorPanel
+          token={token}
+          messageId={selectedMessageId}
+          onClose={() => { setSelectedMessageId(null); setTab('prospects'); }}
+          onUpdated={() => void refresh()}
+        />
+      ) : null}
+
       {tab === 'prospects' ? (
         <div className="space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 space-y-2">
@@ -385,7 +460,7 @@ export default function AdminAiSalesPage() {
                   {p.status === 'NEEDS_REVIEW' ? (
                     <button type="button" disabled={busy} onClick={() => void approveProspect(token, p.id).then(() => refresh())} className="rounded border px-2 py-0.5 text-xs">Schválit</button>
                   ) : null}
-                  <button type="button" disabled={busy || p.doNotContact} onClick={() => void handleGenerate(p.id)} className="rounded border px-2 py-0.5 text-xs">Vytvořit nabídku</button>
+                  <button type="button" disabled={busy || p.doNotContact} onClick={() => void handleGenerate(p.id)} className="rounded border px-2 py-0.5 text-xs bg-orange-50 border-orange-200">Vytvořit nabídku</button>
                       <button type="button" disabled={busy} onClick={() => void markDoNotContact(token, p.id)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-red-700">DO_NOT_CONTACT</button>
                     </div>
                   </div>

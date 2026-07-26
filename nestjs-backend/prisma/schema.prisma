@@ -4061,6 +4061,21 @@ model AiSalesMessage {
   direction         AiSalesMessageDirection @default(OUTBOUND)
   messageType       String                  @default("FIRST_OUTREACH")
   subject           String?
+  preheader         String?
+  greeting          String?
+  intro             String?                 @db.Text
+  benefitsJson      Json?
+  ctaText           String?
+  ctaUrl            String?
+  closing           String?                 @db.Text
+  signature         String?
+  plainText         String?                 @db.Text
+  personalizationReasonsJson Json?
+  usedKnowledgeIdsJson Json?
+  model             String?
+  confidence        Float?
+  variantLabel      String?
+  analysisIncomplete Boolean                @default(false)
   content           String                  @db.Text
   htmlContent       String?                 @db.Text
   status            AiSalesMessageStatus    @default(DRAFT)
@@ -4091,11 +4106,30 @@ model AiSalesMessage {
 
   replyAnalysis AiSalesReplyAnalysis?
   feedback      AiSalesFeedback[]
+  versions      AiSalesMessageVersion[]
 
   @@index([prospectId, createdAt(sort: Desc)])
   @@index([status])
   @@index([campaignId])
   @@index([scheduledAt])
+}
+
+model AiSalesMessageVersion {
+  id                String   @id @default(cuid())
+  messageId         String
+  version           Int
+  contentJson       Json
+  changeSource      String   @default("AI")
+  changeDescription String?
+  createdById       String?
+  promptVersionId   String?
+  model             String?
+  createdAt         DateTime @default(now())
+
+  message AiSalesMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, version])
+  @@index([messageId])
 }
 
 model AiSalesReplyAnalysis {

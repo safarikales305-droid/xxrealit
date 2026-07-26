@@ -123,13 +123,39 @@ export type AiSalesMessage = {
   id: string;
   prospectId: string;
   subject: string | null;
+  preheader?: string | null;
+  greeting?: string | null;
+  intro?: string | null;
+  benefitsJson?: Array<{ title: string; description: string }> | null;
+  ctaText?: string | null;
+  ctaUrl?: string | null;
+  closing?: string | null;
+  signature?: string | null;
+  plainText?: string | null;
+  htmlContent?: string | null;
   content: string;
   status: string;
+  variantLabel?: string | null;
+  analysisIncomplete?: boolean;
+  personalizationReasonsJson?: string[] | null;
+  knowledgeUsedJson: unknown;
   outreachReason: string | null;
   recommendedOffer: string | null;
-  knowledgeUsedJson: unknown;
   sentAt: string | null;
-  prospect?: AiSalesProspect;
+  prospect?: AiSalesProspect & { email?: string | null };
+  versions?: Array<{ id: string; version: number; changeSource: string; createdAt: string }>;
+};
+
+export type GenerateMessageResponse = {
+  success: boolean;
+  partial?: boolean;
+  analysisIncomplete?: boolean;
+  variants: Array<{
+    messageId: string;
+    variant: string;
+    subject: string;
+    previewUrl: string;
+  }>;
 };
 
 export type AiSalesSearchResult = {
@@ -276,8 +302,27 @@ export function approveProspect(token: string, id: string) {
   return aiSalesRequest(token, `/prospects/${id}/approve`, { method: 'POST', body: '{}' });
 }
 
-export function generateMessage(token: string, id: string) {
-  return aiSalesRequest<{ message: AiSalesMessage }>(token, `/prospects/${id}/generate-message`, { method: 'POST', body: '{}' });
+export function generateMessage(
+  token: string,
+  id: string,
+  body?: { tone?: string; variantCount?: number; campaignId?: string },
+) {
+  return aiSalesRequest<GenerateMessageResponse>(token, `/prospects/${id}/generate-message`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? { variantCount: 3 }),
+  });
+}
+
+export function generateManualMessage(token: string, id: string) {
+  return aiSalesRequest<{ success: boolean; message: AiSalesMessage }>(
+    token,
+    `/prospects/${id}/generate-message/manual`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function getMessage(token: string, id: string) {
+  return aiSalesRequest<AiSalesMessage>(token, `/messages/${id}`);
 }
 
 export function markDoNotContact(token: string, id: string, reason?: string) {
@@ -355,8 +400,51 @@ export function rejectMessage(token: string, id: string) {
   return aiSalesRequest(token, `/messages/${id}/reject`, { method: 'POST', body: '{}' });
 }
 
-export function updateMessage(token: string, id: string, body: { subject?: string; content?: string }) {
-  return aiSalesRequest(token, `/messages/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export function updateMessage(
+  token: string,
+  id: string,
+  body: {
+    subject?: string;
+    content?: string;
+    preheader?: string;
+    greeting?: string;
+    intro?: string;
+    benefitsJson?: unknown;
+    ctaText?: string;
+    ctaUrl?: string;
+    closing?: string;
+    signature?: string;
+    plainText?: string;
+    htmlContent?: string;
+  },
+) {
+  return aiSalesRequest<AiSalesMessage>(token, `/messages/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function submitMessageForApproval(token: string, id: string) {
+  return aiSalesRequest(token, `/messages/${id}/submit-for-approval`, { method: 'POST', body: '{}' });
+}
+
+export function regenerateMessage(token: string, id: string) {
+  return aiSalesRequest(token, `/messages/${id}/regenerate`, { method: 'POST', body: '{}' });
+}
+
+export function sendTestMessage(token: string, id: string, email: string) {
+  return aiSalesRequest(token, `/messages/${id}/send-test`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function listMessageVersions(token: string, id: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, `/messages/${id}/versions`);
+}
+
+export function restoreMessageVersion(token: string, messageId: string, versionId: string) {
+  return aiSalesRequest(token, `/messages/${messageId}/versions/${versionId}/restore`, {
+    method: 'POST',
+    body: '{}',
+  });
 }
 
 export function listReplies(token: string) {

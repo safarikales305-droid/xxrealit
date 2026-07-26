@@ -32,6 +32,7 @@ import { AiSalesPromptAdminService } from './ai-sales-prompt-admin.service';
 import { parseCsv, AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { PartnerSearchService } from './partner-search.service';
+import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation.service';
 import { PrismaService } from '../../database/prisma.service';
 import { AiSalesAdminException, mapExceptionToSalesAdminError } from './ai-sales-errors.util';
 
@@ -41,6 +42,7 @@ export class AiSalesAdminController {
   constructor(
     private readonly prospects: AiSalesProspectService,
     private readonly analysis: AiSalesAnalysisService,
+    private readonly outreach: AiSalesOutreachGenerationService,
     private readonly messages: AiSalesMessageService,
     private readonly campaigns: AiSalesCampaignService,
     private readonly dashboard: AiSalesDashboardService,
@@ -216,12 +218,21 @@ export class AiSalesAdminController {
   @Post('prospects/:id/generate-message')
   generateMessage(
     @Param('id') id: string,
-    @Body() body: { campaignId?: string },
+    @Body() body: { campaignId?: string; tone?: string; variantCount?: number },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.analysis.generateOutreachMessage(id, this.userId(req), {
-      campaignId: body.campaignId,
-    });
+    return this.wrap(() =>
+      this.outreach.generateVariants(id, this.userId(req), {
+        campaignId: body.campaignId,
+        tone: body.tone as never,
+        variantCount: body.variantCount ?? 3,
+      }),
+    );
+  }
+
+  @Post('prospects/:id/generate-message/manual')
+  generateManualMessage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.wrap(() => this.outreach.createManualDraft(id, this.userId(req)));
   }
 
   // ── Messages ──
@@ -242,9 +253,32 @@ export class AiSalesAdminController {
   @Put('messages/:id')
   updateMessage(
     @Param('id') id: string,
-    @Body() body: { subject?: string; content?: string },
+    @Body()
+    body: {
+      subject?: string;
+      content?: string;
+      preheader?: string;
+      greeting?: string;
+      intro?: string;
+      benefitsJson?: unknown;
+      ctaText?: string;
+      ctaUrl?: string;
+      closing?: string;
+      signature?: string;
+      plainText?: string;
+      htmlContent?: string;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.messages.updateContent(id, body);
+    return this.messages.updateContent(id, body, this.userId(req));
+  }
+
+  @Post('messages/:id/submit-for-approval')
+  submitMessageForApproval(@Param('id') id: string) {
+    return this.prisma.aiSalesMessage.update({
+      where: { id },
+      data: { status: 'PENDING_APPROVAL' },
+    });
   }
 
   @Post('messages/:id/approve')
@@ -271,12 +305,36 @@ export class AiSalesAdminController {
     @Param('id') id: string,
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    const msg = this.messages.getById(id);
-    return msg.then((m) =>
-      this.analysis.generateOutreachMessage(m.prospectId, this.userId(req), {
+    return this.wrap(async () => {
+      const m = await this.messages.getById(id);
+      return this.outreach.generateSingle(m.prospectId, this.userId(req), {
         campaignId: m.campaignId ?? undefined,
-      }),
-    );
+        variantLabel: m.variantLabel ?? 'A',
+      });
+    });
+  }
+
+  @Post('messages/:id/send-test')
+  sendTestMessage(
+    @Param('id') id: string,
+    @Body() body: { email: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() => this.messages.sendTest(id, body.email, this.userId(req)));
+  }
+
+  @Get('messages/:id/versions')
+  listMessageVersions(@Param('id') id: string) {
+    return this.messages.listVersions(id);
+  }
+
+  @Post('messages/:id/versions/:versionId/restore')
+  restoreMessageVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.messages.restoreVersion(id, versionId, this.userId(req));
   }
 
   @Post('messages/:id/reject')

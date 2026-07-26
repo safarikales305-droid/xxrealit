@@ -17,6 +17,7 @@ import { AI_SALES_PROMPT_FEATURES } from './ai-sales.constants';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
+import { AiSalesMessageTemplateService } from './ai-sales-message-template.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
 
@@ -30,6 +31,7 @@ export class AiSalesMessageService {
     private readonly emails: EmailsService,
     private readonly openai: OpenAiService,
     private readonly promptResolver: AiSalesPromptResolverService,
+    private readonly template: AiSalesMessageTemplateService,
   ) {}
 
   async list(filters?: {
@@ -68,24 +70,67 @@ export class AiSalesMessageService {
         prospect: true,
         replyAnalysis: true,
         campaign: true,
+        versions: { orderBy: { version: 'desc' }, take: 20 },
       },
     });
     if (!row) throw new NotFoundException('Zpráva nenalezena.');
     return row;
   }
 
-  async updateContent(id: string, data: { subject?: string; content?: string }) {
+  async updateContent(
+    id: string,
+    data: {
+      subject?: string;
+      content?: string;
+      preheader?: string;
+      greeting?: string;
+      intro?: string;
+      benefitsJson?: unknown;
+      ctaText?: string;
+      ctaUrl?: string;
+      closing?: string;
+      signature?: string;
+      plainText?: string;
+      htmlContent?: string;
+    },
+    userId?: string,
+  ) {
     const msg = await this.getById(id);
     if (!['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(msg.status)) {
       throw new BadRequestException('Tuto zprávu již nelze upravit.');
     }
-    return this.prisma.aiSalesMessage.update({
+
+    const updated = await this.prisma.aiSalesMessage.update({
       where: { id },
       data: {
         subject: data.subject ?? msg.subject,
-        content: data.content ?? msg.content,
+        content: data.content ?? data.plainText ?? msg.content,
+        plainText: data.plainText ?? data.content ?? msg.plainText ?? msg.content,
+        preheader: data.preheader ?? msg.preheader,
+        greeting: data.greeting ?? msg.greeting,
+        intro: data.intro ?? msg.intro,
+        benefitsJson: (data.benefitsJson ?? msg.benefitsJson) as never,
+        ctaText: data.ctaText ?? msg.ctaText,
+        ctaUrl: data.ctaUrl ?? msg.ctaUrl,
+        closing: data.closing ?? msg.closing,
+        signature: data.signature ?? msg.signature,
+        htmlContent: data.htmlContent ?? msg.htmlContent,
       },
     });
+
+    const nextVersion = (msg.versions?.[0]?.version ?? 0) + 1;
+    await this.prisma.aiSalesMessageVersion.create({
+      data: {
+        messageId: id,
+        version: nextVersion,
+        contentJson: updated as never,
+        changeSource: 'HUMAN',
+        changeDescription: 'Ruční úprava',
+        createdById: userId,
+      },
+    });
+
+    return updated;
   }
 
   async approve(id: string, userId?: string) {
@@ -148,7 +193,7 @@ export class AiSalesMessageService {
     }
 
     if (!msg.prospect.email || !EMAIL_RE.test(msg.prospect.email)) {
-      throw new BadRequestException('Kontakt nemá ověřený platný e-mail.');
+      throw new BadRequestException('Kontakt nemá ověřený platný e-mail. Doplňte e-mail před odesláním.');
     }
 
     if (msg.prospect.doNotContact) {
@@ -170,7 +215,9 @@ export class AiSalesMessageService {
       ? msg.content
       : `${msg.content}${OPT_OUT_FOOTER}`;
 
-    const html = `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
+    const html =
+      msg.htmlContent ??
+      `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
 
     if (settings.testModeEnabled) {
       const updated = await this.prisma.aiSalesMessage.update({
@@ -226,6 +273,92 @@ export class AiSalesMessageService {
     });
 
     return { message: updated, testMode: false, sent: true };
+  }
+
+  async sendTest(id: string, testEmail: string, userId?: string) {
+    const msg = await this.getById(id);
+    if (!EMAIL_RE.test(testEmail)) {
+      throw new BadRequestException('Neplatná testovací e-mailová adresa.');
+    }
+
+    const subject = `[TEST] ${msg.subject ?? 'Návrh nabídky XXREALIT'}`;
+    const html = msg.htmlContent ?? `<p>${(msg.plainText ?? msg.content).replace(/\n/g, '<br/>')}</p>`;
+    const text = msg.plainText ?? msg.content;
+
+    await this.emails.sendRawEmail({
+      type: 'ai_sales_outreach_test',
+      to: testEmail,
+      subject,
+      html,
+      text,
+      metadata: {
+        aiSalesMessageId: msg.id,
+        prospectId: msg.prospectId,
+        test: true,
+        sentById: userId,
+      },
+    });
+
+    await this.prisma.aiSalesPartnerMemory.create({
+      data: {
+        prospectId: msg.prospectId,
+        memoryType: 'TEST_EMAIL',
+        content: `Testovací e-mail odeslán na ${testEmail}`,
+        source: 'MESSAGE_TEST',
+        sourceId: msg.id,
+        createdById: userId,
+      },
+    });
+
+    return { success: true, testEmail, messageId: msg.id, status: msg.status };
+  }
+
+  async listVersions(messageId: string) {
+    return this.prisma.aiSalesMessageVersion.findMany({
+      where: { messageId },
+      orderBy: { version: 'desc' },
+    });
+  }
+
+  async restoreVersion(messageId: string, versionId: string, userId?: string) {
+    const version = await this.prisma.aiSalesMessageVersion.findFirst({
+      where: { id: versionId, messageId },
+    });
+    if (!version) throw new NotFoundException('Verze nenalezena.');
+
+    const snapshot = version.contentJson as Record<string, unknown>;
+    const updated = await this.prisma.aiSalesMessage.update({
+      where: { id: messageId },
+      data: {
+        subject: snapshot.subject as string | undefined,
+        content: snapshot.content as string | undefined,
+        plainText: snapshot.plainText as string | undefined,
+        preheader: snapshot.preheader as string | undefined,
+        greeting: snapshot.greeting as string | undefined,
+        intro: snapshot.intro as string | undefined,
+        benefitsJson: snapshot.benefitsJson as never,
+        ctaText: snapshot.ctaText as string | undefined,
+        ctaUrl: snapshot.ctaUrl as string | undefined,
+        closing: snapshot.closing as string | undefined,
+        signature: snapshot.signature as string | undefined,
+        htmlContent: snapshot.htmlContent as string | undefined,
+      },
+    });
+
+    const nextVersion =
+      (await this.prisma.aiSalesMessageVersion.count({ where: { messageId } })) + 1;
+    await this.prisma.aiSalesMessageVersion.create({
+      data: {
+        messageId,
+        version: nextVersion,
+        contentJson: updated as never,
+        changeSource: 'HUMAN',
+        changeDescription: `Obnoveno z verze ${version.version}`,
+        createdById: userId,
+      },
+    });
+
+    return updated;
   }
 
   async classifyReply(messageId: string, replyText: string, userId?: string) {
