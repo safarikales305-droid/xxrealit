@@ -77,7 +77,7 @@ export class AiChatAdminService {
     this.log.log(`POST admin/ai-chat/test-connection adminUserId=${userId ?? 'unknown'}`);
     const precheck = await this.assertOpenAiConnectionAllowed();
     if (precheck) {
-      return { success: false, ...precheck };
+      return precheck;
     }
 
     const result = await this.openai.testConnection(userId);
