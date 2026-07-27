@@ -34,11 +34,18 @@ export class AiSalesCrmService {
     const prospect = await this.prisma.aiSalesProspect.findUnique({
       where: { id: prospectId },
       include: {
-        messages: { orderBy: { createdAt: 'desc' }, take: 50 },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            recipients: { orderBy: { createdAt: 'asc' } },
+            _count: { select: { recipients: true } },
+          },
+        },
         tasks: { orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }], take: 30 },
         memories: { orderBy: { createdAt: 'desc' }, take: 50 },
         leads: { orderBy: { createdAt: 'desc' }, take: 20 },
-        publicContacts: { orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] },
+        publicContacts: { orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }] },
         assignedTo: { select: { id: true, name: true, email: true } },
         _count: { select: { messages: true } },
       },

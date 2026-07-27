@@ -104,6 +104,46 @@ export class AiSalesMessageTemplateService {
       confidence: 0,
     });
   }
+
+  renderFromMessage(message: {
+    subject?: string | null;
+    preheader?: string | null;
+    greeting?: string | null;
+    intro?: string | null;
+    benefitsJson?: unknown;
+    ctaText?: string | null;
+    ctaUrl?: string | null;
+    closing?: string | null;
+    signature?: string | null;
+    plainText?: string | null;
+    content?: string;
+  }): string {
+    const benefits = Array.isArray(message.benefitsJson)
+      ? (message.benefitsJson as Array<{ title?: string; description?: string }>)
+          .filter((b) => b?.title && b?.description)
+          .map((b) => ({ title: String(b.title), description: String(b.description) }))
+      : [];
+
+    const intro = message.intro ?? message.plainText ?? message.content ?? '';
+    return this.renderHtml(
+      {
+        subject: message.subject ?? 'Návrh nabídky XXREALIT',
+        preheader: message.preheader ?? '',
+        greeting: message.greeting ?? 'Dobrý den,',
+        intro,
+        benefits,
+        ctaText: message.ctaText ?? 'Zjistit více o XXREALIT',
+        ctaUrl: message.ctaUrl ?? 'https://www.xxrealit.cz',
+        closing: message.closing ?? 'Těšíme se na případnou spolupráci.',
+        signature: message.signature ?? 'Tým XXREALIT',
+        plainText: message.plainText ?? message.content ?? intro,
+        personalizationReasons: [],
+        usedKnowledgeIds: [],
+        confidence: 0.7,
+      },
+      { preview: true },
+    );
+  }
 }
 
 function escapeHtml(value: string): string {

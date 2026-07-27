@@ -70,7 +70,17 @@ export class AiSalesProspectService {
       where: { id },
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 20 },
+        publicContacts: {
+          orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }],
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            recipients: { orderBy: { createdAt: 'asc' } },
+            _count: { select: { recipients: true } },
+          },
+        },
         leads: { orderBy: { createdAt: 'desc' } },
       },
     });

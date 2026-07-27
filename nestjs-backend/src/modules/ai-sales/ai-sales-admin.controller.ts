@@ -111,6 +111,25 @@ export class AiSalesAdminController {
     return this.prospects.getById(id);
   }
 
+  @Post('prospects/:id/import-search-contacts')
+  importSearchContacts(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      selectedContactIds?: string[];
+      primaryEmailContactId?: string;
+      primaryPhoneContactId?: string;
+    },
+  ) {
+    return this.wrap(() =>
+      this.publicContacts.importSearchContactsForProspect(id, {
+        ...body,
+        explicitEmptySelection:
+          Array.isArray(body.selectedContactIds) && body.selectedContactIds.length === 0,
+      }),
+    );
+  }
+
   @Post('prospects')
   createProspect(
     @Body() body: Record<string, unknown>,
@@ -252,6 +271,16 @@ export class AiSalesAdminController {
   @Get('messages/:id')
   getMessage(@Param('id') id: string) {
     return this.messages.getById(id);
+  }
+
+  @Get('messages/:id/preview')
+  getMessagePreview(@Param('id') id: string) {
+    return this.messages.getPreview(id);
+  }
+
+  @Delete('messages/:id')
+  deleteMessage(@Param('id') id: string) {
+    return this.wrap(() => this.messages.deleteMessage(id));
   }
 
   @Put('messages/:id')

@@ -549,11 +549,17 @@ export class PartnerSearchService {
 
         const selectedIds = new Set(options?.selectedContactIds ?? []);
         const enrichedContacts = result.publicContacts;
+        const outreachCheckIds =
+          selectedIds.size > 0
+            ? selectedIds
+            : Array.isArray(options?.selectedContactIds)
+              ? selectedIds
+              : new Set(enrichedContacts.map((c) => c.id));
 
         for (const contact of enrichedContacts) {
-          if (contact.type === AiSalesContactType.EMAIL && contact.normalizedValue) {
+          if (contact.type === AiSalesContactType.EMAIL && contact.normalizedValue && outreachCheckIds.has(contact.id)) {
             const sup = await this.suppression.isSuppressed(contact.normalizedValue);
-            if (sup.suppressed && selectedIds.has(contact.id)) {
+            if (sup.suppressed) {
               throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
             }
           }
@@ -584,7 +590,7 @@ export class PartnerSearchService {
           }
         }
 
-        const prospectData = {
+        const prospectFields = {
           partnerType: result.partnerType,
           companyName: result.companyName,
           contactName: result.contactName,
@@ -606,94 +612,45 @@ export class PartnerSearchService {
           contactVerificationStatus: result.contactVerificationStatus,
           contactEnrichmentStatus: result.contactEnrichmentStatus,
           lastEnrichmentAt: result.lastEnrichmentAt,
-          sourceSearchResultId: result.id,
           publicDataCheckedAt: new Date(),
         };
+
+        const sourceConflict = await tx.aiSalesProspect.findFirst({
+          where: {
+            sourceSearchResultId: result.id,
+            ...(prospectId ? { id: { not: prospectId } } : {}),
+          },
+        });
 
         if (!prospectId) {
           const created = await tx.aiSalesProspect.create({
             data: {
-              ...prospectData,
+              ...prospectFields,
               status: AiSalesProspectStatus.NEEDS_REVIEW,
               createdById: userId,
+              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
             },
           });
           prospectId = created.id;
         } else {
           await tx.aiSalesProspect.update({
             where: { id: prospectId },
-            data: prospectData,
+            data: {
+              ...prospectFields,
+              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
+            },
           });
         }
 
-        let savedContacts = 0;
-
-        if (selectedIds.size > 0) {
-          for (const contact of enrichedContacts) {
-            const isSelected = selectedIds.has(contact.id);
-            const normalized =
-              contact.normalizedValue ?? this.publicContacts.normalizeValue(contact.type, contact.value);
-
-            const existingOnProspect = await tx.aiSalesPublicContact.findFirst({
-              where: {
-                prospectId,
-                type: contact.type,
-                normalizedValue: normalized,
-              },
-            });
-
-            if (existingOnProspect) {
-              await tx.aiSalesPublicContact.update({
-                where: { id: existingOnProspect.id },
-                data: {
-                  label: contact.label ?? existingOnProspect.label,
-                  sourceUrl: contact.sourceUrl ?? existingOnProspect.sourceUrl,
-                  sourcePageTitle: contact.sourcePageTitle ?? existingOnProspect.sourcePageTitle,
-                  sourceTextSnippet: contact.sourceTextSnippet ?? existingOnProspect.sourceTextSnippet,
-                  confidence: Math.max(contact.confidence, existingOnProspect.confidence),
-                  isSelectedForOutreach: isSelected || existingOnProspect.isSelectedForOutreach,
-                  searchResultId: contact.searchResultId ?? existingOnProspect.searchResultId,
-                },
-              });
-              if (contact.id !== existingOnProspect.id) {
-                await tx.aiSalesPublicContact.delete({ where: { id: contact.id } }).catch(() => undefined);
-              }
-            } else {
-              await tx.aiSalesPublicContact.update({
-                where: { id: contact.id },
-                data: {
-                  prospectId,
-                  isSelectedForOutreach: isSelected,
-                },
-              });
-              savedContacts += 1;
-            }
-          }
-        }
-
-        if (options?.primaryEmailContactId) {
-          await tx.aiSalesPublicContact.updateMany({
-            where: { prospectId, type: AiSalesContactType.EMAIL },
-            data: { isPrimary: false },
-          });
-          await tx.aiSalesPublicContact.updateMany({
-            where: { id: options.primaryEmailContactId, prospectId },
-            data: { isPrimary: true },
-          });
-        }
-
-        if (options?.primaryPhoneContactId) {
-          await tx.aiSalesPublicContact.updateMany({
-            where: { prospectId, type: AiSalesContactType.PHONE },
-            data: { isPrimary: false },
-          });
-          await tx.aiSalesPublicContact.updateMany({
-            where: { id: options.primaryPhoneContactId, prospectId },
-            data: { isPrimary: true },
-          });
-        }
-
-        await this.publicContacts.syncProspectPrimaryFields(tx, prospectId);
+        const transferStats = await this.publicContacts.transferSearchContactsToProspect(
+          tx,
+          prospectId,
+          resultId,
+          {
+            ...options,
+            explicitEmptySelection: Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0,
+          },
+        );
 
         await tx.aiSalesSearchResult.update({
           where: { id: resultId },
@@ -703,7 +660,7 @@ export class PartnerSearchService {
         const prospect = await tx.aiSalesProspect.findUnique({
           where: { id: prospectId },
           include: {
-            publicContacts: { orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] },
+            publicContacts: { orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }] },
           },
         });
 
@@ -712,10 +669,13 @@ export class PartnerSearchService {
           action,
           prospectId,
           prospect,
-          savedContacts,
+          contactsSaved: transferStats.contactsSaved,
+          emailsSaved: transferStats.emailsSaved,
+          phonesSaved: transferStats.phonesSaved,
+          savedContacts: transferStats.contactsSaved,
           primaryEmail: prospect?.primaryEmail ?? prospect?.email ?? null,
           primaryPhone: prospect?.primaryPhone ?? prospect?.phone ?? null,
-          redirectUrl: `/admin/marketing/ai-sales?tab=prospects&prospectId=${prospectId}`,
+          redirectUrl: `/admin/marketing/ai-sales?tab=crm&prospectId=${prospectId}`,
         };
       });
     } catch (err) {

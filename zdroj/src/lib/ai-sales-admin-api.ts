@@ -150,25 +150,14 @@ export type AiSalesMessage = {
   versions?: Array<{ id: string; version: number; changeSource: string; createdAt: string }>;
 };
 
-export type GenerateMessageResponse = {
-  success: boolean;
-  partial?: boolean;
-  analysisIncomplete?: boolean;
-  variants: Array<{
-    id?: string;
-    messageId: string;
-    variant: string;
-    tone?: string;
-    subject: string;
-    previewUrl: string;
-  }>;
-};
-
 export type SaveSearchResultResponse = {
   success: boolean;
   action: 'CREATED' | 'UPDATED';
   prospectId: string;
-  prospect?: AiSalesProspect;
+  prospect?: AiSalesProspect & { publicContacts?: AiSalesPublicContact[] };
+  contactsSaved?: number;
+  emailsSaved?: number;
+  phonesSaved?: number;
   savedContacts: number;
   primaryEmail: string | null;
   primaryPhone: string | null;
@@ -177,6 +166,23 @@ export type SaveSearchResultResponse = {
   analysisUnavailable?: boolean;
   savedWithoutEmail?: boolean;
   warning?: string | { code?: string; message?: string } | null;
+};
+
+export type GenerateMessageResponse = {
+  success: boolean;
+  partial?: boolean;
+  analysisIncomplete?: boolean;
+  messageId?: string;
+  previewUrl?: string;
+  status?: string;
+  variants: Array<{
+    id?: string;
+    messageId: string;
+    variant: string;
+    tone?: string;
+    subject: string;
+    previewUrl: string;
+  }>;
 };
 
 export type AiSalesSearchResult = {
@@ -395,6 +401,21 @@ export function getMessage(token: string, id: string) {
   return aiSalesRequest<AiSalesMessage>(token, `/messages/${id}`);
 }
 
+export function getMessagePreview(token: string, id: string) {
+  return aiSalesRequest<{
+    messageId: string;
+    status: string;
+    subject: string | null;
+    html: string;
+    previewUrl: string;
+    partial?: boolean;
+  }>(token, `/messages/${id}/preview`);
+}
+
+export function deleteMessage(token: string, id: string) {
+  return aiSalesRequest(token, `/messages/${id}`, { method: 'DELETE' });
+}
+
 export function markDoNotContact(token: string, id: string, reason?: string) {
   return aiSalesRequest(token, `/prospects/${id}/do-not-contact`, { method: 'POST', body: JSON.stringify({ reason }) });
 }
@@ -469,6 +490,36 @@ export function enrichSearchResultsBatch(token: string, searchResultIds: string[
 
 export function getSearchResultContacts(token: string, id: string) {
   return aiSalesRequest<AiSalesPublicContact[]>(token, `/search-results/${id}/contacts`);
+}
+
+export function getProspect(token: string, id: string) {
+  return aiSalesRequest<AiSalesProspect & { publicContacts?: AiSalesPublicContact[]; messages?: AiSalesMessage[] }>(
+    token,
+    `/prospects/${id}`,
+  );
+}
+
+export function importSearchContacts(
+  token: string,
+  prospectId: string,
+  body?: {
+    selectedContactIds?: string[];
+    primaryEmailContactId?: string;
+    primaryPhoneContactId?: string;
+  },
+) {
+  return aiSalesRequest<{
+    success: boolean;
+    contactsSaved: number;
+    emailsSaved: number;
+    phonesSaved: number;
+    contacts: AiSalesPublicContact[];
+    primaryEmail: string | null;
+    primaryPhone: string | null;
+  }>(token, `/prospects/${prospectId}/import-search-contacts`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
 }
 
 export function getProspectContacts(token: string, id: string) {

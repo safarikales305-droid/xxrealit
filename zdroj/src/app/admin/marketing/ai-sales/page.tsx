@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
   approveMessage,
@@ -95,6 +95,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 
 export default function AdminAiSalesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
   const [tab, setTab] = useState<Tab>('overview');
@@ -168,6 +169,19 @@ export default function AdminAiSalesPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const messageId = searchParams.get('messageId');
+    if (tabParam) setTab(tabParam as Tab);
+    if (messageId) setSelectedMessageId(messageId);
+  }, [searchParams]);
+
+  const openMessage = useCallback((messageId: string) => {
+    setSelectedMessageId(messageId);
+    setTab('message');
+    router.replace(`/admin/marketing/ai-sales?tab=message&messageId=${messageId}`);
+  }, [router]);
 
   const loadSearchProviders = useCallback(async () => {
     if (!token) return;
@@ -245,10 +259,9 @@ export default function AdminAiSalesPage() {
     setSelectedMessageId(null);
     try {
       const res = await generateMessage(token, id, { variantCount: 3 });
-      const first = res.variants?.[0];
-      if (first?.messageId) {
-        setSelectedMessageId(first.messageId);
-        setTab('message');
+      const firstId = res.messageId ?? res.variants?.[0]?.messageId;
+      if (firstId) {
+        openMessage(firstId);
       }
       if (res.analysisIncomplete) {
         setActionError({
@@ -273,8 +286,7 @@ export default function AdminAiSalesPage() {
         try {
           const manual = await generateManualMessage(token, id);
           if (manual.message?.id) {
-            setSelectedMessageId(manual.message.id);
-            setTab('message');
+            openMessage(String(manual.message.id));
           }
         } catch {
           // manual fallback failed too
@@ -414,7 +426,13 @@ export default function AdminAiSalesPage() {
         </div>
       ) : null}
 
-      {tab === 'crm' ? <AiSalesCrmPanel token={token} /> : null}
+      {tab === 'crm' ? (
+        <AiSalesCrmPanel
+          token={token}
+          initialProspectId={searchParams.get('prospectId')}
+          onOpenMessage={openMessage}
+        />
+      ) : null}
 
       {actionError ? (
         <div className={`mb-4 rounded-lg border p-3 text-sm ${actionError.code === 'PARTIAL' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
@@ -431,7 +449,11 @@ export default function AdminAiSalesPage() {
         <AiSalesMessageEditorPanel
           token={token}
           messageId={selectedMessageId}
-          onClose={() => { setSelectedMessageId(null); setTab('prospects'); }}
+          onClose={() => {
+            setSelectedMessageId(null);
+            setTab('crm');
+            router.replace('/admin/marketing/ai-sales?tab=crm');
+          }}
           onUpdated={() => void refresh()}
         />
       ) : null}

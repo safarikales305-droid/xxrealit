@@ -92,6 +92,9 @@ export class AiSalesOutreachGenerationService {
       success: true,
       partial: analysisIncomplete,
       analysisIncomplete,
+      messageId: results[0]?.messageId,
+      previewUrl: results[0]?.previewUrl,
+      status: 'DRAFT',
       variants: results,
     };
   }

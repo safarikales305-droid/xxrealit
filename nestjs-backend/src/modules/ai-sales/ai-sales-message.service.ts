@@ -74,10 +74,49 @@ export class AiSalesMessageService {
         replyAnalysis: true,
         campaign: true,
         versions: { orderBy: { version: 'desc' }, take: 20 },
+        recipients: { orderBy: { createdAt: 'asc' }, include: { contact: true } },
       },
     });
     if (!row) throw new NotFoundException('Zpráva nenalezena.');
+
+    if (!row.htmlContent?.trim()) {
+      const html = this.template.renderFromMessage(row);
+      const updated = await this.prisma.aiSalesMessage.update({
+        where: { id },
+        data: { htmlContent: html },
+      });
+      return { ...row, htmlContent: html, updatedAt: updated.updatedAt };
+    }
+
     return row;
+  }
+
+  async getPreview(id: string) {
+    const msg = await this.getById(id);
+    const recipients = msg.recipients ?? (await this.listRecipients(id));
+    const selected = recipients.filter((r) => r.selected);
+    return {
+      messageId: msg.id,
+      status: msg.status,
+      subject: msg.subject,
+      preheader: msg.preheader,
+      from: 'obchod@xxrealit.cz',
+      to: selected.map((r) => r.email).join(', ') || msg.prospect.primaryEmail || msg.prospect.email || '—',
+      html: msg.htmlContent ?? this.template.renderFromMessage(msg),
+      plainText: msg.plainText ?? msg.content,
+      previewUrl: `/admin/marketing/ai-sales?tab=message&messageId=${msg.id}`,
+      partial: msg.analysisIncomplete,
+      recipients: selected,
+    };
+  }
+
+  async deleteMessage(id: string) {
+    const msg = await this.getById(id);
+    if (msg.status === AiSalesMessageStatus.SENT) {
+      throw new BadRequestException('Odeslanou zprávu nelze smazat.');
+    }
+    await this.prisma.aiSalesMessage.delete({ where: { id } });
+    return { success: true };
   }
 
   async updateContent(

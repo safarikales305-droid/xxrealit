@@ -211,6 +211,151 @@ export class AiSalesPublicContactService {
     });
   }
 
+  async transferSearchContactsToProspect(
+    tx: Prisma.TransactionClient,
+    prospectId: string,
+    searchResultId: string,
+    options?: SaveSearchResultOptions & { explicitEmptySelection?: boolean },
+  ): Promise<{ contactsSaved: number; emailsSaved: number; phonesSaved: number }> {
+    const enrichedContacts = await tx.aiSalesPublicContact.findMany({
+      where: { searchResultId },
+      orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }],
+    });
+
+    if (enrichedContacts.length === 0) {
+      return { contactsSaved: 0, emailsSaved: 0, phonesSaved: 0 };
+    }
+
+    const explicitEmpty =
+      options?.explicitEmptySelection === true ||
+      (Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0);
+
+    if (explicitEmpty) {
+      return { contactsSaved: 0, emailsSaved: 0, phonesSaved: 0 };
+    }
+
+    const outreachIds = new Set<string>();
+    if (options?.selectedContactIds?.length) {
+      const valid = new Set(enrichedContacts.map((c) => c.id));
+      for (const id of options.selectedContactIds) {
+        if (!valid.has(id)) {
+          throw new BadRequestException(`Kontakt ${id} nepatří k tomuto výsledku vyhledávání.`);
+        }
+        outreachIds.add(id);
+      }
+    } else {
+      for (const c of enrichedContacts) {
+        outreachIds.add(c.id);
+      }
+    }
+
+    let contactsSaved = 0;
+    let emailsSaved = 0;
+    let phonesSaved = 0;
+
+    for (const contact of enrichedContacts) {
+      const normalized =
+        contact.normalizedValue ?? this.normalizeValue(contact.type, contact.value);
+      const isSelectedForOutreach = outreachIds.has(contact.id);
+
+      const existingOnProspect = await tx.aiSalesPublicContact.findFirst({
+        where: { prospectId, type: contact.type, normalizedValue: normalized },
+      });
+
+      if (existingOnProspect) {
+        await tx.aiSalesPublicContact.update({
+          where: { id: existingOnProspect.id },
+          data: {
+            label: contact.label ?? existingOnProspect.label,
+            contactPersonName: contact.contactPersonName ?? existingOnProspect.contactPersonName,
+            contactPersonRole: contact.contactPersonRole ?? existingOnProspect.contactPersonRole,
+            sourceUrl: contact.sourceUrl ?? existingOnProspect.sourceUrl,
+            sourcePageTitle: contact.sourcePageTitle ?? existingOnProspect.sourcePageTitle,
+            sourceTextSnippet: contact.sourceTextSnippet ?? existingOnProspect.sourceTextSnippet,
+            confidence: Math.max(contact.confidence, existingOnProspect.confidence),
+            verificationStatus: contact.verificationStatus,
+            isSelectedForOutreach: isSelectedForOutreach || existingOnProspect.isSelectedForOutreach,
+            searchResultId: contact.searchResultId ?? existingOnProspect.searchResultId,
+          },
+        });
+        if (contact.id !== existingOnProspect.id) {
+          await tx.aiSalesPublicContact.delete({ where: { id: contact.id } }).catch(() => undefined);
+        }
+      } else {
+        await tx.aiSalesPublicContact.update({
+          where: { id: contact.id },
+          data: {
+            prospectId,
+            isSelectedForOutreach,
+          },
+        });
+        contactsSaved += 1;
+        if (contact.type === AiSalesContactType.EMAIL) emailsSaved += 1;
+        if (contact.type === AiSalesContactType.PHONE) phonesSaved += 1;
+      }
+    }
+
+    if (options?.primaryEmailContactId) {
+      await tx.aiSalesPublicContact.updateMany({
+        where: { prospectId, type: AiSalesContactType.EMAIL },
+        data: { isPrimary: false },
+      });
+      await tx.aiSalesPublicContact.updateMany({
+        where: { id: options.primaryEmailContactId, prospectId },
+        data: { isPrimary: true },
+      });
+    }
+
+    if (options?.primaryPhoneContactId) {
+      await tx.aiSalesPublicContact.updateMany({
+        where: { prospectId, type: AiSalesContactType.PHONE },
+        data: { isPrimary: false },
+      });
+      await tx.aiSalesPublicContact.updateMany({
+        where: { id: options.primaryPhoneContactId, prospectId },
+        data: { isPrimary: true },
+      });
+    }
+
+    await this.syncProspectPrimaryFields(tx, prospectId);
+    return { contactsSaved, emailsSaved, phonesSaved };
+  }
+
+  async importSearchContactsForProspect(
+    prospectId: string,
+    options?: SaveSearchResultOptions & { explicitEmptySelection?: boolean },
+  ) {
+    const prospect = await this.assertProspect(prospectId);
+    if (!prospect.sourceSearchResultId) {
+      throw new BadRequestException('Partner nemá propojený výsledek vyhledávání.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const stats = await this.transferSearchContactsToProspect(
+        tx,
+        prospectId,
+        prospect.sourceSearchResultId!,
+        options,
+      );
+      const contacts = await tx.aiSalesPublicContact.findMany({
+        where: { prospectId },
+        orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }],
+      });
+      const updated = await tx.aiSalesProspect.findUnique({ where: { id: prospectId } });
+      return {
+        success: true,
+        prospectId,
+        contactsSaved: stats.contactsSaved,
+        emailsSaved: stats.emailsSaved,
+        phonesSaved: stats.phonesSaved,
+        primaryEmail: updated?.primaryEmail ?? updated?.email ?? null,
+        primaryPhone: updated?.primaryPhone ?? updated?.phone ?? null,
+        contacts,
+        prospect: { ...updated, publicContacts: contacts },
+      };
+    });
+  }
+
   async syncProspectPrimaryFields(
     tx: Prisma.TransactionClient,
     prospectId: string,
