@@ -11,6 +11,7 @@ import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
 import { SeoGenerationJobService } from './seo-generation-job.service';
 import { SeoAiGenerationService } from './seo-ai-generation.service';
+import { LocalityResolverService } from './locality-resolver.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService, type SitemapKind } from './seo.service';
 
@@ -77,6 +78,7 @@ export class SeoAdminController {
     private readonly indexability: SeoIndexabilityService,
     private readonly programmaticSeo: ProgrammaticSeoService,
     private readonly seoAi: SeoAiGenerationService,
+    private readonly localityResolver: LocalityResolverService,
   ) {}
 
   @Get('settings')
@@ -458,6 +460,12 @@ export class SeoAdminController {
       sortBy,
       sortDir,
     });
+  }
+
+  @Get('localities/search')
+  searchLocalities(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const n = Number(limit);
+    return this.localityResolver.search(q ?? '', Number.isFinite(n) ? n : 20);
   }
 
   @Get('locations')

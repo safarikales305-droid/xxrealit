@@ -66,7 +66,10 @@ export type SeoAiPageOutput = {
 };
 
 export type SeoAiGenerateInput = {
-  locationSlug: string;
+  localityId?: string;
+  localitySlug?: string;
+  /** @deprecated use localitySlug */
+  locationSlug?: string;
   intentSlug?: string;
   offerType?: string;
   propertyType?: string;
@@ -75,15 +78,19 @@ export type SeoAiGenerateInput = {
   primaryKeyword?: string;
   secondaryKeywords?: string[];
   tone?: string;
-  length?: 'short' | 'medium' | 'long';
+  length?: 'short' | 'medium' | 'long' | string;
+  contentLength?: string;
   targetAudience?: string;
   useRuian?: boolean;
   useCsu?: boolean;
   useListings?: boolean;
   useLocalFacts?: boolean;
+  useLocalityFacts?: boolean;
   initialStatus?: 'DRAFT' | 'REVIEW' | 'PUBLISHED';
+  status?: 'DRAFT' | 'REVIEW' | 'PUBLISHED';
   indexImmediately?: boolean;
   publish?: boolean;
+  createLocationIfMissing?: boolean;
 };
 
 export const SEO_AI_TONES = [

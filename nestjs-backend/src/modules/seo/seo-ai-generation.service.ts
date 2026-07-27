@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AiKnowledgeStatus,
   AiPromptStatus,
@@ -14,24 +14,27 @@ import { getProgrammaticSeoIntent } from './programmatic-seo-intents';
 import { buildProgrammaticSeoPath, buildExtendedSeoMetadata } from './programmatic-seo.util';
 import { seoLocationToCopyInput } from './seo-generation.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
+import { LocalityResolverService } from './locality-resolver.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoAiGenerateInput, SeoAiPageOutput } from './seo-ai-layout.types';
 import { SEO_KNOWLEDGE_CATEGORIES } from './seo-ai-layout.types';
 import { parseSeoAiPageJson, validateSeoAiPageOutput } from './seo-ai-page.validator';
 import { SeoAiQualityService } from './seo-ai-quality.service';
 import { DEFAULT_SEO_AI_SYSTEM_PROMPT } from './seo-ai-prompt.defaults';
+import {
+  normalizeSeoAiAudience,
+  normalizeSeoAiContentLength,
+  normalizeSeoAiOfferType,
+  normalizeSeoAiPropertyType,
+  normalizeSeoAiTone,
+  resolveIntentSlugFromEnums,
+} from './seo-ai.enums';
+import { mapOpenAiError, SeoAiHttpException } from './seo-ai.errors';
 
 function resolveIntentSlug(input: SeoAiGenerateInput): string {
-  if (input.intentSlug?.trim()) return input.intentSlug.trim();
-  const offer = input.offerType?.trim().toLowerCase();
-  const prop = input.propertyType?.trim().toLowerCase();
-  if (offer === 'pronajem' || offer === 'pronájem') {
-    if (prop === 'byt') return 'pronajem-bytu';
-    if (prop === 'dum' || prop === 'dům' || prop === 'dom') return 'pronajem-domu';
-  }
-  if (prop === 'dum' || prop === 'dům' || prop === 'dom') return 'prodej-domu';
-  if (prop === 'pozemek' || prop === 'pozem') return 'prodej-pozemku';
-  return 'prodej-bytu';
+  const offer = normalizeSeoAiOfferType(input.offerType);
+  const property = normalizeSeoAiPropertyType(input.propertyType);
+  return resolveIntentSlugFromEnums(offer, property, input.intentSlug);
 }
 
 @Injectable()
@@ -41,6 +44,7 @@ export class SeoAiGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openai: OpenAiService,
+    private readonly localityResolver: LocalityResolverService,
     private readonly locations: SeoLocationService,
     private readonly quality: SeoAiQualityService,
   ) {}
@@ -54,21 +58,26 @@ export class SeoAiGenerationService {
     userId?: string,
     opts?: { isTest?: boolean; existingPageId?: string },
   ) {
+    const startedAt = Date.now();
     const intentSlug = resolveIntentSlug(input);
-    const intent = getProgrammaticSeoIntent(intentSlug);
+    const intent = getProgrammaticSeoIntent(intentSlug as never);
     if (!intent) throw new BadRequestException('Neznámý typ nabídky / nemovitosti.');
 
-    const dbLoc = await this.prisma.seoLocation.findFirst({
-      where: {
-        isActive: true,
-        OR: [{ slug: input.locationSlug.trim().toLowerCase() }, { slugAscii: input.locationSlug.trim().toLowerCase() }],
-      },
+    const resolved = await this.localityResolver.resolve({
+      localityId: input.localityId,
+      localitySlug: input.localitySlug ?? input.locationSlug,
+      region: input.region,
+      district: input.district,
+      createIfMissing: opts?.isTest || input.createLocationIfMissing,
+    });
+
+    const dbLoc = await this.prisma.seoLocation.findUniqueOrThrow({
+      where: { id: resolved.id },
       include: {
         region: { select: { name: true } },
         district: { select: { name: true } },
       },
     });
-    if (!dbLoc) throw new NotFoundException('Lokalita nenalezena.');
 
     const listingCount = input.useListings !== false
       ? await this.countListings(dbLoc.id, intent.offerType, intent.propertyTypeKey)
@@ -91,9 +100,8 @@ export class SeoAiGenerationService {
       });
     } catch (err) {
       this.log.warn(`OpenAI SEO generate failed: ${err instanceof Error ? err.message : err}`);
-      throw new BadRequestException(
-        'AI generování je dočasně nedostupné. Použijte šablonové generování bez AI.',
-      );
+      if (err instanceof SeoAiHttpException) throw err;
+      throw mapOpenAiError(err);
     }
 
     let parsed: unknown;
@@ -125,6 +133,23 @@ export class SeoAiGenerationService {
 
     const pageKey = buildProgrammaticSeoPageKey(intentSlug, dbLoc.slug);
     const publicPath = buildProgrammaticSeoPath(intentSlug, dbLoc.slug);
+
+    const existingPage = await this.prisma.seoPageContent.findUnique({
+      where: { pageKey },
+      select: { id: true, status: true, generationMode: true },
+    });
+    if (existingPage && !opts?.existingPageId && !opts?.isTest) {
+      throw new SeoAiHttpException(
+        'SEO_PAGE_ALREADY_EXISTS',
+        'Pro tuto lokalitu a typ nabídky už existuje SEO stránka.',
+        HttpStatus.CONFLICT,
+        {
+          existingPageId: existingPage.id,
+          actions: ['CREATE_REVISION', 'AI_IMPROVE_EXISTING', 'CANCEL'],
+        },
+      );
+    }
+    const existingPageId = opts?.existingPageId ?? (existingPage && opts?.isTest ? existingPage.id : undefined);
     const locForCopy = seoLocationToCopyInput(dbLoc) as CzGeoLocation;
     const extended = buildExtendedSeoMetadata(intent, locForCopy, {
       path: publicPath,
@@ -152,9 +177,10 @@ export class SeoAiGenerationService {
     });
 
     let status: SeoContentStatus = SeoContentStatus.DRAFT;
-    if (input.initialStatus === 'PUBLISHED' && scores.recommendedStatus === 'PUBLISHED') {
+    const initialStatus = input.initialStatus ?? input.status ?? 'DRAFT';
+    if (initialStatus === 'PUBLISHED' && scores.recommendedStatus === 'PUBLISHED') {
       status = SeoContentStatus.PUBLISHED;
-    } else if (input.initialStatus === 'REVIEW' || scores.recommendedStatus === 'REVIEW') {
+    } else if (initialStatus === 'REVIEW' || scores.recommendedStatus === 'REVIEW') {
       status = SeoContentStatus.AI_REVIEW;
     } else if (scores.recommendedStatus === 'NEEDS_IMPROVEMENT') {
       status = SeoContentStatus.NEEDS_IMPROVEMENT;
@@ -203,7 +229,7 @@ export class SeoAiGenerationService {
       uniquenessScore: scores.uniquenessScore,
       duplicateRisk: scores.duplicateRisk,
       similarPageIdsJson: scores.similarPageIds as Prisma.InputJsonValue,
-      factCheckStatus: output.sourceClaims.some((c) => c.verified) ? 'VERIFIED_PARTIAL' : 'GENERAL_ONLY',
+      factCheckStatus: output.sourceClaims.some((c) => c.verified) ? 'VERIFIED_PARTIAL' : 'NEEDS_REVIEW',
       layoutType: output.layout as SeoAiLayoutType,
       contentBlocksJson: output.blocks as Prisma.InputJsonValue,
       sourceClaimsJson: output.sourceClaims as Prisma.InputJsonValue,
@@ -211,9 +237,9 @@ export class SeoAiGenerationService {
       publishedAt: status === SeoContentStatus.PUBLISHED ? new Date() : null,
     };
 
-    const page = opts?.existingPageId
+    const page = existingPageId
       ? await this.prisma.seoPageContent.update({
-          where: { id: opts.existingPageId },
+          where: { id: existingPageId },
           data: { ...data, location: { connect: { id: dbLoc.id } } },
           include: { location: { select: { name: true, slug: true } } },
         })
@@ -224,12 +250,17 @@ export class SeoAiGenerationService {
           include: { location: { select: { name: true, slug: true } } },
         });
 
+    const durationMs = Date.now() - startedAt;
+
     return {
       success: true,
-      action: opts?.existingPageId ? 'updated' : 'created',
+      action: existingPageId ? 'updated' : 'created',
       pageId: page.id,
       slug: publicPath.replace(/^\//, ''),
       publicPath,
+      previewUrl: `/admin/seo/pages/${page.id}/preview`,
+      publicUrl: status === SeoContentStatus.PUBLISHED ? publicPath : null,
+      title: page.title,
       h1: page.h1,
       editorialTitle: page.editorialTitle,
       metaTitle: page.title,
@@ -251,6 +282,15 @@ export class SeoAiGenerationService {
       listingCount,
       qualityReasons: scores.reasons,
       analysisStatus: 'COMPLETED',
+      localityId: dbLoc.id,
+      localitySlug: dbLoc.slug,
+      generation: {
+        model: aiResult.model,
+        durationMs,
+        inputTokens: aiResult.inputTokens,
+        outputTokens: aiResult.outputTokens,
+        costCzk: aiResult.estimatedCostCzk ?? 0,
+      },
     };
   }
 
@@ -272,6 +312,27 @@ export class SeoAiGenerationService {
       userId,
       { existingPageId: pageId },
     );
+  }
+
+  async getDiagnostics() {
+    const [localityCount, promptCount, openAiStatus] = await Promise.all([
+      this.prisma.seoLocation.count({ where: { isActive: true } }),
+      this.prisma.aiPromptVersion.count({
+        where: { feature: 'SEO_PAGE_GENERATION', status: AiPromptStatus.ACTIVE },
+      }),
+      this.openai.getStatus(),
+    ]);
+    return {
+      backendAvailable: true,
+      moduleRegistered: true,
+      openAiEnabled: openAiStatus.enabled,
+      apiKeyConfigured: openAiStatus.apiKeyConfigured,
+      model: openAiStatus.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+      localityCount,
+      activePromptConfigured: promptCount > 0,
+      ruianAvailable: true,
+      csuAvailable: true,
+    };
   }
 
   async getAiPreview(pageId: string) {

@@ -14578,7 +14578,9 @@ export async function nestAdminSeoGenerationStats(
 }
 
 export type SeoAiGenerateTestInput = {
-  locationSlug: string;
+  localityId?: string;
+  localitySlug?: string;
+  locationSlug?: string;
   intentSlug?: string;
   offerType?: string;
   propertyType?: string;
@@ -14588,14 +14590,39 @@ export type SeoAiGenerateTestInput = {
   secondaryKeywords?: string[];
   tone?: string;
   length?: 'short' | 'medium' | 'long';
+  contentLength?: string;
   targetAudience?: string;
   useRuian?: boolean;
   useCsu?: boolean;
   useListings?: boolean;
   useLocalFacts?: boolean;
+  useLocalityFacts?: boolean;
   initialStatus?: 'DRAFT' | 'REVIEW' | 'PUBLISHED';
+  status?: 'DRAFT' | 'REVIEW' | 'PUBLISHED';
   indexImmediately?: boolean;
   publish?: boolean;
+  createLocationIfMissing?: boolean;
+};
+
+export type SeoAiLocalitySearchHit = {
+  id: string;
+  name: string;
+  slug: string;
+  district: string | null;
+  region: string | null;
+  kind: string;
+};
+
+export type SeoAiDiagnostics = {
+  backendAvailable: boolean;
+  moduleRegistered: boolean;
+  openAiEnabled: boolean;
+  apiKeyConfigured: boolean;
+  model: string;
+  localityCount: number;
+  activePromptConfigured: boolean;
+  ruianAvailable: boolean;
+  csuAvailable: boolean;
 };
 
 export type SeoAiGenerateTestResult = {
@@ -14603,6 +14630,9 @@ export type SeoAiGenerateTestResult = {
   pageId: string;
   slug: string;
   publicPath: string;
+  previewUrl?: string;
+  publicUrl?: string | null;
+  title?: string | null;
   h1: string | null;
   editorialTitle: string | null;
   metaTitle: string | null;
@@ -14615,7 +14645,43 @@ export type SeoAiGenerateTestResult = {
   hasListings: boolean;
   listingCount: number;
   analysisStatus: string;
+  localityId?: string;
+  localitySlug?: string;
+  generation?: {
+    model: string;
+    durationMs: number;
+    inputTokens: number;
+    outputTokens: number;
+    costCzk: number;
+  };
 };
+
+export class SeoAiApiError extends Error {
+  code: string;
+  httpStatus: number;
+  phase?: string;
+  detail?: string;
+  options?: SeoAiLocalitySearchHit[];
+
+  constructor(
+    message: string,
+    opts: {
+      code: string;
+      httpStatus: number;
+      phase?: string;
+      detail?: string;
+      options?: SeoAiLocalitySearchHit[];
+    },
+  ) {
+    super(message);
+    this.name = 'SeoAiApiError';
+    this.code = opts.code;
+    this.httpStatus = opts.httpStatus;
+    this.phase = opts.phase;
+    this.detail = opts.detail;
+    this.options = opts.options;
+  }
+}
 
 export type SeoAiJobEstimate = {
   pageCount: number;
@@ -14649,7 +14715,102 @@ async function nestAdminSeoAiJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T | null> {
-  return nestAdminSeoJson<T>(token, `/ai${path}`, init);
+  if (!API_BASE_URL || !token) return null;
+  const controller = new AbortController();
+  const timeoutMs = 90_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${API_BASE_URL}/admin/seo/ai${path}`;
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { ...nestAuthHeaders(token), ...(init?.headers ?? {}) },
+    });
+    const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const message =
+        typeof raw.message === 'string' && raw.message.trim()
+          ? raw.message.trim()
+          : nestApiErrorBodyMessage(res.status, raw, `Chyba ${res.status}`);
+      const code =
+        typeof raw.code === 'string' && raw.code.trim()
+          ? raw.code.trim()
+          : res.status === 404
+            ? 'ENDPOINT_NOT_FOUND'
+            : res.status === 401
+              ? 'ADMIN_SESSION_EXPIRED'
+              : res.status === 403
+                ? 'INSUFFICIENT_PERMISSIONS'
+                : 'AI_GENERATION_FAILED';
+      const phase = typeof raw.phase === 'string' ? raw.phase : 'AI_GENERATION_REQUEST';
+      const detail =
+        res.status === 404 && code === 'ENDPOINT_NOT_FOUND'
+          ? `Backendový endpoint ${url.replace(API_BASE_URL ?? '', '')} není dostupný.`
+          : typeof raw.detail === 'string'
+            ? raw.detail
+            : undefined;
+      const options = Array.isArray(raw.options)
+        ? (raw.options as SeoAiLocalitySearchHit[])
+        : undefined;
+      throw new SeoAiApiError(message, {
+        code,
+        httpStatus: res.status,
+        phase,
+        detail,
+        options,
+      });
+    }
+    return raw as T;
+  } catch (err) {
+    if (err instanceof SeoAiApiError) throw err;
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new SeoAiApiError('Generování překročilo časový limit (90 s).', {
+        code: 'AI_GENERATION_FAILED',
+        httpStatus: 408,
+        phase: 'AI_GENERATION_REQUEST',
+        detail: 'Timeout po 90 sekundách.',
+      });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function nestAdminSeoSearchLocalities(
+  token: string | null,
+  query: string,
+  limit = 20,
+): Promise<SeoAiLocalitySearchHit[]> {
+  const q = query.trim();
+  if (!q || q.length < 2) return [];
+  const res = await nestAdminSeoJson<SeoAiLocalitySearchHit[]>(
+    token,
+    `/localities/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+  return res ?? [];
+}
+
+export async function nestAdminSeoSearchLocalitiesMain(
+  token: string | null,
+  query: string,
+  limit = 20,
+): Promise<SeoAiLocalitySearchHit[]> {
+  if (!API_BASE_URL || !token) return [];
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const res = await fetch(
+    `${API_BASE_URL}/admin/seo/localities/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    { headers: nestAuthHeaders(token) },
+  );
+  if (!res.ok) return [];
+  return (await res.json().catch(() => [])) as SeoAiLocalitySearchHit[];
+}
+
+export async function nestAdminSeoAiDiagnostics(
+  token: string | null,
+): Promise<SeoAiDiagnostics | null> {
+  return nestAdminSeoAiJson<SeoAiDiagnostics>(token, '/diagnostics');
 }
 
 export async function nestAdminSeoAiGenerateTest(

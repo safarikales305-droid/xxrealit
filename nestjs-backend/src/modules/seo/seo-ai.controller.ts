@@ -2,8 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -13,6 +16,14 @@ import type { SeoAiGenerateInput } from './seo-ai-layout.types';
 import { SeoAiGenerationJobService, type SeoAiJobSettings } from './seo-ai-generation-job.service';
 import { SeoAiGenerationService } from './seo-ai-generation.service';
 import { SeoAiPromptSeedService } from './seo-ai-prompt.seed.service';
+import { LocalityResolverService } from './locality-resolver.service';
+import {
+  normalizeSeoAiAudience,
+  normalizeSeoAiContentLength,
+  normalizeSeoAiOfferType,
+  normalizeSeoAiPropertyType,
+  normalizeSeoAiTone,
+} from './seo-ai.enums';
 
 @Controller('admin/seo/ai')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -21,15 +32,43 @@ export class SeoAiAdminController {
     private readonly generation: SeoAiGenerationService,
     private readonly jobs: SeoAiGenerationJobService,
     private readonly promptSeed: SeoAiPromptSeedService,
+    private readonly localityResolver: LocalityResolverService,
   ) {}
 
   private userId(req: { user?: { id?: string; sub?: string } }) {
     return req.user?.id ?? req.user?.sub;
   }
 
+  private normalizeInput(body: SeoAiGenerateInput): SeoAiGenerateInput {
+    return {
+      ...body,
+      offerType: normalizeSeoAiOfferType(body.offerType),
+      propertyType: normalizeSeoAiPropertyType(body.propertyType),
+      tone: normalizeSeoAiTone(body.tone),
+      targetAudience: normalizeSeoAiAudience(body.targetAudience),
+      contentLength: normalizeSeoAiContentLength(body.contentLength ?? body.length),
+      localitySlug: body.localitySlug ?? body.locationSlug,
+      useLocalFacts: body.useLocalFacts ?? body.useLocalityFacts,
+      initialStatus: body.initialStatus ?? body.status ?? 'DRAFT',
+      createLocationIfMissing: body.createLocationIfMissing ?? true,
+    };
+  }
+
+  @Get('diagnostics')
+  diagnostics() {
+    return this.generation.getDiagnostics();
+  }
+
+  @Get('localities/search')
+  searchLocalities(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const n = Number(limit);
+    return this.localityResolver.search(q ?? '', Number.isFinite(n) ? n : 20);
+  }
+
   @Post('generate-test')
+  @HttpCode(HttpStatus.CREATED)
   generateTest(@Body() body: SeoAiGenerateInput, @Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.generation.generateTestPage(body, this.userId(req));
+    return this.generation.generateTestPage(this.normalizeInput(body), this.userId(req));
   }
 
   @Post('jobs/estimate')

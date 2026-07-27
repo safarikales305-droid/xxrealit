@@ -23,6 +23,7 @@ import { SeoAiGenerationJobService } from './seo-ai-generation-job.service';
 import { SeoAiGenerationService } from './seo-ai-generation.service';
 import { SeoAiQualityService } from './seo-ai-quality.service';
 import { SeoAiPromptSeedService } from './seo-ai-prompt.seed.service';
+import { LocalityResolverService } from './locality-resolver.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService } from './seo.service';
 
@@ -45,6 +46,7 @@ import { SeoService } from './seo.service';
     SeoAiGenerationJobService,
     SeoAiQualityService,
     SeoAiPromptSeedService,
+    LocalityResolverService,
     SeoIndexabilityService,
     SeoPublicListingsService,
     SeoIndexQueueService,
