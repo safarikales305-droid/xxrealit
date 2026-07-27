@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
+import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
 
 export type SaveSearchResultOptions = {
   selectedContactIds?: string[];
@@ -211,49 +212,106 @@ export class AiSalesPublicContactService {
     });
   }
 
+  async validateContactSelectionForSave(
+    tx: Prisma.TransactionClient,
+    searchResultId: string,
+    options?: SaveSearchResultOptions & { explicitEmptySelection?: boolean },
+  ): Promise<{
+    contactsToTransfer: Array<Awaited<ReturnType<Prisma.TransactionClient['aiSalesPublicContact']['findMany']>>[number]>;
+    outreachIds: Set<string>;
+  }> {
+    const explicitEmpty =
+      options?.explicitEmptySelection === true ||
+      (Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0);
+
+    if (explicitEmpty) {
+      return { contactsToTransfer: [], outreachIds: new Set() };
+    }
+
+    const enrichedContacts = await tx.aiSalesPublicContact.findMany({
+      where: { searchResultId },
+      orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }],
+    });
+
+    if (!options?.selectedContactIds?.length) {
+      return {
+        contactsToTransfer: enrichedContacts,
+        outreachIds: new Set(enrichedContacts.map((c) => c.id)),
+      };
+    }
+
+    const validSet = new Set(enrichedContacts.map((c) => c.id));
+    const validContactIds: string[] = [];
+    const invalidContactIds: string[] = [];
+
+    for (const id of options.selectedContactIds) {
+      if (validSet.has(id)) validContactIds.push(id);
+      else invalidContactIds.push(id);
+    }
+
+    if (invalidContactIds.length > 0) {
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'CONTACT_RESULT_MISMATCH',
+          'Některé vybrané kontakty nepatří k ukládané firmě.',
+          400,
+          'SAVE_PROSPECT_WITH_CONTACTS',
+          undefined,
+          { validContactIds, invalidContactIds, searchResultId },
+        ),
+      );
+    }
+
+    const contactsToTransfer = await tx.aiSalesPublicContact.findMany({
+      where: {
+        id: { in: validContactIds },
+        searchResultId,
+      },
+    });
+
+    if (contactsToTransfer.length !== validContactIds.length) {
+      const found = new Set(contactsToTransfer.map((c) => c.id));
+      const missing = validContactIds.filter((id) => !found.has(id));
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'CONTACT_RESULT_MISMATCH',
+          'Některé vybrané kontakty nepatří k ukládané firmě.',
+          400,
+          'SAVE_PROSPECT_WITH_CONTACTS',
+          undefined,
+          {
+            validContactIds: [...found],
+            invalidContactIds: missing,
+            searchResultId,
+          },
+        ),
+      );
+    }
+
+    return { contactsToTransfer, outreachIds: new Set(validContactIds) };
+  }
+
   async transferSearchContactsToProspect(
     tx: Prisma.TransactionClient,
     prospectId: string,
     searchResultId: string,
     options?: SaveSearchResultOptions & { explicitEmptySelection?: boolean },
   ): Promise<{ contactsSaved: number; emailsSaved: number; phonesSaved: number }> {
-    const enrichedContacts = await tx.aiSalesPublicContact.findMany({
-      where: { searchResultId },
-      orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }],
-    });
+    const { contactsToTransfer, outreachIds } = await this.validateContactSelectionForSave(
+      tx,
+      searchResultId,
+      options,
+    );
 
-    if (enrichedContacts.length === 0) {
+    if (contactsToTransfer.length === 0) {
       return { contactsSaved: 0, emailsSaved: 0, phonesSaved: 0 };
-    }
-
-    const explicitEmpty =
-      options?.explicitEmptySelection === true ||
-      (Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0);
-
-    if (explicitEmpty) {
-      return { contactsSaved: 0, emailsSaved: 0, phonesSaved: 0 };
-    }
-
-    const outreachIds = new Set<string>();
-    if (options?.selectedContactIds?.length) {
-      const valid = new Set(enrichedContacts.map((c) => c.id));
-      for (const id of options.selectedContactIds) {
-        if (!valid.has(id)) {
-          throw new BadRequestException(`Kontakt ${id} nepatří k tomuto výsledku vyhledávání.`);
-        }
-        outreachIds.add(id);
-      }
-    } else {
-      for (const c of enrichedContacts) {
-        outreachIds.add(c.id);
-      }
     }
 
     let contactsSaved = 0;
     let emailsSaved = 0;
     let phonesSaved = 0;
 
-    for (const contact of enrichedContacts) {
+    for (const contact of contactsToTransfer) {
       const normalized =
         contact.normalizedValue ?? this.normalizeValue(contact.type, contact.value);
       const isSelectedForOutreach = outreachIds.has(contact.id);
@@ -296,6 +354,19 @@ export class AiSalesPublicContactService {
     }
 
     if (options?.primaryEmailContactId) {
+      const primaryValid = contactsToTransfer.some((c) => c.id === options.primaryEmailContactId);
+      if (!primaryValid) {
+        throw new AiSalesAdminException(
+          buildSalesAdminError(
+            'CONTACT_RESULT_MISMATCH',
+            'Primární e-mail nepatří k vybraným kontaktům této firmy.',
+            400,
+            'SAVE_PROSPECT_WITH_CONTACTS',
+            undefined,
+            { searchResultId },
+          ),
+        );
+      }
       await tx.aiSalesPublicContact.updateMany({
         where: { prospectId, type: AiSalesContactType.EMAIL },
         data: { isPrimary: false },
@@ -307,6 +378,19 @@ export class AiSalesPublicContactService {
     }
 
     if (options?.primaryPhoneContactId) {
+      const primaryValid = contactsToTransfer.some((c) => c.id === options.primaryPhoneContactId);
+      if (!primaryValid) {
+        throw new AiSalesAdminException(
+          buildSalesAdminError(
+            'CONTACT_RESULT_MISMATCH',
+            'Primární telefon nepatří k vybraným kontaktům této firmy.',
+            400,
+            'SAVE_PROSPECT_WITH_CONTACTS',
+            undefined,
+            { searchResultId },
+          ),
+        );
+      }
       await tx.aiSalesPublicContact.updateMany({
         where: { prospectId, type: AiSalesContactType.PHONE },
         data: { isPrimary: false },

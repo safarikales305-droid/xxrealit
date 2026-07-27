@@ -8,6 +8,9 @@ export type AiSalesApiError = {
   httpStatus: number;
   phase?: string;
   technicalContext?: Record<string, string | number | boolean | null>;
+  validContactIds?: string[];
+  invalidContactIds?: string[];
+  searchResultId?: string;
 };
 
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -53,6 +56,9 @@ async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit
       error.httpStatus = res.status;
       error.phase = err?.phase;
       error.technicalContext = err?.technicalContext;
+      error.validContactIds = err?.validContactIds;
+      error.invalidContactIds = err?.invalidContactIds;
+      error.searchResultId = err?.searchResultId;
       throw error;
     }
 
@@ -207,6 +213,7 @@ export type AiSalesSearchResult = {
 
 export type AiSalesPublicContact = {
   id: string;
+  searchResultId?: string | null;
   type: string;
   value: string;
   normalizedValue: string | null;
@@ -244,6 +251,7 @@ export type AiSalesMessageRecipient = {
 
 export type EnrichmentResult = {
   success: boolean;
+  searchResultId?: string;
   verificationStatus: string;
   email: string | null;
   phone: string | null;

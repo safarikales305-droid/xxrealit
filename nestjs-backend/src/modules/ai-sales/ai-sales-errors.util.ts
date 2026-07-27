@@ -40,6 +40,7 @@ export type AiSalesErrorCode =
   | 'MISSING_EMAIL'
   | 'MESSAGE_GENERATION_FAILED'
   | 'SAVE_PROSPECT_FAILED'
+  | 'CONTACT_RESULT_MISMATCH'
   | 'PROMPT_NOT_ACTIVE'
   | 'KNOWLEDGE_NOT_APPROVED'
   | 'INSUFFICIENT_PERMISSIONS'
@@ -52,6 +53,9 @@ export type AiSalesAdminErrorBody = {
   httpStatus: number;
   phase?: string;
   technicalContext?: Record<string, string | number | boolean | null>;
+  validContactIds?: string[];
+  invalidContactIds?: string[];
+  searchResultId?: string;
 };
 
 export class AiSalesAdminException extends HttpException {
@@ -66,6 +70,7 @@ export function buildSalesAdminError(
   httpStatus: number,
   phase?: string,
   technicalContext?: AiSalesAdminErrorBody['technicalContext'],
+  extra?: Pick<AiSalesAdminErrorBody, 'validContactIds' | 'invalidContactIds' | 'searchResultId'>,
 ): AiSalesAdminErrorBody {
   return {
     success: false,
@@ -74,6 +79,7 @@ export function buildSalesAdminError(
     httpStatus,
     ...(phase ? { phase } : {}),
     ...(technicalContext ? { technicalContext } : {}),
+    ...(extra ?? {}),
   };
 }
 

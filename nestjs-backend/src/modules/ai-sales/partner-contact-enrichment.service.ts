@@ -27,6 +27,7 @@ export type EnrichmentResult = {
   visitedPages: Array<{ url: string; title: string; status: number }>;
   contacts: Array<{
     id: string;
+    searchResultId?: string;
     type: string;
     value: string;
     sourceUrl: string | null;
@@ -359,6 +360,7 @@ export class PartnerContactEnrichmentService {
       if (i === 0) primaryEmail = em.normalizedValue;
       createdContacts.push({
         id: row.id,
+        searchResultId: opts.searchResultId,
         type: 'EMAIL',
         value: em.value,
         sourceUrl: row.sourceUrl,
@@ -390,6 +392,7 @@ export class PartnerContactEnrichmentService {
       if (j === 0) primaryPhone = ph.normalizedValue;
       createdContacts.push({
         id: row.id,
+        searchResultId: opts.searchResultId,
         type: 'PHONE',
         value: ph.value,
         sourceUrl: row.sourceUrl,

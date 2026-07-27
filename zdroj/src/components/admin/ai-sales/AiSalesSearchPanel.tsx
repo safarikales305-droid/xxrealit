@@ -32,6 +32,27 @@ type Props = {
 
 type SkippedSource = { source: string; code: string; message: string };
 
+type ContactSelection = {
+  selectedContactIds: string[];
+  primaryEmailContactId: string | null;
+  primaryPhoneContactId: string | null;
+};
+
+const EMPTY_CONTACT_SELECTION: ContactSelection = {
+  selectedContactIds: [],
+  primaryEmailContactId: null,
+  primaryPhoneContactId: null,
+};
+
+function maskSearchResultId(id: string): string {
+  if (id.length <= 10) return id;
+  return `${id.slice(0, 4)}…${id.slice(-4)}`;
+}
+
+function filterContactsForResult(contacts: AiSalesPublicContact[], resultId: string): AiSalesPublicContact[] {
+  return contacts.filter((contact) => contact.searchResultId === resultId);
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   INTERNAL_DATABASE: 'Interní DB',
   APPROVED_WEB_PROVIDER: 'Web',
@@ -64,16 +85,23 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
   const [enrichingId, setEnrichingId] = useState<string | null>(null);
   const [contactPreview, setContactPreview] = useState<{
     resultId: string;
+    companyName: string;
     contacts: AiSalesPublicContact[];
     visitedPages: EnrichmentResult['visitedPages'];
   } | null>(null);
-  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
-  const [primaryEmailContactId, setPrimaryEmailContactId] = useState<string | null>(null);
-  const [primaryPhoneContactId, setPrimaryPhoneContactId] = useState<string | null>(null);
+  const [contactSelectionByResult, setContactSelectionByResult] = useState<Record<string, ContactSelection>>({});
+  const [contactMismatch, setContactMismatch] = useState<{
+    resultId: string;
+    message: string;
+    validContactIds: string[];
+    invalidContactIds: string[];
+  } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<{
     resultId: string;
     prospectId: string;
     savedContacts: number;
+    emailsSaved: number;
+    phonesSaved: number;
     primaryEmail: string | null;
     primaryPhone: string | null;
     action: string;
@@ -254,35 +282,92 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     await runSearch(['INTERNAL_DATABASE']);
   }
 
-  function initContactSelection(contacts: AiSalesPublicContact[]) {
-    const ids = new Set(contacts.map((c) => c.id));
-    setSelectedContactIds(ids);
-    setPrimaryEmailContactId(contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'EMAIL')?.id ?? null);
-    setPrimaryPhoneContactId(contacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'PHONE')?.id ?? null);
-  }
+  const getSelectionForResult = useCallback(
+    (resultId: string): ContactSelection => contactSelectionByResult[resultId] ?? EMPTY_CONTACT_SELECTION,
+    [contactSelectionByResult],
+  );
 
-  function toggleContactSelection(contactId: string) {
-    setSelectedContactIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(contactId)) next.delete(contactId);
-      else next.add(contactId);
-      return next;
+  const setSelectionForResult = useCallback((resultId: string, patch: Partial<ContactSelection>) => {
+    setContactSelectionByResult((prev) => ({
+      ...prev,
+      [resultId]: { ...(prev[resultId] ?? EMPTY_CONTACT_SELECTION), ...patch },
+    }));
+  }, []);
+
+  function initContactSelection(resultId: string, contacts: AiSalesPublicContact[]) {
+    const validContacts = filterContactsForResult(contacts, resultId);
+    const ids = validContacts.map((c) => c.id);
+    setSelectionForResult(resultId, {
+      selectedContactIds: ids,
+      primaryEmailContactId:
+        validContacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ??
+        validContacts.find((c) => c.type === 'EMAIL')?.id ??
+        null,
+      primaryPhoneContactId:
+        validContacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ??
+        validContacts.find((c) => c.type === 'PHONE')?.id ??
+        null,
     });
   }
 
-  function selectAllContacts() {
-    if (!contactPreview) return;
-    setSelectedContactIds(new Set(contactPreview.contacts.map((c) => c.id)));
+  function toggleContactSelection(resultId: string, contactId: string) {
+    const current = getSelectionForResult(resultId);
+    const selected = new Set(current.selectedContactIds);
+    if (selected.has(contactId)) selected.delete(contactId);
+    else selected.add(contactId);
+    setSelectionForResult(resultId, { selectedContactIds: [...selected] });
   }
 
-  function clearContactSelection() {
-    setSelectedContactIds(new Set());
+  function selectAllContacts(resultId: string, contacts: AiSalesPublicContact[]) {
+    const validContacts = filterContactsForResult(contacts, resultId);
+    setSelectionForResult(resultId, { selectedContactIds: validContacts.map((c) => c.id) });
   }
 
-  function setPrimaryContact(contactId: string, type: 'EMAIL' | 'PHONE') {
-    if (type === 'EMAIL') setPrimaryEmailContactId(contactId);
-    else setPrimaryPhoneContactId(contactId);
-    setSelectedContactIds((prev) => new Set([...prev, contactId]));
+  function clearContactSelection(resultId: string) {
+    setSelectionForResult(resultId, {
+      selectedContactIds: [],
+      primaryEmailContactId: null,
+      primaryPhoneContactId: null,
+    });
+  }
+
+  function setPrimaryContact(resultId: string, contactId: string, type: 'EMAIL' | 'PHONE') {
+    const current = getSelectionForResult(resultId);
+    const selected = new Set(current.selectedContactIds);
+    selected.add(contactId);
+    if (type === 'EMAIL') {
+      setSelectionForResult(resultId, {
+        selectedContactIds: [...selected],
+        primaryEmailContactId: contactId,
+      });
+    } else {
+      setSelectionForResult(resultId, {
+        selectedContactIds: [...selected],
+        primaryPhoneContactId: contactId,
+      });
+    }
+  }
+
+  function buildValidSavePayload(
+    resultId: string,
+    contacts: AiSalesPublicContact[],
+    overrideContactIds?: string[],
+  ) {
+    const validContacts = filterContactsForResult(contacts, resultId);
+    const selection = getSelectionForResult(resultId);
+    const sourceIds = overrideContactIds ?? selection.selectedContactIds;
+    const validSelectedContactIds = sourceIds.filter((id) => validContacts.some((c) => c.id === id));
+
+    let primaryEmailContactId = selection.primaryEmailContactId;
+    let primaryPhoneContactId = selection.primaryPhoneContactId;
+    if (primaryEmailContactId && !validSelectedContactIds.includes(primaryEmailContactId)) {
+      primaryEmailContactId = null;
+    }
+    if (primaryPhoneContactId && !validSelectedContactIds.includes(primaryPhoneContactId)) {
+      primaryPhoneContactId = null;
+    }
+
+    return { validContacts, validSelectedContactIds, primaryEmailContactId, primaryPhoneContactId };
   }
 
   async function bulkSave() {
@@ -290,7 +375,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     setBusy(true);
     try {
       for (const id of selected) {
-        const contacts = await getSearchResultContacts(token, id);
+        const contacts = filterContactsForResult(await getSearchResultContacts(token, id), id);
         await saveSearchResult(token, id, {
           selectedContactIds: contacts.map((c) => c.id),
           primaryEmailContactId: contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id,
@@ -321,13 +406,33 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
 
   const handleEnrichResult = async (resultId: string) => {
     if (!ensureToken()) return;
+    const resultRow = results.find((r) => r.id === resultId);
     setEnrichingId(resultId);
     setAnalyzeWarning(null);
+    setContactMismatch(null);
     try {
       const res = await enrichSearchResult(token, resultId);
-      const contacts = await getSearchResultContacts(token, resultId);
-      setContactPreview({ resultId, contacts, visitedPages: res.visitedPages ?? [] });
-      initContactSelection(contacts);
+      if (res.searchResultId && res.searchResultId !== resultId) {
+        setAnalyzeWarning('Odpověď dohledání neodpovídá vybrané firmě. Zkuste to znovu.');
+        return;
+      }
+
+      const rawContacts =
+        res.contacts.length > 0
+          ? (res.contacts as AiSalesPublicContact[])
+          : await getSearchResultContacts(token, resultId);
+      const contacts = filterContactsForResult(
+        rawContacts.map((c) => ({ ...c, searchResultId: c.searchResultId ?? resultId })),
+        resultId,
+      );
+
+      setContactPreview({
+        resultId,
+        companyName: resultRow?.companyName ?? '—',
+        contacts,
+        visitedPages: res.visitedPages ?? [],
+      });
+      initContactSelection(resultId, contacts);
       await refreshResults();
     } catch (e) {
       setAnalyzeWarning(e instanceof Error ? e.message : 'Dohledání kontaktů selhalo.');
@@ -351,24 +456,55 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     }
   };
 
-  const handleSaveResult = async (resultId: string, forceWithoutContacts = false) => {
+  const handleSaveResult = async (
+    resultId: string,
+    forceWithoutContacts = false,
+    overrideContactIds?: string[],
+  ) => {
     if (!ensureToken()) return;
+    if (!resultId) {
+      setSearchError({
+        message: 'Chybí výsledek vyhledávání.',
+        code: 'INVALID_REQUEST',
+        httpStatus: 400,
+        success: false,
+      });
+      return;
+    }
 
-    const contacts = contactPreview?.resultId === resultId
-      ? contactPreview.contacts
-      : await getSearchResultContacts(token, resultId);
-
-    let contactIds = contactPreview?.resultId === resultId ? [...selectedContactIds] : contacts.map((c) => c.id);
-    let emailPrimaryId =
+    const contacts =
       contactPreview?.resultId === resultId
-        ? primaryEmailContactId
-        : contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'EMAIL')?.id ?? null;
-    let phonePrimaryId =
-      contactPreview?.resultId === resultId
-        ? primaryPhoneContactId
-        : contacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'PHONE')?.id ?? null;
+        ? contactPreview.contacts
+        : filterContactsForResult(await getSearchResultContacts(token, resultId), resultId);
 
-    if (!forceWithoutContacts && contacts.length > 0 && contactIds.length === 0) {
+    const validContactsList = filterContactsForResult(contacts, resultId);
+    const contactIdsSource =
+      overrideContactIds ??
+      (contactPreview?.resultId === resultId
+        ? getSelectionForResult(resultId).selectedContactIds
+        : validContactsList.map((c) => c.id));
+
+    let { validContacts, validSelectedContactIds, primaryEmailContactId, primaryPhoneContactId } =
+      buildValidSavePayload(resultId, contacts, contactIdsSource);
+
+    if (contactPreview?.resultId !== resultId) {
+      primaryEmailContactId =
+        validContacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ??
+        validContacts.find((c) => c.type === 'EMAIL')?.id ??
+        null;
+      primaryPhoneContactId =
+        validContacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ??
+        validContacts.find((c) => c.type === 'PHONE')?.id ??
+        null;
+      if (primaryEmailContactId && !validSelectedContactIds.includes(primaryEmailContactId)) {
+        primaryEmailContactId = null;
+      }
+      if (primaryPhoneContactId && !validSelectedContactIds.includes(primaryPhoneContactId)) {
+        primaryPhoneContactId = null;
+      }
+    }
+
+    if (!forceWithoutContacts && validContacts.length > 0 && validSelectedContactIds.length === 0) {
       const ok = window.confirm(
         'Nevybrali jste žádný kontakt. Partner bude uložen bez e-mailu a telefonu. Pokračovat?',
       );
@@ -378,11 +514,12 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     setProcessingResultId(resultId);
     setAnalyzeWarning(null);
     setSaveSuccess(null);
+    setContactMismatch(null);
     try {
       const res = await saveSearchResult(token, resultId, {
-        selectedContactIds: forceWithoutContacts ? [] : contactIds,
-        primaryEmailContactId: emailPrimaryId ?? undefined,
-        primaryPhoneContactId: phonePrimaryId ?? undefined,
+        selectedContactIds: forceWithoutContacts ? [] : validSelectedContactIds,
+        primaryEmailContactId: primaryEmailContactId ?? undefined,
+        primaryPhoneContactId: primaryPhoneContactId ?? undefined,
       });
 
       if (res.analysisUnavailable) {
@@ -394,6 +531,8 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
         resultId,
         prospectId: res.prospectId,
         savedContacts: res.savedContacts,
+        emailsSaved: res.emailsSaved ?? 0,
+        phonesSaved: res.phonesSaved ?? 0,
         primaryEmail: res.primaryEmail,
         primaryPhone: res.primaryPhone,
         action: res.action,
@@ -404,6 +543,15 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
       await refreshResults();
     } catch (e) {
       const err = e as Error & AiSalesApiError;
+      if (err.code === 'CONTACT_RESULT_MISMATCH') {
+        setContactMismatch({
+          resultId,
+          message: err.message || 'Některé vybrané kontakty nepatří k ukládané firmě.',
+          validContactIds: err.validContactIds ?? [],
+          invalidContactIds: err.invalidContactIds ?? [],
+        });
+        return;
+      }
       setSearchError({
         message: err.message || 'Partnera se nepodařilo uložit.',
         code: err.code ?? 'SAVE_PROSPECT_FAILED',
@@ -415,6 +563,33 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
       setProcessingResultId(null);
     }
   };
+
+  async function reloadContactsForResult(resultId: string) {
+    if (!ensureToken()) return;
+    const resultRow = results.find((r) => r.id === resultId);
+    const contacts = filterContactsForResult(await getSearchResultContacts(token, resultId), resultId);
+    setContactPreview({
+      resultId,
+      companyName: resultRow?.companyName ?? contactPreview?.companyName ?? '—',
+      contacts,
+      visitedPages: contactPreview?.resultId === resultId ? contactPreview.visitedPages : [],
+    });
+    initContactSelection(resultId, contacts);
+    setContactMismatch(null);
+  }
+
+  function clearInvalidContactSelection(resultId: string) {
+    const mismatch = contactMismatch?.resultId === resultId ? contactMismatch : null;
+    if (!mismatch) return;
+    setSelectionForResult(resultId, { selectedContactIds: mismatch.validContactIds });
+    if (contactPreview?.resultId === resultId) {
+      setContactPreview({
+        ...contactPreview,
+        contacts: filterContactsForResult(contactPreview.contacts, resultId),
+      });
+    }
+    setContactMismatch(null);
+  }
 
   const handleAnalyzeResult = async (resultId: string) => {
     if (!ensureToken()) return;
@@ -499,7 +674,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
   }
 
   function formatStatus(r: AiSalesSearchResult) {
-    if (r.savedProspectId) return 'Uložen';
+    if (r.savedProspectId) return 'ULOŽENO';
     if (r.doNotContact) return 'DNC';
     if (r.verificationStatus === 'DUPLICATE') return 'Duplicita';
     return 'Nový';
@@ -572,8 +747,10 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
 
       {saveSuccess ? (
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-          <p className="font-semibold">Partner uložen ({saveSuccess.action === 'UPDATED' ? 'aktualizován' : 'vytvořen'})</p>
+          <p className="font-semibold">Partner byl uložen ({saveSuccess.action === 'UPDATED' ? 'aktualizován' : 'vytvořen'})</p>
           <p>Uloženo kontaktů: {saveSuccess.savedContacts}</p>
+          <p>Uloženo e-mailů: {saveSuccess.emailsSaved}</p>
+          <p>Uloženo telefonů: {saveSuccess.phonesSaved}</p>
           <p>Primární e-mail: {saveSuccess.primaryEmail ?? '—'}</p>
           <p>Primární telefon: {saveSuccess.primaryPhone ?? '—'}</p>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -597,13 +774,88 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{saveNotice}</div>
       ) : null}
 
+      {contactMismatch ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Výběr kontaktů obsahoval údaje jiné firmy.</p>
+          <p className="mt-1">{contactMismatch.message}</p>
+          <p className="mt-1 text-xs">
+            Neplatných kontaktů: {contactMismatch.invalidContactIds.length} · Platných:{' '}
+            {contactMismatch.validContactIds.length}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded border border-amber-400 bg-white px-3 py-1 text-xs"
+              onClick={() => clearInvalidContactSelection(contactMismatch.resultId)}
+            >
+              Vyčistit neplatné kontakty
+            </button>
+            <button
+              type="button"
+              className="rounded border border-amber-400 bg-white px-3 py-1 text-xs"
+              onClick={() => void reloadContactsForResult(contactMismatch.resultId)}
+            >
+              Načíst kontakty znovu
+            </button>
+            <button
+              type="button"
+              className="rounded bg-green-600 px-3 py-1 text-xs text-white"
+              onClick={() =>
+                void handleSaveResult(contactMismatch.resultId, false, contactMismatch.validContactIds)
+              }
+            >
+              Uložit pouze platné kontakty
+            </button>
+            <button
+              type="button"
+              className="rounded border px-3 py-1 text-xs"
+              onClick={() => setContactMismatch(null)}
+            >
+              Zrušit
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {contactPreview ? (
+        (() => {
+          const previewResultId = contactPreview.resultId;
+          const validContacts = filterContactsForResult(contactPreview.contacts, previewResultId);
+          const selection = getSelectionForResult(previewResultId);
+          const selectedCount = selection.selectedContactIds.filter((id) =>
+            validContacts.some((c) => c.id === id),
+          ).length;
+          const savedRow = results.find((r) => r.id === previewResultId);
+
+          return (
         <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm">
           <div className="mb-2 flex items-center justify-between">
             <p className="font-semibold">Nalezené kontakty a zdroje</p>
-            <button type="button" className="text-xs underline" onClick={() => setContactPreview(null)}>
+            <button
+              type="button"
+              className="text-xs underline"
+              onClick={() => {
+                setContactPreview(null);
+                setContactMismatch(null);
+              }}
+            >
               Zavřít
             </button>
+          </div>
+          <div className="mb-3 rounded border border-zinc-100 bg-zinc-50 p-2 text-xs text-zinc-700">
+            <p>
+              <span className="font-medium">Firma:</span> {contactPreview.companyName}
+            </p>
+            <p>
+              <span className="font-medium">Search result ID:</span>{' '}
+              <code>{maskSearchResultId(previewResultId)}</code>
+            </p>
+            <p>
+              <span className="font-medium">Nalezeno kontaktů pro tuto firmu:</span> {validContacts.length}
+            </p>
+            <p>
+              <span className="font-medium">Vybráno:</span> {selectedCount}
+            </p>
           </div>
           {contactPreview.visitedPages.length > 0 ? (
             <div className="mb-3">
@@ -619,30 +871,42 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
               </ul>
             </div>
           ) : null}
-          {contactPreview.contacts.length === 0 ? (
+          {validContacts.length === 0 ? (
             <p className="text-zinc-600">Veřejný e-mail ani telefon nebyly na webu nalezeny.</p>
           ) : (
             <>
               <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                <button type="button" className="rounded border px-2 py-0.5" onClick={selectAllContacts}>Vybrat vše</button>
-                <button type="button" className="rounded border px-2 py-0.5" onClick={clearContactSelection}>Zrušit výběr</button>
+                <button
+                  type="button"
+                  className="rounded border px-2 py-0.5"
+                  onClick={() => selectAllContacts(previewResultId, validContacts)}
+                >
+                  Vybrat vše
+                </button>
+                <button
+                  type="button"
+                  className="rounded border px-2 py-0.5"
+                  onClick={() => clearContactSelection(previewResultId)}
+                >
+                  Zrušit výběr
+                </button>
               </div>
               <ul className="space-y-2">
-                {contactPreview.contacts.map((c) => (
+                {validContacts.map((c) => (
                   <li key={c.id} className="rounded border border-zinc-100 bg-zinc-50 p-2">
                     <label className="flex items-start gap-2">
                       <input
                         type="checkbox"
-                        checked={selectedContactIds.has(c.id)}
-                        onChange={() => toggleContactSelection(c.id)}
+                        checked={selection.selectedContactIds.includes(c.id)}
+                        onChange={() => toggleContactSelection(previewResultId, c.id)}
                         className="mt-1"
                       />
                       <div className="flex-1">
                         <p className="font-medium">
                           {c.type}: {c.value}
                           {c.isPrimary ? ' · primární' : ''}
-                          {primaryEmailContactId === c.id ? ' · primární e-mail' : ''}
-                          {primaryPhoneContactId === c.id ? ' · primární telefon' : ''}
+                          {selection.primaryEmailContactId === c.id ? ' · primární e-mail' : ''}
+                          {selection.primaryPhoneContactId === c.id ? ' · primární telefon' : ''}
                         </p>
                         {c.label ? <p className="text-xs text-zinc-600">{c.label}</p> : null}
                         {c.sourceUrl ? (
@@ -658,12 +922,20 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
                         ) : null}
                         <div className="mt-1 flex flex-wrap gap-2 text-xs">
                           {c.type === 'EMAIL' ? (
-                            <button type="button" className="underline" onClick={() => setPrimaryContact(c.id, 'EMAIL')}>
+                            <button
+                              type="button"
+                              className="underline"
+                              onClick={() => setPrimaryContact(previewResultId, c.id, 'EMAIL')}
+                            >
                               Nastavit jako primární e-mail
                             </button>
                           ) : null}
                           {c.type === 'PHONE' ? (
-                            <button type="button" className="underline" onClick={() => setPrimaryContact(c.id, 'PHONE')}>
+                            <button
+                              type="button"
+                              className="underline"
+                              onClick={() => setPrimaryContact(previewResultId, c.id, 'PHONE')}
+                            >
                               Nastavit jako primární telefon
                             </button>
                           ) : null}
@@ -675,15 +947,19 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
               </ul>
               <button
                 type="button"
-                disabled={rowBusy(contactPreview.resultId)}
-                onClick={() => void handleSaveResult(contactPreview.resultId)}
+                disabled={rowBusy(previewResultId)}
+                onClick={() => void handleSaveResult(previewResultId)}
                 className="mt-3 rounded bg-green-600 px-4 py-2 text-sm text-white disabled:opacity-50"
               >
-                Uložit vybrané kontakty a partnera ({selectedContactIds.size})
+                {savedRow?.savedProspectId
+                  ? `Aktualizovat vybrané kontakty a partnera (${selectedCount})`
+                  : `Uložit vybrané kontakty a partnera (${selectedCount})`}
               </button>
             </>
           )}
         </div>
+          );
+        })()
       ) : null}
 
       {analyzeWarning ? (
@@ -780,7 +1056,12 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
                         <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleAnalyzeResult(r.id)} className="rounded border px-2 py-0.5">
                           Analyzovat
                         </button>
-                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact} onClick={() => void handleSaveResult(r.id)} className="rounded border px-2 py-0.5 bg-green-50 border-green-200">
+                        <button
+                          type="button"
+                          disabled={rowBusy(r.id) || r.doNotContact}
+                          onClick={() => void handleSaveResult(r.id)}
+                          className="rounded border px-2 py-0.5 bg-green-50 border-green-200 disabled:opacity-50"
+                        >
                           {r.savedProspectId ? 'Aktualizovat partnera' : 'Uložit partnera'}
                         </button>
                         <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleRejectResult(r.id)} className="rounded border px-2 py-0.5">

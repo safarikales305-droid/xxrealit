@@ -547,14 +547,14 @@ export class PartnerSearchService {
           throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT.');
         }
 
-        const selectedIds = new Set(options?.selectedContactIds ?? []);
+        const selection = await this.publicContacts.validateContactSelectionForSave(tx, resultId, {
+          ...options,
+          explicitEmptySelection:
+            Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0,
+        });
+
         const enrichedContacts = result.publicContacts;
-        const outreachCheckIds =
-          selectedIds.size > 0
-            ? selectedIds
-            : Array.isArray(options?.selectedContactIds)
-              ? selectedIds
-              : new Set(enrichedContacts.map((c) => c.id));
+        const outreachCheckIds = selection.outreachIds;
 
         for (const contact of enrichedContacts) {
           if (contact.type === AiSalesContactType.EMAIL && contact.normalizedValue && outreachCheckIds.has(contact.id)) {
@@ -679,6 +679,7 @@ export class PartnerSearchService {
         };
       });
     } catch (err) {
+      if (err instanceof AiSalesAdminException) throw err;
       if (
         err instanceof NotFoundException ||
         err instanceof ForbiddenException ||
