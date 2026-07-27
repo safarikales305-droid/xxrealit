@@ -38,6 +38,14 @@ function resolveIntentSlug(input: SeoAiGenerateInput): string {
   return resolveIntentSlugFromEnums(offer, property, input.intentSlug);
 }
 
+export type SeoAiGenerateOptions = {
+  isTest?: boolean;
+  batch?: boolean;
+  existingPageId?: string;
+  /** Co dělat, když stránka pro kombinaci už existuje */
+  onExisting?: 'update' | 'skip' | 'fail';
+};
+
 @Injectable()
 export class SeoAiGenerationService {
   private readonly log = new Logger(SeoAiGenerationService.name);
@@ -51,13 +59,77 @@ export class SeoAiGenerationService {
   ) {}
 
   async generateTestPage(input: SeoAiGenerateInput, userId?: string) {
-    return this.generateAndSave(input, userId, { isTest: true });
+    return this.generateSeoAiPage(input, userId, { isTest: true, onExisting: 'update' });
+  }
+
+  /** Společná metoda pro testovací i dávkové generování. */
+  async generateSeoAiPage(
+    input: SeoAiGenerateInput,
+    userId?: string,
+    opts?: SeoAiGenerateOptions,
+  ) {
+    return this.generateAndSave(input, userId, opts);
+  }
+
+  async validatePreflight(): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const openAiStatus = await this.openai.getStatus();
+    if (!openAiStatus.enabled) {
+      return { ok: false, code: 'OPENAI_DISABLED', message: 'OpenAI je vypnuté.' };
+    }
+    if (!openAiStatus.apiKeyConfigured) {
+      return { ok: false, code: 'OPENAI_NOT_CONFIGURED', message: 'Chybí OpenAI API klíč.' };
+    }
+    const prompt = await this.prisma.aiPromptVersion.findFirst({
+      where: { feature: 'SEO_PAGE_GENERATION', status: AiPromptStatus.ACTIVE },
+      orderBy: { activatedAt: 'desc' },
+    });
+    if (!prompt) {
+      return {
+        ok: false,
+        code: 'ACTIVE_PROMPT_NOT_FOUND',
+        message: 'AI úlohu nelze spustit: chybí aktivní SEO prompt (SEO_PAGE_GENERATION).',
+      };
+    }
+    return { ok: true };
+  }
+
+  normalizeBatchInput(raw: SeoAiGenerateInput, item?: { locationId?: string | null; intentSlug?: string | null }): SeoAiGenerateInput {
+    const intentSlug = item?.intentSlug ?? raw.intentSlug ?? resolveIntentSlug(raw);
+    const intent = getProgrammaticSeoIntent(intentSlug as never);
+    return {
+      ...raw,
+      localityId: item?.locationId ?? raw.localityId,
+      intentSlug,
+      localitySlug: raw.localitySlug ?? raw.locationSlug,
+      locationSlug: raw.locationSlug ?? raw.localitySlug,
+      offerType: raw.offerType ?? (intent?.offerType === 'pronajem' ? 'RENT' : 'SALE'),
+      propertyType:
+        raw.propertyType ??
+        (intent?.propertyTypeKey === 'byt'
+          ? 'APARTMENT'
+          : intent?.propertyTypeKey === 'dum'
+            ? 'HOUSE'
+            : intent?.propertyTypeKey === 'pozemek'
+              ? 'LAND'
+              : intent?.propertyTypeKey === 'garaz'
+                ? 'GARAGE'
+                : intent?.propertyTypeKey?.includes('komerc')
+                  ? 'COMMERCIAL'
+                  : undefined),
+      tone: normalizeSeoAiTone(raw.tone),
+      targetAudience: normalizeSeoAiAudience(raw.targetAudience),
+      contentLength: normalizeSeoAiContentLength(raw.contentLength ?? raw.length),
+      initialStatus: raw.initialStatus ?? raw.status ?? 'REVIEW',
+      useListings: raw.useListings !== false,
+      useRuian: raw.useRuian !== false,
+      useCsu: raw.useCsu !== false,
+    };
   }
 
   async generateAndSave(
     input: SeoAiGenerateInput,
     userId?: string,
-    opts?: { isTest?: boolean; existingPageId?: string },
+    opts?: SeoAiGenerateOptions,
   ) {
     const startedAt = Date.now();
     const intentSlug = resolveIntentSlug(input);
@@ -147,18 +219,51 @@ export class SeoAiGenerationService {
       where: { pageKey },
       select: { id: true, status: true, generationMode: true },
     });
-    if (existingPage && !opts?.existingPageId && !opts?.isTest) {
-      throw new SeoAiHttpException(
-        'SEO_PAGE_ALREADY_EXISTS',
-        'Pro tuto lokalitu a typ nabídky už existuje SEO stránka.',
-        HttpStatus.CONFLICT,
-        {
+
+    const onExisting = opts?.onExisting ?? (opts?.batch || opts?.isTest ? 'update' : 'fail');
+    let existingPageId = opts?.existingPageId;
+
+    if (existingPage && !existingPageId) {
+      if (onExisting === 'skip') {
+        const durationMs = Date.now() - startedAt;
+        return {
+          success: true,
+          skipped: true,
+          skipReason: 'SKIPPED_ALREADY_EXISTS',
+          action: 'skipped' as const,
+          pageId: existingPage.id,
           existingPageId: existingPage.id,
-          actions: ['CREATE_REVISION', 'AI_IMPROVE_EXISTING', 'CANCEL'],
-        },
-      );
+          slug: publicPath.replace(/^\//, ''),
+          publicPath,
+          previewUrl: `/admin/seo/pages/${existingPage.id}/preview`,
+          localityId: dbLoc.id,
+          localitySlug: dbLoc.slug,
+          localityName: dbLoc.name,
+          intentSlug,
+          status: existingPage.status,
+          durationMs,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostCzk: 0,
+          warnings: ['Stránka pro tuto kombinaci již existuje — přeskočeno.'],
+        };
+      }
+      if (onExisting === 'update') {
+        existingPageId = existingPage.id;
+      } else {
+        throw new SeoAiHttpException(
+          'SEO_PAGE_ALREADY_EXISTS',
+          'Pro tuto lokalitu a typ nabídky už existuje SEO stránka.',
+          HttpStatus.CONFLICT,
+          {
+            existingPageId: existingPage.id,
+            actions: ['CREATE_REVISION', 'AI_IMPROVE_EXISTING', 'CANCEL'],
+            phase: 'DUPLICATE_CHECK',
+          },
+        );
+      }
     }
-    const existingPageId = opts?.existingPageId ?? (existingPage && opts?.isTest ? existingPage.id : undefined);
+
     const locForCopy = seoLocationToCopyInput(dbLoc) as CzGeoLocation;
     const extended = buildExtendedSeoMetadata(intent, locForCopy, {
       path: publicPath,
@@ -295,6 +400,8 @@ export class SeoAiGenerationService {
       analysisStatus: 'COMPLETED',
       localityId: dbLoc.id,
       localitySlug: dbLoc.slug,
+      localityName: dbLoc.name,
+      intentSlug,
       generation: {
         model: aiResult.model,
         durationMs,

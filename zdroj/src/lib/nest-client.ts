@@ -14713,10 +14713,63 @@ export type SeoAiJobView = {
   reviewCount: number;
   regeneratedCount: number;
   errorCount: number;
+  skippedCount: number;
+  retriedCount: number;
+  requestCount: number;
+  successfulRequestCount: number;
+  failedRequestCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
   estimatedCostCzk: number;
   actualCostCzk: number;
   currentItem: string | null;
+  lastError?: string | null;
+  pauseReason?: string | null;
   progressPct?: number;
+  items?: SeoAiJobItemView[];
+};
+
+export type SeoAiJobItemView = {
+  order?: number;
+  id: string;
+  status: string;
+  localityName: string | null;
+  localitySlug: string | null;
+  intentSlug: string | null;
+  offerType: string | null;
+  propertyType: string | null;
+  phase: string | null;
+  attempt: number;
+  qualityScore: number | null;
+  uniquenessScore: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  httpStatus: number | null;
+  durationMs: number | null;
+  seoPageId: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costCzk: number;
+  warningsJson?: unknown;
+  outputPreviewJson?: unknown;
+  inputJson?: unknown;
+  seoPage?: { id: string; title: string | null; status: string } | null;
+};
+
+export type SeoAiJobErrorView = {
+  index: number;
+  itemId: string;
+  localityName: string | null;
+  localitySlug: string | null;
+  intentSlug: string | null;
+  offerType: string | null;
+  propertyType: string | null;
+  phase: string | null;
+  code: string | null;
+  message: string | null;
+  httpStatus: number | null;
+  attempt: number;
+  durationMs: number | null;
 };
 
 async function nestAdminSeoAiJson<T>(
@@ -14881,6 +14934,25 @@ export async function nestAdminSeoAiResumeJob(token: string | null, jobId: strin
 
 export async function nestAdminSeoAiCancelJob(token: string | null, jobId: string) {
   return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: '{}' });
+}
+
+export async function nestAdminSeoAiGetJobItems(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson<SeoAiJobItemView[]>(token, `/jobs/${encodeURIComponent(jobId)}/items`);
+}
+
+export async function nestAdminSeoAiGetJobErrors(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson<SeoAiJobErrorView[]>(token, `/jobs/${encodeURIComponent(jobId)}/errors`);
+}
+
+export async function nestAdminSeoAiRetryFailedJob(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/retry-failed`, { method: 'POST', body: '{}' });
+}
+
+export async function nestAdminSeoAiRetryJobItem(token: string | null, jobId: string, itemId: string) {
+  return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/items/${encodeURIComponent(itemId)}/retry`, {
+    method: 'POST',
+    body: '{}',
+  });
 }
 
 export type SeoIndexabilityRecalculateResult = {

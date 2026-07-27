@@ -12,13 +12,19 @@ import {
   nestAdminSeoAiGenerateTest,
   nestAdminSeoAiGetActiveJob,
   nestAdminSeoAiGetJob,
+  nestAdminSeoAiGetJobErrors,
+  nestAdminSeoAiGetJobItems,
   nestAdminSeoAiPauseJob,
   nestAdminSeoAiResumeJob,
+  nestAdminSeoAiRetryFailedJob,
+  nestAdminSeoAiRetryJobItem,
   nestAdminSeoSearchLocalitiesMain,
   SeoAiApiError,
   type SeoAiDiagnostics,
   type SeoAiGenerateTestResult,
+  type SeoAiJobErrorView,
   type SeoAiJobEstimate,
+  type SeoAiJobItemView,
   type SeoAiJobView,
   type SeoAiLocalitySearchHit,
 } from '@/lib/nest-client';
@@ -89,6 +95,10 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
   const [diagnostics, setDiagnostics] = useState<SeoAiDiagnostics | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [showAiJson, setShowAiJson] = useState(false);
+  const [showJobErrors, setShowJobErrors] = useState(false);
+  const [jobErrors, setJobErrors] = useState<SeoAiJobErrorView[]>([]);
+  const [jobItems, setJobItems] = useState<SeoAiJobItemView[]>([]);
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
   const [localityQuery, setLocalityQuery] = useState('Pardubice');
   const [localityHits, setLocalityHits] = useState<SeoAiLocalitySearchHit[]>([]);
@@ -119,10 +129,24 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
     if (job?.id) {
       const full = await nestAdminSeoAiGetJob(token, job.id);
       setActiveJob(full);
+      if (full?.items?.length) {
+        setJobItems(full.items);
+      } else if (full?.id) {
+        const items = await nestAdminSeoAiGetJobItems(token, full.id);
+        setJobItems(items ?? []);
+      }
     } else {
       setActiveJob(null);
+      setJobItems([]);
     }
   }, [token]);
+
+  const loadJobErrors = useCallback(async () => {
+    if (!activeJob?.id) return;
+    const errors = await nestAdminSeoAiGetJobErrors(token, activeJob.id);
+    setJobErrors(errors ?? []);
+    setShowJobErrors(true);
+  }, [activeJob?.id, token]);
 
   useEffect(() => {
     void refreshJob();
@@ -329,19 +353,46 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
     }
   }
 
-  async function jobAction(action: 'pause' | 'resume' | 'cancel') {
+  async function jobAction(action: 'pause' | 'resume' | 'cancel' | 'retry-failed') {
     if (!activeJob?.id) return;
     setBusy(true);
     try {
       if (action === 'pause') await nestAdminSeoAiPauseJob(token, activeJob.id);
       if (action === 'resume') await nestAdminSeoAiResumeJob(token, activeJob.id);
       if (action === 'cancel') await nestAdminSeoAiCancelJob(token, activeJob.id);
+      if (action === 'retry-failed') await nestAdminSeoAiRetryFailedJob(token, activeJob.id);
       await refreshJob();
     } catch (e) {
       setError(formatApiError(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function retryJobItem(itemId: string) {
+    if (!activeJob?.id) return;
+    setBusy(true);
+    try {
+      await nestAdminSeoAiRetryJobItem(token, activeJob.id, itemId);
+      await refreshJob();
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function itemStatusLabel(status: string) {
+    const map: Record<string, string> = {
+      PENDING: 'Čeká',
+      RUNNING: 'Běží',
+      COMPLETED: 'Vytvořeno',
+      REVIEW: 'Ke kontrole',
+      REGENERATED: 'Regenerováno',
+      FAILED: 'Chyba',
+      SKIPPED: 'Přeskočeno',
+    };
+    return map[status] ?? status;
   }
 
   return (
@@ -438,6 +489,16 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
             Pokračovat v AI úloze
           </button>
         ) : null}
+        {activeJob && activeJob.errorCount > 0 ? (
+          <button type="button" disabled={busy} onClick={() => void jobAction('retry-failed')} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm">
+            Opakovat chybné položky
+          </button>
+        ) : null}
+        {activeJob && activeJob.errorCount > 0 ? (
+          <button type="button" disabled={busy} onClick={() => void loadJobErrors()} className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700">
+            Zobrazit chyby
+          </button>
+        ) : null}
         {activeJob && ['PENDING', 'RUNNING', 'PAUSED'].includes(activeJob.status) ? (
           <button type="button" disabled={busy} onClick={() => void jobAction('cancel')} className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700">
             Zrušit AI úlohu
@@ -465,15 +526,165 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
       ) : null}
 
       {activeJob ? (
-        <div className="rounded-lg border border-violet-100 bg-white p-3 text-sm">
+        <div className="rounded-lg border border-violet-100 bg-white p-3 text-sm space-y-2">
           <p>
-            AI úloha: <strong>{activeJob.status}</strong> · {activeJob.processedCount}/{activeJob.requestedCount} ·
-            vytvořeno {activeJob.createdCount} · ke kontrole {activeJob.reviewCount} · chyby {activeJob.errorCount}
+            AI úloha: <strong>{activeJob.status}</strong> · {activeJob.processedCount}/{activeJob.requestedCount}
+            {activeJob.progressPct != null ? ` (${activeJob.progressPct} %)` : ''}
+          </p>
+          <p className="text-xs text-zinc-700">
+            vytvořeno {activeJob.createdCount}
+            {activeJob.updatedCount > 0 ? ` · aktualizováno ${activeJob.updatedCount}` : ''}
+            {' · '}ke kontrole {activeJob.reviewCount}
+            {' · '}přeskočeno {activeJob.skippedCount ?? 0}
+            {' · '}chyby {activeJob.errorCount}
+            {activeJob.retriedCount ? ` · opakování ${activeJob.retriedCount}` : ''}
           </p>
           {activeJob.currentItem ? <p className="text-xs text-zinc-600">Aktuálně: {activeJob.currentItem}</p> : null}
+          {activeJob.pauseReason ? (
+            <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">
+              {activeJob.pauseReason.startsWith('AUTO_PAUSED')
+                ? 'Úloha byla automaticky pozastavena, protože opakovaně vzniká stejná chyba.'
+                : `Pozastaveno: ${activeJob.pauseReason}`}
+            </p>
+          ) : null}
+          {activeJob.lastError ? <p className="text-xs text-red-700">Poslední chyba: {activeJob.lastError}</p> : null}
           <p className="text-xs text-zinc-600">
-            Náklad: ~{activeJob.estimatedCostCzk} Kč (odhad) / {activeJob.actualCostCzk} Kč (skutečný)
+            Požadavky: {activeJob.requestCount ?? 0} (úspěšné {activeJob.successfulRequestCount ?? 0}, neúspěšné{' '}
+            {activeJob.failedRequestCount ?? 0}) · Tokeny: {activeJob.totalInputTokens ?? 0} in /{' '}
+            {activeJob.totalOutputTokens ?? 0} out · Náklad: ~{activeJob.estimatedCostCzk} Kč (odhad) /{' '}
+            {activeJob.actualCostCzk} Kč (skutečný)
           </p>
+
+          {jobItems.length > 0 ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-xs">
+                <thead>
+                  <tr className="border-b text-zinc-500">
+                    <th className="py-1 pr-2">#</th>
+                    <th className="py-1 pr-2">Lokalita</th>
+                    <th className="py-1 pr-2">Nabídka</th>
+                    <th className="py-1 pr-2">Typ</th>
+                    <th className="py-1 pr-2">Stav</th>
+                    <th className="py-1 pr-2">Fáze</th>
+                    <th className="py-1 pr-2">Pokus</th>
+                    <th className="py-1 pr-2">Kvalita</th>
+                    <th className="py-1 pr-2">Chyba</th>
+                    <th className="py-1 pr-2">Akce</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobItems.map((item) => (
+                    <tr key={item.id} className="border-b border-zinc-100 align-top">
+                      <td className="py-1 pr-2">{item.order ?? '—'}</td>
+                      <td className="py-1 pr-2">
+                        {item.localityName ?? item.localitySlug ?? '—'}
+                        {item.localitySlug ? <span className="block text-zinc-500">{item.localitySlug}</span> : null}
+                      </td>
+                      <td className="py-1 pr-2">{item.offerType ?? '—'}</td>
+                      <td className="py-1 pr-2">{item.propertyType ?? item.intentSlug ?? '—'}</td>
+                      <td className="py-1 pr-2">{itemStatusLabel(item.status)}</td>
+                      <td className="py-1 pr-2">{item.phase ?? '—'}</td>
+                      <td className="py-1 pr-2">{item.attempt}</td>
+                      <td className="py-1 pr-2">
+                        {item.qualityScore != null ? item.qualityScore : '—'}
+                        {item.uniquenessScore != null ? ` / ${item.uniquenessScore}` : ''}
+                      </td>
+                      <td className="py-1 pr-2 max-w-[200px]">
+                        {item.status === 'SKIPPED' && item.errorCode ? (
+                          <span className="text-zinc-600" title={item.errorMessage ?? undefined}>
+                            {item.errorCode}
+                          </span>
+                        ) : item.errorCode ? (
+                          <span className="text-red-700" title={item.errorMessage ?? undefined}>
+                            {item.errorCode}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="py-1 pr-2">
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            className="rounded border px-1 py-0.5"
+                            onClick={() => setExpandedItemId(expandedItemId === item.id ? null : item.id)}
+                          >
+                            Detail
+                          </button>
+                          {item.status === 'FAILED' ? (
+                            <button
+                              type="button"
+                              className="rounded border px-1 py-0.5"
+                              disabled={busy}
+                              onClick={() => void retryJobItem(item.id)}
+                            >
+                              Opakovat
+                            </button>
+                          ) : null}
+                          {item.seoPageId ? (
+                            <>
+                              <Link
+                                href={`/admin/seo/pages/${item.seoPageId}/preview`}
+                                className="rounded border px-1 py-0.5 underline"
+                              >
+                                Náhled
+                              </Link>
+                              <Link
+                                href={`/admin/seo/stranky/${item.seoPageId}`}
+                                className="rounded border px-1 py-0.5 underline"
+                              >
+                                Stránka
+                              </Link>
+                            </>
+                          ) : null}
+                        </div>
+                        {expandedItemId === item.id ? (
+                          <div className="mt-1 rounded bg-zinc-50 p-2 text-[10px]">
+                            {item.errorMessage ? <p className="text-red-800">Chyba: {item.errorMessage}</p> : null}
+                            {item.inputJson ? (
+                              <details className="mt-1">
+                                <summary>Vstup</summary>
+                                <pre className="max-h-32 overflow-auto">{JSON.stringify(item.inputJson, null, 2)}</pre>
+                              </details>
+                            ) : null}
+                            {item.outputPreviewJson ? (
+                              <details className="mt-1">
+                                <summary>AI výstup (náhled)</summary>
+                                <pre className="max-h-32 overflow-auto">{JSON.stringify(item.outputPreviewJson, null, 2)}</pre>
+                              </details>
+                            ) : null}
+                            {item.durationMs != null ? <p>Doba: {item.durationMs} ms</p> : null}
+                            {item.costCzk > 0 ? <p>Náklad: {item.costCzk} Kč</p> : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {showJobErrors && jobErrors.length > 0 ? (
+            <details open className="mt-2 rounded border border-red-100 bg-red-50 p-2 text-xs">
+              <summary className="cursor-pointer font-medium text-red-900">Chyby AI úlohy ({jobErrors.length})</summary>
+              <ul className="mt-2 space-y-2">
+                {jobErrors.map((err) => (
+                  <li key={err.itemId} className="rounded bg-white p-2 border border-red-100">
+                    <p className="font-medium">
+                      Položka {err.index}: {err.localityName ?? err.localitySlug ?? '—'} / {err.offerType ?? '—'} /{' '}
+                      {err.propertyType ?? err.intentSlug ?? '—'}
+                    </p>
+                    <p>Fáze: {err.phase ?? '—'}</p>
+                    <p>Kód: {err.code ?? '—'}</p>
+                    <p>Detail: {err.message ?? '—'}</p>
+                    {err.httpStatus ? <p>HTTP: {err.httpStatus}</p> : null}
+                    {err.attempt ? <p>Pokus: {err.attempt}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
       ) : null}
 

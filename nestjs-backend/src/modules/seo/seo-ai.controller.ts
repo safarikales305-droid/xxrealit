@@ -96,6 +96,16 @@ export class SeoAiAdminController {
     return this.jobs.getJob(id);
   }
 
+  @Get('jobs/:id/items')
+  getJobItems(@Param('id') id: string) {
+    return this.jobs.getJobItems(id);
+  }
+
+  @Get('jobs/:id/errors')
+  getJobErrors(@Param('id') id: string) {
+    return this.jobs.getJobErrors(id);
+  }
+
   @Post('jobs/:id/pause')
   pauseJob(@Param('id') id: string) {
     return this.jobs.pauseJob(id);
@@ -109,6 +119,16 @@ export class SeoAiAdminController {
   @Post('jobs/:id/cancel')
   cancelJob(@Param('id') id: string) {
     return this.jobs.cancelJob(id);
+  }
+
+  @Post('jobs/:id/retry-failed')
+  retryFailed(@Param('id') id: string) {
+    return this.jobs.retryFailedItems(id);
+  }
+
+  @Post('jobs/:id/items/:itemId/retry')
+  retryItem(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.jobs.retryItem(id, itemId);
   }
 
   @Get('pages/:id/preview')

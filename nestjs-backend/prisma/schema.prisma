@@ -3349,6 +3349,13 @@ model SeoAiGenerationJob {
   reviewCount      Int                      @default(0)
   regeneratedCount Int                      @default(0)
   errorCount       Int                      @default(0)
+  skippedCount     Int                      @default(0)
+  retriedCount     Int                      @default(0)
+  requestCount     Int                      @default(0)
+  successfulRequestCount Int                @default(0)
+  failedRequestCount     Int                @default(0)
+  totalInputTokens Int                      @default(0)
+  totalOutputTokens Int                     @default(0)
   estimatedCostCzk Float                    @default(0)
   actualCostCzk    Float                    @default(0)
   promptVersionId  String?
@@ -3356,6 +3363,7 @@ model SeoAiGenerationJob {
   settingsJson     Json?
   currentItem      String?
   lastError        String?                  @db.Text
+  pauseReason      String?
   startedAt        DateTime?
   finishedAt       DateTime?
   pausedAt         DateTime?
@@ -3383,6 +3391,15 @@ model SeoAiGenerationItem {
   uniquenessScore Int?
   errorCode       String?
   errorMessage    String?                   @db.Text
+  localityName    String?
+  localitySlug    String?
+  offerType       String?
+  propertyType    String?
+  phase           String?
+  httpStatus      Int?
+  durationMs      Int?
+  warningsJson    Json?
+  outputPreviewJson Json?
   inputTokens     Int                       @default(0)
   outputTokens    Int                       @default(0)
   costCzk         Float                     @default(0)
