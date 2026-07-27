@@ -4,13 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   approveMessage,
   getMessage,
+  getMessageRecipients,
   regenerateMessage,
+  selectAllMessageRecipients,
+  selectPrimaryMessageRecipients,
   sendMessage,
   sendTestMessage,
   submitMessageForApproval,
   updateMessage,
+  updateMessageRecipients,
   type AiSalesApiError,
   type AiSalesMessage,
+  type AiSalesMessageRecipient,
 } from '@/lib/ai-sales-admin-api';
 
 type Props = {
@@ -20,14 +25,15 @@ type Props = {
   onUpdated?: () => void;
 };
 
-type PreviewMode = 'desktop' | 'mobile' | 'dark';
+type PreviewMode = 'desktop' | 'mobile' | 'gmail' | 'outlook';
 
 export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated }: Props) {
   const [message, setMessage] = useState<AiSalesMessage | null>(null);
+  const [recipients, setRecipients] = useState<AiSalesMessageRecipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<(AiSalesApiError & { message: string }) | null>(null);
-  const [tab, setTab] = useState<'preview' | 'html' | 'text' | 'knowledge' | 'reasons' | 'versions'>('preview');
+  const [tab, setTab] = useState<'preview' | 'html' | 'text' | 'recipients' | 'knowledge' | 'reasons' | 'versions'>('preview');
   const [previewMode, setPreviewMode] = useState<PreviewMode>('desktop');
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -51,6 +57,12 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
     try {
       const row = await getMessage(token, messageId);
       setMessage(row);
+      try {
+        const rec = await getMessageRecipients(token, messageId);
+        setRecipients(rec);
+      } catch {
+        setRecipients([]);
+      }
       setEdit({
         subject: row.subject ?? '',
         preheader: row.preheader ?? '',
@@ -165,6 +177,27 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
     }
   }
 
+  async function toggleRecipient(id: string, selected: boolean) {
+    if (!token) return;
+    await updateMessageRecipients(token, messageId, [{ id, selected }]);
+    const rec = await getMessageRecipients(token, messageId);
+    setRecipients(rec);
+  }
+
+  async function handleRecipientPreset(mode: 'all' | 'primary') {
+    if (!token) return;
+    setBusy(true);
+    try {
+      const rec =
+        mode === 'all'
+          ? await selectAllMessageRecipients(token, messageId)
+          : await selectPrimaryMessageRecipients(token, messageId);
+      setRecipients(rec);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <p className="text-sm text-zinc-500">Načítám návrh nabídky…</p>;
 
   if (error && !message) {
@@ -181,10 +214,21 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
 
   if (!message) return null;
 
-  const recipientEmail = message.prospect?.email;
+  const selectedRecipients = recipients.filter((r) => r.selected);
+  const recipientEmail =
+    selectedRecipients.map((r) => r.email).join(', ') ||
+    message.prospect?.primaryEmail ||
+    message.prospect?.email;
   const canSend = message.status === 'APPROVED' || message.status === 'SCHEDULED';
-  const previewWidth = previewMode === 'mobile' ? 'max-w-[390px]' : 'max-w-[640px]';
-  const previewBg = previewMode === 'dark' ? 'bg-zinc-900 p-4' : 'bg-zinc-100 p-4';
+  const previewWidth =
+    previewMode === 'mobile'
+      ? 'max-w-[390px]'
+      : previewMode === 'gmail'
+        ? 'max-w-[500px]'
+        : previewMode === 'outlook'
+          ? 'max-w-[600px]'
+          : 'max-w-[640px]';
+  const previewBg = 'bg-zinc-100 p-4';
 
   return (
     <div className="space-y-4 rounded-2xl border border-orange-200 bg-white p-4">
@@ -201,9 +245,9 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
         ) : null}
       </div>
 
-      {!recipientEmail ? (
+      {!recipientEmail && selectedRecipients.length === 0 ? (
         <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">
-          E-mail zatím není vyplněný. Návrh můžete upravit, ale nelze jej odeslat příjemci.
+          E-mail zatím není vyplněný. Návrh můžete upravit a odeslat test sobě, ale skutečné odeslání vyžaduje vybraného příjemce.
         </p>
       ) : null}
 
@@ -230,9 +274,21 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {(['preview', 'html', 'text', 'knowledge', 'reasons', 'versions'] as const).map((t) => (
+        {(['preview', 'text', 'recipients', 'knowledge', 'reasons', 'versions', 'html'] as const).map((t) => (
           <button key={t} type="button" onClick={() => setTab(t)} className={`rounded border px-2 py-1 text-xs ${tab === t ? 'bg-orange-100 border-orange-300' : ''}`}>
-            {t === 'preview' ? 'Vizuální náhled' : t === 'html' ? 'HTML' : t === 'text' ? 'Text' : t === 'knowledge' ? 'Znalosti' : t === 'reasons' ? 'AI důvody' : 'Verze'}
+            {t === 'preview'
+              ? 'Vizuální náhled'
+              : t === 'html'
+                ? 'HTML'
+                : t === 'text'
+                  ? 'Textová verze'
+                  : t === 'recipients'
+                    ? 'Příjemci'
+                    : t === 'knowledge'
+                      ? 'Použité znalosti'
+                      : t === 'reasons'
+                        ? 'Personalizace'
+                        : 'Verze'}
           </button>
         ))}
       </div>
@@ -240,9 +296,9 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       {tab === 'preview' ? (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            {(['desktop', 'mobile', 'dark'] as const).map((m) => (
+            {(['desktop', 'mobile', 'gmail', 'outlook'] as const).map((m) => (
               <button key={m} type="button" onClick={() => setPreviewMode(m)} className={`rounded border px-2 py-1 text-xs ${previewMode === m ? 'bg-zinc-200' : ''}`}>
-                {m === 'desktop' ? 'Desktop' : m === 'mobile' ? 'Mobil' : 'Tmavý režim'}
+                {m === 'desktop' ? 'Desktop' : m === 'mobile' ? 'Mobil' : m === 'gmail' ? 'Šířka Gmail' : 'Šířka Outlook'}
               </button>
             ))}
           </div>
@@ -255,6 +311,38 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
               )}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {tab === 'recipients' ? (
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <button type="button" className="rounded border px-2 py-0.5" onClick={() => void handleRecipientPreset('all')}>Vybrat všechny vhodné</button>
+            <button type="button" className="rounded border px-2 py-0.5" onClick={() => void handleRecipientPreset('primary')}>Pouze primární</button>
+          </div>
+          {recipients.length === 0 ? (
+            <p className="text-zinc-600">Žádní příjemci. Přidejte e-mailové kontakty u partnera nebo vygenerujte nabídku znovu.</p>
+          ) : (
+            <ul className="space-y-2">
+              {recipients.map((r) => (
+                <li key={r.id} className="rounded border border-zinc-100 bg-zinc-50 p-2">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={r.selected}
+                      onChange={(e) => void toggleRecipient(r.id, e.target.checked)}
+                    />
+                    <div>
+                      <p className="font-medium">{r.email}</p>
+                      {r.contact?.label ? <p className="text-xs text-zinc-600">{r.contact.label}</p> : null}
+                      <p className="text-xs text-zinc-500">Stav: {r.status}{r.sentAt ? ` · odesláno ${new Date(r.sentAt).toLocaleString('cs-CZ')}` : ''}</p>
+                    </div>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-zinc-500">Každý vybraný příjemce dostane samostatný e-mail. Odeslání vyžaduje schválení administrátorem.</p>
         </div>
       ) : null}
 

@@ -20,6 +20,7 @@ import {
 } from './ai-sales-outreach.types';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
+import { AiSalesMessageService } from './ai-sales-message.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 
 @Injectable()
@@ -35,6 +36,7 @@ export class AiSalesOutreachGenerationService {
     private readonly openaiConfig: OpenAiConfigService,
     private readonly settings: AiSalesSettingsService,
     private readonly template: AiSalesMessageTemplateService,
+    private readonly messages: AiSalesMessageService,
   ) {}
 
   async generateVariants(prospectId: string, userId?: string, options?: GenerateOutreachOptions) {
@@ -53,8 +55,10 @@ export class AiSalesOutreachGenerationService {
     const analysisIncomplete = !prospect.analyzedAt && !prospect.analysisJson;
 
     const results: Array<{
+      id: string;
       messageId: string;
       variant: string;
+      tone: string;
       subject: string;
       previewUrl: string;
     }> = [];
@@ -72,10 +76,13 @@ export class AiSalesOutreachGenerationService {
       }
 
       const message = generated.message;
+      await this.messages.seedRecipientsForMessage(message.id, prospectId);
 
       results.push({
+        id: message.id,
         messageId: message.id,
         variant: variant.label,
+        tone: variant.tone,
         subject: message.subject ?? '',
         previewUrl: `/admin/marketing/ai-sales?tab=message&messageId=${message.id}`,
       });
@@ -216,6 +223,7 @@ export class AiSalesOutreachGenerationService {
     });
 
     await this.saveVersion(message.id, 1, message, userId, prompt.id, model, 'AI', 'Počáteční generování');
+    await this.messages.seedRecipientsForMessage(message.id, prospectId);
 
     if (
       prospect.status !== AiSalesProspectStatus.READY_FOR_OUTREACH &&
@@ -254,6 +262,7 @@ export class AiSalesOutreachGenerationService {
     });
 
     await this.saveVersion(message.id, 1, message, userId, null, null, 'HUMAN', 'Ruční návrh bez OpenAI');
+    await this.messages.seedRecipientsForMessage(message.id, prospectId);
     return { success: true, message };
   }
 

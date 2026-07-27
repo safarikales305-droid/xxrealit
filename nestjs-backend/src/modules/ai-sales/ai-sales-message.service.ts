@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AiSalesContactType,
+  AiSalesMessageRecipientStatus,
   AiSalesMessageStatus,
   AiSalesProspectStatus,
   AiSalesReplyClassification,
@@ -155,6 +157,12 @@ export class AiSalesMessageService {
         approvedById: userId,
         approvedAt: new Date(),
       },
+    }).then(async (updated) => {
+      await this.prisma.aiSalesMessageRecipient.updateMany({
+        where: { messageId: id, selected: true },
+        data: { approved: true, status: AiSalesMessageRecipientStatus.APPROVED },
+      });
+      return updated;
     });
   }
 
@@ -193,24 +201,8 @@ export class AiSalesMessageService {
       );
     }
 
-    if (!msg.prospect.email || !EMAIL_RE.test(msg.prospect.email)) {
-      throw new AiSalesAdminException(
-        buildSalesAdminError(
-          'MISSING_EMAIL',
-          'Kontakt nemá ověřený platný e-mail. Doplňte e-mail před odesláním.',
-          400,
-          'send',
-        ),
-      );
-    }
-
     if (msg.prospect.doNotContact) {
       throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT — odeslání zakázáno.');
-    }
-
-    const sup = await this.suppression.isSuppressed(msg.prospect.email);
-    if (sup.suppressed) {
-      throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
     }
 
     await this.assertSendLimits(msg.messageType, msg.prospectId);
@@ -219,13 +211,165 @@ export class AiSalesMessageService {
       throw new BadRequestException('Odesílání je povoleno pouze v nastaveném časovém okně.');
     }
 
+    const recipients = await this.prisma.aiSalesMessageRecipient.findMany({
+      where: {
+        messageId: id,
+        selected: true,
+        approved: true,
+        status: { in: [AiSalesMessageRecipientStatus.SELECTED, AiSalesMessageRecipientStatus.APPROVED] },
+      },
+    });
+
+    if (recipients.length > 0) {
+      return this.sendToRecipients(id, msg, recipients, settings, userId);
+    }
+
+    const fallbackEmail = msg.prospect.primaryEmail ?? msg.prospect.email;
+    if (!fallbackEmail || !EMAIL_RE.test(fallbackEmail)) {
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'MISSING_EMAIL',
+          'Vyberte alespoň jednoho schváleného příjemce s platným e-mailem.',
+          400,
+          'send',
+        ),
+      );
+    }
+
+    const sup = await this.suppression.isSuppressed(fallbackEmail);
+    if (sup.suppressed) {
+      throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
+    }
+
+    return this.sendSingleEmail(id, msg, fallbackEmail, settings, userId);
+  }
+
+  private async sendToRecipients(
+    id: string,
+    msg: Awaited<ReturnType<AiSalesMessageService['getById']>>,
+    recipients: Array<{ id: string; email: string; contactId: string | null }>,
+    settings: Awaited<ReturnType<AiSalesSettingsService['getOrCreate']>>,
+    userId?: string,
+  ) {
     const contentWithOptOut = msg.content.includes('NEZÁJEM')
       ? msg.content
       : `${msg.content}${OPT_OUT_FOOTER}`;
-
     const html =
-      msg.htmlContent ??
-      `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
+      msg.htmlContent ?? `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
+
+    if (settings.testModeEnabled) {
+      await this.prisma.aiSalesMessageRecipient.updateMany({
+        where: { messageId: id, id: { in: recipients.map((r) => r.id) } },
+        data: { status: AiSalesMessageRecipientStatus.SENT, sentAt: new Date() },
+      });
+      const updated = await this.prisma.aiSalesMessage.update({
+        where: { id },
+        data: { status: AiSalesMessageStatus.SENT, sentAt: new Date(), isTest: true, htmlContent: html },
+      });
+      await this.prisma.aiSalesProspect.update({
+        where: { id: msg.prospectId },
+        data: { status: AiSalesProspectStatus.WAITING_REPLY, lastContactAt: new Date() },
+      });
+      return { message: updated, testMode: true, sent: false, recipients: recipients.length };
+    }
+
+    const sentResults: Array<{ recipientId: string; email: string; providerMessageId?: string }> = [];
+    const failures: Array<{ email: string; error: string }> = [];
+
+    for (const recipient of recipients) {
+      const sup = await this.suppression.isSuppressed(recipient.email);
+      if (sup.suppressed) {
+        failures.push({ email: recipient.email, error: sup.reason ?? 'SUPPRESSED' });
+        await this.prisma.aiSalesMessageRecipient.update({
+          where: { id: recipient.id },
+          data: {
+            status: AiSalesMessageRecipientStatus.FAILED,
+            errorCode: 'SUPPRESSED',
+            errorMessage: sup.reason,
+          },
+        });
+        continue;
+      }
+
+      try {
+        const sendResult = await this.emails.sendRawEmail({
+          type: 'ai_sales_outreach',
+          to: recipient.email,
+          subject: msg.subject ?? 'Spolupráce s XXREALIT',
+          html,
+          text: contentWithOptOut,
+          metadata: {
+            aiSalesMessageId: msg.id,
+            prospectId: msg.prospectId,
+            campaignId: msg.campaignId,
+            approvedById: userId,
+            recipientId: recipient.id,
+          },
+        });
+
+        await this.prisma.aiSalesMessageRecipient.update({
+          where: { id: recipient.id },
+          data: {
+            status: AiSalesMessageRecipientStatus.SENT,
+            sentAt: new Date(),
+            providerMessageId: sendResult.providerMessageId,
+          },
+        });
+        sentResults.push({
+          recipientId: recipient.id,
+          email: recipient.email,
+          providerMessageId: sendResult.providerMessageId,
+        });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        failures.push({ email: recipient.email, error: errorMessage });
+        await this.prisma.aiSalesMessageRecipient.update({
+          where: { id: recipient.id },
+          data: {
+            status: AiSalesMessageRecipientStatus.FAILED,
+            errorCode: 'SEND_FAILED',
+            errorMessage,
+          },
+        });
+      }
+    }
+
+    if (sentResults.length === 0) {
+      throw new BadRequestException(
+        failures.map((f) => `${f.email}: ${f.error}`).join(' · ') || 'Odeslání selhalo.',
+      );
+    }
+
+    const updated = await this.prisma.aiSalesMessage.update({
+      where: { id },
+      data: {
+        status: AiSalesMessageStatus.SENT,
+        sentAt: new Date(),
+        providerMessageId: sentResults[0]?.providerMessageId,
+        htmlContent: html,
+      },
+    });
+
+    await this.prisma.aiSalesProspect.update({
+      where: { id: msg.prospectId },
+      data: { status: AiSalesProspectStatus.WAITING_REPLY, lastContactAt: new Date() },
+    });
+
+    return { message: updated, testMode: false, sent: true, sentResults, failures };
+  }
+
+  private async sendSingleEmail(
+    id: string,
+    msg: Awaited<ReturnType<AiSalesMessageService['getById']>>,
+    to: string,
+    settings: Awaited<ReturnType<AiSalesSettingsService['getOrCreate']>>,
+    userId?: string,
+  ) {
+    const contentWithOptOut = msg.content.includes('NEZÁJEM')
+      ? msg.content
+      : `${msg.content}${OPT_OUT_FOOTER}`;
+    const html =
+      msg.htmlContent ?? `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
 
     if (settings.testModeEnabled) {
       const updated = await this.prisma.aiSalesMessage.update({
@@ -249,7 +393,7 @@ export class AiSalesMessageService {
 
     const sendResult = await this.emails.sendRawEmail({
       type: 'ai_sales_outreach',
-      to: msg.prospect.email,
+      to,
       subject: msg.subject ?? 'Spolupráce s XXREALIT',
       html,
       text: contentWithOptOut,
@@ -281,6 +425,120 @@ export class AiSalesMessageService {
     });
 
     return { message: updated, testMode: false, sent: true };
+  }
+
+  async seedRecipientsForMessage(messageId: string, prospectId: string) {
+    const emailContacts = await this.prisma.aiSalesPublicContact.findMany({
+      where: { prospectId, type: AiSalesContactType.EMAIL },
+      orderBy: [{ isPrimary: 'desc' }, { isSelectedForOutreach: 'desc' }, { confidence: 'desc' }],
+    });
+
+    const existing = await this.prisma.aiSalesMessageRecipient.count({ where: { messageId } });
+    if (existing > 0) return this.listRecipients(messageId);
+
+    const defaults = this.pickDefaultRecipients(emailContacts);
+    const rows = emailContacts.map((c) => {
+      const email = c.normalizedValue ?? c.value;
+      return {
+        messageId,
+        contactId: c.id,
+        email,
+        selected: defaults.has(c.id),
+        approved: false,
+        status: AiSalesMessageRecipientStatus.SELECTED,
+      };
+    });
+
+    if (rows.length === 0 && emailContacts.length === 0) {
+      const prospect = await this.prisma.aiSalesProspect.findUnique({ where: { id: prospectId } });
+      const email = prospect?.primaryEmail ?? prospect?.email;
+      if (email && EMAIL_RE.test(email)) {
+        await this.prisma.aiSalesMessageRecipient.create({
+          data: {
+            messageId,
+            email,
+            selected: true,
+            approved: false,
+            status: AiSalesMessageRecipientStatus.SELECTED,
+          },
+        });
+      }
+    } else if (rows.length > 0) {
+      await this.prisma.aiSalesMessageRecipient.createMany({ data: rows });
+    }
+
+    return this.listRecipients(messageId);
+  }
+
+  private pickDefaultRecipients(
+    contacts: Array<{ id: string; isPrimary: boolean; isSelectedForOutreach: boolean; label: string | null; value: string }>,
+  ): Set<string> {
+    const selected = new Set<string>();
+    const primary = contacts.find((c) => c.isPrimary) ?? contacts.find((c) => c.isSelectedForOutreach);
+    if (primary) selected.add(primary.id);
+
+    const branch = contacts.find(
+      (c) =>
+        c.id !== primary?.id &&
+        (c.isSelectedForOutreach || /poboč|pobock|branch|office/i.test(c.label ?? '')),
+    );
+    if (branch) selected.add(branch.id);
+
+    return selected;
+  }
+
+  async listRecipients(messageId: string) {
+    return this.prisma.aiSalesMessageRecipient.findMany({
+      where: { messageId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            value: true,
+            label: true,
+            contactPersonName: true,
+            isPrimary: true,
+            verificationStatus: true,
+          },
+        },
+      },
+    });
+  }
+
+  async updateRecipients(
+    messageId: string,
+    updates: Array<{ id: string; selected?: boolean; approved?: boolean }>,
+  ) {
+    for (const row of updates) {
+      await this.prisma.aiSalesMessageRecipient.update({
+        where: { id: row.id },
+        data: {
+          ...(row.selected !== undefined ? { selected: row.selected } : {}),
+          ...(row.approved !== undefined ? { approved: row.approved } : {}),
+        },
+      });
+    }
+    return this.listRecipients(messageId);
+  }
+
+  async selectAllRecipients(messageId: string, mode: 'all' | 'primary' | 'general' | 'none') {
+    const recipients = await this.listRecipients(messageId);
+    for (const r of recipients) {
+      let selected = false;
+      if (mode === 'all') selected = true;
+      else if (mode === 'none') selected = false;
+      else if (mode === 'primary') selected = Boolean(r.contact?.isPrimary);
+      else if (mode === 'general') {
+        const label = r.contact?.label ?? '';
+        selected = !/makléř|makler|osobn/i.test(label);
+      }
+      await this.prisma.aiSalesMessageRecipient.update({
+        where: { id: r.id },
+        data: { selected },
+      });
+    }
+    return this.listRecipients(messageId);
   }
 
   async sendTest(id: string, testEmail: string, userId?: string) {

@@ -67,6 +67,17 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     contacts: AiSalesPublicContact[];
     visitedPages: EnrichmentResult['visitedPages'];
   } | null>(null);
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [primaryEmailContactId, setPrimaryEmailContactId] = useState<string | null>(null);
+  const [primaryPhoneContactId, setPrimaryPhoneContactId] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<{
+    resultId: string;
+    prospectId: string;
+    savedContacts: number;
+    primaryEmail: string | null;
+    primaryPhone: string | null;
+    action: string;
+  } | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const webProvider = providers.find((p) => p.id === 'APPROVED_WEB_PROVIDER');
@@ -243,12 +254,48 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     await runSearch(['INTERNAL_DATABASE']);
   }
 
+  function initContactSelection(contacts: AiSalesPublicContact[]) {
+    const ids = new Set(contacts.map((c) => c.id));
+    setSelectedContactIds(ids);
+    setPrimaryEmailContactId(contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'EMAIL')?.id ?? null);
+    setPrimaryPhoneContactId(contacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'PHONE')?.id ?? null);
+  }
+
+  function toggleContactSelection(contactId: string) {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+  }
+
+  function selectAllContacts() {
+    if (!contactPreview) return;
+    setSelectedContactIds(new Set(contactPreview.contacts.map((c) => c.id)));
+  }
+
+  function clearContactSelection() {
+    setSelectedContactIds(new Set());
+  }
+
+  function setPrimaryContact(contactId: string, type: 'EMAIL' | 'PHONE') {
+    if (type === 'EMAIL') setPrimaryEmailContactId(contactId);
+    else setPrimaryPhoneContactId(contactId);
+    setSelectedContactIds((prev) => new Set([...prev, contactId]));
+  }
+
   async function bulkSave() {
     if (!ensureToken()) return;
     setBusy(true);
     try {
       for (const id of selected) {
-        await saveSearchResult(token, id);
+        const contacts = await getSearchResultContacts(token, id);
+        await saveSearchResult(token, id, {
+          selectedContactIds: contacts.map((c) => c.id),
+          primaryEmailContactId: contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id,
+          primaryPhoneContactId: contacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id,
+        });
       }
       onSaved?.();
       await refreshResults();
@@ -280,6 +327,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
       const res = await enrichSearchResult(token, resultId);
       const contacts = await getSearchResultContacts(token, resultId);
       setContactPreview({ resultId, contacts, visitedPages: res.visitedPages ?? [] });
+      initContactSelection(contacts);
       await refreshResults();
     } catch (e) {
       setAnalyzeWarning(e instanceof Error ? e.message : 'Dohledání kontaktů selhalo.');
@@ -303,30 +351,66 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     }
   };
 
-  const handleSaveResult = async (resultId: string) => {
+  const handleSaveResult = async (resultId: string, forceWithoutContacts = false) => {
     if (!ensureToken()) return;
+
+    const contacts = contactPreview?.resultId === resultId
+      ? contactPreview.contacts
+      : await getSearchResultContacts(token, resultId);
+
+    let contactIds = contactPreview?.resultId === resultId ? [...selectedContactIds] : contacts.map((c) => c.id);
+    let emailPrimaryId =
+      contactPreview?.resultId === resultId
+        ? primaryEmailContactId
+        : contacts.find((c) => c.type === 'EMAIL' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'EMAIL')?.id ?? null;
+    let phonePrimaryId =
+      contactPreview?.resultId === resultId
+        ? primaryPhoneContactId
+        : contacts.find((c) => c.type === 'PHONE' && c.isPrimary)?.id ?? contacts.find((c) => c.type === 'PHONE')?.id ?? null;
+
+    if (!forceWithoutContacts && contacts.length > 0 && contactIds.length === 0) {
+      const ok = window.confirm(
+        'Nevybrali jste žádný kontakt. Partner bude uložen bez e-mailu a telefonu. Pokračovat?',
+      );
+      if (!ok) return;
+    }
+
     setProcessingResultId(resultId);
     setAnalyzeWarning(null);
+    setSaveSuccess(null);
     try {
-      const res = await saveSearchResult(token, resultId) as {
-        analysisUnavailable?: boolean;
-        warning?: string | { message?: string };
-        savedWithoutEmail?: boolean;
-      };
+      const res = await saveSearchResult(token, resultId, {
+        selectedContactIds: forceWithoutContacts ? [] : contactIds,
+        primaryEmailContactId: emailPrimaryId ?? undefined,
+        primaryPhoneContactId: phonePrimaryId ?? undefined,
+      });
+
       if (res.analysisUnavailable) {
         const w = res.warning;
-        setAnalyzeWarning(typeof w === 'string' ? w : w?.message ?? 'AI analýza je dočasně nedostupná.');
-      } else if (res.savedWithoutEmail) {
-        setSaveNotice(
-          typeof res.warning === 'string'
-            ? res.warning
-            : 'Partner byl uložen bez e-mailu. Nabídku lze připravit a zobrazit, ale nelze ji odeslat.',
-        );
+        setAnalyzeWarning(typeof w === 'object' && w?.message ? w.message : 'AI analýza je dočasně nedostupná.');
       }
+
+      setSaveSuccess({
+        resultId,
+        prospectId: res.prospectId,
+        savedContacts: res.savedContacts,
+        primaryEmail: res.primaryEmail,
+        primaryPhone: res.primaryPhone,
+        action: res.action,
+      });
+      setSaveNotice(null);
+
       onSaved?.();
       await refreshResults();
     } catch (e) {
-      captureSearchError(e, 'Partnera se nepodařilo uložit.');
+      const err = e as Error & AiSalesApiError;
+      setSearchError({
+        message: err.message || 'Partnera se nepodařilo uložit.',
+        code: err.code ?? 'SAVE_PROSPECT_FAILED',
+        httpStatus: err.httpStatus ?? 500,
+        success: false,
+        phase: err.phase ?? 'SAVE_PROSPECT_WITH_CONTACTS',
+      });
     } finally {
       setProcessingResultId(null);
     }
@@ -486,6 +570,29 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
         </div>
       ) : null}
 
+      {saveSuccess ? (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+          <p className="font-semibold">Partner uložen ({saveSuccess.action === 'UPDATED' ? 'aktualizován' : 'vytvořen'})</p>
+          <p>Uloženo kontaktů: {saveSuccess.savedContacts}</p>
+          <p>Primární e-mail: {saveSuccess.primaryEmail ?? '—'}</p>
+          <p>Primární telefon: {saveSuccess.primaryPhone ?? '—'}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a
+              href={`/admin/marketing/ai-sales?tab=prospects&prospectId=${saveSuccess.prospectId}`}
+              className="rounded border border-green-300 bg-white px-3 py-1 text-xs"
+            >
+              Otevřít partnera
+            </a>
+            <a
+              href={`/admin/marketing/ai-sales?tab=message&prospectId=${saveSuccess.prospectId}`}
+              className="rounded bg-orange-600 px-3 py-1 text-xs text-white"
+            >
+              Vytvořit nabídku
+            </a>
+          </div>
+        </div>
+      ) : null}
+
       {saveNotice ? (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{saveNotice}</div>
       ) : null}
@@ -515,26 +622,66 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
           {contactPreview.contacts.length === 0 ? (
             <p className="text-zinc-600">Veřejný e-mail ani telefon nebyly na webu nalezeny.</p>
           ) : (
-            <ul className="space-y-2">
-              {contactPreview.contacts.map((c) => (
-                <li key={c.id} className="rounded border border-zinc-100 bg-zinc-50 p-2">
-                  <p className="font-medium">
-                    {c.type}: {c.value} {c.isPrimary ? '(primární)' : ''}
-                  </p>
-                  {c.sourceUrl ? (
-                    <p className="text-xs text-zinc-600">
-                      Zdroj:{' '}
-                      <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="underline">
-                        {c.sourceUrl}
-                      </a>
-                    </p>
-                  ) : null}
-                  {c.sourceTextSnippet ? (
-                    <p className="mt-1 text-xs text-zinc-500">„{c.sourceTextSnippet}“</p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                <button type="button" className="rounded border px-2 py-0.5" onClick={selectAllContacts}>Vybrat vše</button>
+                <button type="button" className="rounded border px-2 py-0.5" onClick={clearContactSelection}>Zrušit výběr</button>
+              </div>
+              <ul className="space-y-2">
+                {contactPreview.contacts.map((c) => (
+                  <li key={c.id} className="rounded border border-zinc-100 bg-zinc-50 p-2">
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedContactIds.has(c.id)}
+                        onChange={() => toggleContactSelection(c.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <p className="font-medium">
+                          {c.type}: {c.value}
+                          {c.isPrimary ? ' · primární' : ''}
+                          {primaryEmailContactId === c.id ? ' · primární e-mail' : ''}
+                          {primaryPhoneContactId === c.id ? ' · primární telefon' : ''}
+                        </p>
+                        {c.label ? <p className="text-xs text-zinc-600">{c.label}</p> : null}
+                        {c.sourceUrl ? (
+                          <p className="text-xs text-zinc-600">
+                            Zdroj:{' '}
+                            <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+                              {c.sourceUrl}
+                            </a>
+                          </p>
+                        ) : null}
+                        {c.sourceTextSnippet ? (
+                          <p className="mt-1 text-xs text-zinc-500">„{c.sourceTextSnippet}“</p>
+                        ) : null}
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                          {c.type === 'EMAIL' ? (
+                            <button type="button" className="underline" onClick={() => setPrimaryContact(c.id, 'EMAIL')}>
+                              Nastavit jako primární e-mail
+                            </button>
+                          ) : null}
+                          {c.type === 'PHONE' ? (
+                            <button type="button" className="underline" onClick={() => setPrimaryContact(c.id, 'PHONE')}>
+                              Nastavit jako primární telefon
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                disabled={rowBusy(contactPreview.resultId)}
+                onClick={() => void handleSaveResult(contactPreview.resultId)}
+                className="mt-3 rounded bg-green-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+              >
+                Uložit vybrané kontakty a partnera ({selectedContactIds.size})
+              </button>
+            </>
           )}
         </div>
       ) : null}
@@ -633,8 +780,8 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
                         <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleAnalyzeResult(r.id)} className="rounded border px-2 py-0.5">
                           Analyzovat
                         </button>
-                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact || Boolean(r.savedProspectId)} onClick={() => void handleSaveResult(r.id)} className="rounded border px-2 py-0.5 bg-green-50 border-green-200">
-                          Uložit partnera
+                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact} onClick={() => void handleSaveResult(r.id)} className="rounded border px-2 py-0.5 bg-green-50 border-green-200">
+                          {r.savedProspectId ? 'Aktualizovat partnera' : 'Uložit partnera'}
                         </button>
                         <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleRejectResult(r.id)} className="rounded border px-2 py-0.5">
                           Zamítnout

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AiSalesContactType,
   AiSalesPartnerType,
   AiSalesProspectStatus,
   AiSalesSearchResultVerification,
@@ -23,6 +24,7 @@ import { runSerpApiTest } from './providers/serpapi.client';
 import { WebSearchProvider } from './providers/web-search.provider';
 import { SearchProvidersEnvService } from './search-providers-env.service';
 import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
+import { AiSalesPublicContactService, type SaveSearchResultOptions } from './ai-sales-public-contact.service';
 
 export type SkippedSearchSource = {
   source: string;
@@ -50,6 +52,7 @@ export class PartnerSearchService {
     private readonly webSearch: WebSearchProvider,
     private readonly searchEnv: SearchProvidersEnvService,
     private readonly contactEnrichment: PartnerContactEnrichmentService,
+    private readonly publicContacts: AiSalesPublicContactService,
   ) {}
 
   async startSearch(
@@ -532,79 +535,206 @@ export class PartnerSearchService {
     });
   }
 
-  async saveSearchResult(resultId: string, userId?: string) {
-    const result = await this.prisma.aiSalesSearchResult.findUnique({ where: { id: resultId } });
-    if (!result) throw new NotFoundException('Výsledek nenalezen.');
-    if (result.doNotContact || result.verificationStatus === 'DO_NOT_CONTACT') {
-      throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT.');
+  async saveSearchResult(resultId: string, userId?: string, options?: SaveSearchResultOptions) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const result = await tx.aiSalesSearchResult.findUnique({
+          where: { id: resultId },
+          include: { publicContacts: true },
+        });
+        if (!result) throw new NotFoundException('Výsledek nenalezen.');
+        if (result.doNotContact || result.verificationStatus === 'DO_NOT_CONTACT') {
+          throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT.');
+        }
+
+        const selectedIds = new Set(options?.selectedContactIds ?? []);
+        const enrichedContacts = result.publicContacts;
+
+        for (const contact of enrichedContacts) {
+          if (contact.type === AiSalesContactType.EMAIL && contact.normalizedValue) {
+            const sup = await this.suppression.isSuppressed(contact.normalizedValue);
+            if (sup.suppressed && selectedIds.has(contact.id)) {
+              throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
+            }
+          }
+        }
+
+        let prospectId = result.savedProspectId;
+        let action: 'CREATED' | 'UPDATED' = 'CREATED';
+
+        if (prospectId) {
+          const existing = await tx.aiSalesProspect.findUnique({ where: { id: prospectId } });
+          if (!existing) throw new NotFoundException('Uložený partner nenalezen.');
+          action = 'UPDATED';
+        } else {
+          const dupOr: Prisma.AiSalesProspectWhereInput[] = [
+            { companyName: { equals: result.companyName, mode: 'insensitive' } },
+          ];
+          const primaryEmailContact = enrichedContacts.find((c) => c.id === options?.primaryEmailContactId);
+          const emailForDup =
+            primaryEmailContact?.normalizedValue ??
+            result.publicEmail?.toLowerCase() ??
+            enrichedContacts.find((c) => c.type === AiSalesContactType.EMAIL)?.normalizedValue;
+          if (emailForDup) dupOr.unshift({ email: emailForDup });
+
+          const dup = await tx.aiSalesProspect.findFirst({ where: { OR: dupOr } });
+          if (dup) {
+            prospectId = dup.id;
+            action = 'UPDATED';
+          }
+        }
+
+        const prospectData = {
+          partnerType: result.partnerType,
+          companyName: result.companyName,
+          contactName: result.contactName,
+          website: result.website,
+          city: result.city,
+          region: result.region,
+          specialization: Array.isArray(result.specializationJson)
+            ? (result.specializationJson as string[]).join(', ')
+            : undefined,
+          source: result.source,
+          sourceUrl: result.sourceUrl,
+          publicInfo: result.relevanceReason,
+          verificationStatus:
+            result.verificationStatus === 'VERIFIED'
+              ? ('VERIFIED' as const)
+              : result.verificationStatus === 'PARTIALLY_VERIFIED'
+                ? ('PARTIALLY_VERIFIED' as const)
+                : ('UNVERIFIED' as const),
+          contactVerificationStatus: result.contactVerificationStatus,
+          contactEnrichmentStatus: result.contactEnrichmentStatus,
+          lastEnrichmentAt: result.lastEnrichmentAt,
+          sourceSearchResultId: result.id,
+          publicDataCheckedAt: new Date(),
+        };
+
+        if (!prospectId) {
+          const created = await tx.aiSalesProspect.create({
+            data: {
+              ...prospectData,
+              status: AiSalesProspectStatus.NEEDS_REVIEW,
+              createdById: userId,
+            },
+          });
+          prospectId = created.id;
+        } else {
+          await tx.aiSalesProspect.update({
+            where: { id: prospectId },
+            data: prospectData,
+          });
+        }
+
+        let savedContacts = 0;
+
+        if (selectedIds.size > 0) {
+          for (const contact of enrichedContacts) {
+            const isSelected = selectedIds.has(contact.id);
+            const normalized =
+              contact.normalizedValue ?? this.publicContacts.normalizeValue(contact.type, contact.value);
+
+            const existingOnProspect = await tx.aiSalesPublicContact.findFirst({
+              where: {
+                prospectId,
+                type: contact.type,
+                normalizedValue: normalized,
+              },
+            });
+
+            if (existingOnProspect) {
+              await tx.aiSalesPublicContact.update({
+                where: { id: existingOnProspect.id },
+                data: {
+                  label: contact.label ?? existingOnProspect.label,
+                  sourceUrl: contact.sourceUrl ?? existingOnProspect.sourceUrl,
+                  sourcePageTitle: contact.sourcePageTitle ?? existingOnProspect.sourcePageTitle,
+                  sourceTextSnippet: contact.sourceTextSnippet ?? existingOnProspect.sourceTextSnippet,
+                  confidence: Math.max(contact.confidence, existingOnProspect.confidence),
+                  isSelectedForOutreach: isSelected || existingOnProspect.isSelectedForOutreach,
+                  searchResultId: contact.searchResultId ?? existingOnProspect.searchResultId,
+                },
+              });
+              if (contact.id !== existingOnProspect.id) {
+                await tx.aiSalesPublicContact.delete({ where: { id: contact.id } }).catch(() => undefined);
+              }
+            } else {
+              await tx.aiSalesPublicContact.update({
+                where: { id: contact.id },
+                data: {
+                  prospectId,
+                  isSelectedForOutreach: isSelected,
+                },
+              });
+              savedContacts += 1;
+            }
+          }
+        }
+
+        if (options?.primaryEmailContactId) {
+          await tx.aiSalesPublicContact.updateMany({
+            where: { prospectId, type: AiSalesContactType.EMAIL },
+            data: { isPrimary: false },
+          });
+          await tx.aiSalesPublicContact.updateMany({
+            where: { id: options.primaryEmailContactId, prospectId },
+            data: { isPrimary: true },
+          });
+        }
+
+        if (options?.primaryPhoneContactId) {
+          await tx.aiSalesPublicContact.updateMany({
+            where: { prospectId, type: AiSalesContactType.PHONE },
+            data: { isPrimary: false },
+          });
+          await tx.aiSalesPublicContact.updateMany({
+            where: { id: options.primaryPhoneContactId, prospectId },
+            data: { isPrimary: true },
+          });
+        }
+
+        await this.publicContacts.syncProspectPrimaryFields(tx, prospectId);
+
+        await tx.aiSalesSearchResult.update({
+          where: { id: resultId },
+          data: { savedProspectId: prospectId },
+        });
+
+        const prospect = await tx.aiSalesProspect.findUnique({
+          where: { id: prospectId },
+          include: {
+            publicContacts: { orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] },
+          },
+        });
+
+        return {
+          success: true,
+          action,
+          prospectId,
+          prospect,
+          savedContacts,
+          primaryEmail: prospect?.primaryEmail ?? prospect?.email ?? null,
+          primaryPhone: prospect?.primaryPhone ?? prospect?.phone ?? null,
+          redirectUrl: `/admin/marketing/ai-sales?tab=prospects&prospectId=${prospectId}`,
+        };
+      });
+    } catch (err) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException ||
+        err instanceof BadRequestException
+      ) {
+        throw err;
+      }
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'SAVE_PROSPECT_FAILED',
+          err instanceof Error ? err.message : 'Partnera se nepodařilo uložit.',
+          500,
+          'SAVE_PROSPECT_WITH_CONTACTS',
+        ),
+      );
     }
-    if (result.savedProspectId) {
-      const existing = await this.prisma.aiSalesProspect.findUnique({ where: { id: result.savedProspectId } });
-      if (!existing) throw new NotFoundException('Uložený partner nenalezen.');
-      return existing;
-    }
-
-    if (result.publicEmail) {
-      const sup = await this.suppression.isSuppressed(result.publicEmail);
-      if (sup.suppressed) throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
-    }
-
-    const dupOr: Prisma.AiSalesProspectWhereInput[] = [
-      { companyName: { equals: result.companyName, mode: 'insensitive' } },
-    ];
-    if (result.publicEmail) {
-      dupOr.unshift({ email: result.publicEmail.toLowerCase() });
-    }
-    const dup = await this.prisma.aiSalesProspect.findFirst({
-      where: { OR: dupOr },
-    });
-    if (dup) throw new BadRequestException('Duplicitní kontakt již existuje.');
-
-    const prospect = await this.prisma.aiSalesProspect.create({
-      data: {
-        partnerType: result.partnerType,
-        companyName: result.companyName,
-        contactName: result.contactName,
-        email: result.publicEmail?.toLowerCase(),
-        phone: result.publicPhone,
-        primaryEmail: result.publicEmail?.toLowerCase(),
-        primaryPhone: result.publicPhone,
-        website: result.website,
-        city: result.city,
-        region: result.region,
-        specialization: Array.isArray(result.specializationJson)
-          ? (result.specializationJson as string[]).join(', ')
-          : undefined,
-        source: result.source,
-        sourceUrl: result.sourceUrl,
-        publicInfo: result.relevanceReason,
-        verificationStatus:
-          result.verificationStatus === 'VERIFIED'
-            ? 'VERIFIED'
-            : result.verificationStatus === 'PARTIALLY_VERIFIED'
-              ? 'PARTIALLY_VERIFIED'
-              : 'UNVERIFIED',
-        contactVerificationStatus: result.contactVerificationStatus,
-        contactEnrichmentStatus: result.contactEnrichmentStatus,
-        lastEnrichmentAt: result.lastEnrichmentAt,
-        status: AiSalesProspectStatus.NEEDS_REVIEW,
-        sourceSearchResultId: result.id,
-        createdById: userId,
-        publicDataCheckedAt: new Date(),
-      },
-    });
-
-    await this.prisma.aiSalesPublicContact.updateMany({
-      where: { searchResultId: result.id },
-      data: { prospectId: prospect.id },
-    });
-
-    await this.prisma.aiSalesSearchResult.update({
-      where: { id: resultId },
-      data: { savedProspectId: prospect.id },
-    });
-
-    return prospect;
   }
 
   async rejectSearchResult(resultId: string) {

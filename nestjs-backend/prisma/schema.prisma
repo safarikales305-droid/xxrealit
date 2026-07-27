@@ -3818,6 +3818,21 @@ enum AiSalesProspectStatus {
 enum AiSalesContactType {
   EMAIL
   PHONE
+  CONTACT_FORM
+  OTHER
+}
+
+enum AiSalesMessageRecipientStatus {
+  SELECTED
+  APPROVED
+  QUEUED
+  SENT
+  DELIVERED
+  BOUNCED
+  REPLIED
+  UNSUBSCRIBED
+  FAILED
+  CANCELLED
 }
 
 enum AiSalesContactVerificationStatus {
@@ -4155,6 +4170,7 @@ model AiSalesMessage {
   replyAnalysis AiSalesReplyAnalysis?
   feedback      AiSalesFeedback[]
   versions      AiSalesMessageVersion[]
+  recipients    AiSalesMessageRecipient[]
 
   @@index([prospectId, createdAt(sort: Desc)])
   @@index([status])
@@ -4393,6 +4409,8 @@ model AiSalesPublicContact {
   value              String
   normalizedValue    String?
   label              String?
+  contactPersonName  String?
+  contactPersonRole  String?
   phoneKind          String?
   originalValue      String?
   sourceUrl          String?
@@ -4401,6 +4419,7 @@ model AiSalesPublicContact {
   verificationStatus AiSalesContactVerificationStatus @default(PUBLICLY_LISTED)
   confidence         Float                            @default(0)
   isPrimary          Boolean                          @default(false)
+  isSelectedForOutreach Boolean                       @default(false)
   discoveredAt       DateTime                         @default(now())
   verifiedById       String?
   verifiedAt         DateTime?
@@ -4410,11 +4429,44 @@ model AiSalesPublicContact {
   prospect     AiSalesProspect?     @relation(fields: [prospectId], references: [id], onDelete: Cascade)
   searchResult AiSalesSearchResult? @relation(fields: [searchResultId], references: [id], onDelete: Cascade)
   verifiedBy   User?                @relation("AiSalesContactVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  messageRecipients AiSalesMessageRecipient[]
 
+  @@unique([prospectId, type, normalizedValue])
   @@index([prospectId])
   @@index([searchResultId])
   @@index([type, normalizedValue])
   @@index([isPrimary])
+  @@index([isSelectedForOutreach])
+}
+
+model AiSalesMessageRecipient {
+  id                String                        @id @default(cuid())
+  messageId         String
+  contactId         String?
+  email             String
+  status            AiSalesMessageRecipientStatus @default(SELECTED)
+  selected          Boolean                       @default(true)
+  approved          Boolean                       @default(false)
+  providerMessageId String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  repliedAt         DateTime?
+  bouncedAt         DateTime?
+  unsubscribedAt    DateTime?
+  errorCode         String?
+  errorMessage      String?                       @db.Text
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+
+  message AiSalesMessage        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  contact AiSalesPublicContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([contactId])
+  @@index([email])
+  @@index([status])
 }
 
 model MarketingPopupUserView {

@@ -38,6 +38,7 @@ export class AiSalesCrmService {
         tasks: { orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }], take: 30 },
         memories: { orderBy: { createdAt: 'desc' }, take: 50 },
         leads: { orderBy: { createdAt: 'desc' }, take: 20 },
+        publicContacts: { orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] },
         assignedTo: { select: { id: true, name: true, email: true } },
         _count: { select: { messages: true } },
       },

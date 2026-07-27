@@ -22,6 +22,7 @@ import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation
 import { AiSalesMessageTemplateService } from './ai-sales-message-template.service';
 import { PartnerSearchService } from './partner-search.service';
 import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
+import { AiSalesPublicContactService } from './ai-sales-public-contact.service';
 import { CompanyWebsiteCrawlerService } from './company-website-crawler.service';
 import { ContactVerificationService } from './contact-verification.service';
 import { SearchProvidersEnvService } from './search-providers-env.service';
@@ -50,6 +51,7 @@ import { WebSearchProvider } from './providers/web-search.provider';
     AiSalesSeedService,
     AiSalesOutreachGenerationService,
     AiSalesMessageTemplateService,
+    AiSalesPublicContactService,
     PartnerContactEnrichmentService,
     CompanyWebsiteCrawlerService,
     ContactVerificationService,

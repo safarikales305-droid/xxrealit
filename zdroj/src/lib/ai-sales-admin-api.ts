@@ -105,6 +105,9 @@ export type AiSalesProspect = {
   companyName: string;
   contactName: string | null;
   email: string | null;
+  primaryEmail?: string | null;
+  primaryPhone?: string | null;
+  phone?: string | null;
   city: string | null;
   region: string | null;
   website: string | null;
@@ -116,7 +119,8 @@ export type AiSalesProspect = {
   publicInfo: string | null;
   analysisJson: Record<string, unknown> | null;
   fitReasonsJson: string[] | null;
-  _count?: { messages: number; leads: number };
+  publicContacts?: AiSalesPublicContact[];
+  _count?: { messages: number; leads: number; publicContacts?: number };
 };
 
 export type AiSalesMessage = {
@@ -151,11 +155,28 @@ export type GenerateMessageResponse = {
   partial?: boolean;
   analysisIncomplete?: boolean;
   variants: Array<{
+    id?: string;
     messageId: string;
     variant: string;
+    tone?: string;
     subject: string;
     previewUrl: string;
   }>;
+};
+
+export type SaveSearchResultResponse = {
+  success: boolean;
+  action: 'CREATED' | 'UPDATED';
+  prospectId: string;
+  prospect?: AiSalesProspect;
+  savedContacts: number;
+  primaryEmail: string | null;
+  primaryPhone: string | null;
+  redirectUrl: string;
+  partial?: boolean;
+  analysisUnavailable?: boolean;
+  savedWithoutEmail?: boolean;
+  warning?: string | { code?: string; message?: string } | null;
 };
 
 export type AiSalesSearchResult = {
@@ -183,12 +204,36 @@ export type AiSalesPublicContact = {
   type: string;
   value: string;
   normalizedValue: string | null;
+  label?: string | null;
+  contactPersonName?: string | null;
+  contactPersonRole?: string | null;
   sourceUrl: string | null;
   sourcePageTitle: string | null;
   sourceTextSnippet: string | null;
   verificationStatus: string;
   confidence: number;
   isPrimary: boolean;
+  isSelectedForOutreach?: boolean;
+};
+
+export type AiSalesMessageRecipient = {
+  id: string;
+  messageId: string;
+  contactId: string | null;
+  email: string;
+  status: string;
+  selected: boolean;
+  approved: boolean;
+  providerMessageId?: string | null;
+  sentAt?: string | null;
+  contact?: {
+    id: string;
+    value: string;
+    label: string | null;
+    contactPersonName: string | null;
+    isPrimary: boolean;
+    verificationStatus: string;
+  } | null;
 };
 
 export type EnrichmentResult = {
@@ -377,8 +422,19 @@ export function getSearchResults(token: string, id: string) {
   return aiSalesRequest<AiSalesSearchResult[]>(token, `/searches/${id}/results`);
 }
 
-export function saveSearchResult(token: string, id: string) {
-  return aiSalesRequest<AiSalesProspect>(token, `/search-results/${id}/save`, { method: 'POST', body: '{}' });
+export function saveSearchResult(
+  token: string,
+  id: string,
+  body?: {
+    selectedContactIds?: string[];
+    primaryEmailContactId?: string;
+    primaryPhoneContactId?: string;
+  },
+) {
+  return aiSalesRequest<SaveSearchResultResponse>(token, `/search-results/${id}/save`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
 }
 
 export function analyzeSearchResult(token: string, id: string) {
@@ -413,6 +469,53 @@ export function enrichSearchResultsBatch(token: string, searchResultIds: string[
 
 export function getSearchResultContacts(token: string, id: string) {
   return aiSalesRequest<AiSalesPublicContact[]>(token, `/search-results/${id}/contacts`);
+}
+
+export function getProspectContacts(token: string, id: string) {
+  return aiSalesRequest<AiSalesPublicContact[]>(token, `/prospects/${id}/contacts`);
+}
+
+export function setProspectContactPrimary(token: string, prospectId: string, contactId: string) {
+  return aiSalesRequest<AiSalesPublicContact[]>(token, `/prospects/${prospectId}/contacts/${contactId}/set-primary`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export function toggleProspectContactOutreach(token: string, prospectId: string, contactId: string, enabled: boolean) {
+  return aiSalesRequest(token, `/prospects/${prospectId}/contacts/${contactId}/toggle-outreach`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function getMessageRecipients(token: string, messageId: string) {
+  return aiSalesRequest<AiSalesMessageRecipient[]>(token, `/messages/${messageId}/recipients`);
+}
+
+export function updateMessageRecipients(
+  token: string,
+  messageId: string,
+  recipients: Array<{ id: string; selected?: boolean; approved?: boolean }>,
+) {
+  return aiSalesRequest<AiSalesMessageRecipient[]>(token, `/messages/${messageId}/recipients`, {
+    method: 'PUT',
+    body: JSON.stringify({ recipients }),
+  });
+}
+
+export function selectAllMessageRecipients(token: string, messageId: string) {
+  return aiSalesRequest<AiSalesMessageRecipient[]>(token, `/messages/${messageId}/recipients/select-all`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export function selectPrimaryMessageRecipients(token: string, messageId: string) {
+  return aiSalesRequest<AiSalesMessageRecipient[]>(token, `/messages/${messageId}/recipients/select-primary`, {
+    method: 'POST',
+    body: '{}',
+  });
 }
 
 export function updateProspectContact(

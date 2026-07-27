@@ -33,6 +33,7 @@ import { parseCsv, AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { PartnerSearchService } from './partner-search.service';
 import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
+import { AiSalesPublicContactService } from './ai-sales-public-contact.service';
 import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation.service';
 import { PrismaService } from '../../database/prisma.service';
 import { AiSalesAdminException, mapExceptionToSalesAdminError } from './ai-sales-errors.util';
@@ -55,6 +56,7 @@ export class AiSalesAdminController {
     private readonly settings: AiSalesSettingsService,
     private readonly search: PartnerSearchService,
     private readonly contactEnrichment: PartnerContactEnrichmentService,
+    private readonly publicContacts: AiSalesPublicContactService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -325,6 +327,29 @@ export class AiSalesAdminController {
     return this.wrap(() => this.messages.sendTest(id, body.email, this.userId(req)));
   }
 
+  @Get('messages/:id/recipients')
+  listMessageRecipients(@Param('id') id: string) {
+    return this.messages.listRecipients(id);
+  }
+
+  @Put('messages/:id/recipients')
+  updateMessageRecipients(
+    @Param('id') id: string,
+    @Body() body: { recipients: Array<{ id: string; selected?: boolean; approved?: boolean }> },
+  ) {
+    return this.messages.updateRecipients(id, body.recipients ?? []);
+  }
+
+  @Post('messages/:id/recipients/select-all')
+  selectAllMessageRecipients(@Param('id') id: string) {
+    return this.messages.selectAllRecipients(id, 'all');
+  }
+
+  @Post('messages/:id/recipients/select-primary')
+  selectPrimaryMessageRecipients(@Param('id') id: string) {
+    return this.messages.selectAllRecipients(id, 'primary');
+  }
+
   @Get('messages/:id/versions')
   listMessageVersions(@Param('id') id: string) {
     return this.messages.listVersions(id);
@@ -474,7 +499,66 @@ export class AiSalesAdminController {
 
   @Get('prospects/:id/contacts')
   getProspectContacts(@Param('id') id: string) {
-    return this.contactEnrichment.getContactsForProspect(id);
+    return this.publicContacts.listForProspect(id);
+  }
+
+  @Post('prospects/:id/contacts')
+  createProspectContact(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      type: 'EMAIL' | 'PHONE' | 'CONTACT_FORM' | 'OTHER';
+      value: string;
+      label?: string;
+      contactPersonName?: string;
+      contactPersonRole?: string;
+      sourceUrl?: string;
+      isPrimary?: boolean;
+      isSelectedForOutreach?: boolean;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() => this.publicContacts.createForProspect(id, body, this.userId(req)));
+  }
+
+  @Put('prospects/:id/contacts/:contactId')
+  updateProspectPublicContact(
+    @Param('id') id: string,
+    @Param('contactId') contactId: string,
+    @Body()
+    body: {
+      value?: string;
+      label?: string | null;
+      contactPersonName?: string | null;
+      contactPersonRole?: string | null;
+      sourceUrl?: string | null;
+      isSelectedForOutreach?: boolean;
+    },
+  ) {
+    return this.wrap(() => this.publicContacts.updateContact(id, contactId, body));
+  }
+
+  @Delete('prospects/:id/contacts/:contactId')
+  deleteProspectPublicContact(@Param('id') id: string, @Param('contactId') contactId: string) {
+    return this.wrap(() => this.publicContacts.deleteContact(id, contactId));
+  }
+
+  @Post('prospects/:id/contacts/:contactId/set-primary')
+  setProspectContactPrimary(
+    @Param('id') id: string,
+    @Param('contactId') contactId: string,
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() => this.publicContacts.setPrimary(id, contactId, this.userId(req)));
+  }
+
+  @Post('prospects/:id/contacts/:contactId/toggle-outreach')
+  toggleProspectContactOutreach(
+    @Param('id') id: string,
+    @Param('contactId') contactId: string,
+    @Body() body: { enabled: boolean },
+  ) {
+    return this.wrap(() => this.publicContacts.toggleOutreach(id, contactId, body.enabled));
   }
 
   @Put('prospects/:id/contact')
@@ -634,10 +718,25 @@ export class AiSalesAdminController {
   }
 
   @Post('search-results/:id/save')
-  saveSearchResult(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+  saveSearchResult(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      selectedContactIds?: string[];
+      primaryEmailContactId?: string;
+      primaryPhoneContactId?: string;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
     return this.wrap(async () => {
-      const prospect = await this.search.saveSearchResult(id, this.userId(req));
+      const saveResult = await this.search.saveSearchResult(id, this.userId(req), {
+        selectedContactIds: body.selectedContactIds,
+        primaryEmailContactId: body.primaryEmailContactId,
+        primaryPhoneContactId: body.primaryPhoneContactId,
+      });
+      const prospect = saveResult.prospect;
       if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
+
       const settings = await this.settings.getOrCreate();
       if (settings.autoAnalyzeOnSave) {
         try {
@@ -645,9 +744,8 @@ export class AiSalesAdminController {
         } catch (err) {
           const mapped = mapExceptionToSalesAdminError(err, 'analysis');
           return {
-            success: true,
+            ...saveResult,
             partial: true,
-            prospect,
             analysisUnavailable: true,
             warning: {
               code: mapped.code,
@@ -656,11 +754,11 @@ export class AiSalesAdminController {
           };
         }
       }
+
       return {
-        success: true,
-        prospect,
-        savedWithoutEmail: !prospect.email,
-        warning: !prospect.email
+        ...saveResult,
+        savedWithoutEmail: !saveResult.primaryEmail,
+        warning: !saveResult.primaryEmail
           ? 'Partner byl uložen bez e-mailu. Nabídku lze připravit a zobrazit, ale nelze ji odeslat.'
           : null,
       };
@@ -682,7 +780,8 @@ export class AiSalesAdminController {
     return this.wrap(async () => {
       const result = await this.prisma.aiSalesSearchResult.findUnique({ where: { id } });
       if (!result) throw new BadRequestException('Výsledek nenalezen.');
-      const prospect = await this.search.saveSearchResult(id, this.userId(req));
+      const saveResult = await this.search.saveSearchResult(id, this.userId(req));
+      const prospect = saveResult.prospect;
       if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
       try {
         const analysis = await this.analysis.analyzeProspect(prospect.id, this.userId(req));

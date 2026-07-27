@@ -50,7 +50,17 @@ export class AiSalesProspectService {
       skip: filters?.offset ?? 0,
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
-        _count: { select: { messages: true, leads: true } },
+        publicContacts: {
+          select: {
+            id: true,
+            type: true,
+            value: true,
+            isPrimary: true,
+            isSelectedForOutreach: true,
+            verificationStatus: true,
+          },
+        },
+        _count: { select: { messages: true, leads: true, publicContacts: true } },
       },
     });
   }

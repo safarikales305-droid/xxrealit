@@ -8,12 +8,16 @@ import {
   enrichProspect,
   generateMessage,
   getCrmPartner,
+  getProspectContacts,
   listCrmPartners,
   PARTNER_TYPE_LABELS,
   PROSPECT_STATUS_LABELS,
+  setProspectContactPrimary,
+  toggleProspectContactOutreach,
   updateCrmPartner,
   updateProspectContact,
   type AiSalesApiError,
+  type AiSalesPublicContact,
 } from '@/lib/ai-sales-admin-api';
 
 type Props = { token: string };
@@ -37,6 +41,7 @@ export function AiSalesCrmPanel({ token }: Props) {
     manualConfirm: false,
   });
   const [showContactEdit, setShowContactEdit] = useState(false);
+  const [publicContacts, setPublicContacts] = useState<AiSalesPublicContact[]>([]);
 
   const loadPartners = useCallback(async () => {
     if (!token) return;
@@ -61,6 +66,8 @@ export function AiSalesCrmPanel({ token }: Props) {
       const row = await getCrmPartner(token, id);
       setDetail(row);
       setSelectedId(id);
+      const contacts = await getProspectContacts(token, id).catch(() => []);
+      setPublicContacts(contacts);
       setNote(String(row.notes ?? ''));
       setContactForm({
         email: String(row.email ?? ''),
@@ -179,7 +186,7 @@ export function AiSalesCrmPanel({ token }: Props) {
             </p>
             <p className="mt-1 text-sm">Fit score: <strong>{String(detail.fitScore ?? '—')}</strong> / 100 · Priorita: {String(detail.priority ?? '—')}</p>
             <p className="text-sm">Stav: {PROSPECT_STATUS_LABELS[String(detail.status)] ?? String(detail.status)}</p>
-            <p className="text-sm">Web: {String(detail.website ?? '—')} · E-mail: {String(detail.email ?? '—')} · Tel: {String(detail.phone ?? '—')}</p>
+            <p className="text-sm">Web: {String(detail.website ?? '—')} · E-mail: {String(detail.primaryEmail ?? detail.email ?? '—')} · Tel: {String(detail.primaryPhone ?? detail.phone ?? '—')}</p>
             <p className="text-xs text-zinc-500">
               Ověření kontaktu: {String(detail.contactVerificationStatus ?? '—')} · Zdroj: {String(detail.source ?? '—')}
             </p>
@@ -210,6 +217,47 @@ export function AiSalesCrmPanel({ token }: Props) {
               </button>
             </div>
           ) : null}
+
+          <div className="rounded-2xl border bg-white p-4 text-sm overflow-x-auto">
+            <p className="font-semibold">Kontakty ({publicContacts.length})</p>
+            {publicContacts.length === 0 ? (
+              <p className="mt-2 text-xs text-zinc-500">Žádné veřejné kontakty. Použijte dohledání z webu nebo ruční úpravu.</p>
+            ) : (
+              <table className="mt-2 min-w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-2 py-1">Oslovení</th>
+                    <th className="px-2 py-1">Typ</th>
+                    <th className="px-2 py-1">Hodnota</th>
+                    <th className="px-2 py-1">Zdroj</th>
+                    <th className="px-2 py-1">Primární</th>
+                    <th className="px-2 py-1">Akce</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {publicContacts.map((c) => (
+                    <tr key={c.id} className="border-b border-zinc-100">
+                      <td className="px-2 py-1">{c.isSelectedForOutreach ? '✓' : '—'}</td>
+                      <td className="px-2 py-1">{c.type}</td>
+                      <td className="px-2 py-1">{c.value}{c.label ? ` · ${c.label}` : ''}</td>
+                      <td className="px-2 py-1">{c.sourceUrl ? <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="underline">zdroj</a> : '—'}</td>
+                      <td className="px-2 py-1">{c.isPrimary ? 'ano' : 'ne'}</td>
+                      <td className="px-2 py-1">
+                        <div className="flex flex-wrap gap-1">
+                          <button type="button" className="underline" onClick={() => void setProspectContactPrimary(token, String(detail.id), c.id).then(() => loadDetail(String(detail.id)))}>Primární</button>
+                          {c.type === 'EMAIL' ? (
+                            <button type="button" className="underline" onClick={() => void toggleProspectContactOutreach(token, String(detail.id), c.id, !c.isSelectedForOutreach).then(() => loadDetail(String(detail.id)))}>
+                              {c.isSelectedForOutreach ? 'Nepoužívat' : 'Pro oslovení'}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
           {recommendation ? (
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm">

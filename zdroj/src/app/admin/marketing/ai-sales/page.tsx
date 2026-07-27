@@ -46,6 +46,19 @@ import { AiSalesFollowUpPanel } from '@/components/admin/ai-sales/AiSalesFollowU
 import { AiSalesPromptsPanel } from '@/components/admin/ai-sales/AiSalesPromptsPanel';
 import { AiSalesKnowledgePanel } from '@/components/admin/ai-sales/AiSalesKnowledgePanel';
 
+function prospectContactSummary(p: AiSalesProspect) {
+  const emails = p.publicContacts?.filter((c) => c.type === 'EMAIL') ?? [];
+  const phones = p.publicContacts?.filter((c) => c.type === 'PHONE') ?? [];
+  const primary =
+    p.primaryEmail ??
+    p.email ??
+    emails.find((e) => e.isPrimary)?.value ??
+    emails.find((e) => e.isSelectedForOutreach)?.value ??
+    emails[0]?.value ??
+    null;
+  return { emails, phones, primary };
+}
+
 type Tab =
   | 'overview'
   | 'crm'
@@ -445,12 +458,18 @@ export default function AdminAiSalesPage() {
             <EmptyState title="Zatím nejsou žádní potenciální partneři." action="Přidejte první kontakt ručně nebo importujte CSV." />
           ) : (
             <ul className="space-y-2">
-              {prospects.map((p) => (
+              {prospects.map((p) => {
+                const { emails, phones, primary } = prospectContactSummary(p);
+                return (
                 <li key={p.id} className="rounded-xl border border-zinc-200 bg-white p-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold">{p.companyName} <span className="text-xs text-zinc-500">{PARTNER_TYPE_LABELS[p.partnerType] ?? p.partnerType} · {p.status}</span></p>
-                      <p className="text-zinc-600">{p.city ?? '—'} · Skóre: {p.fitScore ?? '—'}/100 · {p.email ?? 'bez e-mailu'}</p>
+                      <p className="text-zinc-600">{p.city ?? '—'} · Skóre: {p.fitScore ?? '—'}/100</p>
+                      <p className="text-zinc-600">
+                        E-maily: {emails.length || (primary ? 1 : 0)} · Telefony: {phones.length}
+                        {primary ? ` · Primární: ${primary}` : ' · bez e-mailu'}
+                      </p>
                       {p.fitReasonsJson && Array.isArray(p.fitReasonsJson) ? (
                         <p className="mt-1 text-xs text-zinc-500">{(p.fitReasonsJson as string[]).slice(0, 2).join(' · ')}</p>
                       ) : null}
@@ -465,7 +484,8 @@ export default function AdminAiSalesPage() {
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
