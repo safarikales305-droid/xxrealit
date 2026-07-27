@@ -6,7 +6,7 @@ import { OpenAiService } from '../openai/openai.service';
 import {
   AiSalesAdminException,
   buildSalesAdminError,
-  mapExceptionToSalesAdminError,
+  mapOpenAiToSalesError,
 } from './ai-sales-errors.util';
 import { AiSalesKnowledgeService } from './ai-sales-knowledge.service';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
@@ -32,6 +32,54 @@ export class AiSalesAdminService {
     private readonly webSearch: WebSearchProvider,
     private readonly searchEnv: SearchProvidersEnvService,
   ) {}
+
+  async getOpenAiDiagnostics() {
+    const [engine, aiDb, salesSettings, lastSuccess, lastFailed] = await Promise.all([
+      this.openai.getEngineDiagnostics(),
+      this.openaiSettings.getOrCreate(),
+      this.salesSettings.getOrCreate(),
+      this.prisma.aiUsageLog.findFirst({
+        where: { feature: 'ai_sales', success: true },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      this.prisma.aiSalesProspect.findFirst({
+        where: { analysisErrorCode: { not: null } },
+        orderBy: { analysisFailedAt: 'desc' },
+        select: { analysisErrorCode: true },
+      }),
+    ]);
+
+    let testConnection = false;
+    if (engine.apiKeyConfigured && engine.openAiEnabled) {
+      try {
+        const test = await this.openai.testConnection();
+        testConnection = test.success;
+      } catch {
+        testConnection = false;
+      }
+    }
+
+    const promptCount = await this.prisma.aiPromptVersion.count({
+      where: { feature: AI_SALES_PROMPT_FEATURES.PARTNER_ANALYSIS, status: 'ACTIVE' },
+    });
+
+    return {
+      backendAvailable: true,
+      openAiEnabled: engine.openAiEnabled,
+      apiKeyConfigured: engine.apiKeyConfigured,
+      apiKeyLength: engine.apiKeyLength,
+      model: engine.model,
+      timeoutMs: engine.timeoutMs,
+      maxRetries: engine.maxRetries,
+      testConnection,
+      analysisPromptConfigured: promptCount > 0,
+      aiSalesEnabled: salesSettings.enabled,
+      chatFeatureGate: aiDb.chatEnabled,
+      lastSuccessAt: lastSuccess?.createdAt?.toISOString() ?? null,
+      lastErrorCode: lastFailed?.analysisErrorCode ?? null,
+    };
+  }
 
   async getDiagnostics() {
     const [dbOk, aiDb, salesSettings, usage] = await Promise.all([
@@ -252,17 +300,12 @@ Veřejné informace: ${publicInfo || '—'}`;
           buildSalesAdminError('OPENAI_DISABLED', 'OpenAI je vypnuto v nastavení AI centra.', 403, phase),
         );
       }
-      const code = this.openai.resolveAdminErrorCode(err);
-      const message = this.openai.resolveAdminErrorMessage(code, err);
-      throw new AiSalesAdminException(buildSalesAdminError(code as never, message, this.httpForCode(code), phase));
+      throw new AiSalesAdminException(mapOpenAiToSalesError(err, phase));
     }
   }
 
   private httpForCode(code: string): number {
-    if (code === 'OPENAI_NOT_CONFIGURED' || code === 'OPENAI_INVALID_KEY') return 400;
-    if (code.includes('LIMIT') || code === 'OPENAI_DISABLED' || code === 'AI_SALES_DISABLED') return 403;
-    if (code === 'OPENAI_TIMEOUT' || code.includes('CONNECTION')) return 503;
-    return 500;
+    return this.openai.httpStatusForCode(code);
   }
 
   private async checkDatabase() {

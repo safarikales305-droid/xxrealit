@@ -6,17 +6,25 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { OpenAiRequestException } from '../openai/openai-request.exception';
+import { OpenAiService } from '../openai/openai.service';
 
 export type AiSalesErrorCode =
   | 'AI_SALES_DISABLED'
   | 'OPENAI_DISABLED'
   | 'OPENAI_NOT_CONFIGURED'
   | 'OPENAI_INVALID_KEY'
+  | 'OPENAI_PERMISSION_DENIED'
   | 'OPENAI_QUOTA_EXCEEDED'
+  | 'OPENAI_RATE_LIMITED'
   | 'OPENAI_RATE_LIMIT'
   | 'OPENAI_TIMEOUT'
   | 'OPENAI_CONNECTION_ERROR'
   | 'OPENAI_MODEL_NOT_AVAILABLE'
+  | 'OPENAI_INVALID_REQUEST'
+  | 'OPENAI_INVALID_RESPONSE'
+  | 'OPENAI_UNKNOWN_ERROR'
+  | 'ANALYSIS_NOT_COMPLETED'
   | 'DATABASE_ERROR'
   | 'ENDPOINT_NOT_FOUND'
   | 'SEARCH_PROVIDER_NOT_CONFIGURED'
@@ -87,6 +95,24 @@ export function buildSalesAdminError(
   };
 }
 
+export function mapOpenAiToSalesError(err: unknown, phase?: string): AiSalesAdminErrorBody {
+  if (err instanceof OpenAiRequestException) {
+    return buildSalesAdminError(
+      err.openAiCode as AiSalesErrorCode,
+      err.message,
+      err.getStatus(),
+      phase,
+      {
+        upstreamStatus: err.upstreamStatus ?? null,
+        retryable: err.retryable,
+      },
+    );
+  }
+  const openai = err as { resolveAdminErrorCode?: never };
+  void openai;
+  return mapExceptionToSalesAdminError(err, phase);
+}
+
 export function mapExceptionToSalesAdminError(
   err: unknown,
   phase?: string,
@@ -96,6 +122,10 @@ export function mapExceptionToSalesAdminError(
     if (typeof res === 'object' && res !== null && 'code' in res) {
       return res as AiSalesAdminErrorBody;
     }
+  }
+
+  if (err instanceof OpenAiRequestException) {
+    return mapOpenAiToSalesError(err, phase);
   }
 
   if (err instanceof UnauthorizedException) {
@@ -119,7 +149,7 @@ export function mapExceptionToSalesAdminError(
     if (/DO_NOT_CONTACT|zákaz/i.test(msg)) {
       return buildSalesAdminError('DO_NOT_CONTACT', msg, 403, phase);
     }
-    if (/OpenAI|vypnut/i.test(msg)) {
+    if (/OpenAI|vypnut|AI chat|AI obchodník/i.test(msg)) {
       return buildSalesAdminError('OPENAI_DISABLED', msg, 403, phase);
     }
     return buildSalesAdminError('INVALID_REQUEST', msg, 403, phase);
@@ -158,11 +188,15 @@ export function mapExceptionToSalesAdminError(
   }
 
   if (err instanceof ServiceUnavailableException) {
-    return buildSalesAdminError('OPENAI_CONNECTION_ERROR', extractMessage(err), 503, phase);
+    const msg = extractMessage(err);
+    if (/timeout/i.test(msg)) {
+      return buildSalesAdminError('OPENAI_TIMEOUT', msg, 504, phase);
+    }
+    return buildSalesAdminError('OPENAI_CONNECTION_ERROR', msg, 503, phase);
   }
 
-  if (err instanceof Error && err.name === 'AbortError') {
-    return buildSalesAdminError('TIMEOUT', 'Požadavek vypršel (timeout 60 s).', 504, phase);
+  if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+    return buildSalesAdminError('OPENAI_TIMEOUT', 'OpenAI neodpovědělo včas (timeout).', 504, phase);
   }
 
   const msg = extractMessage(err);
@@ -184,4 +218,12 @@ function extractMessage(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+/** @deprecated use mapOpenAiToSalesError */
+export function mapOpenAiErrorWithService(openai: OpenAiService, err: unknown, phase?: string) {
+  const code = openai.resolveAdminErrorCode(err);
+  const message = openai.resolveAdminErrorMessage(code, err);
+  const httpStatus = openai.httpStatusForCode(code);
+  return buildSalesAdminError(code as AiSalesErrorCode, message, httpStatus, phase);
 }

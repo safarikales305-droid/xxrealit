@@ -4173,6 +4173,10 @@ model AiSalesProspect {
   publicDataCheckedAt  DateTime?
   analysisStatus     AiSalesAnalysisStatus     @default(PENDING)
   analyzedAt         DateTime?
+  analysisStartedAt  DateTime?
+  analysisFailedAt   DateTime?
+  analysisErrorCode  String?
+  analysisErrorMessage String?                 @db.Text
   companyProfileJson Json?
   aiRecommendationJson Json?
   createdById        String?

@@ -246,7 +246,7 @@ export class AiChatAdminService {
     const code = this.openai.resolveAdminErrorCode(err);
     const message = this.openai.resolveAdminErrorMessage(code, err);
     const httpStatus =
-      code === 'OPENAI_RATE_LIMIT'
+      code === 'OPENAI_RATE_LIMITED'
         ? 429
         : code === 'OPENAI_TIMEOUT'
           ? 504

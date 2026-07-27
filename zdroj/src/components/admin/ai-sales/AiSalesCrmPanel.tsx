@@ -7,7 +7,7 @@ import {
   approveMessage,
   approveProspect,
   enrichProspect,
-  generateMessage,
+  generateOffer,
   generateManualMessage,
   getCrmPartner,
   getSearchResultContacts,
@@ -161,26 +161,34 @@ export function AiSalesCrmPanel({ token, initialProspectId, onOpenMessage }: Pro
     if (!token || !detail) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      const res = await generateMessage(token, String(detail.id), { variantCount: 3 });
+      const res = await generateOffer(token, String(detail.id), { variantCount: 3 });
       const firstId = res.messageId ?? res.variants?.[0]?.messageId;
-      if (res.partial || res.analysisIncomplete) {
-        setNotice('Nabídka byla vytvořena bez dokončené AI analýzy. Návrh je plně editovatelný.');
-      }
       await loadDetail(String(detail.id));
       if (firstId && onOpenMessage) onOpenMessage(firstId);
     } catch (e) {
       const err = e as Error & AiSalesApiError;
-      setError(err.message ?? 'Generování nabídky selhalo.');
-      try {
-        const manual = await generateManualMessage(token, String(detail.id));
-        if (manual.message?.id && onOpenMessage) {
-          onOpenMessage(String(manual.message.id));
-          setNotice('Otevřen ruční návrh bez OpenAI.');
-        }
-      } catch {
-        // manual fallback failed
+      setError(
+        `Analýzu nebo nabídku se nepodařilo dokončit. Kód: ${err.code ?? 'UNKNOWN'} · HTTP ${err.httpStatus ?? '—'} · ${err.message}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleManualDraft() {
+    if (!token || !detail) return;
+    setBusy(true);
+    try {
+      const manual = await generateManualMessage(token, String(detail.id));
+      if (manual.message?.id && onOpenMessage) {
+        onOpenMessage(String(manual.message.id));
+        setNotice('Otevřen ruční návrh bez analýzy.');
       }
+      await loadDetail(String(detail.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ruční návrh selhal.');
     } finally {
       setBusy(false);
     }
@@ -291,6 +299,7 @@ export function AiSalesCrmPanel({ token, initialProspectId, onOpenMessage }: Pro
               <button type="button" disabled={busy} onClick={() => void (async () => { await analyzeProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Analyzovat</button>
               <button type="button" disabled={busy} onClick={() => void (async () => { await approveProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Schválit</button>
               <button type="button" disabled={busy || Boolean(detail.doNotContact)} onClick={() => void handleGenerateMessage()} className="rounded bg-orange-600 px-2 py-1 text-xs text-white">Vytvořit nabídku</button>
+              <button type="button" disabled={busy} onClick={() => void handleManualDraft()} className="rounded border px-2 py-1 text-xs">Ruční editor</button>
             </div>
           </div>
 

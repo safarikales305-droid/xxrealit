@@ -9,10 +9,11 @@ import {
   analyzeProspect,
   approveProspect,
   createProspect,
-  generateMessage,
+  generateOffer,
   generateManualMessage,
   getDashboard,
   getDiagnostics,
+  getOpenAiDiagnostics,
   getSettings,
   importPreview,
   importProspects,
@@ -45,6 +46,15 @@ import { AiSalesStatsPanel } from '@/components/admin/ai-sales/AiSalesStatsPanel
 import { AiSalesFollowUpPanel } from '@/components/admin/ai-sales/AiSalesFollowUpPanel';
 import { AiSalesPromptsPanel } from '@/components/admin/ai-sales/AiSalesPromptsPanel';
 import { AiSalesKnowledgePanel } from '@/components/admin/ai-sales/AiSalesKnowledgePanel';
+import { useAdminLoading } from '@/components/admin/loading/AdminLoadingProvider';
+
+const ANALYSIS_PHASES = [
+  'Načítám veřejná data…',
+  'Připravuji podklady…',
+  'Volám OpenAI…',
+  'Vyhodnocuji výsledek…',
+  'Ukládám analýzu…',
+];
 
 function prospectContactSummary(p: AiSalesProspect) {
   const emails = p.publicContacts?.filter((c) => c.type === 'EMAIL') ?? [];
@@ -98,6 +108,7 @@ export default function AdminAiSalesPage() {
   const searchParams = useSearchParams();
   const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
+  const { startLoading, updateLoading, stopLoading } = useAdminLoading();
   const [tab, setTab] = useState<Tab>('overview');
   const [periodDays, setPeriodDays] = useState(7);
   const [dashboard, setDashboard] = useState<AiSalesDashboard | null>(null);
@@ -235,19 +246,28 @@ export default function AdminAiSalesPage() {
     if (!token) return;
     setBusy(true);
     setActionError(null);
+    const key = `analyze-${id}`;
+    startLoading({ key, label: 'Analyzuji partnera…', sublabel: ANALYSIS_PHASES[0] });
+    let phaseIdx = 0;
+    const timer = setInterval(() => {
+      phaseIdx = Math.min(phaseIdx + 1, ANALYSIS_PHASES.length - 1);
+      updateLoading({ key, sublabel: ANALYSIS_PHASES[phaseIdx] });
+    }, 3500);
     try {
       await analyzeProspect(token, id);
       await refresh();
     } catch (e) {
       const err = e as Error & AiSalesApiError;
       setActionError({
-        message: err.message || 'Analýza selhala.',
+        message: err.message || 'Analýzu se nepodařilo dokončit.',
         code: err.code ?? 'UNKNOWN_ERROR',
         httpStatus: err.httpStatus ?? 503,
         success: false,
         phase: err.phase ?? 'analysis',
       });
     } finally {
+      clearInterval(timer);
+      stopLoading(key);
       setBusy(false);
     }
   }
@@ -257,50 +277,26 @@ export default function AdminAiSalesPage() {
     setBusy(true);
     setActionError(null);
     setSelectedMessageId(null);
+    const key = `offer-${id}`;
+    startLoading({ key, label: 'Vytvářím nabídku…', sublabel: 'Kontroluji analýzu partnera…' });
     try {
-      const res = await generateMessage(token, id, { variantCount: 3 });
+      const res = await generateOffer(token, id, { variantCount: 3 });
       const firstId = res.messageId ?? res.variants?.[0]?.messageId;
       if (firstId) {
         openMessage(firstId);
       }
-      if (res.analysisIncomplete) {
-        setActionError({
-          message: 'Nabídka byla vytvořena bez dokončené AI analýzy partnera.',
-          code: 'PARTIAL',
-          httpStatus: 200,
-          success: false,
-          phase: 'message_generation',
-        });
-      }
       await refresh();
     } catch (e) {
       const err = e as Error & AiSalesApiError;
-      if (/OPENAI/i.test(err.code ?? '')) {
-        setActionError({
-          message: `${err.message} Můžete vytvořit ruční návrh.`,
-          code: err.code ?? 'OPENAI_CONNECTION_ERROR',
-          httpStatus: err.httpStatus ?? 503,
-          success: false,
-          phase: err.phase ?? 'message_generation',
-        });
-        try {
-          const manual = await generateManualMessage(token, id);
-          if (manual.message?.id) {
-            openMessage(String(manual.message.id));
-          }
-        } catch {
-          // manual fallback failed too
-        }
-      } else {
-        setActionError({
-          message: err.message || 'Generování nabídky selhalo.',
-          code: err.code ?? 'UNKNOWN_ERROR',
-          httpStatus: err.httpStatus ?? 500,
-          success: false,
-          phase: err.phase ?? 'message_generation',
-        });
-      }
+      setActionError({
+        message: err.message || 'Vytvoření nabídky selhalo.',
+        code: err.code ?? 'UNKNOWN_ERROR',
+        httpStatus: err.httpStatus ?? 500,
+        success: false,
+        phase: err.phase ?? 'generate_offer',
+      });
     } finally {
+      stopLoading(key);
       setBusy(false);
     }
   }
@@ -435,13 +431,25 @@ export default function AdminAiSalesPage() {
       ) : null}
 
       {actionError ? (
-        <div className={`mb-4 rounded-lg border p-3 text-sm ${actionError.code === 'PARTIAL' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
-          <p className="font-semibold">{actionError.code === 'PARTIAL' ? 'Upozornění' : 'Akce se nepodařila'}</p>
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <p className="font-semibold">
+            {actionError.phase === 'analysis' ? 'Analýzu se nepodařilo dokončit' : 'Akce se nepodařila'}
+          </p>
           <p>Kód: {actionError.code}{actionError.phase ? ` · fáze: ${actionError.phase}` : ''} · HTTP {actionError.httpStatus}</p>
           <p>{actionError.message}</p>
-          {actionError.code?.startsWith('OPENAI') ? (
-            <p className="mt-1 text-xs">Můžete pokračovat ručním návrhem nebo zkusit generování znovu po obnovení OpenAI.</p>
-          ) : null}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {actionError.phase === 'analysis' ? (
+              <button type="button" className="rounded border bg-white px-2 py-1 text-xs" onClick={() => setTab('test')}>
+                Otevřít diagnostiku
+              </button>
+            ) : null}
+            {actionError.phase === 'generate_offer' && actionError.code === 'ANALYSIS_NOT_COMPLETED' ? (
+              <span className="text-xs text-red-800">Nejdříve dokončete analýzu partnera.</span>
+            ) : null}
+            {/OPENAI/i.test(actionError.code ?? '') ? (
+              <span className="text-xs text-red-800">Můžete zkusit znovu nebo pokračovat ručním editorem v CRM.</span>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

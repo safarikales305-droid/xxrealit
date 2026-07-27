@@ -160,7 +160,7 @@ export class AiSalesAdminController {
 
   @Post('prospects/:id/analyze')
   analyzeProspect(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.wrap(() => this.analysis.analyzeProspect(id, this.userId(req)));
+    return this.wrap(() => this.analysis.analyzeProspect(id, this.userId(req)), 'analysis');
   }
 
   // ── CRM ──
@@ -236,6 +236,23 @@ export class AiSalesAdminController {
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
     return this.prospects.markDoNotContact(id, body.reason, this.userId(req));
+  }
+
+  @Post('prospects/:id/generate-offer')
+  generateOffer(
+    @Param('id') id: string,
+    @Body() body: { campaignId?: string; tone?: string; variantCount?: number; skipAnalysis?: boolean },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() =>
+      this.outreach.generateOffer(id, this.userId(req), {
+        campaignId: body.campaignId,
+        tone: body.tone as never,
+        variantCount: body.variantCount ?? 3,
+        skipAnalysis: body.skipAnalysis,
+      }),
+      'generate_offer',
+    );
   }
 
   @Post('prospects/:id/generate-message')
@@ -614,6 +631,12 @@ export class AiSalesAdminController {
     return this.contactEnrichment.getContactsForProspect(id);
   }
 
+  @Get('openai-diagnostics')
+  @Header('Cache-Control', 'no-store')
+  getOpenAiDiagnostics() {
+    return this.admin.getOpenAiDiagnostics();
+  }
+
   @Get('diagnostics')
   @Header('Cache-Control', 'no-store')
   getDiagnostics() {
@@ -818,18 +841,6 @@ export class AiSalesAdminController {
         return { success: true, prospect, analysis };
       } catch (err) {
         const mapped = mapExceptionToSalesAdminError(err, 'analysis');
-        if (/OPENAI|analýz/i.test(mapped.code) || mapped.code === 'ANALYSIS_LIMIT_REACHED') {
-          return {
-            success: true,
-            partial: true,
-            prospect,
-            analysisUnavailable: true,
-            warning: {
-              code: mapped.code,
-              message: 'AI analýza je dočasně nedostupná.',
-            },
-          };
-        }
         throw new AiSalesAdminException(mapped);
       }
     });
@@ -855,7 +866,7 @@ export class AiSalesAdminController {
     },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.wrap(() => this.admin.testAnalysis({ ...body, userId: this.userId(req) }));
+    return this.wrap(() => this.analysis.runDryAnalysis({ ...body, userId: this.userId(req) }), 'analysis_test');
   }
 
   @Post('test-openai')
@@ -875,7 +886,7 @@ export class AiSalesAdminController {
     },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {
-    return this.wrap(() => this.admin.testAnalysis({ ...body, userId: this.userId(req) }));
+    return this.wrap(() => this.analysis.runDryAnalysis({ ...body, userId: this.userId(req) }), 'analysis_test');
   }
 
   @Post('test-search-provider')
@@ -893,12 +904,12 @@ export class AiSalesAdminController {
     return { success: true };
   }
 
-  private async wrap<T>(fn: () => Promise<T>): Promise<T> {
+  private async wrap<T>(fn: () => Promise<T>, phase?: string): Promise<T> {
     try {
       return await fn();
     } catch (err) {
       if (err instanceof AiSalesAdminException) throw err;
-      const mapped = mapExceptionToSalesAdminError(err);
+      const mapped = mapExceptionToSalesAdminError(err, phase);
       throw new AiSalesAdminException(mapped);
     }
   }

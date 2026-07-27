@@ -27,6 +27,7 @@ export type GenerateOutreachOptions = {
   variantCount?: number;
   testMode?: boolean;
   variantLabel?: string;
+  requireCompletedAnalysis?: boolean;
 };
 
 export const OUTREACH_VARIANTS = [

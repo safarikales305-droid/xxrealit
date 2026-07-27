@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   getDiagnostics,
+  getOpenAiDiagnostics,
   PARTNER_TYPE_LABELS,
   PARTNER_TYPES,
   testAnalysis,
@@ -54,8 +55,12 @@ export function AiSalesTestPanel({ token }: Props) {
     setBusy('openai');
     setErrors((prev) => ({ ...prev, openai: undefined as never }));
     try {
-      const [diag, res] = await Promise.all([getDiagnostics(token), testOpenAi(token)]);
-      setDiagnostics(diag);
+      const [diag, openAiDiag, res] = await Promise.all([
+        getDiagnostics(token),
+        getOpenAiDiagnostics(token),
+        testOpenAi(token),
+      ]);
+      setDiagnostics({ ...diag, openAiDiagnostics: openAiDiag });
       setOpenAiResult(res);
     } catch (e) {
       captureError('openai', e);
@@ -103,7 +108,7 @@ export function AiSalesTestPanel({ token }: Props) {
       ) : null}
 
       <TestBlock
-        title="A. Otestovat OpenAI"
+        title="A. Otestovat OpenAI pro AI obchodníka"
         busy={busy === 'openai'}
         error={errors.openai}
         onRun={() => void runOpenAiTest()}

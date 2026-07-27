@@ -14,10 +14,16 @@ export type AiSalesApiError = {
 };
 
 const REQUEST_TIMEOUT_MS = 60_000;
+const ANALYSIS_TIMEOUT_MS = 90_000;
 
-async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit): Promise<T> {
+async function aiSalesRequest<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${API_BASE_URL}/admin/ai-sales${path}`, {
@@ -65,9 +71,9 @@ async function aiSalesRequest<T>(token: string, path: string, init?: RequestInit
     return body as T;
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
-      const error = new Error('Požadavek vypršel (timeout 60 s).') as Error & AiSalesApiError;
+      const error = new Error('Požadavek vypršel (timeout).') as Error & AiSalesApiError;
       error.success = false;
-      error.code = 'TIMEOUT';
+      error.code = timeoutMs >= ANALYSIS_TIMEOUT_MS ? 'OPENAI_TIMEOUT' : 'TIMEOUT';
       error.httpStatus = 504;
       error.phase = 'request';
       throw error;
@@ -372,6 +378,10 @@ export function getDiagnostics(token: string) {
   return aiSalesRequest<Record<string, unknown>>(token, '/diagnostics');
 }
 
+export function getOpenAiDiagnostics(token: string) {
+  return aiSalesRequest<Record<string, unknown>>(token, '/openai-diagnostics');
+}
+
 export function listProspects(token: string, qs?: string) {
   return aiSalesRequest<AiSalesProspect[]>(token, `/prospects${qs ? `?${qs}` : ''}`);
 }
@@ -381,11 +391,32 @@ export function createProspect(token: string, body: Record<string, unknown>) {
 }
 
 export function analyzeProspect(token: string, id: string) {
-  return aiSalesRequest<Record<string, unknown>>(token, `/prospects/${id}/analyze`, { method: 'POST', body: '{}' });
+  return aiSalesRequest<Record<string, unknown>>(
+    token,
+    `/prospects/${id}/analyze`,
+    { method: 'POST', body: '{}' },
+    ANALYSIS_TIMEOUT_MS,
+  );
 }
 
 export function approveProspect(token: string, id: string) {
   return aiSalesRequest(token, `/prospects/${id}/approve`, { method: 'POST', body: '{}' });
+}
+
+export function generateOffer(
+  token: string,
+  id: string,
+  body?: { tone?: string; variantCount?: number; campaignId?: string; skipAnalysis?: boolean },
+) {
+  return aiSalesRequest<GenerateMessageResponse>(
+    token,
+    `/prospects/${id}/generate-offer`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body ?? { variantCount: 3 }),
+    },
+    ANALYSIS_TIMEOUT_MS,
+  );
 }
 
 export function generateMessage(
@@ -694,7 +725,12 @@ export function testOpenAi(token: string) {
 }
 
 export function testAnalysis(token: string, body: Record<string, unknown>) {
-  return aiSalesRequest<Record<string, unknown>>(token, '/test-analysis', { method: 'POST', body: JSON.stringify(body) });
+  return aiSalesRequest<Record<string, unknown>>(
+    token,
+    '/test-analysis',
+    { method: 'POST', body: JSON.stringify(body) },
+    ANALYSIS_TIMEOUT_MS,
+  );
 }
 
 export function testSearchProviderApi(token: string, body: Record<string, unknown>) {

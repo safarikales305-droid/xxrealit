@@ -1,54 +1,33 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import {
   AiSalesAnalysisStatus,
-  AiSalesPartnerType,
   AiSalesPriority,
   AiSalesProspectStatus,
 } from '@prisma/client';
 import { OpenAiService } from '../openai/openai.service';
 import { PrismaService } from '../../database/prisma.service';
 import { AI_SALES_PROMPT_FEATURES } from './ai-sales.constants';
+import {
+  AiSalesAdminException,
+  buildSalesAdminError,
+  mapOpenAiToSalesError,
+} from './ai-sales-errors.util';
 import { AiSalesKnowledgeService } from './ai-sales-knowledge.service';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
+import {
+  parsePartnerAnalysisJson,
+  validatePartnerAnalysisOutput,
+  type PartnerAnalysisOutput,
+} from './ai-sales-analysis.validator';
 
-type PartnerAnalysisResult = {
-  partnerType?: string;
-  companyName?: string;
-  website?: string;
-  city?: string;
-  region?: string;
-  companyType?: string;
-  specialization?: string[];
-  companySize?: string;
-  services?: string[];
-  references?: string;
-  publicContacts?: string;
-  socialNetworks?: string;
-  serviceArea?: string;
-  industries?: string[];
-  fitScore?: number;
-  priority?: string;
-  recommendedOffer?: string;
-  reasons?: string[];
-  risks?: string[];
-  strengths?: string[];
-  weaknesses?: string[];
-  servicesOffered?: string[];
-  xxrealitBenefits?: string[];
-  cooperationProbability?: string;
-  missingInformation?: string[];
-  recommendedNextStep?: string;
-  recommendedTone?: string;
-  summary?: string;
-  aiRecommendation?: string;
-  activityType?: string;
-  personalizationPoints?: string[];
-};
+const ANALYSIS_TIMEOUT_MS = 90_000;
 
 @Injectable()
 export class AiSalesAnalysisService {
+  private readonly log = new Logger(AiSalesAnalysisService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly prospects: AiSalesProspectService,
@@ -59,8 +38,26 @@ export class AiSalesAnalysisService {
   ) {}
 
   async analyzeProspect(prospectId: string, userId?: string, testMode = false) {
-    if (!testMode) await this.assertDailyAnalysisLimit();
+    if (!testMode) {
+      await this.assertDailyAnalysisLimit();
+      await this.assertSalesEnabled();
+    }
+
     const prospect = await this.prospects.getById(prospectId);
+    const requestId = `analysis-${prospectId}-${Date.now()}`;
+
+    if (!testMode) {
+      await this.prisma.aiSalesProspect.update({
+        where: { id: prospectId },
+        data: {
+          analysisStatus: AiSalesAnalysisStatus.RUNNING,
+          analysisStartedAt: new Date(),
+          analysisFailedAt: null,
+          analysisErrorCode: null,
+          analysisErrorMessage: null,
+        },
+      });
+    }
 
     const knowledge = await this.knowledge.retrieveRelevant({
       query: `${prospect.companyName} ${prospect.partnerType} ${prospect.city ?? ''}`,
@@ -90,7 +87,11 @@ E-mail: ${prospect.email ?? prospect.primaryEmail ?? '—'}
 Telefon: ${prospect.phone ?? prospect.primaryPhone ?? '—'}
 Specializace: ${prospect.specialization ?? '—'}
 Veřejné informace: ${prospect.publicInfo ?? '—'}
-Zdroj: ${prospect.source}`;
+Zdroj: ${prospect.source}
+
+Vrať JSON s poli: companySummary, partnerType, fitScore (0-100), priority (LOW|MEDIUM|HIGH),
+servicesDetected[], locationsDetected[], recommendedProducts[], recommendedOffer,
+personalizationPoints[], risks[], missingInformation[], recommendedTone, recommendedNextStep.`;
 
     let result: Awaited<ReturnType<OpenAiService['complete']>>;
     try {
@@ -101,49 +102,53 @@ Zdroj: ${prospect.source}`;
         userId,
         jsonMode: true,
         adminTest: testMode,
+        timeoutMs: ANALYSIS_TIMEOUT_MS,
+        salesOperation: !testMode,
       });
     } catch (err) {
+      const mapped = mapOpenAiToSalesError(err, 'analysis');
+      this.log.warn(
+        `Analysis failed requestId=${requestId} code=${mapped.code} upstream=${mapped.technicalContext?.upstreamStatus ?? 'n/a'} duration=n/a`,
+      );
       if (!testMode) {
-        await this.prisma.aiSalesProspect.update({
-          where: { id: prospectId },
-          data: { analysisStatus: AiSalesAnalysisStatus.FAILED },
-        });
+        await this.markAnalysisFailed(prospectId, mapped.code, mapped.message);
       }
-      throw err;
+      throw new AiSalesAdminException(mapped);
     }
 
-    let parsed: PartnerAnalysisResult = {};
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(result.text) as PartnerAnalysisResult;
+      parsed = parsePartnerAnalysisJson(result.text);
     } catch {
-      parsed = { summary: result.text, fitScore: 50 };
+      const mapped = buildSalesAdminError(
+        'OPENAI_INVALID_RESPONSE',
+        'OpenAI vrátilo neplatný JSON.',
+        422,
+        'analysis',
+      );
+      if (!testMode) await this.markAnalysisFailed(prospectId, mapped.code, mapped.message);
+      throw new AiSalesAdminException(mapped);
     }
 
-    const fitScore = Math.max(0, Math.min(100, Number(parsed.fitScore) || 50));
-    const priority = this.mapPriority(parsed.priority, fitScore);
-    const companyProfile = {
-      companyName: parsed.companyName ?? prospect.companyName,
-      website: parsed.website ?? prospect.website ?? 'Nezjištěno',
-      city: parsed.city ?? prospect.city ?? 'Nezjištěno',
-      region: parsed.region ?? prospect.region ?? 'Nezjištěno',
-      companyType: parsed.companyType ?? parsed.activityType ?? 'Nezjištěno',
-      specialization: parsed.specialization ?? [],
-      companySize: parsed.companySize ?? prospect.companySize ?? 'Nezjištěno',
-      services: parsed.services ?? parsed.servicesOffered ?? [],
-      references: parsed.references ?? 'Nezjištěno',
-      publicContacts: parsed.publicContacts ?? 'Nezjištěno',
-      socialNetworks: parsed.socialNetworks ?? 'Nezjištěno',
-      serviceArea: parsed.serviceArea ?? 'Nezjištěno',
-      industries: parsed.industries ?? [],
-      strengths: parsed.strengths ?? [],
-      weaknesses: parsed.weaknesses ?? parsed.risks ?? [],
-      xxrealitBenefits: parsed.xxrealitBenefits ?? [],
-      cooperationProbability: parsed.cooperationProbability ?? 'Nezjištěno',
-    };
+    const validation = validatePartnerAnalysisOutput(parsed);
+    if (!validation.ok) {
+      const mapped = buildSalesAdminError(
+        'OPENAI_INVALID_RESPONSE',
+        `Neplatná struktura analýzy: ${validation.errors.join(' ')}`,
+        422,
+        'analysis',
+      );
+      if (!testMode) await this.markAnalysisFailed(prospectId, mapped.code, mapped.message);
+      throw new AiSalesAdminException(mapped);
+    }
 
+    const output = validation.data;
+    const fitScore = output.fitScore;
+    const priority = this.mapPriority(output.priority, fitScore);
+    const companyProfile = this.buildCompanyProfile(output, prospect);
     const aiRecommendation = {
-      action: parsed.aiRecommendation ?? parsed.recommendedNextStep ?? 'Zkontrolovat profil administrátorem',
-      recommendedOffer: parsed.recommendedOffer ?? 'Nezjištěno',
+      action: output.recommendedNextStep,
+      recommendedOffer: output.recommendedOffer,
       fitScore,
       priority,
     };
@@ -154,19 +159,17 @@ Zdroj: ${prospect.source}`;
         data: {
           fitScore,
           priority,
-          fitReasonsJson: parsed.reasons ?? [],
-          fitRisksJson: parsed.risks ?? parsed.weaknesses ?? [],
-          analysisJson: parsed,
+          fitReasonsJson: output.personalizationPoints,
+          fitRisksJson: output.risks,
+          analysisJson: output as unknown as object,
           companyProfileJson: companyProfile,
           aiRecommendationJson: aiRecommendation,
           analysisStatus: AiSalesAnalysisStatus.COMPLETED,
           analyzedAt: new Date(),
-          publicInfo: parsed.summary ?? prospect.publicInfo,
-          serviceArea: parsed.serviceArea !== 'Nezjištěno' ? parsed.serviceArea : prospect.serviceArea,
-          companySize: parsed.companySize !== 'Nezjištěno' ? parsed.companySize : prospect.companySize,
-          specialization: Array.isArray(parsed.specialization)
-            ? parsed.specialization.join(', ')
-            : prospect.specialization,
+          analysisFailedAt: null,
+          analysisErrorCode: null,
+          analysisErrorMessage: null,
+          publicInfo: output.companySummary || prospect.publicInfo,
           status:
             fitScore >= 60 ? AiSalesProspectStatus.ANALYZED : AiSalesProspectStatus.NEEDS_REVIEW,
         },
@@ -176,16 +179,20 @@ Zdroj: ${prospect.source}`;
         data: {
           prospectId,
           memoryType: 'ANALYSIS',
-          content: `AI analýza: ${parsed.summary ?? '—'}. Doporučení: ${aiRecommendation.action}`,
+          content: `AI analýza: ${output.companySummary}. Doporučení: ${output.recommendedNextStep}`,
           source: 'ANALYSIS',
           createdById: userId,
         },
       });
     }
 
+    this.log.log(
+      `Analysis completed requestId=${requestId} model=${result.model} tokens=${result.totalTokens} durationMs=${result.durationMs} fitScore=${fitScore}`,
+    );
+
     return {
       prospectId,
-      analysis: parsed,
+      analysis: output,
       companyProfile,
       aiRecommendation,
       fitScore,
@@ -199,6 +206,116 @@ Zdroj: ${prospect.source}`;
         durationMs: result.durationMs,
       },
     };
+  }
+
+  async runDryAnalysis(input: {
+    companyName: string;
+    partnerType: string;
+    city?: string;
+    website?: string;
+    publicInformation?: string;
+    userId?: string;
+  }) {
+    await this.assertSalesEnabled();
+    const publicInfo = input.publicInformation ?? '';
+    const knowledge = await this.knowledge.retrieveRelevant({
+      query: `${input.partnerType} ${input.companyName}`,
+      limit: 4,
+    });
+
+    const prompt = await this.promptResolver.resolveActive(
+      AI_SALES_PROMPT_FEATURES.PARTNER_ANALYSIS,
+      {
+        approvedKnowledge: knowledge.map((k) => k.answer).join('\n'),
+        partnerType: input.partnerType,
+        companyName: input.companyName,
+        city: input.city ?? '',
+        publicInfo,
+      },
+    );
+
+    const userPrompt = `Firma: ${input.companyName}
+Typ: ${input.partnerType}
+Město: ${input.city ?? '—'}
+Web: ${input.website ?? '—'}
+Veřejné informace: ${publicInfo || '—'}`;
+
+    const started = Date.now();
+    const result = await this.openai.complete({
+      feature: 'ai_sales',
+      systemPrompt: prompt.systemPrompt,
+      userPrompt,
+      userId: input.userId,
+      jsonMode: true,
+      adminTest: true,
+      timeoutMs: ANALYSIS_TIMEOUT_MS,
+    });
+
+    let parsed: unknown;
+    try {
+      parsed = parsePartnerAnalysisJson(result.text);
+    } catch {
+      throw new AiSalesAdminException(
+        buildSalesAdminError('OPENAI_INVALID_RESPONSE', 'OpenAI vrátilo neplatný JSON.', 422, 'analysis_test'),
+      );
+    }
+
+    const validation = validatePartnerAnalysisOutput(parsed);
+    if (!validation.ok) {
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'OPENAI_INVALID_RESPONSE',
+          validation.errors.join(' '),
+          422,
+          'analysis_test',
+        ),
+      );
+    }
+
+    return {
+      success: true,
+      analysis: validation.data,
+      model: result.model,
+      durationMs: Date.now() - started,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      totalTokens: result.totalTokens,
+      fitScore: validation.data.fitScore,
+      recommendedOffer: validation.data.recommendedOffer,
+      saved: false,
+    };
+  }
+
+  private buildCompanyProfile(
+    output: PartnerAnalysisOutput,
+    prospect: Awaited<ReturnType<AiSalesProspectService['getById']>>,
+  ) {
+    return {
+      companyName: prospect.companyName,
+      website: prospect.website ?? 'Nezjištěno',
+      city: prospect.city ?? 'Nezjištěno',
+      region: prospect.region ?? 'Nezjištěno',
+      companyType: output.partnerType,
+      specialization: output.servicesDetected,
+      services: output.servicesDetected,
+      locations: output.locationsDetected,
+      recommendedProducts: output.recommendedProducts,
+      strengths: output.personalizationPoints,
+      weaknesses: output.risks,
+      summary: output.companySummary,
+    };
+  }
+
+  private async markAnalysisFailed(prospectId: string, code: string, message: string) {
+    await this.prisma.aiSalesProspect.update({
+      where: { id: prospectId },
+      data: {
+        analysisStatus: AiSalesAnalysisStatus.FAILED,
+        analysisFailedAt: new Date(),
+        analysisErrorCode: code,
+        analysisErrorMessage: message.slice(0, 2000),
+      },
+    });
   }
 
   private mapPriority(raw: string | undefined, fitScore: number): AiSalesPriority {
@@ -216,6 +333,15 @@ Zdroj: ${prospect.source}`;
     });
     if (count >= settings.dailyAnalysisLimit) {
       throw new ForbiddenException(`Denní limit AI analýz (${settings.dailyAnalysisLimit}) byl překročen.`);
+    }
+  }
+
+  private async assertSalesEnabled() {
+    const settings = await this.settings.getOrCreate();
+    if (!settings.enabled) {
+      throw new AiSalesAdminException(
+        buildSalesAdminError('AI_SALES_DISABLED', 'AI obchodník je vypnutý v nastavení.', 403, 'analysis'),
+      );
     }
   }
 }

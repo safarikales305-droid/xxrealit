@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AiSalesProspectStatus, Prisma } from '@prisma/client';
+import { AiSalesAnalysisStatus, AiSalesProspectStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { OpenAiConfigService } from '../openai/openai-config.service';
 import { OpenAiService } from '../openai/openai.service';
@@ -22,6 +22,7 @@ import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service
 import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesMessageService } from './ai-sales-message.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
+import { AiSalesAnalysisService } from './ai-sales-analysis.service';
 import { EmailSettingsService } from '../emails/email-settings.service';
 
 @Injectable()
@@ -38,8 +39,50 @@ export class AiSalesOutreachGenerationService {
     private readonly settings: AiSalesSettingsService,
     private readonly template: AiSalesMessageTemplateService,
     private readonly messages: AiSalesMessageService,
+    private readonly analysis: AiSalesAnalysisService,
     private readonly emailSettings: EmailSettingsService,
   ) {}
+
+  async generateOffer(
+    prospectId: string,
+    userId?: string,
+    options?: GenerateOutreachOptions & { skipAnalysis?: boolean },
+  ) {
+    const prospect = await this.prospects.getById(prospectId);
+    this.assertCanGenerate(prospect);
+
+    if (
+      !options?.skipAnalysis &&
+      (prospect.analysisStatus !== AiSalesAnalysisStatus.COMPLETED || !prospect.analysisJson)
+    ) {
+      try {
+        await this.analysis.analyzeProspect(prospectId, userId);
+      } catch (err) {
+        if (err instanceof AiSalesAdminException) throw err;
+        throw new AiSalesAdminException(mapExceptionToSalesAdminError(err, 'analysis'));
+      }
+    }
+
+    const refreshed = await this.prospects.getById(prospectId);
+    if (
+      !options?.skipAnalysis &&
+      (refreshed.analysisStatus !== AiSalesAnalysisStatus.COMPLETED || !refreshed.analysisJson)
+    ) {
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'ANALYSIS_NOT_COMPLETED',
+          'Analýza partnera nebyla dokončena. Nabídku nelze vytvořit.',
+          422,
+          'generate_offer',
+        ),
+      );
+    }
+
+    return this.generateVariants(prospectId, userId, {
+      ...options,
+      requireCompletedAnalysis: true,
+    });
+  }
 
   async generateVariants(prospectId: string, userId?: string, options?: GenerateOutreachOptions) {
     const settings = await this.settings.getOrCreate();
@@ -52,9 +95,22 @@ export class AiSalesOutreachGenerationService {
     const prospect = await this.prospects.getById(prospectId);
     this.assertCanGenerate(prospect);
 
+    if (options?.requireCompletedAnalysis) {
+      if (prospect.analysisStatus !== AiSalesAnalysisStatus.COMPLETED || !prospect.analysisJson) {
+        throw new AiSalesAdminException(
+          buildSalesAdminError(
+            'ANALYSIS_NOT_COMPLETED',
+            'Nejdříve dokončete AI analýzu partnera.',
+            422,
+            'message_generation',
+          ),
+        );
+      }
+    }
+
     const variantCount = Math.min(3, Math.max(1, options?.variantCount ?? 3));
     const variants = OUTREACH_VARIANTS.slice(0, variantCount);
-    const analysisIncomplete = !prospect.analyzedAt && !prospect.analysisJson;
+    const analysisIncomplete = prospect.analysisStatus !== AiSalesAnalysisStatus.COMPLETED;
 
     const results: Array<{
       id: string;
@@ -92,8 +148,8 @@ export class AiSalesOutreachGenerationService {
 
     return {
       success: true,
-      partial: analysisIncomplete,
-      analysisIncomplete,
+      partial: false,
+      analysisIncomplete: false,
       messageId: results[0]?.messageId,
       previewUrl: results[0]?.previewUrl,
       status: 'DRAFT',
@@ -160,6 +216,8 @@ export class AiSalesOutreachGenerationService {
         userId,
         jsonMode: true,
         adminTest: options?.testMode,
+        salesOperation: !options?.testMode,
+        timeoutMs: 90_000,
       });
 
       model = result.model;
@@ -172,8 +230,7 @@ export class AiSalesOutreachGenerationService {
     } catch (err) {
       if (options?.testMode) throw err;
       if (err instanceof AiSalesAdminException) throw err;
-      const mapped = mapExceptionToSalesAdminError(err, 'message_generation');
-      throw new AiSalesAdminException(mapped);
+      throw new AiSalesAdminException(mapExceptionToSalesAdminError(err, 'message_generation'));
     }
 
     const plainText = buildPlainTextFromParts(parsed);
