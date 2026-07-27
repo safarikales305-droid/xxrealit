@@ -10,6 +10,7 @@ import {
   selectAllMessageRecipients,
   selectPrimaryMessageRecipients,
   sendMessage,
+  scheduleMessage,
   sendTestMessage,
   submitMessageForApproval,
   updateMessage,
@@ -48,6 +49,7 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
   const [tab, setTab] = useState<'preview' | 'html' | 'text' | 'recipients' | 'knowledge' | 'reasons' | 'versions'>('preview');
   const [previewMode, setPreviewMode] = useState<PreviewMode>('desktop');
   const [testEmail, setTestEmail] = useState('');
+  const [scheduleAt, setScheduleAt] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
 
   const [edit, setEdit] = useState({
@@ -171,16 +173,54 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
     if (!token || !message) return;
     setBusy(true);
     startLoading({ key: 'ai-sales-send', label: 'Odesílám nabídku…' });
+    setError(null);
     try {
-      await sendMessage(token, message.id);
+      await sendMessage(token, message.id, { mode: 'immediate' });
       await load();
       onUpdated?.();
     } catch (e) {
       const err = e as Error & AiSalesApiError;
-      setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false });
+      setError({
+        message: err.message,
+        code: err.code ?? 'UNKNOWN_ERROR',
+        httpStatus: err.httpStatus ?? 500,
+        success: false,
+        phase: err.phase,
+        technicalContext: err.technicalContext,
+      });
+      if (err.code === 'SEND_WINDOW_BLOCKED' && err.technicalContext?.nextSendAt) {
+        const iso = String(err.technicalContext.nextSendAt);
+        if (iso) setScheduleAt(iso.slice(0, 16));
+      }
     } finally {
       setBusy(false);
       stopLoading('ai-sales-send');
+    }
+  }
+
+  async function handleSchedule() {
+    if (!token || !message || !scheduleAt.trim()) return;
+    setBusy(true);
+    startLoading({ key: 'ai-sales-schedule', label: 'Plánuji odeslání…' });
+    setError(null);
+    try {
+      const scheduledAt = new Date(scheduleAt).toISOString();
+      await scheduleMessage(token, message.id, scheduledAt);
+      await load();
+      onUpdated?.();
+    } catch (e) {
+      const err = e as Error & AiSalesApiError;
+      setError({
+        message: err.message,
+        code: err.code ?? 'UNKNOWN_ERROR',
+        httpStatus: err.httpStatus ?? 500,
+        success: false,
+        phase: err.phase,
+        technicalContext: err.technicalContext,
+      });
+    } finally {
+      setBusy(false);
+      stopLoading('ai-sales-schedule');
     }
   }
 
@@ -296,6 +336,14 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
           <p className="font-semibold">Chyba</p>
           <p>Kód: {error.code}{error.phase ? ` · fáze: ${error.phase}` : ''}</p>
           <p>{error.message}</p>
+          {error.code === 'SEND_WINDOW_BLOCKED' && error.technicalContext ? (
+            <ul className="mt-2 list-disc pl-5 text-xs">
+              {error.technicalContext.currentTime ? <li>Aktuální čas: {String(error.technicalContext.currentTime)}</li> : null}
+              {error.technicalContext.allowedInterval ? <li>Povolený interval: {String(error.technicalContext.allowedInterval)}</li> : null}
+              {error.technicalContext.allowedDays ? <li>Povolené dny: {String(error.technicalContext.allowedDays)}</li> : null}
+              {error.technicalContext.nextSendAtLabel ? <li>Nejbližší odeslání: {String(error.technicalContext.nextSendAtLabel)}</li> : null}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
@@ -424,8 +472,30 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
         </button>
         <button type="button" disabled={busy || !canSend || !recipientEmail} onClick={() => void handleSend()} className="inline-flex items-center gap-2 rounded bg-orange-600 px-3 py-1 text-sm text-white disabled:opacity-50">
           {busy ? <ButtonSpinner /> : null}
-          {busy ? 'Odesílám…' : 'Odeslat příjemci'}
+          {busy ? 'Odesílám…' : 'Odeslat ihned'}
         </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded border bg-zinc-50 p-3">
+        <label className="text-sm">
+          Naplánovat odeslání
+          <input
+            type="datetime-local"
+            value={scheduleAt}
+            onChange={(e) => setScheduleAt(e.target.value)}
+            className="ml-2 rounded border px-2 py-1 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || !scheduleAt.trim() || !canSend}
+          onClick={() => void handleSchedule()}
+          className="inline-flex items-center gap-2 rounded border bg-white px-3 py-1 text-sm disabled:opacity-50"
+        >
+          {busy ? <ButtonSpinner /> : null}
+          Naplánovat
+        </button>
+        <span className="text-xs text-zinc-500">Ruční odeslání administrátorem ignoruje časové okno (pokud je zapnuto v nastavení).</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-3">

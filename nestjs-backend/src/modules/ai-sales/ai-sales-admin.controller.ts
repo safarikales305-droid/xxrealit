@@ -338,8 +338,20 @@ export class AiSalesAdminController {
   }
 
   @Post('messages/:id/send')
-  sendMessage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.messages.send(id, this.userId(req));
+  sendMessage(
+    @Param('id') id: string,
+    @Body() body: { mode?: 'immediate' | 'schedule'; scheduledAt?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    if (body?.mode === 'schedule' && body.scheduledAt) {
+      return this.messages.schedule(id, new Date(body.scheduledAt), this.userId(req));
+    }
+    return this.wrap(() => this.messages.send(id, this.userId(req), { manual: true }), 'send');
+  }
+
+  @Get('messages/:id/send-logs')
+  listMessageSendLogs(@Param('id') id: string) {
+    return this.messages.listSendLogs(id);
   }
 
   @Post('messages/:id/schedule')

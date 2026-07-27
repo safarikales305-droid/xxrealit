@@ -56,6 +56,7 @@ export type AiSalesErrorCode =
   | 'PROMPT_NOT_ACTIVE'
   | 'KNOWLEDGE_NOT_APPROVED'
   | 'INSUFFICIENT_PERMISSIONS'
+  | 'SEND_WINDOW_BLOCKED'
   | 'UNKNOWN_ERROR';
 
 export type AiSalesAdminErrorBody = {
@@ -149,6 +150,9 @@ export function mapExceptionToSalesAdminError(
     if (/DO_NOT_CONTACT|zákaz/i.test(msg)) {
       return buildSalesAdminError('DO_NOT_CONTACT', msg, 403, phase);
     }
+    if (/časové okno|SEND_WINDOW/i.test(msg)) {
+      return buildSalesAdminError('SEND_WINDOW_BLOCKED', msg, 403, phase);
+    }
     if (/OpenAI|vypnut|AI chat|AI obchodník/i.test(msg)) {
       return buildSalesAdminError('OPENAI_DISABLED', msg, 403, phase);
     }
@@ -157,6 +161,9 @@ export function mapExceptionToSalesAdminError(
 
   if (err instanceof BadRequestException) {
     const msg = extractMessage(err);
+    if (/časové okno|SEND_WINDOW/i.test(msg)) {
+      return buildSalesAdminError('SEND_WINDOW_BLOCKED', msg, 400, phase);
+    }
     if (/API klíč|not configured/i.test(msg)) {
       return buildSalesAdminError('OPENAI_NOT_CONFIGURED', msg, 400, phase);
     }

@@ -555,6 +555,7 @@ model User {
   aiSalesCampaignsApproved     AiSalesCampaign[] @relation("AiSalesCampaignApprover")
   aiSalesMessagesApproved      AiSalesMessage[] @relation("AiSalesMessageApprover")
   aiSalesMessagesCreated       AiSalesMessage[] @relation("AiSalesMessageCreator")
+  aiSalesSendLogs              AiSalesSendLog[] @relation("AiSalesSendLogSender")
   aiSalesRepliesReviewed       AiSalesReplyAnalysis[] @relation("AiSalesReplyReviewer")
   aiSalesLeadsAssigned         AiSalesLead[] @relation("AiSalesLeadAssignee")
   aiSalesLeadsConverted        AiSalesLead[] @relation("AiSalesLeadConvertedUser")
@@ -4100,6 +4101,11 @@ model AiSalesSettings {
   sendWindowStartHour          Int      @default(9)
   sendWindowEndHour            Int      @default(17)
   sendOnWeekends               Boolean  @default(false)
+  enforceSendWindow            Boolean  @default(true)
+  allowAdminManualSendAnytime  Boolean  @default(true)
+  allowTestEmailOutsideWindow  Boolean  @default(true)
+  ignoreWindowOnManualSend     Boolean  @default(true)
+  sendWindowDaysJson           Json     @default("[1,2,3,4,5]")
   autoSequenceEnabled          Boolean  @default(false)
   autoAnalyzeOnSave            Boolean  @default(true)
   followUpFirstDays            Int      @default(5)
@@ -4129,6 +4135,30 @@ model AiSalesSettings {
   lastProviderTestSuccess      Boolean?
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
+}
+
+model AiSalesSendLog {
+  id                 String    @id @default(cuid())
+  messageId          String?
+  prospectId         String?
+  mode               String
+  status             String
+  sentById           String?
+  sentAt             DateTime?
+  scheduledAt        DateTime?
+  blockReason        String?   @db.Text
+  blockCode          String?
+  currentTimeLabel   String?
+  allowedWindowLabel String?
+  nextSendAt         DateTime?
+  metadataJson       Json?
+  createdAt          DateTime  @default(now())
+
+  message AiSalesMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  sentBy  User?           @relation("AiSalesSendLogSender", fields: [sentById], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([createdAt(sort: Desc)])
 }
 
 model AiSalesProspect {
@@ -4310,6 +4340,7 @@ model AiSalesMessage {
   feedback      AiSalesFeedback[]
   versions      AiSalesMessageVersion[]
   recipients    AiSalesMessageRecipient[]
+  sendLogs      AiSalesSendLog[]
 
   @@index([prospectId, createdAt(sort: Desc)])
   @@index([status])

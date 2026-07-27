@@ -652,8 +652,26 @@ export function approveMessage(token: string, id: string) {
   return aiSalesRequest(token, `/messages/${id}/approve`, { method: 'POST', body: '{}' });
 }
 
-export function sendMessage(token: string, id: string) {
-  return aiSalesRequest(token, `/messages/${id}/send`, { method: 'POST', body: '{}' });
+export function sendMessage(
+  token: string,
+  id: string,
+  body?: { mode?: 'immediate' | 'schedule'; scheduledAt?: string },
+) {
+  return aiSalesRequest(token, `/messages/${id}/send`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? { mode: 'immediate' }),
+  });
+}
+
+export function scheduleMessage(token: string, id: string, scheduledAt: string) {
+  return aiSalesRequest(token, `/messages/${id}/schedule`, {
+    method: 'POST',
+    body: JSON.stringify({ scheduledAt }),
+  });
+}
+
+export function getMessageSendLogs(token: string, messageId: string) {
+  return aiSalesRequest<Array<Record<string, unknown>>>(token, `/messages/${messageId}/send-logs`);
 }
 
 export function rejectMessage(token: string, id: string) {

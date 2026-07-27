@@ -24,6 +24,11 @@ import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
 import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
 import { EmailSettingsService } from '../emails/email-settings.service';
+import {
+  checkSendWindow,
+  shouldBypassSendWindow,
+  type AiSalesSendWindowSettings,
+} from './ai-sales-send-window.util';
 
 @Injectable()
 export class AiSalesMessageService {
@@ -232,18 +237,38 @@ export class AiSalesMessageService {
 
   async schedule(id: string, scheduledAt: Date, userId?: string) {
     await this.approve(id, userId);
-    return this.prisma.aiSalesMessage.update({
+    const updated = await this.prisma.aiSalesMessage.update({
       where: { id },
       data: {
         status: AiSalesMessageStatus.SCHEDULED,
         scheduledAt,
       },
     });
+    const msg = await this.getById(id);
+    await this.logSendAttempt({
+      messageId: id,
+      prospectId: msg.prospectId,
+      mode: 'MANUAL',
+      status: 'SCHEDULED',
+      sentById: userId,
+      scheduledAt,
+      metadataJson: { action: 'schedule' },
+    });
+    return updated;
   }
 
-  async send(id: string, userId?: string) {
+  async send(
+    id: string,
+    userId?: string,
+    opts?: { manual?: boolean; automatic?: boolean },
+  ) {
     const msg = await this.getById(id);
     const settings = await this.settings.getOrCreate();
+    const sendOpts = {
+      manual: opts?.manual ?? Boolean(userId),
+      automatic: opts?.automatic ?? false,
+      test: false,
+    };
 
     if (!settings.enabled) {
       throw new ForbiddenException('AI obchodník je vypnutý.');
@@ -261,8 +286,38 @@ export class AiSalesMessageService {
 
     await this.assertSendLimits(msg.messageType, msg.prospectId);
 
-    if (!this.isWithinSendWindow(settings)) {
-      throw new BadRequestException('Odesílání je povoleno pouze v nastaveném časovém okně.');
+    const windowSettings = settings as AiSalesSendWindowSettings;
+    if (!shouldBypassSendWindow(windowSettings, sendOpts)) {
+      const windowCheck = checkSendWindow(windowSettings);
+      if (!windowCheck.allowed) {
+        await this.logSendAttempt({
+          messageId: id,
+          prospectId: msg.prospectId,
+          mode: sendOpts.automatic ? 'AUTOMATIC' : 'MANUAL',
+          status: 'BLOCKED',
+          sentById: userId,
+          blockCode: 'SEND_WINDOW_BLOCKED',
+          blockReason: 'Odesílání je povoleno pouze v nastaveném časovém okně.',
+          currentTimeLabel: windowCheck.currentTime,
+          allowedWindowLabel: `${windowCheck.allowedDays}, ${windowCheck.allowedInterval}`,
+          nextSendAt: windowCheck.nextSendAt,
+        });
+        throw new AiSalesAdminException(
+          buildSalesAdminError(
+            'SEND_WINDOW_BLOCKED',
+            'Odesílání je povoleno pouze v nastaveném časovém okně.',
+            403,
+            'send',
+            {
+              currentTime: windowCheck.currentTime,
+              allowedInterval: windowCheck.allowedInterval,
+              allowedDays: windowCheck.allowedDays,
+              nextSendAt: windowCheck.nextSendAt?.toISOString() ?? null,
+              nextSendAtLabel: windowCheck.nextSendAtLabel,
+            },
+          ),
+        );
+      }
     }
 
     const recipients = await this.prisma.aiSalesMessageRecipient.findMany({
@@ -275,7 +330,17 @@ export class AiSalesMessageService {
     });
 
     if (recipients.length > 0) {
-      return this.sendToRecipients(id, msg, recipients, settings, userId);
+      const result = await this.sendToRecipients(id, msg, recipients, settings, userId, sendOpts);
+      await this.logSendAttempt({
+        messageId: id,
+        prospectId: msg.prospectId,
+        mode: sendOpts.automatic ? 'AUTOMATIC' : 'MANUAL',
+        status: 'SENT',
+        sentById: userId,
+        sentAt: new Date(),
+        metadataJson: { recipientCount: recipients.length, testMode: result.testMode },
+      });
+      return result;
     }
 
     const fallbackEmail = msg.prospect.primaryEmail ?? msg.prospect.email;
@@ -295,7 +360,17 @@ export class AiSalesMessageService {
       throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
     }
 
-    return this.sendSingleEmail(id, msg, fallbackEmail, settings, userId);
+    const result = await this.sendSingleEmail(id, msg, fallbackEmail, settings, userId);
+    await this.logSendAttempt({
+      messageId: id,
+      prospectId: msg.prospectId,
+      mode: sendOpts.automatic ? 'AUTOMATIC' : 'MANUAL',
+      status: 'SENT',
+      sentById: userId,
+      sentAt: new Date(),
+      metadataJson: { recipientEmail: fallbackEmail, testMode: result.testMode },
+    });
+    return result;
   }
 
   private async buildOutboundEmailHeaders(msg: {
@@ -327,6 +402,7 @@ export class AiSalesMessageService {
     recipients: Array<{ id: string; email: string; contactId: string | null }>,
     settings: Awaited<ReturnType<AiSalesSettingsService['getOrCreate']>>,
     userId?: string,
+    _sendOpts?: { manual?: boolean; automatic?: boolean; test?: boolean },
   ) {
     const contentWithOptOut = await this.appendOptOutFooter(msg.content);
     const html =
@@ -667,6 +743,16 @@ export class AiSalesMessageService {
       },
     });
 
+    await this.logSendAttempt({
+      messageId: msg.id,
+      prospectId: msg.prospectId,
+      mode: 'TEST',
+      status: 'SENT',
+      sentById: userId,
+      sentAt: new Date(),
+      metadataJson: { testEmail },
+    });
+
     return { success: true, testEmail, messageId: msg.id, status: msg.status, replyTo: headers.replyTo };
   }
 
@@ -809,6 +895,40 @@ export class AiSalesMessageService {
     return { analysis, usage: result };
   }
 
+  private async logSendAttempt(data: {
+    messageId?: string;
+    prospectId?: string;
+    mode: string;
+    status: string;
+    sentById?: string;
+    sentAt?: Date;
+    scheduledAt?: Date;
+    blockReason?: string;
+    blockCode?: string;
+    currentTimeLabel?: string;
+    allowedWindowLabel?: string;
+    nextSendAt?: Date | null;
+    metadataJson?: Record<string, unknown>;
+  }) {
+    await this.prisma.aiSalesSendLog.create({
+      data: {
+        messageId: data.messageId,
+        prospectId: data.prospectId,
+        mode: data.mode,
+        status: data.status,
+        sentById: data.sentById,
+        sentAt: data.sentAt,
+        scheduledAt: data.scheduledAt,
+        blockReason: data.blockReason,
+        blockCode: data.blockCode,
+        currentTimeLabel: data.currentTimeLabel,
+        allowedWindowLabel: data.allowedWindowLabel,
+        nextSendAt: data.nextSendAt ?? undefined,
+        metadataJson: data.metadataJson as never,
+      },
+    });
+  }
+
   private mapReplyToProspectStatus(classification?: AiSalesReplyClassification): AiSalesProspectStatus {
     switch (classification) {
       case AiSalesReplyClassification.INTERESTED:
@@ -872,15 +992,14 @@ export class AiSalesMessageService {
     }
   }
 
-  private isWithinSendWindow(settings: {
-    sendWindowStartHour: number;
-    sendWindowEndHour: number;
-    sendOnWeekends: boolean;
-  }): boolean {
-    const now = new Date();
-    const day = now.getDay();
-    if (!settings.sendOnWeekends && (day === 0 || day === 6)) return false;
-    const hour = now.getHours();
-    return hour >= settings.sendWindowStartHour && hour < settings.sendWindowEndHour;
+  async listSendLogs(messageId?: string, limit = 50) {
+    return this.prisma.aiSalesSendLog.findMany({
+      where: messageId ? { messageId } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(100, limit),
+      include: {
+        sentBy: { select: { id: true, email: true, name: true } },
+      },
+    });
   }
 }

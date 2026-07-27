@@ -306,7 +306,7 @@ export default function AdminAiSalesPage() {
     setBusy(true);
     try {
       await approveMessage(token, id);
-      await sendMessage(token, id);
+      await sendMessage(token, id, { mode: 'immediate' });
       await refresh();
       setSelectedMsg(null);
     } catch (e) {
@@ -610,6 +610,101 @@ export default function AdminAiSalesPage() {
             <label>Denní limit vyhledávání: <input type="number" defaultValue={Number(settings.dailySearchResultLimit ?? 100)} onBlur={(e) => void updateSettings(token, { dailySearchResultLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
             <label>Denní limit AI analýz: <input type="number" defaultValue={Number(settings.dailyAnalysisLimit ?? 50)} onBlur={(e) => void updateSettings(token, { dailyAnalysisLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
             <label>Denní limit prvních oslovení: <input type="number" defaultValue={Number(settings.dailyFirstOutreachLimit)} onBlur={(e) => void updateSettings(token, { dailyFirstOutreachLimit: Number(e.target.value) })} className="ml-2 w-20 rounded border px-1" /></label>
+          </div>
+          <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-lg">
+            <h3 className="font-semibold">Čas odesílání</h3>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.enforceSendWindow !== false}
+                onChange={(e) => void updateSettings(token, { enforceSendWindow: e.target.checked }).then(() => refresh())}
+              />
+              Dodržovat časové okno (automatické kampaně)
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <label>
+                Od:
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  defaultValue={Number(settings.sendWindowStartHour ?? 9)}
+                  onBlur={(e) => void updateSettings(token, { sendWindowStartHour: Number(e.target.value) })}
+                  className="ml-2 w-16 rounded border px-1"
+                />
+                :00
+              </label>
+              <label>
+                Do:
+                <input
+                  type="number"
+                  min={1}
+                  max={24}
+                  defaultValue={Number(settings.sendWindowEndHour ?? 17)}
+                  onBlur={(e) => void updateSettings(token, { sendWindowEndHour: Number(e.target.value) })}
+                  className="ml-2 w-16 rounded border px-1"
+                />
+                :00
+              </label>
+            </div>
+            <div>
+              <p className="mb-2 font-medium">Výběr dnů</p>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { d: 1, label: 'Pondělí' },
+                  { d: 2, label: 'Úterý' },
+                  { d: 3, label: 'Středa' },
+                  { d: 4, label: 'Čtvrtek' },
+                  { d: 5, label: 'Pátek' },
+                  { d: 6, label: 'Sobota' },
+                  { d: 0, label: 'Neděle' },
+                ].map(({ d, label }) => {
+                  const days = Array.isArray(settings.sendWindowDaysJson)
+                    ? (settings.sendWindowDaysJson as number[])
+                    : [1, 2, 3, 4, 5];
+                  const checked = days.includes(d);
+                  return (
+                    <label key={d} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked
+                            ? [...new Set([...days, d])].sort((a, b) => a - b)
+                            : days.filter((x) => x !== d);
+                          void updateSettings(token, { sendWindowDaysJson: next, sendOnWeekends: next.includes(0) || next.includes(6) }).then(() => refresh());
+                        }}
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.allowAdminManualSendAnytime !== false}
+                onChange={(e) => void updateSettings(token, { allowAdminManualSendAnytime: e.target.checked }).then(() => refresh())}
+              />
+              Povolit ruční odeslání administrátorem kdykoliv
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.ignoreWindowOnManualSend !== false}
+                onChange={(e) => void updateSettings(token, { ignoreWindowOnManualSend: e.target.checked }).then(() => refresh())}
+              />
+              Ignorovat časové okno při ručním odeslání
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.allowTestEmailOutsideWindow !== false}
+                onChange={(e) => void updateSettings(token, { allowTestEmailOutsideWindow: e.target.checked }).then(() => refresh())}
+              />
+              Povolit testovací e-maily mimo časové okno
+            </label>
           </div>
           <div className="rounded-2xl border bg-white p-4 space-y-3 text-sm max-w-2xl">
             <div className="flex flex-wrap items-center justify-between gap-2">
