@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { SeoAiGeneratorPanel } from '@/components/admin/seo/SeoAiGeneratorPanel';
 import {
   nestAdminSeoGenerateAll,
   nestAdminSeoGenerateBatch,
@@ -168,12 +169,13 @@ export default function AdminSeoGeneratorPage() {
   return (
     <>
       <p className="mb-4 text-sm text-zinc-600">
-        Šablonový generátor SEO stránek bez AI. Texty se skládají z lokálních šablon podle lokality,
-        typu nabídky a dat RÚIAN/ČSÚ.{' '}
+        Generátor SEO stránek XXREALIT — šablonové generování bez AI i prémiové generování pomocí AI.{' '}
         <Link href="/admin/seo/stranky" className="text-orange-600 underline">
           Přehled SEO stránek →
         </Link>
       </p>
+
+      <SeoAiGeneratorPanel token={token} onRefresh={() => void refresh()} />
 
       {stats ? (
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -194,7 +196,10 @@ export default function AdminSeoGeneratorPage() {
       ) : null}
 
       <section className="mb-6 space-y-3 rounded-2xl border border-zinc-200 bg-white p-5">
-        <h2 className="text-lg font-semibold">Generování</h2>
+        <h2 className="text-lg font-semibold">Šablonové generování bez AI</h2>
+        <p className="text-sm text-zinc-600">
+          Texty se skládají z lokálních šablon podle lokality, typu nabídky a dat RÚIAN/ČSÚ.
+        </p>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />

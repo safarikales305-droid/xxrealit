@@ -3191,6 +3191,46 @@ enum SeoContentStatus {
   APPROVED
   PUBLISHED
   LOCKED
+  AI_GENERATING
+  AI_REVIEW
+  NEEDS_IMPROVEMENT
+  ERROR
+  ARCHIVED
+}
+
+enum SeoAiGenerationJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum SeoAiGenerationItemStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  REVIEW
+  REGENERATED
+  FAILED
+  SKIPPED
+}
+
+enum SeoAiLayoutType {
+  LOCALITY_GUIDE
+  PROPERTY_OVERVIEW
+  FAMILY_LIVING
+  INVESTMENT_GUIDE
+  CITY_AND_SURROUNDINGS
+  COMPACT_SEARCH_PAGE
+  EDITORIAL_REAL_ESTATE_GUIDE
+}
+
+enum SeoGenerationMode {
+  TEMPLATE
+  AI
 }
 
 enum SeoGenerationJobStatus {
@@ -3249,6 +3289,23 @@ model SeoPageContent {
   isLocked         Boolean          @default(false)
   aiGenerated      Boolean          @default(false)
   qualityScore     Int              @default(0)
+  editorialTitle   String?
+  subtitle         String?
+  aiModel          String?
+  aiPromptVersionId String?
+  aiGeneratedAt    DateTime?
+  aiQualityScore   Int              @default(0)
+  uniquenessScore  Int              @default(0)
+  duplicateRisk    String?
+  similarPageIdsJson Json?
+  factCheckStatus  String?
+  layoutType       SeoAiLayoutType?
+  contentBlocksJson Json?
+  sourceClaimsJson Json?
+  generationMode   SeoGenerationMode @default(TEMPLATE)
+  reviewStatus     String?
+  reviewedById     String?
+  reviewedAt       DateTime?
   googleIndexed    Boolean          @default(false)
   publishedAt      DateTime?
   lastGeneratedAt  DateTime?
@@ -3259,12 +3316,74 @@ model SeoPageContent {
   updatedAt        DateTime         @updatedAt
 
   versions SeoPageContentVersion[]
+  aiGenerationItems SeoAiGenerationItem[]
 
   @@index([locationId])
   @@index([intentSlug])
   @@index([status])
   @@index([noindex])
   @@index([checksum])
+  @@index([generationMode])
+  @@index([aiGenerated])
+  @@index([uniquenessScore])
+}
+
+/// Dávkové AI generování SEO stránek (OpenAI fronta).
+model SeoAiGenerationJob {
+  id               String                   @id @default(cuid())
+  status           SeoAiGenerationJobStatus @default(PENDING)
+  requestedCount   Int                      @default(1)
+  processedCount   Int                      @default(0)
+  createdCount     Int                      @default(0)
+  updatedCount     Int                      @default(0)
+  reviewCount      Int                      @default(0)
+  regeneratedCount Int                      @default(0)
+  errorCount       Int                      @default(0)
+  estimatedCostCzk Float                    @default(0)
+  actualCostCzk    Float                    @default(0)
+  promptVersionId  String?
+  model            String?
+  settingsJson     Json?
+  currentItem      String?
+  lastError        String?                  @db.Text
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  pausedAt         DateTime?
+  createdById      String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  items SeoAiGenerationItem[]
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model SeoAiGenerationItem {
+  id              String                    @id @default(cuid())
+  jobId           String
+  job             SeoAiGenerationJob        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  seoPageId       String?
+  seoPage         SeoPageContent?           @relation(fields: [seoPageId], references: [id], onDelete: SetNull)
+  locationId      String?
+  intentSlug      String?
+  status          SeoAiGenerationItemStatus @default(PENDING)
+  attempt         Int                       @default(0)
+  qualityScore    Int?
+  uniquenessScore Int?
+  errorCode       String?
+  errorMessage    String?                   @db.Text
+  inputTokens     Int                       @default(0)
+  outputTokens    Int                       @default(0)
+  costCzk         Float                     @default(0)
+  inputJson       Json?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime                  @default(now())
+
+  @@index([jobId])
+  @@index([status])
+  @@index([seoPageId])
 }
 
 /// Dávkové generování SEO stránek bez AI (DB fronta).

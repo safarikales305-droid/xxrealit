@@ -17,6 +17,7 @@ import { OpenAiSettingsService } from './openai-settings.service';
 export type AiFeature =
   | 'connection_test'
   | 'seo_improve'
+  | 'seo_ai_generate'
   | 'listing_description'
   | 'social_post'
   | 'email'
@@ -349,6 +350,7 @@ export class OpenAiService {
     const featureEnabled: Record<AiFeature, boolean> = {
       connection_test: true,
       seo_improve: db.seoEnabled,
+      seo_ai_generate: db.seoEnabled,
       listing_description: db.listingDescriptionEnabled,
       social_post: db.socialPostEnabled,
       email: db.emailEnabled,

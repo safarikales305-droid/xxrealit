@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { OpenAiModule } from '../openai/openai.module';
 import { SeoAdminController, SeoPublicController } from './seo.controller';
+import { SeoAiAdminController } from './seo-ai.controller';
 import { GoogleIndexingService } from './google-indexing.service';
 import { ProgrammaticSeoService } from './programmatic-seo.service';
 import { SeoContentService } from './seo-content.service';
@@ -17,11 +19,15 @@ import { SeoLocationSyncCronService } from './seo-location-sync.cron.service';
 import { SeoPublicListingsService } from './seo-public-listings.service';
 import { SeoAdminCenterService } from './seo-admin-center.service';
 import { SeoGenerationJobService } from './seo-generation-job.service';
+import { SeoAiGenerationJobService } from './seo-ai-generation-job.service';
+import { SeoAiGenerationService } from './seo-ai-generation.service';
+import { SeoAiQualityService } from './seo-ai-quality.service';
+import { SeoAiPromptSeedService } from './seo-ai-prompt.seed.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService } from './seo.service';
 
 @Module({
-  controllers: [SeoPublicController, SeoAdminController, SeoPublicListingsController, SeoLocationSourcesController, RuianVfrController],
+  controllers: [SeoPublicController, SeoAdminController, SeoAiAdminController, SeoPublicListingsController, SeoLocationSourcesController, RuianVfrController],
   providers: [
     SeoService,
     ProgrammaticSeoService,
@@ -35,11 +41,16 @@ import { SeoService } from './seo.service';
     SeoContentService,
     SeoAdminCenterService,
     SeoGenerationJobService,
+    SeoAiGenerationService,
+    SeoAiGenerationJobService,
+    SeoAiQualityService,
+    SeoAiPromptSeedService,
     SeoIndexabilityService,
     SeoPublicListingsService,
     SeoIndexQueueService,
     GoogleIndexingService,
   ],
+  imports: [OpenAiModule],
   exports: [
     SeoService,
     ProgrammaticSeoService,

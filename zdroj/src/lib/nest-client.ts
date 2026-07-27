@@ -14577,6 +14577,134 @@ export async function nestAdminSeoGenerationStats(
   return nestAdminSeoJson<SeoGenerationStats>(token, '/stats');
 }
 
+export type SeoAiGenerateTestInput = {
+  locationSlug: string;
+  intentSlug?: string;
+  offerType?: string;
+  propertyType?: string;
+  region?: string;
+  district?: string;
+  primaryKeyword?: string;
+  secondaryKeywords?: string[];
+  tone?: string;
+  length?: 'short' | 'medium' | 'long';
+  targetAudience?: string;
+  useRuian?: boolean;
+  useCsu?: boolean;
+  useListings?: boolean;
+  useLocalFacts?: boolean;
+  initialStatus?: 'DRAFT' | 'REVIEW' | 'PUBLISHED';
+  indexImmediately?: boolean;
+  publish?: boolean;
+};
+
+export type SeoAiGenerateTestResult = {
+  success: boolean;
+  pageId: string;
+  slug: string;
+  publicPath: string;
+  h1: string | null;
+  editorialTitle: string | null;
+  metaTitle: string | null;
+  qualityScore: number;
+  uniquenessScore: number;
+  duplicateRisk: string;
+  estimatedCostCzk: number;
+  status: string;
+  indexable: boolean;
+  hasListings: boolean;
+  listingCount: number;
+  analysisStatus: string;
+};
+
+export type SeoAiJobEstimate = {
+  pageCount: number;
+  estimatedRequests: number;
+  estimatedTokens: number;
+  estimatedCostCzk: number;
+  dailyLimit: number;
+  dailyUsed: number;
+  dailyRemaining: number;
+  requiresConfirmation: boolean;
+};
+
+export type SeoAiJobView = {
+  id: string;
+  status: string;
+  requestedCount: number;
+  processedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  reviewCount: number;
+  regeneratedCount: number;
+  errorCount: number;
+  estimatedCostCzk: number;
+  actualCostCzk: number;
+  currentItem: string | null;
+  progressPct?: number;
+};
+
+async function nestAdminSeoAiJson<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  return nestAdminSeoJson<T>(token, `/ai${path}`, init);
+}
+
+export async function nestAdminSeoAiGenerateTest(
+  token: string | null,
+  body: SeoAiGenerateTestInput,
+): Promise<SeoAiGenerateTestResult | null> {
+  return nestAdminSeoAiJson<SeoAiGenerateTestResult>(token, '/generate-test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoAiEstimateJob(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<SeoAiJobEstimate | null> {
+  return nestAdminSeoAiJson<SeoAiJobEstimate>(token, '/jobs/estimate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoAiCreateJob(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ success: boolean; jobId: string; estimate: SeoAiJobEstimate } | null> {
+  return nestAdminSeoAiJson(token, '/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoAiGetActiveJob(token: string | null): Promise<SeoAiJobView | null> {
+  return nestAdminSeoAiJson<SeoAiJobView>(token, '/jobs/active');
+}
+
+export async function nestAdminSeoAiGetJob(token: string | null, jobId: string): Promise<SeoAiJobView | null> {
+  return nestAdminSeoAiJson<SeoAiJobView>(token, `/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function nestAdminSeoAiPauseJob(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/pause`, { method: 'POST', body: '{}' });
+}
+
+export async function nestAdminSeoAiResumeJob(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST', body: '{}' });
+}
+
+export async function nestAdminSeoAiCancelJob(token: string | null, jobId: string) {
+  return nestAdminSeoAiJson(token, `/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: '{}' });
+}
+
 export type SeoIndexabilityRecalculateResult = {
   processed: number;
   changedToIndexable: number;

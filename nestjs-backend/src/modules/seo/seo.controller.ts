@@ -10,6 +10,7 @@ import { SeoIndexQueueService } from './seo-index-queue.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
 import { SeoGenerationJobService } from './seo-generation-job.service';
+import { SeoAiGenerationService } from './seo-ai-generation.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService, type SitemapKind } from './seo.service';
 
@@ -75,6 +76,7 @@ export class SeoAdminController {
     private readonly generationJobs: SeoGenerationJobService,
     private readonly indexability: SeoIndexabilityService,
     private readonly programmaticSeo: ProgrammaticSeoService,
+    private readonly seoAi: SeoAiGenerationService,
   ) {}
 
   @Get('settings')
@@ -293,6 +295,17 @@ export class SeoAdminController {
   regenerateSeoPage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
     const userId = req.user?.id ?? req.user?.sub;
     return this.content.regenerateById(id, userId);
+  }
+
+  @Post('pages/:id/ai-regenerate')
+  aiRegenerateSeoPage(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    const userId = req.user?.id ?? req.user?.sub;
+    return this.seoAi.regeneratePage(id, userId);
+  }
+
+  @Get('pages/:id/ai-preview')
+  aiPreviewSeoPage(@Param('id') id: string) {
+    return this.seoAi.getAiPreview(id);
   }
 
   @Put('pages/:id')
