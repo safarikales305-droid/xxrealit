@@ -2,11 +2,15 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { EmailsService } from './emails.service';
+import { EmailSettingsService } from './email-settings.service';
 
 @Controller('admin/emails')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class EmailsAdminController {
-  constructor(private readonly emails: EmailsService) {}
+  constructor(
+    private readonly emails: EmailsService,
+    private readonly emailSettings: EmailSettingsService,
+  ) {}
 
   @Get('logs')
   logs(@Query('limit') limit?: string) {
@@ -53,11 +57,13 @@ export class EmailsAdminController {
     if (!to) return { success: false, error: 'toEmail je povinný.' };
     const template = (await this.emails.listTemplates()).find((x) => x.id === id);
     if (!template) return { success: false, error: 'Šablona nebyla nalezena.' };
+    const globalVars = await this.emailSettings.getTemplateVariables();
     await this.emails.sendTemplatedEmail({
       type: 'template_test',
       templateKey: template.key,
       to,
       variables: {
+        ...globalVars,
         userName: 'Testovací uživatel',
         clientName: 'Jan Klient',
         workerName: 'Marie Pracovník',
@@ -72,7 +78,7 @@ export class EmailsAdminController {
         setPasswordUrl: 'https://www.xxrealit.cz/dokoncit-registraci-pracovnik?token=test',
         loginUrl: 'https://www.xxrealit.cz/login',
         portalName: 'XXrealit.cz',
-        supportEmail: 'podpora@xxrealit.cz',
+        supportEmail: globalVars.supportEmail,
         profileUrl: 'https://www.xxrealit.cz/profil',
         listingTitle: 'Testovací inzerát',
         listingLocation: 'Praha',

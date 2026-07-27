@@ -656,30 +656,39 @@ model EmailLog {
   recipientEmail    String
   senderEmail       String?
   senderName        String?
+  replyToEmail      String?
   status            EmailLogStatus @default(queued)
   provider          String         @default("resend")
   providerMessageId String?
   errorMessage      String?
+  errorCode         String?
   payloadJson       Json?
+  deliveredAt       DateTime?
+  bouncedAt         DateTime?
+  repliedAt         DateTime?
   createdAt         DateTime       @default(now())
   sentAt            DateTime?
 
   @@index([type, createdAt])
   @@index([status, createdAt])
   @@index([recipientEmail, createdAt])
+  @@index([replyToEmail, createdAt])
 }
 
 model EmailTemplate {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  name        String
-  category    String   @default("system")
-  subject     String
-  htmlContent String   @db.Text
-  textContent String   @db.Text
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  key           String   @unique
+  name          String
+  category      String   @default("system")
+  subject       String
+  preheader     String   @default("")
+  htmlContent   String   @db.Text
+  textContent   String   @db.Text
+  variablesJson Json?
+  version       Int      @default(1)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model EmailCampaign {
@@ -4098,6 +4107,11 @@ model AiSalesSettings {
   timezone                     String   @default("Europe/Prague")
   senderEmail                  String?
   senderName                   String?
+  replyToEmail                 String?
+  defaultSignatureId           String?
+  defaultCtaUrl                String?
+  realSendingEnabled           Boolean  @default(false)
+  maxRecipientsPerOffer        Int      @default(5)
   internalDatabaseEnabled      Boolean  @default(true)
   manualContactsEnabled        Boolean  @default(true)
   csvImportEnabled             Boolean  @default(true)
@@ -4276,6 +4290,8 @@ model AiSalesMessage {
   errorCode         String?
   providerMessageId String?
   emailLogId        String?
+  replyToEmail      String?
+  signatureId       String?
   isTest            Boolean                 @default(false)
   createdById       String?
   createdAt         DateTime                @default(now())
@@ -5721,4 +5737,134 @@ model LeadPrice {
   updatedAt      DateTime @updatedAt
 
   @@index([active, order])
+}
+
+enum EmailSignatureType {
+  DEFAULT
+  SALES_TEAM
+  SUPPORT
+  ADMINISTRATION
+  AUTOMATIC_SYSTEM
+  INDIVIDUAL
+}
+
+enum EmailSenderPurpose {
+  DEFAULT
+  SALES
+  SUPPORT
+  BILLING
+  SYSTEM
+  REGISTRATION
+  LEADS
+  CONTACT_FORM
+}
+
+enum EmailInboundStatus {
+  NEW
+  READ
+  INTERESTED
+  REQUEST_MORE_INFO
+  NOT_INTERESTED
+  UNSUBSCRIBE
+  WRONG_CONTACT
+  AUTO_REPLY
+  SPAM
+  CLOSED
+}
+
+model EmailSettings {
+  id                       String   @id @default("default")
+  defaultSenderName        String   @default("XXREALIT")
+  defaultSenderEmail       String   @default("info@xxrealit.cz")
+  defaultReplyToEmail      String   @default("xxrealit@email.cz")
+  salesSenderName          String   @default("XXREALIT obchodní tým")
+  salesSenderEmail         String   @default("obchod@xxrealit.cz")
+  salesReplyToEmail        String   @default("xxrealit@email.cz")
+  supportEmail             String   @default("podpora@xxrealit.cz")
+  footerContactEmail       String   @default("podpora@xxrealit.cz")
+  billingEmail             String   @default("")
+  leadEmail                String   @default("")
+  registrationEmail        String   @default("")
+  systemNotificationEmail  String   @default("")
+  contactFormEmail         String   @default("")
+  provider                 String   @default("resend")
+  active                   Boolean  @default(true)
+  updatedById              String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model EmailSenderIdentity {
+  id              String             @id @default(cuid())
+  name            String
+  email           String
+  provider        String             @default("resend")
+  domain          String             @default("")
+  verified        Boolean            @default(false)
+  active          Boolean            @default(true)
+  purpose         EmailSenderPurpose @default(DEFAULT)
+  lastTestAt      DateTime?
+  lastTestSuccess Boolean?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([email])
+  @@index([active, purpose])
+}
+
+model EmailSignature {
+  id         String             @id @default(cuid())
+  name       String
+  type       EmailSignatureType @default(DEFAULT)
+  personName String             @default("")
+  position   String             @default("")
+  team       String             @default("")
+  company    String             @default("XXREALIT")
+  phone      String             @default("")
+  email      String             @default("")
+  website    String             @default("https://www.xxrealit.cz")
+  logoUrl    String             @default("")
+  html       String             @db.Text
+  plainText  String             @db.Text
+  active     Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@index([type, active])
+}
+
+model EmailInboundReply {
+  id                String             @id @default(cuid())
+  fromEmail         String
+  toEmail           String
+  replyToEmail      String?
+  subject           String
+  bodyText          String?            @db.Text
+  bodyHtml          String?            @db.Text
+  attachmentsJson   Json?
+  aiSalesMessageId  String?
+  classification    String?
+  status            EmailInboundStatus @default(NEW)
+  assignedToId      String?
+  receivedAt        DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([status, receivedAt])
+  @@index([aiSalesMessageId])
+  @@index([replyToEmail, receivedAt])
+}
+
+model EmailSettingsAuditLog {
+  id         String   @id @default(cuid())
+  field      String
+  oldValue   String?  @db.Text
+  newValue   String?  @db.Text
+  reason     String?  @db.Text
+  changedById String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([field, createdAt])
+  @@index([changedById, createdAt])
 }

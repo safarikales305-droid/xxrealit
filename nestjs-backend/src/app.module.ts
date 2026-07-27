@@ -21,6 +21,7 @@ import { BrokersModule } from './modules/brokers/brokers.module';
 import { AgentProfileModule } from './modules/agent-profile/agent-profile.module';
 import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
 import { EmailsModule } from './modules/emails/emails.module';
+import { EmailCenterModule } from './modules/email-center/email-center.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { TiparModule } from './modules/tipar/tipar.module';
@@ -88,6 +89,7 @@ import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
     ProfessionalVerificationModule,
     CompanyAdsModule,
     EmailsModule,
+    EmailCenterModule,
     StoriesModule,
     ImportsModule,
     TiparModule,

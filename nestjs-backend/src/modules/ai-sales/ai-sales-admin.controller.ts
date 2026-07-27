@@ -300,6 +300,7 @@ export class AiSalesAdminController {
       signature?: string;
       plainText?: string;
       htmlContent?: string;
+      replyToEmail?: string;
     },
     @Req() req: { user?: { id?: string; sub?: string } },
   ) {

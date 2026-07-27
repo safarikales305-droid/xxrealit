@@ -7,7 +7,11 @@ const BRAND_DARK = '#1f2937';
 
 @Injectable()
 export class AiSalesMessageTemplateService {
-  renderHtml(output: OutreachAiOutput, options?: { preview?: boolean }): string {
+  renderHtml(
+    output: OutreachAiOutput,
+    options?: { preview?: boolean; footerContactEmail?: string },
+  ): string {
+    const footerEmail = options?.footerContactEmail ?? 'podpora@xxrealit.cz';
     const plain = buildPlainTextFromParts(output);
     const benefitsHtml = output.benefits
       .map(
@@ -69,7 +73,7 @@ export class AiSalesMessageTemplateService {
           <tr>
             <td style="padding:16px 24px;background:#f9fafb;border-top:1px solid #f3f4f6;">
               <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.5;text-align:center;">
-                Pokud si nepřejete dostávat další obchodní sdělení, odpovězte „NEZÁJEM“ nebo nás kontaktujte na podpora@xxrealit.cz.
+                Pokud si nepřejete dostávat další obchodní sdělení, odpovězte „NEZÁJEM“ nebo nás kontaktujte na ${escapeHtml(footerEmail)}.
               </p>
             </td>
           </tr>
@@ -105,7 +109,8 @@ export class AiSalesMessageTemplateService {
     });
   }
 
-  renderFromMessage(message: {
+  renderFromMessage(
+    message: {
     subject?: string | null;
     preheader?: string | null;
     greeting?: string | null;
@@ -117,7 +122,9 @@ export class AiSalesMessageTemplateService {
     signature?: string | null;
     plainText?: string | null;
     content?: string;
-  }): string {
+  },
+    footerContactEmail?: string,
+  ): string {
     const benefits = Array.isArray(message.benefitsJson)
       ? (message.benefitsJson as Array<{ title?: string; description?: string }>)
           .filter((b) => b?.title && b?.description)
@@ -141,7 +148,7 @@ export class AiSalesMessageTemplateService {
         usedKnowledgeIds: [],
         confidence: 0.7,
       },
-      { preview: true },
+      { preview: true, footerContactEmail },
     );
   }
 }

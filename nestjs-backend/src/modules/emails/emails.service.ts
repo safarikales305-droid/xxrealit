@@ -7,6 +7,7 @@ import {
   normalizePublicEmailUrl,
   resolveFrontendUrl,
 } from '../../common/resolve-frontend-url';
+import { EmailSettingsService } from './email-settings.service';
 
 import {
   DEFAULT_EMAIL_TEMPLATES,
@@ -42,6 +43,7 @@ export class EmailsService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly emailSettings: EmailSettingsService,
   ) {}
 
   async onModuleInit() {
@@ -56,8 +58,18 @@ export class EmailsService implements OnModuleInit {
     return normalizePublicEmailUrl(url, this.config, this.logger);
   }
 
-  private senderAddress(): string {
-    return this.config.get<string>('RESEND_FROM_EMAIL')?.trim() || 'xxrealit <reset@mail.xxrealit.cz>';
+  private async senderAddress(): Promise<string> {
+    const envFrom = this.config.get<string>('RESEND_FROM_EMAIL')?.trim();
+    if (envFrom) return envFrom;
+    const sender = await this.emailSettings.getDefaultSender();
+    return this.emailSettings.formatFrom(sender);
+  }
+
+  private async mergeTemplateVariables(
+    variables: Record<string, string | number | null | undefined>,
+  ): Promise<Record<string, string | number | null | undefined>> {
+    const globalVars = await this.emailSettings.getTemplateVariables();
+    return { ...globalVars, ...variables };
   }
 
   private render(content: string, variables: Record<string, unknown>): string {
@@ -202,6 +214,10 @@ export class EmailsService implements OnModuleInit {
     subject: string;
     html: string;
     text: string;
+    from?: string;
+    replyTo?: string;
+    senderName?: string;
+    senderEmail?: string;
     metadata?: Record<string, unknown>;
     /** Kampaňové e-maily mají vlastní layout — neobalovat buildLayout. */
     skipLayout?: boolean;
@@ -218,6 +234,9 @@ export class EmailsService implements OnModuleInit {
         type: input.type,
         subject: input.subject,
         recipientEmail: input.to,
+        senderEmail: input.senderEmail ?? null,
+        senderName: input.senderName ?? null,
+        replyToEmail: input.replyTo ?? null,
         status: EmailLogStatus.queued,
         provider: 'resend',
         payloadJson,
@@ -233,10 +252,12 @@ export class EmailsService implements OnModuleInit {
       throw new Error('Missing RESEND_API_KEY');
     }
     const resend = new Resend(apiKey);
+    const fromAddress = input.from ?? (await this.senderAddress());
     try {
       const response = await resend.emails.send({
-        from: this.senderAddress(),
+        from: fromAddress,
         to: input.to,
+        replyTo: input.replyTo,
         subject: input.subject,
         html: finalHtml,
         text: input.text,
@@ -278,7 +299,7 @@ export class EmailsService implements OnModuleInit {
     }
 
     const normalizedVariables: Record<string, string | number | null | undefined> = {
-      ...input.variables,
+      ...(await this.mergeTemplateVariables(input.variables)),
       ctaUrl:
         typeof input.variables.ctaUrl === 'string'
           ? this.normalizePublicUrl(input.variables.ctaUrl)
@@ -326,9 +347,14 @@ export class EmailsService implements OnModuleInit {
       throw new Error('Missing RESEND_API_KEY');
     }
     const resend = new Resend(apiKey);
+    const fromAddress = input.senderEmail
+      ? input.senderName
+        ? `${input.senderName} <${input.senderEmail}>`
+        : input.senderEmail
+      : await this.senderAddress();
     try {
       const response = await resend.emails.send({
-        from: this.senderAddress(),
+        from: fromAddress,
         to: input.to,
         subject,
         html,

@@ -1,0 +1,18 @@
+export const DEFAULT_EMAIL_SETTINGS = {
+  id: 'default',
+  defaultSenderName: 'XXREALIT',
+  defaultSenderEmail: 'info@xxrealit.cz',
+  defaultReplyToEmail: 'xxrealit@email.cz',
+  salesSenderName: 'XXREALIT obchodní tým',
+  salesSenderEmail: 'obchod@xxrealit.cz',
+  salesReplyToEmail: 'xxrealit@email.cz',
+  supportEmail: 'podpora@xxrealit.cz',
+  footerContactEmail: 'podpora@xxrealit.cz',
+  billingEmail: '',
+  leadEmail: '',
+  registrationEmail: '',
+  systemNotificationEmail: '',
+  contactFormEmail: '',
+  provider: 'resend',
+  active: true,
+} as const;

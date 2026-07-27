@@ -145,6 +145,7 @@ export type AiSalesMessage = {
   htmlContent?: string | null;
   content: string;
   status: string;
+  replyToEmail?: string | null;
   variantLabel?: string | null;
   analysisIncomplete?: boolean;
   personalizationReasonsJson?: string[] | null;
@@ -417,6 +418,11 @@ export function getMessagePreview(token: string, id: string) {
     subject: string | null;
     html: string;
     previewUrl: string;
+    from?: string;
+    fromName?: string;
+    fromFormatted?: string;
+    replyTo?: string;
+    footerContactEmail?: string;
     partial?: boolean;
   }>(token, `/messages/${id}/preview`);
 }
@@ -639,6 +645,7 @@ export function updateMessage(
     signature?: string;
     plainText?: string;
     htmlContent?: string;
+    replyToEmail?: string;
   },
 ) {
   return aiSalesRequest<AiSalesMessage>(token, `/messages/${id}`, { method: 'PUT', body: JSON.stringify(body) });

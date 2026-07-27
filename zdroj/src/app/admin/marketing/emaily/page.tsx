@@ -1,5 +1,5 @@
-import { AdminEmailsHub } from '@/components/admin/AdminEmailsHub';
+import { EmailCenterHub } from '@/components/admin/EmailCenterHub';
 
 export default function AdminMarketingEmailsPage() {
-  return <AdminEmailsHub />;
+  return <EmailCenterHub />;
 }

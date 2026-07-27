@@ -120,5 +120,9 @@ export function fitScoreCategory(score: number | null | undefined): string {
   return FIT_SCORE_LABELS.low.label;
 }
 
-export const OPT_OUT_FOOTER =
-  '\n\n---\nPokud si nepřejete dostávat další obchodní sdělení, odpovězte prosím „NEZÁJEM“ nebo nás kontaktujte na podpora@xxrealit.cz.';
+export function buildOptOutFooter(footerEmail: string): string {
+  return `\n\n---\nPokud si nepřejete dostávat další obchodní sdělení, odpovězte prosím „NEZÁJEM“ nebo nás kontaktujte na ${footerEmail}.`;
+}
+
+/** @deprecated Use buildOptOutFooter with dynamic email from EmailSettingsService */
+export const OPT_OUT_FOOTER = buildOptOutFooter('podpora@xxrealit.cz');

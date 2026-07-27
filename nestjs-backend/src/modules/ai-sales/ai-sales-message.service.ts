@@ -14,7 +14,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { OpenAiService } from '../openai/openai.service';
-import { OPT_OUT_FOOTER } from './ai-sales.constants';
+import { buildOptOutFooter } from './ai-sales.constants';
 import { AI_SALES_PROMPT_FEATURES } from './ai-sales.constants';
 import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service';
 import { AiSalesProspectService } from './ai-sales-prospect.service';
@@ -23,6 +23,7 @@ import { AiSalesMessageTemplateService } from './ai-sales-message-template.servi
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
 import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
+import { EmailSettingsService } from '../emails/email-settings.service';
 
 @Injectable()
 export class AiSalesMessageService {
@@ -35,6 +36,7 @@ export class AiSalesMessageService {
     private readonly openai: OpenAiService,
     private readonly promptResolver: AiSalesPromptResolverService,
     private readonly template: AiSalesMessageTemplateService,
+    private readonly emailSettings: EmailSettingsService,
   ) {}
 
   async list(filters?: {
@@ -80,7 +82,8 @@ export class AiSalesMessageService {
     if (!row) throw new NotFoundException('Zpráva nenalezena.');
 
     if (!row.htmlContent?.trim()) {
-      const html = this.template.renderFromMessage(row);
+      const footer = await this.emailSettings.getFooterContactEmail();
+      const html = this.template.renderFromMessage(row, footer);
       const updated = await this.prisma.aiSalesMessage.update({
         where: { id },
         data: { htmlContent: html },
@@ -95,14 +98,24 @@ export class AiSalesMessageService {
     const msg = await this.getById(id);
     const recipients = msg.recipients ?? (await this.listRecipients(id));
     const selected = recipients.filter((r) => r.selected);
-    return {
+    const salesSender = await this.emailSettings.getSalesSender();
+    const replyTo = await this.emailSettings.resolveReplyTo({
+      messageReplyTo: msg.replyToEmail,
+      moduleReplyTo: (await this.settings.getOrCreate()).replyToEmail,
+    });
+    const footer = await this.emailSettings.getFooterContactEmail();
+  return {
       messageId: msg.id,
       status: msg.status,
       subject: msg.subject,
       preheader: msg.preheader,
-      from: 'obchod@xxrealit.cz',
+      from: salesSender.email,
+      fromName: salesSender.name,
+      fromFormatted: this.emailSettings.formatFrom(salesSender),
+      replyTo,
+      footerContactEmail: footer,
       to: selected.map((r) => r.email).join(', ') || msg.prospect.primaryEmail || msg.prospect.email || '—',
-      html: msg.htmlContent ?? this.template.renderFromMessage(msg),
+      html: msg.htmlContent ?? this.template.renderFromMessage(msg, footer),
       plainText: msg.plainText ?? msg.content,
       previewUrl: `/admin/marketing/ai-sales?tab=message&messageId=${msg.id}`,
       partial: msg.analysisIncomplete,
@@ -134,6 +147,7 @@ export class AiSalesMessageService {
       signature?: string;
       plainText?: string;
       htmlContent?: string;
+      replyToEmail?: string;
     },
     userId?: string,
   ) {
@@ -157,6 +171,7 @@ export class AiSalesMessageService {
         closing: data.closing ?? msg.closing,
         signature: data.signature ?? msg.signature,
         htmlContent: data.htmlContent ?? msg.htmlContent,
+        replyToEmail: data.replyToEmail ?? msg.replyToEmail,
       },
     });
 
@@ -283,6 +298,29 @@ export class AiSalesMessageService {
     return this.sendSingleEmail(id, msg, fallbackEmail, settings, userId);
   }
 
+  private async buildOutboundEmailHeaders(msg: {
+    replyToEmail?: string | null;
+  }) {
+    const aiSettings = await this.settings.getOrCreate();
+    const salesSender = await this.emailSettings.getSalesSender();
+    const replyTo = await this.emailSettings.resolveReplyTo({
+      messageReplyTo: msg.replyToEmail,
+      moduleReplyTo: aiSettings.replyToEmail,
+    });
+    return {
+      from: this.emailSettings.formatFrom(salesSender),
+      replyTo,
+      senderName: salesSender.name,
+      senderEmail: salesSender.email,
+    };
+  }
+
+  private async appendOptOutFooter(content: string): Promise<string> {
+    if (content.includes('NEZÁJEM')) return content;
+    const footer = await this.emailSettings.getFooterContactEmail();
+    return `${content}${buildOptOutFooter(footer)}`;
+  }
+
   private async sendToRecipients(
     id: string,
     msg: Awaited<ReturnType<AiSalesMessageService['getById']>>,
@@ -290,11 +328,10 @@ export class AiSalesMessageService {
     settings: Awaited<ReturnType<AiSalesSettingsService['getOrCreate']>>,
     userId?: string,
   ) {
-    const contentWithOptOut = msg.content.includes('NEZÁJEM')
-      ? msg.content
-      : `${msg.content}${OPT_OUT_FOOTER}`;
+    const contentWithOptOut = await this.appendOptOutFooter(msg.content);
     const html =
       msg.htmlContent ?? `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
+    const headers = await this.buildOutboundEmailHeaders(msg);
 
     if (settings.testModeEnabled) {
       await this.prisma.aiSalesMessageRecipient.updateMany({
@@ -337,6 +374,10 @@ export class AiSalesMessageService {
           subject: msg.subject ?? 'Spolupráce s XXREALIT',
           html,
           text: contentWithOptOut,
+          from: headers.from,
+          replyTo: headers.replyTo,
+          senderName: headers.senderName,
+          senderEmail: headers.senderEmail,
           metadata: {
             aiSalesMessageId: msg.id,
             prospectId: msg.prospectId,
@@ -404,11 +445,10 @@ export class AiSalesMessageService {
     settings: Awaited<ReturnType<AiSalesSettingsService['getOrCreate']>>,
     userId?: string,
   ) {
-    const contentWithOptOut = msg.content.includes('NEZÁJEM')
-      ? msg.content
-      : `${msg.content}${OPT_OUT_FOOTER}`;
+    const contentWithOptOut = await this.appendOptOutFooter(msg.content);
     const html =
       msg.htmlContent ?? `<p>${contentWithOptOut.replace(/\n/g, '<br/>')}</p>`;
+    const headers = await this.buildOutboundEmailHeaders(msg);
 
     if (settings.testModeEnabled) {
       const updated = await this.prisma.aiSalesMessage.update({
@@ -436,6 +476,10 @@ export class AiSalesMessageService {
       subject: msg.subject ?? 'Spolupráce s XXREALIT',
       html,
       text: contentWithOptOut,
+      from: headers.from,
+      replyTo: headers.replyTo,
+      senderName: headers.senderName,
+      senderEmail: headers.senderEmail,
       metadata: {
         aiSalesMessageId: msg.id,
         prospectId: msg.prospectId,
@@ -587,8 +631,12 @@ export class AiSalesMessageService {
     }
 
     const subject = `[TEST] ${msg.subject ?? 'Návrh nabídky XXREALIT'}`;
-    const html = msg.htmlContent ?? `<p>${(msg.plainText ?? msg.content).replace(/\n/g, '<br/>')}</p>`;
+    const footer = await this.emailSettings.getFooterContactEmail();
+    const html =
+      msg.htmlContent ??
+      this.template.renderFromMessage(msg, footer);
     const text = msg.plainText ?? msg.content;
+    const headers = await this.buildOutboundEmailHeaders(msg);
 
     await this.emails.sendRawEmail({
       type: 'ai_sales_outreach_test',
@@ -596,6 +644,10 @@ export class AiSalesMessageService {
       subject,
       html,
       text,
+      from: headers.from,
+      replyTo: headers.replyTo,
+      senderName: headers.senderName,
+      senderEmail: headers.senderEmail,
       metadata: {
         aiSalesMessageId: msg.id,
         prospectId: msg.prospectId,
@@ -615,7 +667,7 @@ export class AiSalesMessageService {
       },
     });
 
-    return { success: true, testEmail, messageId: msg.id, status: msg.status };
+    return { success: true, testEmail, messageId: msg.id, status: msg.status, replyTo: headers.replyTo };
   }
 
   async listVersions(messageId: string) {

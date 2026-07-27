@@ -22,6 +22,7 @@ import { AiSalesPromptResolverService } from './ai-sales-prompt-resolver.service
 import { AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesMessageService } from './ai-sales-message.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
+import { EmailSettingsService } from '../emails/email-settings.service';
 
 @Injectable()
 export class AiSalesOutreachGenerationService {
@@ -37,6 +38,7 @@ export class AiSalesOutreachGenerationService {
     private readonly settings: AiSalesSettingsService,
     private readonly template: AiSalesMessageTemplateService,
     private readonly messages: AiSalesMessageService,
+    private readonly emailSettings: EmailSettingsService,
   ) {}
 
   async generateVariants(prospectId: string, userId?: string, options?: GenerateOutreachOptions) {
@@ -175,7 +177,8 @@ export class AiSalesOutreachGenerationService {
     }
 
     const plainText = buildPlainTextFromParts(parsed);
-    const html = this.template.renderHtml(parsed, { preview: true });
+    const footer = await this.emailSettings.getFooterContactEmail();
+    const html = this.template.renderHtml(parsed, { preview: true, footerContactEmail: footer });
     const analysisIncomplete = !prospect.analyzedAt && !prospect.analysisJson;
 
     if (options?.testMode) {

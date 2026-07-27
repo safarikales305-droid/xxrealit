@@ -116,7 +116,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'social-autopost', label: 'Sociální sítě', href: '/admin/marketing/socialni-site', icon: '📣' },
       { id: 'tiktok', label: 'TikTok', href: '/admin/marketing/tiktok', icon: '🎵' },
       { id: 'reel-intro-videos', label: 'Úvodní videa k Reelům', href: '/admin/marketing/uvodni-videa-reels', icon: '🎬' },
-      { id: 'emails', label: 'E-maily', href: '/admin/marketing/emaily', icon: '✉' },
+      { id: 'emails', label: 'E-mail centrum', href: '/admin/marketing/emaily', icon: '✉' },
       { id: 'seo', label: 'SEO', href: '/admin/seo', icon: '🔍', tone: 'blue' },
       { id: 'registration-gate', label: 'Registrace a výzvy', href: '/admin/registrace-a-vyzvy', icon: '📝' },
     ],

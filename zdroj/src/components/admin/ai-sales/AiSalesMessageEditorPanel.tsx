@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   approveMessage,
   getMessage,
+  getMessagePreview,
   getMessageRecipients,
   regenerateMessage,
   selectAllMessageRecipients,
@@ -17,6 +18,9 @@ import {
   type AiSalesMessage,
   type AiSalesMessageRecipient,
 } from '@/lib/ai-sales-admin-api';
+import { nestEmailCenterReplyToOptions } from '@/lib/email-center-admin-api';
+import { ButtonSpinner, PageLoadingState } from '@/components/admin/loading/AdminLoadingSpinner';
+import { useAdminLoading } from '@/components/admin/loading/AdminLoadingProvider';
 
 type Props = {
   token: string;
@@ -28,8 +32,16 @@ type Props = {
 type PreviewMode = 'desktop' | 'mobile' | 'gmail' | 'outlook';
 
 export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated }: Props) {
+  const { startLoading, stopLoading } = useAdminLoading();
   const [message, setMessage] = useState<AiSalesMessage | null>(null);
   const [recipients, setRecipients] = useState<AiSalesMessageRecipient[]>([]);
+  const [previewMeta, setPreviewMeta] = useState<{
+    fromFormatted?: string;
+    replyTo?: string;
+    footerContactEmail?: string;
+  } | null>(null);
+  const [replyToOptions, setReplyToOptions] = useState<Array<{ value: string; label: string; email: string }>>([]);
+  const [replyToEmail, setReplyToEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<(AiSalesApiError & { message: string }) | null>(null);
@@ -57,6 +69,23 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
     try {
       const row = await getMessage(token, messageId);
       setMessage(row);
+      setReplyToEmail(row.replyToEmail ?? '');
+      try {
+        const preview = await getMessagePreview(token, messageId);
+        setPreviewMeta({
+          fromFormatted: preview.fromFormatted ?? `${preview.fromName ?? ''} <${preview.from ?? ''}>`.trim(),
+          replyTo: preview.replyTo,
+          footerContactEmail: preview.footerContactEmail,
+        });
+      } catch {
+        setPreviewMeta(null);
+      }
+      try {
+        const opts = await nestEmailCenterReplyToOptions(token);
+        if (opts.ok) setReplyToOptions(opts.data);
+      } catch {
+        setReplyToOptions([]);
+      }
       try {
         const rec = await getMessageRecipients(token, messageId);
         setRecipients(rec);
@@ -95,11 +124,13 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
   async function handleSave() {
     if (!token || !message) return;
     setBusy(true);
+    startLoading({ key: 'ai-sales-save', label: 'Ukládám koncept…' });
     setError(null);
     try {
       await updateMessage(token, message.id, {
         ...edit,
         content: edit.plainText,
+        replyToEmail: replyToEmail || undefined,
       });
       await load();
       onUpdated?.();
@@ -114,12 +145,14 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       });
     } finally {
       setBusy(false);
+      stopLoading('ai-sales-save');
     }
   }
 
   async function handleApprove() {
     if (!token || !message) return;
     setBusy(true);
+    startLoading({ key: 'ai-sales-approve', label: 'Schvaluji…' });
     try {
       await submitMessageForApproval(token, message.id).catch(() => null);
       await approveMessage(token, message.id);
@@ -130,12 +163,14 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false });
     } finally {
       setBusy(false);
+      stopLoading('ai-sales-approve');
     }
   }
 
   async function handleSend() {
     if (!token || !message) return;
     setBusy(true);
+    startLoading({ key: 'ai-sales-send', label: 'Odesílám nabídku…' });
     try {
       await sendMessage(token, message.id);
       await load();
@@ -145,12 +180,14 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false });
     } finally {
       setBusy(false);
+      stopLoading('ai-sales-send');
     }
   }
 
   async function handleTestSend() {
     if (!token || !message || !testEmail.trim()) return;
     setBusy(true);
+    startLoading({ key: 'ai-sales-test-send', label: 'Odesílám testovací e-mail…' });
     setTestResult(null);
     try {
       await sendTestMessage(token, message.id, testEmail.trim());
@@ -159,12 +196,14 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       setTestResult(e instanceof Error ? e.message : 'Test selhal.');
     } finally {
       setBusy(false);
+      stopLoading('ai-sales-test-send');
     }
   }
 
   async function handleRegenerate() {
     if (!token || !message) return;
     setBusy(true);
+    startLoading({ key: 'ai-sales-regenerate', label: 'Generuji originální nabídku…', sublabel: 'Načítám data partnera…' });
     try {
       await regenerateMessage(token, message.id);
       await load();
@@ -174,6 +213,7 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       setError({ message: err.message, code: err.code ?? 'UNKNOWN_ERROR', httpStatus: err.httpStatus ?? 500, success: false, phase: err.phase });
     } finally {
       setBusy(false);
+      stopLoading('ai-sales-regenerate');
     }
   }
 
@@ -198,7 +238,7 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
     }
   }
 
-  if (loading) return <p className="text-sm text-zinc-500">Načítám návrh nabídky…</p>;
+  if (loading) return <PageLoadingState label="Načítám návrh nabídky…" />;
 
   if (error && !message) {
     return (
@@ -260,8 +300,25 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       ) : null}
 
       <div className="grid gap-3 rounded border border-zinc-100 bg-zinc-50 p-3 text-sm">
-        <p><strong>Od:</strong> obchod@xxrealit.cz</p>
+        <p><strong>Od:</strong> {previewMeta?.fromFormatted ?? '—'}</p>
         <p><strong>Komu:</strong> {recipientEmail ?? '—'}</p>
+        <p><strong>Odpovědět na:</strong> {previewMeta?.replyTo ?? replyToEmail ?? '—'}</p>
+        <p><strong>Patička:</strong> {previewMeta?.footerContactEmail ?? '—'}</p>
+        <label className="block">
+          Odpovědi zasílat na
+          <select
+            value={replyToEmail}
+            onChange={(e) => setReplyToEmail(e.target.value)}
+            className="mt-1 w-full rounded border px-2 py-1"
+          >
+            <option value="">Výchozí Reply-To AI obchodníka</option>
+            {replyToOptions.map((o) => (
+              <option key={o.email} value={o.email}>
+                {o.label} ({o.email})
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block">Předmět<input value={edit.subject} onChange={(e) => setEdit({ ...edit, subject: e.target.value })} className="mt-1 w-full rounded border px-2 py-1" /></label>
         <label className="block">Preheader<input value={edit.preheader} onChange={(e) => setEdit({ ...edit, preheader: e.target.value })} className="mt-1 w-full rounded border px-2 py-1" /></label>
         <label className="block">Oslovení<input value={edit.greeting} onChange={(e) => setEdit({ ...edit, greeting: e.target.value })} className="mt-1 w-full rounded border px-2 py-1" /></label>
@@ -353,15 +410,30 @@ export function AiSalesMessageEditorPanel({ token, messageId, onClose, onUpdated
       {tab === 'versions' ? <pre className="max-h-64 overflow-auto rounded bg-zinc-50 p-3 text-xs">{JSON.stringify(message.versions ?? [], null, 2)}</pre> : null}
 
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={busy} onClick={() => void handleSave()} className="rounded border px-3 py-1 text-sm">Uložit koncept</button>
-        <button type="button" disabled={busy} onClick={() => void handleRegenerate()} className="rounded border px-3 py-1 text-sm">Vygenerovat znovu</button>
-        <button type="button" disabled={busy} onClick={() => void handleApprove()} className="rounded bg-green-600 px-3 py-1 text-sm text-white">Schválit</button>
-        <button type="button" disabled={busy || !canSend || !recipientEmail} onClick={() => void handleSend()} className="rounded bg-orange-600 px-3 py-1 text-sm text-white disabled:opacity-50">Odeslat příjemci</button>
+        <button type="button" disabled={busy} onClick={() => void handleSave()} className="inline-flex items-center gap-2 rounded border px-3 py-1 text-sm disabled:opacity-50">
+          {busy ? <ButtonSpinner /> : null}
+          {busy ? 'Ukládám…' : 'Uložit koncept'}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void handleRegenerate()} className="inline-flex items-center gap-2 rounded border px-3 py-1 text-sm disabled:opacity-50">
+          {busy ? <ButtonSpinner /> : null}
+          {busy ? 'Generuji…' : 'Vygenerovat znovu'}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void handleApprove()} className="inline-flex items-center gap-2 rounded bg-green-600 px-3 py-1 text-sm text-white disabled:opacity-50">
+          {busy ? <ButtonSpinner /> : null}
+          {busy ? 'Schvaluji…' : 'Schválit'}
+        </button>
+        <button type="button" disabled={busy || !canSend || !recipientEmail} onClick={() => void handleSend()} className="inline-flex items-center gap-2 rounded bg-orange-600 px-3 py-1 text-sm text-white disabled:opacity-50">
+          {busy ? <ButtonSpinner /> : null}
+          {busy ? 'Odesílám…' : 'Odeslat příjemci'}
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-3">
         <input placeholder="Testovací e-mail" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} className="rounded border px-2 py-1 text-sm" />
-        <button type="button" disabled={busy || !testEmail.trim()} onClick={() => void handleTestSend()} className="rounded border px-3 py-1 text-sm">Odeslat testovací e-mail</button>
+        <button type="button" disabled={busy || !testEmail.trim()} onClick={() => void handleTestSend()} className="inline-flex items-center gap-2 rounded border px-3 py-1 text-sm disabled:opacity-50">
+          {busy ? <ButtonSpinner /> : null}
+          {busy ? 'Odesílám…' : 'Odeslat testovací e-mail'}
+        </button>
         {testResult ? <span className="text-xs text-zinc-600">{testResult}</span> : null}
       </div>
     </div>
