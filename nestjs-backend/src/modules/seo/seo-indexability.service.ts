@@ -331,7 +331,7 @@ export class SeoIndexabilityService {
       const h = this.normalize(row.h1);
       if (t) titles.set(t, (titles.get(t) ?? 0) + 1);
       if (d) descriptions.set(d, (descriptions.get(d) ?? 0) + 1);
-      if (h) h1.set(h, (h.get(h) ?? 0) + 1);
+      if (h) h1.set(h, (h1.get(h) ?? 0) + 1);
     }
 
     return { titles, descriptions, h1, withListingsOnly: false, pageIds };

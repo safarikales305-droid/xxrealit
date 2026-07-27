@@ -67,11 +67,17 @@ export class AiSalesOutreachGenerationService {
         testMode: false,
       });
 
+      if (!generated?.message) {
+        throw new Error('AI nevygenerovala zprávu.');
+      }
+
+      const message = generated.message;
+
       results.push({
-        messageId: generated.message.id,
+        messageId: message.id,
         variant: variant.label,
-        subject: generated.message.subject ?? '',
-        previewUrl: `/admin/marketing/ai-sales?tab=message&messageId=${generated.message.id}`,
+        subject: message.subject ?? '',
+        previewUrl: `/admin/marketing/ai-sales?tab=message&messageId=${message.id}`,
       });
     }
 

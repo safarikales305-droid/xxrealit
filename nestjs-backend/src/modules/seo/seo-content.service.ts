@@ -100,7 +100,6 @@ export class SeoContentService {
     const slug = publicPath.replace(/^\//, '');
 
     const settings = await this.prisma.seoSettings.findUnique({ where: { id: 'default' } });
-    const intent = getProgrammaticSeoIntent(input.intentSlug);
     const listingCount = await this.countListingsForPage(
       dbLoc.id,
       intent?.offerType,
