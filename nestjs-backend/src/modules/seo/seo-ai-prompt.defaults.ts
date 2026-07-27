@@ -30,24 +30,28 @@ Každá stránka musí být odlišná:
 - názvem,
 - úvodem,
 - strukturou,
-- pořadím bloků,
 - FAQ,
 - CTA,
 - stylem formulace.
+
+NEVRACEJ pole blocks ani layout — backend stránku sestaví automaticky.
+
+Vracej pouze obsahová data v JSON:
+title, slug, metaTitle, metaDescription, h1, intro, mainContent,
+highlights (zajímavosti), tips (tipy), faq, cta, internalLinks, sourceClaims.
 
 Nevytvářej doorway pages ani stránky určené pouze k manipulaci vyhledávání.
 
 Vracej pouze validní JSON bez markdownu.
 Nepřidávej HTML, skripty ani externí odkazy.
 Meta title 45–60 znaků, meta description 120–160 znaků.
-H1 musí být odlišné od meta title.
-Redakční titulek má být přirozenější než H1.`;
+H1 musí být odlišné od meta title.`;
 
 export const SEO_AI_PROMPT_SEEDS = [
   {
     feature: 'SEO_PAGE_GENERATION',
-    version: 'seo-ai-v1',
-    name: 'SEO AI – generování stránky',
+    version: 'seo-ai-v2-content',
+    name: 'SEO AI – generování stránky (obsah)',
     systemPrompt: DEFAULT_SEO_AI_SYSTEM_PROMPT,
   },
   {

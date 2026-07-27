@@ -18,7 +18,8 @@ import { LocalityResolverService } from './locality-resolver.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoAiGenerateInput, SeoAiPageOutput } from './seo-ai-layout.types';
 import { SEO_KNOWLEDGE_CATEGORIES } from './seo-ai-layout.types';
-import { parseSeoAiPageJson, validateSeoAiPageOutput } from './seo-ai-page.validator';
+import { parseSeoAiPageJson } from './seo-ai-page.validator';
+import { buildSeoAiPageFromAi } from './seo-ai-page.builder';
 import { SeoAiQualityService } from './seo-ai-quality.service';
 import { DEFAULT_SEO_AI_SYSTEM_PROMPT } from './seo-ai-prompt.defaults';
 import {
@@ -108,15 +109,23 @@ export class SeoAiGenerationService {
     try {
       parsed = parseSeoAiPageJson(aiResult.text);
     } catch {
-      throw new BadRequestException('AI vrátila neplatný JSON.');
+      this.log.warn('AI vrátila neplatný JSON — používám surový text jako mainContent.');
+      parsed = { mainContent: aiResult.text };
     }
 
-    const validation = validateSeoAiPageOutput(parsed, { hasListings });
-    if (!validation.ok) {
-      throw new BadRequestException(`Neplatný AI výstup: ${validation.errors.join(' ')}`);
-    }
+    const { output, log: buildLog } = buildSeoAiPageFromAi(parsed, {
+      locationName: dbLoc.name,
+      offerLabel: intent.label,
+      hasListings,
+      intentSlug,
+      relatedLocations: context.relatedLocations,
+    });
 
-    const output = validation.data;
+    this.log.log(
+      `SEO AI build [${dbLoc.name}]: AI pole=[${buildLog.aiFieldsReceived.join(', ')}], ` +
+        `bloky z AI=${buildLog.blocksFromAi}, doplněno=[${buildLog.blocksAdded.map((b) => b.type).join(', ')}], ` +
+        `výsledek=${buildLog.finalBlockCount} bloků (${buildLog.finalBlockTypes.join(', ')})`,
+    );
     const similarPages = await this.prisma.seoPageContent.findMany({
       where: { id: opts?.existingPageId ? { not: opts.existingPageId } : undefined },
       select: { id: true, title: true, description: true, h1: true, bodyText: true },
@@ -178,7 +187,9 @@ export class SeoAiGenerationService {
 
     let status: SeoContentStatus = SeoContentStatus.DRAFT;
     const initialStatus = input.initialStatus ?? input.status ?? 'DRAFT';
-    if (initialStatus === 'PUBLISHED' && scores.recommendedStatus === 'PUBLISHED') {
+    if (opts?.isTest) {
+      status = SeoContentStatus.PUBLISHED;
+    } else if (initialStatus === 'PUBLISHED' && scores.recommendedStatus === 'PUBLISHED') {
       status = SeoContentStatus.PUBLISHED;
     } else if (initialStatus === 'REVIEW' || scores.recommendedStatus === 'REVIEW') {
       status = SeoContentStatus.AI_REVIEW;
@@ -291,6 +302,8 @@ export class SeoAiGenerationService {
         outputTokens: aiResult.outputTokens,
         costCzk: aiResult.estimatedCostCzk ?? 0,
       },
+      buildLog,
+      rawAiJson: parsed,
     };
   }
 
@@ -480,13 +493,27 @@ ${context.knowledge.length ? context.knowledge.map((k) => `- ${k}`).join('\n') :
 Související lokality (pro interní odkazy):
 ${context.relatedLocations.map((r) => `- ${r.name}: /${context.intentSlug}/${r.slug}`).join('\n')}
 
-${hasListings ? 'V databázi jsou aktivní nabídky — můžeš zmínit, že nabídky existují, ale nevymýšlej konkrétní inzeráty.' : 'V databázi NEJSOU aktivní nabídky — použij blok NO_LISTINGS_GUIDE, nenaznačuj existenci nabídek.'}
+${hasListings ? 'V databázi jsou aktivní nabídky — můžeš zmínit, že nabídky existují, ale nevymýšlej konkrétní inzeráty.' : 'V databázi NEJSOU aktivní nabídky — nenaznačuj existenci nabídek, nabídni hlídání a vložení inzerátu.'}
 
-Vrať JSON s poli:
-layout (jeden z: LOCALITY_GUIDE, PROPERTY_OVERVIEW, FAMILY_LIVING, INVESTMENT_GUIDE, CITY_AND_SURROUNDINGS, COMPACT_SEARCH_PAGE, EDITORIAL_REAL_ESTATE_GUIDE),
-slugSuggestion, editorialTitle, subtitle, metaTitle, metaDescription, h1, introText, mainContent,
-blocks (pole {type, title?, content, items?}), faq, internalLinks ({label, path}),
-cta ({title, text, buttonLabel, buttonPath}), sourceClaims ({claim, sourceType, sourceId?, verified}).`;
+Vrať POUZE validní JSON (bez markdownu) s obsahovými poli — NEVRACEJ pole blocks ani layout, backend je sestaví sám:
+
+{
+  "title": "název stránky",
+  "slug": "url-slug",
+  "metaTitle": "45–60 znaků",
+  "metaDescription": "120–160 znaků",
+  "h1": "hlavní nadpis",
+  "intro": "úvodní odstavec",
+  "mainContent": "hlavní text článku (může obsahovat ## nadpisy)",
+  "highlights": "zajímavosti o lokalitě",
+  "tips": "praktické tipy pro kupující/prodávající",
+  "faq": [{"question": "...", "answer": "..."}],
+  "cta": {"title": "...", "text": "...", "buttonLabel": "...", "buttonPath": "/"},
+  "internalLinks": [{"label": "...", "path": "/..."}],
+  "sourceClaims": [{"claim": "...", "sourceType": "MANUAL", "verified": false}]
+}
+
+faq — min. 3 otázky. internalLinks — cesty začínající /.`;
   }
 
   private async getActivePrompt(feature: string) {

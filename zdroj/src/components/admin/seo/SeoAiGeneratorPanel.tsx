@@ -64,6 +64,9 @@ type StructuredError = {
   phase: string;
   detail: string;
   options?: SeoAiLocalitySearchHit[];
+  validationErrors?: string[];
+  rawAiJson?: unknown;
+  normalizedPreview?: unknown;
 };
 
 type Props = {
@@ -85,6 +88,7 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
   const [activeJob, setActiveJob] = useState<SeoAiJobView | null>(null);
   const [diagnostics, setDiagnostics] = useState<SeoAiDiagnostics | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
+  const [showAiJson, setShowAiJson] = useState(false);
 
   const [localityQuery, setLocalityQuery] = useState('Pardubice');
   const [localityHits, setLocalityHits] = useState<SeoAiLocalitySearchHit[]>([]);
@@ -176,13 +180,19 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
 
   function formatApiError(e: unknown): StructuredError {
     if (e instanceof SeoAiApiError) {
+      const validationDetail = e.validationErrors?.length
+        ? e.validationErrors.join(' · ')
+        : undefined;
       return {
         title: 'AI SEO stránku se nepodařilo vytvořit',
         code: e.code,
         httpStatus: e.httpStatus,
         phase: e.phase ?? 'AI_GENERATION_REQUEST',
-        detail: e.detail ?? e.message,
+        detail: validationDetail ?? e.detail ?? e.message,
         options: e.options,
+        validationErrors: e.validationErrors,
+        rawAiJson: e.rawAiJson,
+        normalizedPreview: e.normalizedPreview,
       };
     }
     return {
@@ -351,6 +361,29 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
           {error.httpStatus > 0 ? <p>HTTP: {error.httpStatus}</p> : null}
           <p>Fáze: {error.phase}</p>
           <p>Detail: {error.detail}</p>
+          {error.validationErrors?.length ? (
+            <ul className="mt-2 list-disc pl-5 text-xs">
+              {error.validationErrors.map((v) => (
+                <li key={v}>{v}</li>
+              ))}
+            </ul>
+          ) : null}
+          {error.rawAiJson ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                className="rounded border bg-white px-2 py-1 text-xs"
+                onClick={() => setShowAiJson((v) => !v)}
+              >
+                {showAiJson ? 'Skrýt AI JSON' : 'Zobrazit AI JSON'}
+              </button>
+              {showAiJson ? (
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-zinc-900 p-2 text-xs text-green-100">
+                  {JSON.stringify(error.rawAiJson, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
           {error.options?.length ? (
             <ul className="mt-2 list-disc pl-5">
               {error.options.map((o) => (

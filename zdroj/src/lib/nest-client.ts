@@ -14662,6 +14662,9 @@ export class SeoAiApiError extends Error {
   phase?: string;
   detail?: string;
   options?: SeoAiLocalitySearchHit[];
+  validationErrors?: string[];
+  rawAiJson?: unknown;
+  normalizedPreview?: unknown;
 
   constructor(
     message: string,
@@ -14671,6 +14674,9 @@ export class SeoAiApiError extends Error {
       phase?: string;
       detail?: string;
       options?: SeoAiLocalitySearchHit[];
+      validationErrors?: string[];
+      rawAiJson?: unknown;
+      normalizedPreview?: unknown;
     },
   ) {
     super(message);
@@ -14680,6 +14686,9 @@ export class SeoAiApiError extends Error {
     this.phase = opts.phase;
     this.detail = opts.detail;
     this.options = opts.options;
+    this.validationErrors = opts.validationErrors;
+    this.rawAiJson = opts.rawAiJson;
+    this.normalizedPreview = opts.normalizedPreview;
   }
 }
 
@@ -14752,12 +14761,20 @@ async function nestAdminSeoAiJson<T>(
       const options = Array.isArray(raw.options)
         ? (raw.options as SeoAiLocalitySearchHit[])
         : undefined;
+      const validationErrors = Array.isArray(raw.validationErrors)
+        ? (raw.validationErrors as string[])
+        : undefined;
+      const rawAiJson = raw.rawAiJson ?? undefined;
+      const normalizedPreview = raw.normalizedPreview ?? undefined;
       throw new SeoAiApiError(message, {
         code,
         httpStatus: res.status,
         phase,
         detail,
         options,
+        validationErrors,
+        rawAiJson,
+        normalizedPreview,
       });
     }
     return raw as T;
