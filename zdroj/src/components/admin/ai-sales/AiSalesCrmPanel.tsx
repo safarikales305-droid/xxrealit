@@ -5,12 +5,14 @@ import {
   addPartnerMemory,
   analyzeProspect,
   approveProspect,
+  enrichProspect,
   generateMessage,
   getCrmPartner,
   listCrmPartners,
   PARTNER_TYPE_LABELS,
   PROSPECT_STATUS_LABELS,
   updateCrmPartner,
+  updateProspectContact,
   type AiSalesApiError,
 } from '@/lib/ai-sales-admin-api';
 
@@ -25,6 +27,16 @@ export function AiSalesCrmPanel({ token }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [contactForm, setContactForm] = useState({
+    email: '',
+    phone: '',
+    contactName: '',
+    position: '',
+    website: '',
+    contactSourceNote: '',
+    manualConfirm: false,
+  });
+  const [showContactEdit, setShowContactEdit] = useState(false);
 
   const loadPartners = useCallback(async () => {
     if (!token) return;
@@ -50,6 +62,15 @@ export function AiSalesCrmPanel({ token }: Props) {
       setDetail(row);
       setSelectedId(id);
       setNote(String(row.notes ?? ''));
+      setContactForm({
+        email: String(row.email ?? ''),
+        phone: String(row.phone ?? ''),
+        contactName: String(row.contactName ?? ''),
+        position: String(row.position ?? ''),
+        website: String(row.website ?? ''),
+        contactSourceNote: String(row.contactSourceNote ?? ''),
+        manualConfirm: false,
+      });
     } catch (e) {
       const err = e as Error & AiSalesApiError;
       setError(err.message ?? 'Načtení karty selhalo.');
@@ -61,6 +82,20 @@ export function AiSalesCrmPanel({ token }: Props) {
   useEffect(() => {
     void loadPartners();
   }, [loadPartners]);
+
+  async function saveContact() {
+    if (!token || !selectedId) return;
+    setBusy(true);
+    try {
+      await updateProspectContact(token, selectedId, contactForm);
+      await loadDetail(selectedId);
+      setShowContactEdit(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Uložení kontaktu selhalo.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveNotes() {
     if (!token || !selectedId) return;
@@ -145,13 +180,36 @@ export function AiSalesCrmPanel({ token }: Props) {
             <p className="mt-1 text-sm">Fit score: <strong>{String(detail.fitScore ?? '—')}</strong> / 100 · Priorita: {String(detail.priority ?? '—')}</p>
             <p className="text-sm">Stav: {PROSPECT_STATUS_LABELS[String(detail.status)] ?? String(detail.status)}</p>
             <p className="text-sm">Web: {String(detail.website ?? '—')} · E-mail: {String(detail.email ?? '—')} · Tel: {String(detail.phone ?? '—')}</p>
-            <p className="text-xs text-zinc-500">Zdroj: {String(detail.source ?? '—')}</p>
+            <p className="text-xs text-zinc-500">
+              Ověření kontaktu: {String(detail.contactVerificationStatus ?? '—')} · Zdroj: {String(detail.source ?? '—')}
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" disabled={busy || !detail.website} onClick={() => void enrichProspect(token, String(detail.id)).then(() => loadDetail(String(detail.id)))} className="rounded border px-2 py-1 text-xs">Dohledat kontakty</button>
+              <button type="button" disabled={busy} onClick={() => setShowContactEdit((v) => !v)} className="rounded border px-2 py-1 text-xs">Upravit kontakt</button>
               <button type="button" disabled={busy} onClick={() => void (async () => { await analyzeProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Analyzovat</button>
               <button type="button" disabled={busy} onClick={() => void (async () => { await approveProspect(token, String(detail.id)); await loadDetail(String(detail.id)); })()} className="rounded border px-2 py-1 text-xs">Schválit</button>
-              <button type="button" disabled={busy} onClick={() => void generateMessage(token, String(detail.id), { variantCount: 1 }).then((r) => alert(`Vytvořeno: ${r.variants?.[0]?.subject ?? 'OK'}`)).catch((e) => alert(e instanceof Error ? e.message : 'Chyba'))} className="rounded bg-orange-600 px-2 py-1 text-xs text-white">Vytvořit nabídku</button>
+              <button type="button" disabled={busy || Boolean(detail.doNotContact)} onClick={() => void generateMessage(token, String(detail.id), { variantCount: 1 }).then((r) => alert(`Vytvořeno: ${r.variants?.[0]?.subject ?? 'OK'}`)).catch((e) => alert(e instanceof Error ? e.message : 'Chyba'))} className="rounded bg-orange-600 px-2 py-1 text-xs text-white">Vytvořit nabídku</button>
             </div>
           </div>
+
+          {showContactEdit ? (
+            <div className="rounded-2xl border bg-white p-4 text-sm space-y-2">
+              <p className="font-semibold">Upravit kontakt</p>
+              <input placeholder="E-mail" value={contactForm.email} onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} className="w-full rounded border px-2 py-1" />
+              <input placeholder="Telefon" value={contactForm.phone} onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })} className="w-full rounded border px-2 py-1" />
+              <input placeholder="Kontaktní osoba" value={contactForm.contactName} onChange={(e) => setContactForm({ ...contactForm, contactName: e.target.value })} className="w-full rounded border px-2 py-1" />
+              <input placeholder="Pozice" value={contactForm.position} onChange={(e) => setContactForm({ ...contactForm, position: e.target.value })} className="w-full rounded border px-2 py-1" />
+              <input placeholder="Web" value={contactForm.website} onChange={(e) => setContactForm({ ...contactForm, website: e.target.value })} className="w-full rounded border px-2 py-1" />
+              <textarea placeholder="Zdroj / poznámka ke kontaktu" value={contactForm.contactSourceNote} onChange={(e) => setContactForm({ ...contactForm, contactSourceNote: e.target.value })} className="w-full rounded border px-2 py-1" rows={2} />
+              <label className="flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={contactForm.manualConfirm} onChange={(e) => setContactForm({ ...contactForm, manualConfirm: e.target.checked })} />
+                Potvrzuji, že jde o oprávněně získaný veřejný nebo obchodní kontakt.
+              </label>
+              <button type="button" disabled={busy || !contactForm.manualConfirm} onClick={() => void saveContact()} className="rounded bg-orange-600 px-3 py-1 text-xs text-white disabled:opacity-50">
+                Uložit kontakt
+              </button>
+            </div>
+          ) : null}
 
           {recommendation ? (
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm">

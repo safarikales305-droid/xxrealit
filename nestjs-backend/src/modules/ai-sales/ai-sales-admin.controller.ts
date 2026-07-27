@@ -32,6 +32,7 @@ import { AiSalesPromptAdminService } from './ai-sales-prompt-admin.service';
 import { parseCsv, AiSalesProspectService } from './ai-sales-prospect.service';
 import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { PartnerSearchService } from './partner-search.service';
+import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
 import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation.service';
 import { PrismaService } from '../../database/prisma.service';
 import { AiSalesAdminException, mapExceptionToSalesAdminError } from './ai-sales-errors.util';
@@ -53,6 +54,7 @@ export class AiSalesAdminController {
     private readonly admin: AiSalesAdminService,
     private readonly settings: AiSalesSettingsService,
     private readonly search: PartnerSearchService,
+    private readonly contactEnrichment: PartnerContactEnrichmentService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -436,6 +438,68 @@ export class AiSalesAdminController {
 
   // ── Search ──
 
+  @Post('search-results/:id/enrich')
+  enrichSearchResult(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.wrap(() => this.contactEnrichment.enrichSearchResult(id, this.userId(req)));
+  }
+
+  @Post('search-results/enrich-batch')
+  enrichSearchResultsBatch(
+    @Body() body: { searchResultIds: string[] },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.wrap(() =>
+      this.contactEnrichment.enrichSearchResultBatch(body.searchResultIds ?? [], this.userId(req)),
+    );
+  }
+
+  @Get('search-results/:id/contacts')
+  getSearchResultContacts(@Param('id') id: string) {
+    return this.contactEnrichment.getContactsForSearchResult(id);
+  }
+
+  @Post('search-results/:id/select-contact')
+  selectSearchResultContact(
+    @Param('id') id: string,
+    @Body() body: { contactId: string; type: 'EMAIL' | 'PHONE' },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.contactEnrichment.selectContact(id, body.contactId, body.type, this.userId(req));
+  }
+
+  @Post('prospects/:id/enrich')
+  enrichProspect(@Param('id') id: string, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.wrap(() => this.contactEnrichment.enrichProspect(id, this.userId(req)));
+  }
+
+  @Get('prospects/:id/contacts')
+  getProspectContacts(@Param('id') id: string) {
+    return this.contactEnrichment.getContactsForProspect(id);
+  }
+
+  @Put('prospects/:id/contact')
+  updateProspectContact(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      email?: string | null;
+      phone?: string | null;
+      contactName?: string | null;
+      position?: string | null;
+      website?: string | null;
+      contactSourceNote?: string | null;
+      manualConfirm?: boolean;
+    },
+    @Req() req: { user?: { id?: string; sub?: string } },
+  ) {
+    return this.contactEnrichment.updateProspectContact(id, body, this.userId(req));
+  }
+
+  @Post('prospects/:id/verify-contact')
+  verifyProspectContact(@Param('id') id: string) {
+    return this.contactEnrichment.getContactsForProspect(id);
+  }
+
   @Get('diagnostics')
   @Header('Cache-Control', 'no-store')
   getDiagnostics() {
@@ -592,7 +656,14 @@ export class AiSalesAdminController {
           };
         }
       }
-      return { success: true, prospect };
+      return {
+        success: true,
+        prospect,
+        savedWithoutEmail: !prospect.email,
+        warning: !prospect.email
+          ? 'Partner byl uložen bez e-mailu. Nabídku lze připravit a zobrazit, ale nelze ji odeslat.'
+          : null,
+      };
     });
   }
 

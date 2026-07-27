@@ -171,9 +171,34 @@ export type AiSalesSearchResult = {
   source: string;
   sourceUrl: string | null;
   verificationStatus: string;
+  contactVerificationStatus?: string | null;
+  contactEnrichmentStatus?: string | null;
   doNotContact: boolean;
   relevanceReason: string | null;
   savedProspectId: string | null;
+};
+
+export type AiSalesPublicContact = {
+  id: string;
+  type: string;
+  value: string;
+  normalizedValue: string | null;
+  sourceUrl: string | null;
+  sourcePageTitle: string | null;
+  sourceTextSnippet: string | null;
+  verificationStatus: string;
+  confidence: number;
+  isPrimary: boolean;
+};
+
+export type EnrichmentResult = {
+  success: boolean;
+  verificationStatus: string;
+  email: string | null;
+  phone: string | null;
+  visitedPages: Array<{ url: string; title: string; status: number }>;
+  contacts: AiSalesPublicContact[];
+  error?: string;
 };
 
 export type AiSalesSearchJob = {
@@ -373,6 +398,41 @@ export function verifySearchResult(token: string, id: string) {
 
 export function dncSearchResult(token: string, id: string) {
   return aiSalesRequest(token, `/search-results/${id}/do-not-contact`, { method: 'POST', body: '{}' });
+}
+
+export function enrichSearchResult(token: string, id: string) {
+  return aiSalesRequest<EnrichmentResult>(token, `/search-results/${id}/enrich`, { method: 'POST', body: '{}' });
+}
+
+export function enrichSearchResultsBatch(token: string, searchResultIds: string[]) {
+  return aiSalesRequest<{ processed: number; results: EnrichmentResult[] }>(token, '/search-results/enrich-batch', {
+    method: 'POST',
+    body: JSON.stringify({ searchResultIds }),
+  });
+}
+
+export function getSearchResultContacts(token: string, id: string) {
+  return aiSalesRequest<AiSalesPublicContact[]>(token, `/search-results/${id}/contacts`);
+}
+
+export function updateProspectContact(
+  token: string,
+  id: string,
+  body: {
+    email?: string | null;
+    phone?: string | null;
+    contactName?: string | null;
+    position?: string | null;
+    website?: string | null;
+    contactSourceNote?: string | null;
+    manualConfirm?: boolean;
+  },
+) {
+  return aiSalesRequest(token, `/prospects/${id}/contact`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function enrichProspect(token: string, id: string) {
+  return aiSalesRequest<EnrichmentResult>(token, `/prospects/${id}/enrich`, { method: 'POST', body: '{}' });
 }
 
 export function listSearchProviders(token: string) {

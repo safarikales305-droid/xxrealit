@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   analyzeSearchResult,
   dncSearchResult,
+  enrichSearchResult,
+  enrichSearchResultsBatch,
   getSearch,
+  getSearchResultContacts,
   getSearchResults,
   listSearchProviders,
   PARTNER_TYPE_LABELS,
@@ -15,8 +18,10 @@ import {
   startSearch,
   verifySearchResult,
   type AiSalesApiError,
+  type AiSalesPublicContact,
   type AiSalesSearchProviderInfo,
   type AiSalesSearchResult,
+  type EnrichmentResult,
 } from '@/lib/ai-sales-admin-api';
 
 type Props = {
@@ -56,6 +61,13 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<AiSalesSearchResult[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [enrichingId, setEnrichingId] = useState<string | null>(null);
+  const [contactPreview, setContactPreview] = useState<{
+    resultId: string;
+    contacts: AiSalesPublicContact[];
+    visitedPages: EnrichmentResult['visitedPages'];
+  } | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const webProvider = providers.find((p) => p.id === 'APPROVED_WEB_PROVIDER');
   const webAvailable = webProvider?.available ?? false;
@@ -247,6 +259,35 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     }
   }
 
+  async function bulkEnrich() {
+    if (!ensureToken() || selected.size === 0) return;
+    setBusy(true);
+    try {
+      await enrichSearchResultsBatch(token, [...selected]);
+      await refreshResults();
+    } catch (e) {
+      captureSearchError(e, 'Hromadné dohledání kontaktů selhalo.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const handleEnrichResult = async (resultId: string) => {
+    if (!ensureToken()) return;
+    setEnrichingId(resultId);
+    setAnalyzeWarning(null);
+    try {
+      const res = await enrichSearchResult(token, resultId);
+      const contacts = await getSearchResultContacts(token, resultId);
+      setContactPreview({ resultId, contacts, visitedPages: res.visitedPages ?? [] });
+      await refreshResults();
+    } catch (e) {
+      setAnalyzeWarning(e instanceof Error ? e.message : 'Dohledání kontaktů selhalo.');
+    } finally {
+      setEnrichingId(null);
+    }
+  };
+
   const handleVerifyResult = async (resultId: string) => {
     if (!ensureToken()) return;
     setProcessingResultId(resultId);
@@ -269,10 +310,18 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     try {
       const res = await saveSearchResult(token, resultId) as {
         analysisUnavailable?: boolean;
-        warning?: { message?: string };
+        warning?: string | { message?: string };
+        savedWithoutEmail?: boolean;
       };
       if (res.analysisUnavailable) {
-        setAnalyzeWarning(res.warning?.message ?? 'AI analýza je dočasně nedostupná.');
+        const w = res.warning;
+        setAnalyzeWarning(typeof w === 'string' ? w : w?.message ?? 'AI analýza je dočasně nedostupná.');
+      } else if (res.savedWithoutEmail) {
+        setSaveNotice(
+          typeof res.warning === 'string'
+            ? res.warning
+            : 'Partner byl uložen bez e-mailu. Nabídku lze připravit a zobrazit, ale nelze ji odeslat.',
+        );
       }
       onSaved?.();
       await refreshResults();
@@ -355,7 +404,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     });
   }
 
-  const rowBusy = (resultId: string) => busy || processingResultId === resultId;
+  const rowBusy = (resultId: string) => busy || processingResultId === resultId || enrichingId === resultId;
 
   function formatLocation(r: AiSalesSearchResult) {
     return [r.city, r.region].filter(Boolean).join(', ') || '—';
@@ -437,6 +486,59 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
         </div>
       ) : null}
 
+      {saveNotice ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{saveNotice}</div>
+      ) : null}
+
+      {contactPreview ? (
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="font-semibold">Nalezené kontakty a zdroje</p>
+            <button type="button" className="text-xs underline" onClick={() => setContactPreview(null)}>
+              Zavřít
+            </button>
+          </div>
+          {contactPreview.visitedPages.length > 0 ? (
+            <div className="mb-3">
+              <p className="text-xs font-medium text-zinc-600">Navštívené stránky ({contactPreview.visitedPages.length})</p>
+              <ul className="mt-1 list-disc pl-4 text-xs">
+                {contactPreview.visitedPages.map((p) => (
+                  <li key={p.url}>
+                    <a href={p.url} target="_blank" rel="noreferrer" className="underline">
+                      {p.title || p.url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {contactPreview.contacts.length === 0 ? (
+            <p className="text-zinc-600">Veřejný e-mail ani telefon nebyly na webu nalezeny.</p>
+          ) : (
+            <ul className="space-y-2">
+              {contactPreview.contacts.map((c) => (
+                <li key={c.id} className="rounded border border-zinc-100 bg-zinc-50 p-2">
+                  <p className="font-medium">
+                    {c.type}: {c.value} {c.isPrimary ? '(primární)' : ''}
+                  </p>
+                  {c.sourceUrl ? (
+                    <p className="text-xs text-zinc-600">
+                      Zdroj:{' '}
+                      <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+                        {c.sourceUrl}
+                      </a>
+                    </p>
+                  ) : null}
+                  {c.sourceTextSnippet ? (
+                    <p className="mt-1 text-xs text-zinc-500">„{c.sourceTextSnippet}“</p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
       {analyzeWarning ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           {analyzeWarning}
@@ -473,6 +575,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
           <p className="text-sm text-zinc-600">Nalezeno {results.length} kontaktů</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy || processingResultId !== null || selected.size === 0} onClick={() => void bulkSave()} className="rounded border px-3 py-1 text-xs disabled:opacity-50">Uložit vybrané ({selected.size})</button>
+            <button type="button" disabled={busy || enrichingId !== null || selected.size === 0} onClick={() => void bulkEnrich()} className="rounded border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-900 disabled:opacity-50">Dohledat kontakty u vybraných ({selected.size})</button>
           </div>
           <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
             <table className="min-w-full text-left text-xs">
@@ -514,18 +617,31 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
                     </td>
                     <td className="px-2 py-2">{formatSource(r)}</td>
                     <td className="px-2 py-2">
-                      <span className={`rounded px-1 ${r.doNotContact ? 'bg-red-100 text-red-800' : 'bg-zinc-100'}`}>{r.verificationStatus}</span>
+                      <span className={`rounded px-1 ${r.doNotContact ? 'bg-red-100 text-red-800' : 'bg-zinc-100'}`}>
+                        {r.contactVerificationStatus ?? r.verificationStatus}
+                      </span>
                     </td>
                     <td className="px-2 py-2">{formatStatus(r)}</td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-1">
-                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleVerifyResult(r.id)} className="underline">
-                          {processingResultId === r.id ? '…' : 'Zkontrolovat'}
+                        <button type="button" disabled={rowBusy(r.id) || !r.website} onClick={() => void handleEnrichResult(r.id)} className="rounded border border-orange-200 bg-orange-50 px-2 py-0.5 text-orange-900">
+                          {enrichingId === r.id ? '…' : 'Dohledat kontakty'}
                         </button>
-                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleAnalyzeResult(r.id)} className="underline">Analyzovat pomocí AI</button>
-                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact || Boolean(r.savedProspectId)} onClick={() => void handleSaveResult(r.id)} className="underline">Uložit jako potenciálního partnera</button>
-                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleRejectResult(r.id)} className="underline">Zamítnout</button>
-                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleDncResult(r.id)} className="text-red-700 underline">DNC</button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleVerifyResult(r.id)} className="rounded border px-2 py-0.5">
+                          Zkontrolovat
+                        </button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleAnalyzeResult(r.id)} className="rounded border px-2 py-0.5">
+                          Analyzovat
+                        </button>
+                        <button type="button" disabled={rowBusy(r.id) || r.doNotContact || Boolean(r.savedProspectId)} onClick={() => void handleSaveResult(r.id)} className="rounded border px-2 py-0.5 bg-green-50 border-green-200">
+                          Uložit partnera
+                        </button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleRejectResult(r.id)} className="rounded border px-2 py-0.5">
+                          Zamítnout
+                        </button>
+                        <button type="button" disabled={rowBusy(r.id)} onClick={() => void handleDncResult(r.id)} className="rounded border border-red-200 px-2 py-0.5 text-red-700">
+                          DNC
+                        </button>
                       </div>
                     </td>
                   </tr>

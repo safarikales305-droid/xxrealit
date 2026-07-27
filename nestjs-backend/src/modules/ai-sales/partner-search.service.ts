@@ -22,6 +22,7 @@ import { InternalDatabaseSearchProvider } from './providers/internal-database-se
 import { runSerpApiTest } from './providers/serpapi.client';
 import { WebSearchProvider } from './providers/web-search.provider';
 import { SearchProvidersEnvService } from './search-providers-env.service';
+import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
 
 export type SkippedSearchSource = {
   source: string;
@@ -48,6 +49,7 @@ export class PartnerSearchService {
     private readonly internalDb: InternalDatabaseSearchProvider,
     private readonly webSearch: WebSearchProvider,
     private readonly searchEnv: SearchProvidersEnvService,
+    private readonly contactEnrichment: PartnerContactEnrichmentService,
   ) {}
 
   async startSearch(
@@ -271,6 +273,10 @@ export class PartnerSearchService {
     await this.prisma.aiSalesSettings.update({
       where: { id: 'default' },
       data: { lastSearchAt: new Date(), lastSearchSuccessAt: new Date(), lastSearchErrorCode: null },
+    });
+
+    void this.contactEnrichment.autoEnrichAfterSearch(searchId).catch((err) => {
+      this.log.warn(`Auto enrichment failed for search ${searchId}: ${err instanceof Error ? err.message : String(err)}`);
     });
   }
 
@@ -561,6 +567,8 @@ export class PartnerSearchService {
         contactName: result.contactName,
         email: result.publicEmail?.toLowerCase(),
         phone: result.publicPhone,
+        primaryEmail: result.publicEmail?.toLowerCase(),
+        primaryPhone: result.publicPhone,
         website: result.website,
         city: result.city,
         region: result.region,
@@ -576,11 +584,19 @@ export class PartnerSearchService {
             : result.verificationStatus === 'PARTIALLY_VERIFIED'
               ? 'PARTIALLY_VERIFIED'
               : 'UNVERIFIED',
+        contactVerificationStatus: result.contactVerificationStatus,
+        contactEnrichmentStatus: result.contactEnrichmentStatus,
+        lastEnrichmentAt: result.lastEnrichmentAt,
         status: AiSalesProspectStatus.NEEDS_REVIEW,
         sourceSearchResultId: result.id,
         createdById: userId,
         publicDataCheckedAt: new Date(),
       },
+    });
+
+    await this.prisma.aiSalesPublicContact.updateMany({
+      where: { searchResultId: result.id },
+      data: { prospectId: prospect.id },
     });
 
     await this.prisma.aiSalesSearchResult.update({

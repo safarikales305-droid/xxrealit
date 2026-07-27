@@ -21,6 +21,9 @@ import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { AiSalesOutreachGenerationService } from './ai-sales-outreach-generation.service';
 import { AiSalesMessageTemplateService } from './ai-sales-message-template.service';
 import { PartnerSearchService } from './partner-search.service';
+import { PartnerContactEnrichmentService } from './partner-contact-enrichment.service';
+import { CompanyWebsiteCrawlerService } from './company-website-crawler.service';
+import { ContactVerificationService } from './contact-verification.service';
 import { SearchProvidersEnvService } from './search-providers-env.service';
 import { InternalDatabaseSearchProvider } from './providers/internal-database-search.provider';
 import { WebSearchProvider } from './providers/web-search.provider';
@@ -47,6 +50,9 @@ import { WebSearchProvider } from './providers/web-search.provider';
     AiSalesSeedService,
     AiSalesOutreachGenerationService,
     AiSalesMessageTemplateService,
+    PartnerContactEnrichmentService,
+    CompanyWebsiteCrawlerService,
+    ContactVerificationService,
     PartnerSearchService,
     SearchProvidersEnvService,
     InternalDatabaseSearchProvider,

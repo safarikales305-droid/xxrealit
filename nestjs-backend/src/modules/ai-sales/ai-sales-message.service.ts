@@ -20,6 +20,7 @@ import { AiSalesSettingsService } from './ai-sales-settings.service';
 import { AiSalesMessageTemplateService } from './ai-sales-message-template.service';
 import { AiSalesSuppressionService } from './ai-sales-suppression.service';
 import { EMAIL_RE } from './ai-sales-prospect.service';
+import { AiSalesAdminException, buildSalesAdminError } from './ai-sales-errors.util';
 
 @Injectable()
 export class AiSalesMessageService {
@@ -193,7 +194,14 @@ export class AiSalesMessageService {
     }
 
     if (!msg.prospect.email || !EMAIL_RE.test(msg.prospect.email)) {
-      throw new BadRequestException('Kontakt nemá ověřený platný e-mail. Doplňte e-mail před odesláním.');
+      throw new AiSalesAdminException(
+        buildSalesAdminError(
+          'MISSING_EMAIL',
+          'Kontakt nemá ověřený platný e-mail. Doplňte e-mail před odesláním.',
+          400,
+          'send',
+        ),
+      );
     }
 
     if (msg.prospect.doNotContact) {

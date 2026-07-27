@@ -563,6 +563,7 @@ model User {
   aiSalesTasksCreated          AiSalesTask[] @relation("AiSalesTaskCreator")
   aiSalesMeetingsAssigned      AiSalesMeeting[] @relation("AiSalesMeetingAssignee")
   aiSalesSearchesCreated       AiSalesSearch[] @relation("AiSalesSearchCreator")
+  aiSalesContactsVerified      AiSalesPublicContact[] @relation("AiSalesContactVerifier")
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -3814,6 +3815,33 @@ enum AiSalesProspectStatus {
   DUPLICATE
 }
 
+enum AiSalesContactType {
+  EMAIL
+  PHONE
+}
+
+enum AiSalesContactVerificationStatus {
+  NOT_CHECKED
+  ENRICHMENT_RUNNING
+  CONTACT_FOUND
+  PARTIALLY_VERIFIED
+  VERIFIED
+  NO_PUBLIC_CONTACT
+  WEBSITE_UNAVAILABLE
+  BLOCKED_BY_WEBSITE
+  ENRICHMENT_FAILED
+  MANUALLY_VERIFIED
+  PUBLICLY_LISTED
+  INVALID
+}
+
+enum AiSalesContactEnrichmentStatus {
+  IDLE
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum AiSalesVerificationStatus {
   UNVERIFIED
   PARTIALLY_VERIFIED
@@ -3942,6 +3970,9 @@ model AiSalesSettings {
   webProviderEnabled           Boolean  @default(false)
   dailySearchResultLimit       Int      @default(100)
   dailyAnalysisLimit           Int      @default(50)
+  autoEnrichContactsOnSearch   Boolean  @default(true)
+  dailyEnrichmentLimit         Int      @default(100)
+  enrichmentBatchLimit         Int      @default(20)
   lastSearchAt                 DateTime?
   lastSearchSuccessAt          DateTime?
   lastSearchErrorCode          String?
@@ -3960,6 +3991,8 @@ model AiSalesProspect {
   position           String?
   email              String?
   phone              String?
+  primaryEmail       String?
+  primaryPhone       String?
   website            String?
   city               String?
   region             String?
@@ -3971,6 +4004,11 @@ model AiSalesProspect {
   sourceNote         String?                   @db.Text
   publicInfo         String?                   @db.Text
   verificationStatus AiSalesVerificationStatus @default(UNVERIFIED)
+  contactVerificationStatus AiSalesContactVerificationStatus @default(NOT_CHECKED)
+  contactEnrichmentStatus   AiSalesContactEnrichmentStatus   @default(IDLE)
+  lastEnrichmentAt          DateTime?
+  lastEnrichmentError       String?                          @db.Text
+  contactSourceNote         String?                          @db.Text
   fitScore           Int?
   priority           AiSalesPriority?
   fitReasonsJson     Json?
@@ -4001,6 +4039,7 @@ model AiSalesProspect {
   tasks    AiSalesTask[]
   memories AiSalesPartnerMemory[]
   sourceSearchResult AiSalesSearchResult? @relation("ProspectFromSearchResult", fields: [sourceSearchResultId], references: [id], onDelete: SetNull)
+  publicContacts     AiSalesPublicContact[]
 
   @@index([status, createdAt(sort: Desc)])
   @@index([partnerType])
@@ -4320,6 +4359,11 @@ model AiSalesSearchResult {
   sourceUrl          String?
   relevanceReason    String?                         @db.Text
   verificationStatus AiSalesSearchResultVerification @default(UNVERIFIED)
+  contactVerificationStatus AiSalesContactVerificationStatus @default(NOT_CHECKED)
+  contactEnrichmentStatus   AiSalesContactEnrichmentStatus   @default(IDLE)
+  lastEnrichmentAt          DateTime?
+  lastEnrichmentError       String?                          @db.Text
+  enrichmentLogJson         Json?
   duplicateOfId      String?
   doNotContact       Boolean                         @default(false)
   rawDataJson        Json?
@@ -4331,6 +4375,7 @@ model AiSalesSearchResult {
 
   search    AiSalesSearch  @relation(fields: [searchId], references: [id], onDelete: Cascade)
   prospect  AiSalesProspect? @relation("ProspectFromSearchResult")
+  publicContacts AiSalesPublicContact[]
 
   @@index([searchId])
   @@index([companyName])
@@ -4338,6 +4383,38 @@ model AiSalesSearchResult {
   @@index([website])
   @@index([verificationStatus])
   @@index([doNotContact])
+}
+
+model AiSalesPublicContact {
+  id                 String                           @id @default(cuid())
+  prospectId         String?
+  searchResultId     String?
+  type               AiSalesContactType
+  value              String
+  normalizedValue    String?
+  label              String?
+  phoneKind          String?
+  originalValue      String?
+  sourceUrl          String?
+  sourcePageTitle    String?
+  sourceTextSnippet  String?                          @db.Text
+  verificationStatus AiSalesContactVerificationStatus @default(PUBLICLY_LISTED)
+  confidence         Float                            @default(0)
+  isPrimary          Boolean                          @default(false)
+  discoveredAt       DateTime                         @default(now())
+  verifiedById       String?
+  verifiedAt         DateTime?
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
+
+  prospect     AiSalesProspect?     @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  searchResult AiSalesSearchResult? @relation(fields: [searchResultId], references: [id], onDelete: Cascade)
+  verifiedBy   User?                @relation("AiSalesContactVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  @@index([prospectId])
+  @@index([searchResultId])
+  @@index([type, normalizedValue])
+  @@index([isPrimary])
 }
 
 model MarketingPopupUserView {

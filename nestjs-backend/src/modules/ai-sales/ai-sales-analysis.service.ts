@@ -86,18 +86,31 @@ Kontakt: ${prospect.contactName ?? '—'}
 Město: ${prospect.city ?? '—'}
 Kraj: ${prospect.region ?? '—'}
 Web: ${prospect.website ?? '—'}
+E-mail: ${prospect.email ?? prospect.primaryEmail ?? '—'}
+Telefon: ${prospect.phone ?? prospect.primaryPhone ?? '—'}
 Specializace: ${prospect.specialization ?? '—'}
 Veřejné informace: ${prospect.publicInfo ?? '—'}
 Zdroj: ${prospect.source}`;
 
-    const result = await this.openai.complete({
-      feature: 'ai_sales',
-      systemPrompt: prompt.systemPrompt,
-      userPrompt,
-      userId,
-      jsonMode: true,
-      adminTest: testMode,
-    });
+    let result: Awaited<ReturnType<OpenAiService['complete']>>;
+    try {
+      result = await this.openai.complete({
+        feature: 'ai_sales',
+        systemPrompt: prompt.systemPrompt,
+        userPrompt,
+        userId,
+        jsonMode: true,
+        adminTest: testMode,
+      });
+    } catch (err) {
+      if (!testMode) {
+        await this.prisma.aiSalesProspect.update({
+          where: { id: prospectId },
+          data: { analysisStatus: AiSalesAnalysisStatus.FAILED },
+        });
+      }
+      throw err;
+    }
 
     let parsed: PartnerAnalysisResult = {};
     try {
