@@ -73,6 +73,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [processingResultId, setProcessingResultId] = useState<string | null>(null);
+  const [savingResultId, setSavingResultId] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<(AiSalesApiError & { message: string }) | null>(null);
   const [analyzeWarning, setAnalyzeWarning] = useState<string | null>(null);
   const [partialWarning, setPartialWarning] = useState<string | null>(null);
@@ -512,6 +513,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     }
 
     setProcessingResultId(resultId);
+    setSavingResultId(resultId);
     setAnalyzeWarning(null);
     setSaveSuccess(null);
     setContactMismatch(null);
@@ -538,6 +540,9 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
         action: res.action,
       });
       setSaveNotice(null);
+      if (contactPreview?.resultId === resultId) {
+        setContactPreview(null);
+      }
 
       onSaved?.();
       await refreshResults();
@@ -561,6 +566,7 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
       });
     } finally {
       setProcessingResultId(null);
+      setSavingResultId(null);
     }
   };
 
@@ -663,7 +669,8 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
     });
   }
 
-  const rowBusy = (resultId: string) => busy || processingResultId === resultId || enrichingId === resultId;
+  const rowBusy = (resultId: string) =>
+    busy || processingResultId === resultId || enrichingId === resultId || savingResultId === resultId;
 
   function formatLocation(r: AiSalesSearchResult) {
     return [r.city, r.region].filter(Boolean).join(', ') || '—';
@@ -742,6 +749,12 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
               ))}
             </ul>
           ) : null}
+        </div>
+      ) : null}
+
+      {savingResultId ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          Ukládám partnera a kontakty…
         </div>
       ) : null}
 
@@ -951,9 +964,11 @@ export function AiSalesSearchPanel({ token, onSaved, onOpenSettings }: Props) {
                 onClick={() => void handleSaveResult(previewResultId)}
                 className="mt-3 rounded bg-green-600 px-4 py-2 text-sm text-white disabled:opacity-50"
               >
-                {savedRow?.savedProspectId
-                  ? `Aktualizovat vybrané kontakty a partnera (${selectedCount})`
-                  : `Uložit vybrané kontakty a partnera (${selectedCount})`}
+                {savingResultId === previewResultId
+                  ? 'Ukládám partnera a kontakty…'
+                  : savedRow?.savedProspectId
+                    ? `Aktualizovat vybrané kontakty a partnera (${selectedCount})`
+                    : `Uložit vybrané kontakty a partnera (${selectedCount})`}
               </button>
             </>
           )}

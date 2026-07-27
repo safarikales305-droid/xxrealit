@@ -169,6 +169,7 @@ export type SaveSearchResultResponse = {
   primaryPhone: string | null;
   redirectUrl: string;
   partial?: boolean;
+  analysisStatus?: 'PENDING' | 'SKIPPED' | 'FAILED' | 'COMPLETED';
   analysisUnavailable?: boolean;
   savedWithoutEmail?: boolean;
   warning?: string | { code?: string; message?: string } | null;

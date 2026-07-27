@@ -537,147 +537,7 @@ export class PartnerSearchService {
 
   async saveSearchResult(resultId: string, userId?: string, options?: SaveSearchResultOptions) {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const result = await tx.aiSalesSearchResult.findUnique({
-          where: { id: resultId },
-          include: { publicContacts: true },
-        });
-        if (!result) throw new NotFoundException('Výsledek nenalezen.');
-        if (result.doNotContact || result.verificationStatus === 'DO_NOT_CONTACT') {
-          throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT.');
-        }
-
-        const selection = await this.publicContacts.validateContactSelectionForSave(tx, resultId, {
-          ...options,
-          explicitEmptySelection:
-            Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0,
-        });
-
-        const enrichedContacts = result.publicContacts;
-        const outreachCheckIds = selection.outreachIds;
-
-        for (const contact of enrichedContacts) {
-          if (contact.type === AiSalesContactType.EMAIL && contact.normalizedValue && outreachCheckIds.has(contact.id)) {
-            const sup = await this.suppression.isSuppressed(contact.normalizedValue);
-            if (sup.suppressed) {
-              throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
-            }
-          }
-        }
-
-        let prospectId = result.savedProspectId;
-        let action: 'CREATED' | 'UPDATED' = 'CREATED';
-
-        if (prospectId) {
-          const existing = await tx.aiSalesProspect.findUnique({ where: { id: prospectId } });
-          if (!existing) throw new NotFoundException('Uložený partner nenalezen.');
-          action = 'UPDATED';
-        } else {
-          const dupOr: Prisma.AiSalesProspectWhereInput[] = [
-            { companyName: { equals: result.companyName, mode: 'insensitive' } },
-          ];
-          const primaryEmailContact = enrichedContacts.find((c) => c.id === options?.primaryEmailContactId);
-          const emailForDup =
-            primaryEmailContact?.normalizedValue ??
-            result.publicEmail?.toLowerCase() ??
-            enrichedContacts.find((c) => c.type === AiSalesContactType.EMAIL)?.normalizedValue;
-          if (emailForDup) dupOr.unshift({ email: emailForDup });
-
-          const dup = await tx.aiSalesProspect.findFirst({ where: { OR: dupOr } });
-          if (dup) {
-            prospectId = dup.id;
-            action = 'UPDATED';
-          }
-        }
-
-        const prospectFields = {
-          partnerType: result.partnerType,
-          companyName: result.companyName,
-          contactName: result.contactName,
-          website: result.website,
-          city: result.city,
-          region: result.region,
-          specialization: Array.isArray(result.specializationJson)
-            ? (result.specializationJson as string[]).join(', ')
-            : undefined,
-          source: result.source,
-          sourceUrl: result.sourceUrl,
-          publicInfo: result.relevanceReason,
-          verificationStatus:
-            result.verificationStatus === 'VERIFIED'
-              ? ('VERIFIED' as const)
-              : result.verificationStatus === 'PARTIALLY_VERIFIED'
-                ? ('PARTIALLY_VERIFIED' as const)
-                : ('UNVERIFIED' as const),
-          contactVerificationStatus: result.contactVerificationStatus,
-          contactEnrichmentStatus: result.contactEnrichmentStatus,
-          lastEnrichmentAt: result.lastEnrichmentAt,
-          publicDataCheckedAt: new Date(),
-        };
-
-        const sourceConflict = await tx.aiSalesProspect.findFirst({
-          where: {
-            sourceSearchResultId: result.id,
-            ...(prospectId ? { id: { not: prospectId } } : {}),
-          },
-        });
-
-        if (!prospectId) {
-          const created = await tx.aiSalesProspect.create({
-            data: {
-              ...prospectFields,
-              status: AiSalesProspectStatus.NEEDS_REVIEW,
-              createdById: userId,
-              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
-            },
-          });
-          prospectId = created.id;
-        } else {
-          await tx.aiSalesProspect.update({
-            where: { id: prospectId },
-            data: {
-              ...prospectFields,
-              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
-            },
-          });
-        }
-
-        const transferStats = await this.publicContacts.transferSearchContactsToProspect(
-          tx,
-          prospectId,
-          resultId,
-          {
-            ...options,
-            explicitEmptySelection: Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0,
-          },
-        );
-
-        await tx.aiSalesSearchResult.update({
-          where: { id: resultId },
-          data: { savedProspectId: prospectId },
-        });
-
-        const prospect = await tx.aiSalesProspect.findUnique({
-          where: { id: prospectId },
-          include: {
-            publicContacts: { orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }] },
-          },
-        });
-
-        return {
-          success: true,
-          action,
-          prospectId,
-          prospect,
-          contactsSaved: transferStats.contactsSaved,
-          emailsSaved: transferStats.emailsSaved,
-          phonesSaved: transferStats.phonesSaved,
-          savedContacts: transferStats.contactsSaved,
-          primaryEmail: prospect?.primaryEmail ?? prospect?.email ?? null,
-          primaryPhone: prospect?.primaryPhone ?? prospect?.phone ?? null,
-          redirectUrl: `/admin/marketing/ai-sales?tab=crm&prospectId=${prospectId}`,
-        };
-      });
+      return await this.saveSearchResultWithRetry(resultId, userId, options);
     } catch (err) {
       if (err instanceof AiSalesAdminException) throw err;
       if (
@@ -690,12 +550,260 @@ export class PartnerSearchService {
       throw new AiSalesAdminException(
         buildSalesAdminError(
           'SAVE_PROSPECT_FAILED',
-          err instanceof Error ? err.message : 'Partnera se nepodařilo uložit.',
+          'Partnera se nepodařilo uložit.',
           500,
           'SAVE_PROSPECT_WITH_CONTACTS',
         ),
       );
     }
+  }
+
+  private async saveSearchResultWithRetry(
+    resultId: string,
+    userId?: string,
+    options?: SaveSearchResultOptions,
+    attempt = 0,
+  ): Promise<Awaited<ReturnType<PartnerSearchService['saveSearchResultOnce']>>> {
+    try {
+      return await this.saveSearchResultOnce(resultId, userId, options);
+    } catch (err) {
+      if (attempt < 1 && this.isRetryableTransactionError(err)) {
+        return this.saveSearchResultWithRetry(resultId, userId, options, attempt + 1);
+      }
+      throw this.mapSaveTransactionError(err);
+    }
+  }
+
+  private isRetryableTransactionError(err: unknown): boolean {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      return err.code === 'P2034';
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return /deadlock|write conflict|could not serialize/i.test(msg);
+  }
+
+  private mapSaveTransactionError(err: unknown): unknown {
+    if (
+      err instanceof AiSalesAdminException ||
+      err instanceof NotFoundException ||
+      err instanceof ForbiddenException ||
+      err instanceof BadRequestException
+    ) {
+      return err;
+    }
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2028') {
+        return new AiSalesAdminException(
+          buildSalesAdminError(
+            'DATABASE_TRANSACTION_CLOSED',
+            'Databázová transakce vypršela. Zkuste uložení znovu.',
+            503,
+            'SAVE_PROSPECT_WITH_CONTACTS',
+          ),
+        );
+      }
+      if (err.code === 'P2024') {
+        return new AiSalesAdminException(
+          buildSalesAdminError(
+            'DATABASE_TRANSACTION_TIMEOUT',
+            'Ukládání partnera trvalo příliš dlouho. Zkuste to znovu.',
+            504,
+            'SAVE_PROSPECT_WITH_CONTACTS',
+          ),
+        );
+      }
+    }
+
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/transaction.*not found|transaction.*closed|Transaction API error/i.test(msg)) {
+      return new AiSalesAdminException(
+        buildSalesAdminError(
+          'DATABASE_TRANSACTION_CLOSED',
+          'Databázová transakce byla ukončena dříve, než doběhlo ukládání. Zkuste to znovu.',
+          503,
+          'SAVE_PROSPECT_WITH_CONTACTS',
+        ),
+      );
+    }
+
+    return err;
+  }
+
+  private async saveSearchResultOnce(
+    resultId: string,
+    userId?: string,
+    options?: SaveSearchResultOptions,
+  ): Promise<{
+    success: true;
+    action: 'CREATED' | 'UPDATED';
+    prospectId: string;
+    prospect: NonNullable<Awaited<ReturnType<PrismaService['aiSalesProspect']['findUnique']>>> & {
+      publicContacts?: unknown[];
+    };
+    contactsSaved: number;
+    emailsSaved: number;
+    phonesSaved: number;
+    savedContacts: number;
+    primaryEmail: string | null;
+    primaryPhone: string | null;
+    redirectUrl: string;
+    analysisStatus: 'PENDING';
+  }> {
+    const result = await this.prisma.aiSalesSearchResult.findUnique({
+      where: { id: resultId },
+      include: { publicContacts: true },
+    });
+    if (!result) throw new NotFoundException('Výsledek nenalezen.');
+    if (result.doNotContact || result.verificationStatus === 'DO_NOT_CONTACT') {
+      throw new ForbiddenException('Kontakt je v DO_NOT_CONTACT.');
+    }
+
+    const saveOptions = {
+      ...options,
+      explicitEmptySelection:
+        Array.isArray(options?.selectedContactIds) && options.selectedContactIds.length === 0,
+    };
+
+    const prepared = await this.publicContacts.prepareContactSelectionForSave(resultId, saveOptions);
+    this.publicContacts.assertPrimaryContactsForSave(prepared, resultId, options);
+
+    for (const contact of prepared.contactsToTransfer) {
+      if (
+        contact.type === AiSalesContactType.EMAIL &&
+        contact.normalizedValue &&
+        prepared.outreachIds.has(contact.id)
+      ) {
+        const sup = await this.suppression.isSuppressed(contact.normalizedValue);
+        if (sup.suppressed) {
+          throw new ForbiddenException(`E-mail je v seznamu zákazu: ${sup.reason}`);
+        }
+      }
+    }
+
+    let prospectId = result.savedProspectId;
+    let action: 'CREATED' | 'UPDATED' = 'CREATED';
+
+    if (prospectId) {
+      const existing = await this.prisma.aiSalesProspect.findUnique({ where: { id: prospectId } });
+      if (!existing) throw new NotFoundException('Uložený partner nenalezen.');
+      action = 'UPDATED';
+    } else {
+      const enrichedContacts = result.publicContacts;
+      const dupOr: Prisma.AiSalesProspectWhereInput[] = [
+        { companyName: { equals: result.companyName, mode: 'insensitive' } },
+      ];
+      const primaryEmailContact = enrichedContacts.find((c) => c.id === options?.primaryEmailContactId);
+      const emailForDup =
+        primaryEmailContact?.normalizedValue ??
+        result.publicEmail?.toLowerCase() ??
+        enrichedContacts.find((c) => c.type === AiSalesContactType.EMAIL)?.normalizedValue;
+      if (emailForDup) dupOr.unshift({ email: emailForDup });
+
+      const dup = await this.prisma.aiSalesProspect.findFirst({ where: { OR: dupOr } });
+      if (dup) {
+        prospectId = dup.id;
+        action = 'UPDATED';
+      }
+    }
+
+    const prospectFields = {
+      partnerType: result.partnerType,
+      companyName: result.companyName,
+      contactName: result.contactName,
+      website: result.website,
+      city: result.city,
+      region: result.region,
+      specialization: Array.isArray(result.specializationJson)
+        ? (result.specializationJson as string[]).join(', ')
+        : undefined,
+      source: result.source,
+      sourceUrl: result.sourceUrl,
+      publicInfo: result.relevanceReason,
+      verificationStatus:
+        result.verificationStatus === 'VERIFIED'
+          ? ('VERIFIED' as const)
+          : result.verificationStatus === 'PARTIALLY_VERIFIED'
+            ? ('PARTIALLY_VERIFIED' as const)
+            : ('UNVERIFIED' as const),
+      contactVerificationStatus: result.contactVerificationStatus,
+      contactEnrichmentStatus: result.contactEnrichmentStatus,
+      lastEnrichmentAt: result.lastEnrichmentAt,
+      publicDataCheckedAt: new Date(),
+    };
+
+    const sourceConflict = await this.prisma.aiSalesProspect.findFirst({
+      where: {
+        sourceSearchResultId: result.id,
+        ...(prospectId ? { id: { not: prospectId } } : {}),
+      },
+    });
+
+    const contactPlan = prospectId
+      ? await this.publicContacts.buildContactApplyPlan(prepared, prospectId)
+      : this.publicContacts.buildContactApplyPlanForNewProspect(prepared);
+
+    return await this.prisma.$transaction(
+      async (tx) => {
+        let resolvedProspectId = prospectId;
+
+        if (!resolvedProspectId) {
+          const created = await tx.aiSalesProspect.create({
+            data: {
+              ...prospectFields,
+              status: AiSalesProspectStatus.NEEDS_REVIEW,
+              createdById: userId,
+              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
+            },
+          });
+          resolvedProspectId = created.id;
+        } else {
+          await tx.aiSalesProspect.update({
+            where: { id: resolvedProspectId },
+            data: {
+              ...prospectFields,
+              ...(sourceConflict ? {} : { sourceSearchResultId: result.id }),
+            },
+          });
+        }
+
+        const transferStats = await this.publicContacts.applyContactApplyPlan(
+          tx,
+          resolvedProspectId,
+          contactPlan,
+          options,
+        );
+
+        await tx.aiSalesSearchResult.update({
+          where: { id: resultId },
+          data: { savedProspectId: resolvedProspectId },
+        });
+
+        const prospect = await tx.aiSalesProspect.findUnique({
+          where: { id: resolvedProspectId },
+          include: {
+            publicContacts: { orderBy: [{ isPrimary: 'desc' }, { type: 'asc' }, { createdAt: 'asc' }] },
+          },
+        });
+        if (!prospect) throw new NotFoundException('Partner se nepodařilo načíst po uložení.');
+
+        return {
+          success: true,
+          action,
+          prospectId: resolvedProspectId,
+          prospect,
+          contactsSaved: transferStats.contactsSaved,
+          emailsSaved: transferStats.emailsSaved,
+          phonesSaved: transferStats.phonesSaved,
+          savedContacts: transferStats.contactsSaved,
+          primaryEmail: prospect?.primaryEmail ?? prospect?.email ?? null,
+          primaryPhone: prospect?.primaryPhone ?? prospect?.phone ?? null,
+          redirectUrl: `/admin/marketing/ai-sales?tab=crm&prospectId=${resolvedProspectId}`,
+          analysisStatus: 'PENDING' as const,
+        };
+      },
+      { maxWait: 5000, timeout: 15000 },
+    );
   }
 
   async rejectSearchResult(resultId: string) {

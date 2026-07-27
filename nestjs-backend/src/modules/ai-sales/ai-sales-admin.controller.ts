@@ -767,25 +767,25 @@ export class AiSalesAdminController {
       if (!prospect) throw new BadRequestException('Partner se nepodařilo uložit.');
 
       const settings = await this.settings.getOrCreate();
+      let analysisStatus: 'PENDING' | 'SKIPPED' | 'FAILED' = saveResult.analysisStatus ?? 'PENDING';
+
       if (settings.autoAnalyzeOnSave) {
-        try {
-          await this.analysis.analyzeProspect(prospect.id, this.userId(req));
-        } catch (err) {
-          const mapped = mapExceptionToSalesAdminError(err, 'analysis');
-          return {
-            ...saveResult,
-            partial: true,
-            analysisUnavailable: true,
-            warning: {
-              code: mapped.code,
-              message: 'AI analýza je dočasně nedostupná. Partner byl uložen.',
-            },
-          };
-        }
+        analysisStatus = 'PENDING';
+        void this.analysis
+          .analyzeProspect(prospect.id, this.userId(req))
+          .catch((err) => {
+            const mapped = mapExceptionToSalesAdminError(err, 'analysis');
+            console.warn(
+              `[ai-sales] Auto analýza po uložení partnera ${prospect.id} selhala: ${mapped.code}`,
+            );
+          });
+      } else {
+        analysisStatus = 'SKIPPED';
       }
 
       return {
         ...saveResult,
+        analysisStatus,
         savedWithoutEmail: !saveResult.primaryEmail,
         warning: !saveResult.primaryEmail
           ? 'Partner byl uložen bez e-mailu. Nabídku lze připravit a zobrazit, ale nelze ji odeslat.'
