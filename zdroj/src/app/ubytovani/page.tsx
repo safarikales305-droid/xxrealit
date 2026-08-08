@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import { AccommodationHero } from '@/components/accommodation/AccommodationHero';
 import { AccommodationListingClient } from '@/components/accommodation/AccommodationListingClient';
 import { ContentTypeTabs } from '@/components/accommodation/ContentTypeTabs';
-import { fetchAccommodations } from '@/lib/accommodation-client';
+import { fetchAccommodationHero, fetchAccommodations } from '@/lib/accommodation-client';
 
 export const metadata: Metadata = {
   title: 'Ubytování | XXREALIT',
@@ -19,6 +20,7 @@ export const metadata: Metadata = {
 export default async function UbytovaniPage() {
   let initialItems: Awaited<ReturnType<typeof fetchAccommodations>>['items'] = [];
   let initialTotal = 0;
+  let hero = await fetchAccommodationHero().catch(() => null);
   try {
     const res = await fetchAccommodations({ limit: 12, page: 1 });
     initialItems = res.items;
@@ -39,15 +41,14 @@ export default async function UbytovaniPage() {
           </Link>
         </div>
       </header>
-      <ContentTypeTabs />
+      <ContentTypeTabs activeTab="accommodation" />
+      {hero ? <AccommodationHero hero={hero} /> : null}
       <main className="mx-auto max-w-[100rem] px-4 py-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-zinc-900 md:text-3xl">Ubytování</h1>
-          <p className="mt-1 text-sm text-zinc-600 md:text-base">
-            Hotely, apartmány, penziony a další ubytování v Česku.
-          </p>
-        </div>
-        <AccommodationListingClient initialItems={initialItems} initialTotal={initialTotal} />
+        <AccommodationListingClient
+          initialItems={initialItems}
+          initialTotal={initialTotal}
+          hideTopSearch
+        />
       </main>
     </div>
   );

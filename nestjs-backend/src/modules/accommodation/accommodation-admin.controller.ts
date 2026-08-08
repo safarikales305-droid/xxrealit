@@ -1,13 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { AccommodationType } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AccommodationAdminService } from './accommodation-admin.service';
+import { AccommodationHeroService } from './accommodation-hero.service';
 
 @Controller('admin/accommodations')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AccommodationAdminController {
-  constructor(private readonly admin: AccommodationAdminService) {}
+  constructor(
+    private readonly admin: AccommodationAdminService,
+    private readonly hero: AccommodationHeroService,
+  ) {}
 
   private userId(req: { user?: { id?: string; sub?: string } }) {
     return req.user?.id ?? req.user?.sub;
@@ -16,6 +20,22 @@ export class AccommodationAdminController {
   @Get('dashboard')
   dashboard() {
     return this.admin.dashboard();
+  }
+
+  @Get('hero')
+  getHero() {
+    return this.hero.getAdminHero();
+  }
+
+  @Put('hero')
+  saveHero(@Body() body: Record<string, unknown>) {
+    return this.hero.saveHero({
+      title: body.title as string | undefined,
+      subtitle: body.subtitle as string | undefined,
+      heroImageUrl: body.heroImageUrl as string | null | undefined,
+      heroImageAlt: body.heroImageAlt as string | null | undefined,
+      categories: body.categories as never,
+    });
   }
 
   @Get()

@@ -56,6 +56,24 @@ export type AccommodationListResponse = {
   totalPages: number;
 };
 
+export type AccommodationHeroCategory = {
+  id: string;
+  label: string;
+  imageUrl: string;
+  imageAlt: string | null;
+  href: string;
+  sortOrder: number;
+  active: boolean;
+};
+
+export type AccommodationHeroData = {
+  title: string;
+  subtitle: string;
+  heroImageUrl: string | null;
+  heroImageAlt: string | null;
+  categories: AccommodationHeroCategory[];
+};
+
 export type AccommodationSearchParams = {
   q?: string;
   city?: string;
@@ -145,6 +163,20 @@ export async function fetchAccommodationMapMarkers(params: AccommodationSearchPa
     { next: { revalidate: 60 } },
   );
   if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchAccommodationHero(): Promise<AccommodationHeroData> {
+  const res = await fetch(`${API_BASE_URL}/accommodations/hero`, { next: { revalidate: 120 } });
+  if (!res.ok) {
+    return {
+      title: 'Najděte si místo pro odpočinek',
+      subtitle: 'Hotely, apartmány, wellness pobyty a ubytování po celé ČR.',
+      heroImageUrl: null,
+      heroImageAlt: null,
+      categories: [],
+    };
+  }
   return res.json();
 }
 
@@ -266,6 +298,43 @@ export async function adminUpdateAccommodationStatus(
 ) {
   return adminFetch(token, `/${encodeURIComponent(id)}/status`, {
     method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function adminFetchAccommodationHero(token: string) {
+  return adminFetch<{
+    settings: {
+      id: string;
+      title: string;
+      subtitle: string;
+      heroImageUrl: string | null;
+      heroImageAlt: string | null;
+    } | null;
+    categories: AccommodationHeroCategory[];
+  }>(token, '/hero');
+}
+
+export async function adminSaveAccommodationHero(
+  token: string,
+  body: {
+    title?: string;
+    subtitle?: string;
+    heroImageUrl?: string | null;
+    heroImageAlt?: string | null;
+    categories?: Array<{
+      id?: string;
+      label: string;
+      imageUrl: string;
+      imageAlt?: string | null;
+      href: string;
+      sortOrder?: number;
+      active?: boolean;
+    }>;
+  },
+) {
+  return adminFetch(token, '/hero', {
+    method: 'PUT',
     body: JSON.stringify(body),
   });
 }

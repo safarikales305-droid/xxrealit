@@ -16,6 +16,10 @@ import { useNotificationsUnreadCount } from '@/hooks/use-notifications-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { imageCropToStyle } from '@/components/profile/image-crop-editor-modal';
 import { canAccessCommunication } from '@/lib/communication-roles';
+import {
+  buildPortalContentTabs,
+  PortalContentTypeTabs,
+} from '@/components/navigation/PortalContentTypeTabs';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
@@ -89,6 +93,15 @@ export function Navbar({
   }
 
   const isShortsMobileCompact = viewMode === 'shorts';
+
+  const portalTabs = useMemo(() => {
+    if (viewMode == null || onViewModeChange == null) return null;
+    return buildPortalContentTabs({
+      viewMode,
+      onViewModeChange,
+      accommodationActive: isAccommodationSection,
+    });
+  }, [viewMode, onViewModeChange, isAccommodationSection]);
 
   const mobileMenuItems = useMemo(() => {
     if (isLoading) return [];
@@ -184,46 +197,7 @@ export function Navbar({
                 <Logo />
               </Link>
             </div>
-            <div className="no-scrollbar flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-hidden rounded-lg bg-zinc-100 p-0.5">
-              {/*
-                Tento řádek se vykreslí jen ve viewMode === 'shorts' — TS jinak zužuje typ a hlásí
-                „no overlap“ u porovnání s 'classic' / 'posts'. Aktivní je vždy Shorts.
-              */}
-              <button
-                type="button"
-                onClick={() => onViewModeChange('shorts')}
-                className="min-w-0 flex-1 truncate rounded-md bg-orange-500 px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-white shadow-sm transition sm:text-[11px]"
-              >
-                Shorts
-              </button>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('classic')}
-                className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
-              >
-                Reality
-              </button>
-              <Link
-                href="/ubytovani"
-                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-                  isAccommodationSection
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Ubytování
-              </Link>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('posts')}
-                className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
-              >
-                <span className="sm:hidden">Příspěvky</span>
-                <span className="hidden sm:inline">
-                  {activePostsCategoryLabel ? `Příspěvky / ${activePostsCategoryLabel}` : 'Příspěvky'}
-                </span>
-              </button>
-            </div>
+            <div className="flex-1" />
             <button
               type="button"
               className={mobileMenuBtn}
@@ -264,6 +238,14 @@ export function Navbar({
               )}
             </Link>
           </div>
+          {portalTabs ? (
+            <PortalContentTypeTabs
+              embedded
+              tabs={portalTabs.tabs}
+              activeId={portalTabs.activeId}
+              className="-mx-3 mt-2"
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -360,62 +342,13 @@ export function Navbar({
             </button>
           ) : null}
 
-          {viewMode != null && onViewModeChange != null ? (
-            <div
-              className={`no-scrollbar flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1 ${
-                isShortsMobileCompact
-                  ? 'max-md:hidden max-w-[min(100%,11.5rem)] max-md:max-w-none md:max-w-none md:p-1'
-                  : 'max-w-[min(100%,14rem)]'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => onViewModeChange('shorts')}
-                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
-                  viewMode === 'shorts'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Shorts inzeraty
-              </button>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('classic')}
-                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
-                  viewMode === 'classic'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Reality
-              </button>
-              <Link
-                href="/ubytovani"
-                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
-                  isAccommodationSection
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Ubytování
-              </Link>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('posts')}
-                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
-                  viewMode === 'posts'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                <span className="md:hidden">Příspěvky</span>
-                <span className="hidden md:inline">
-                  {viewMode === 'posts' && activePostsCategoryLabel
-                    ? `Příspěvky / ${activePostsCategoryLabel}`
-                    : 'Příspěvky'}
-                </span>
-              </button>
+          {portalTabs ? (
+            <div className="hidden shrink-0 md:block">
+              <PortalContentTypeTabs
+                embedded
+                tabs={portalTabs.tabs}
+                activeId={portalTabs.activeId}
+              />
             </div>
           ) : null}
 
@@ -546,6 +479,12 @@ export function Navbar({
           </Link>
         </div>
       </div>
+
+      {portalTabs && !isShortsMobileCompact ? (
+        <div className="mx-auto w-full max-w-[100rem] md:hidden">
+          <PortalContentTypeTabs embedded tabs={portalTabs.tabs} activeId={portalTabs.activeId} />
+        </div>
+      ) : null}
 
       <AppMobileMenuPanel
         open={menuOpen}

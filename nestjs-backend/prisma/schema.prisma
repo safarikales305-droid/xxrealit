@@ -6175,3 +6175,28 @@ model AccommodationLike {
   @@unique([accommodationId, userId])
   @@index([userId])
 }
+
+/// Marketing / Ubytování — hero nadpis a podnadpis.
+model AccommodationHeroSettings {
+  id           String   @id @default("default")
+  title        String   @default("Najděte si místo pro odpočinek")
+  subtitle     String   @default("Hotely, apartmány, wellness pobyty a ubytování po celé ČR.") @db.Text
+  heroImageUrl String?
+  heroImageAlt String?
+  updatedAt    DateTime @updatedAt
+}
+
+/// Klikací kategorie v hero sekci Ubytování.
+model AccommodationHeroCategory {
+  id        String   @id @default(cuid())
+  label     String
+  imageUrl  String
+  imageAlt  String?
+  href      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, sortOrder])
+}

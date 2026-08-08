@@ -3,11 +3,20 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { AccommodationHeroService } from './accommodation-hero.service';
 import { AccommodationService } from './accommodation.service';
 
 @Controller('accommodations')
 export class AccommodationController {
-  constructor(private readonly accommodations: AccommodationService) {}
+  constructor(
+    private readonly accommodations: AccommodationService,
+    private readonly hero: AccommodationHeroService,
+  ) {}
+
+  @Get('hero')
+  heroSection() {
+    return this.hero.getPublicHero();
+  }
 
   @Get()
   @UseGuards(OptionalJwtAuthGuard)

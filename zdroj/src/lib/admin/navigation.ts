@@ -71,6 +71,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'listings-all', label: 'Všechny', href: '/admin/inzeraty', icon: '🏘' },
       { id: 'listings-pending', label: 'Schválení', href: '/admin/inzeraty?status=pending', icon: '⏳', tone: 'yellow' },
       { id: 'accommodation', label: 'Ubytování', href: '/admin/ubytovani', icon: '🏨', tone: 'blue' },
+      { id: 'accommodation-hero', label: 'Ubytování Hero', href: '/admin/marketing/ubytovani-hero', icon: '🛏', tone: 'blue' },
       { id: 'importy', label: 'Import', href: '/admin/importy', icon: '📥', tone: 'orange' },
       { id: 'listing-stats', label: 'Statistiky', href: '/admin#statistiky', icon: '📊', tone: 'blue' },
       { id: 'articles', label: 'Články / Rady', href: '/admin/clanky', icon: '📄' },
@@ -102,6 +103,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     tone: 'purple',
     children: [
       { id: 'bonus', label: 'Bonusové akce', href: '/admin/bonusove-akce', icon: '🎁', tone: 'purple' },
+      { id: 'accommodation-hero', label: 'Ubytování Hero', href: '/admin/marketing/ubytovani-hero', icon: '🛏', tone: 'blue' },
       { id: 'presentation', label: 'O portálu', href: '/admin/o-portalu', icon: '🌐' },
       { id: 'presentation-stats', label: 'Statistiky O portálu', href: '/admin/o-portalu/statistiky', icon: '📊' },
       { id: 'popups', label: 'Popup okna', href: '/admin/marketing/popup-okna', icon: '💬' },

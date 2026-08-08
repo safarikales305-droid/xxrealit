@@ -23,6 +23,7 @@ type Props = {
   locationSlug?: string;
   initialItems?: AccommodationItem[];
   initialTotal?: number;
+  hideTopSearch?: boolean;
 };
 
 export function AccommodationListingClient({
@@ -30,6 +31,7 @@ export function AccommodationListingClient({
   locationSlug,
   initialItems = [],
   initialTotal = 0,
+  hideTopSearch = false,
 }: Props) {
   const searchParams = useSearchParams();
   const { apiAccessToken, isAuthenticated } = useAuth();
@@ -126,12 +128,16 @@ export function AccommodationListingClient({
 
   return (
     <div className="space-y-4">
-      <div className="md:hidden">
-        <AccommodationSearchBar compact />
-      </div>
-      <div className="hidden md:block">
-        <AccommodationSearchBar />
-      </div>
+      {!hideTopSearch ? (
+        <>
+          <div className="md:hidden">
+            <AccommodationSearchBar compact />
+          </div>
+          <div className="hidden md:block">
+            <AccommodationSearchBar />
+          </div>
+        </>
+      ) : null}
 
       <AccommodationCategoryChips active={category} />
 

@@ -98,12 +98,20 @@ export function AdminAccommodationPanel() {
           <h1 className="text-2xl font-bold text-zinc-900">Ubytování</h1>
           <p className="text-sm text-zinc-600">Správa ubytování, demo dat a integrace partnerů.</p>
         </div>
-        <Link
-          href="/admin/integrace/ubytovani/booking"
-          className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium"
-        >
-          Booking.com integrace →
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/admin/marketing/ubytovani-hero"
+            className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-800"
+          >
+            Hero Ubytování
+          </Link>
+          <Link
+            href="/admin/integrace/ubytovani/booking"
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium"
+          >
+            Booking.com integrace →
+          </Link>
+        </div>
       </div>
 
       {msg ? <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">{msg}</p> : null}

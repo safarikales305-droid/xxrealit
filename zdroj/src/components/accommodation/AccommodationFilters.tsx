@@ -25,9 +25,10 @@ type Props = {
   initial?: Partial<AccommodationFilterState>;
   onApply?: (filters: AccommodationFilterState) => void;
   compact?: boolean;
+  variant?: 'default' | 'compact' | 'hero';
 };
 
-export function AccommodationSearchBar({ initial, onApply, compact }: Props) {
+export function AccommodationSearchBar({ initial, onApply, compact, variant = compact ? 'compact' : 'default' }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [filters, setFilters] = useState<AccommodationFilterState>({
@@ -68,10 +69,14 @@ export function AccommodationSearchBar({ initial, onApply, compact }: Props) {
     router.push(qs ? `?${qs}` : window.location.pathname);
   }
 
-  if (compact) {
+  if (variant === 'compact') {
     return (
       <div className="flex gap-2">
+        <label className="sr-only" htmlFor="accommodation-search-compact">
+          Kam chcete jet?
+        </label>
         <input
+          id="accommodation-search-compact"
           value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
           placeholder="Kam chcete jet?"
@@ -82,8 +87,66 @@ export function AccommodationSearchBar({ initial, onApply, compact }: Props) {
           onClick={apply}
           className="shrink-0 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2.5 text-sm font-semibold text-white"
         >
-          Hledat
+          Hledat ubytování
         </button>
+      </div>
+    );
+  }
+
+  if (variant === 'hero') {
+    return (
+      <div className="w-[calc(100%)] rounded-[18px] border-2 border-orange-300/80 bg-white p-3 shadow-lg shadow-orange-500/10 sm:p-4">
+        <label htmlFor="accommodation-search-hero" className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-zinc-800">
+          <span aria-hidden>📍</span>
+          Kam chcete jet?
+        </label>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <input
+            id="accommodation-search-hero"
+            value={filters.q}
+            onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+            placeholder="Město, oblast nebo ubytování"
+            className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-[#ff6a00] focus:bg-white focus:ring-4 focus:ring-orange-500/15 sm:flex-1 sm:text-base"
+          />
+          <div className="grid grid-cols-2 gap-2 sm:contents">
+            <label className="text-sm sm:min-w-[9.5rem]">
+              <span className="mb-1 block text-xs font-medium text-zinc-600">Příjezd</span>
+              <input
+                type="date"
+                value={filters.checkIn}
+                onChange={(e) => setFilters((f) => ({ ...f, checkIn: e.target.value }))}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00] focus:ring-2 focus:ring-orange-500/15"
+              />
+            </label>
+            <label className="text-sm sm:min-w-[9.5rem]">
+              <span className="mb-1 block text-xs font-medium text-zinc-600">Odjezd</span>
+              <input
+                type="date"
+                value={filters.checkOut}
+                onChange={(e) => setFilters((f) => ({ ...f, checkOut: e.target.value }))}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00] focus:ring-2 focus:ring-orange-500/15"
+              />
+            </label>
+          </div>
+          <label className="text-sm sm:min-w-[5.5rem]">
+            <span className="mb-1 block text-xs font-medium text-zinc-600">Hosté</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={filters.guests}
+              onChange={(e) => setFilters((f) => ({ ...f, guests: Number(e.target.value) || 1 }))}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00] focus:ring-2 focus:ring-orange-500/15"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={apply}
+            className="w-full shrink-0 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3 text-sm font-bold text-white shadow-md shadow-orange-500/30 transition hover:brightness-105 sm:w-auto sm:min-w-[11.5rem]"
+          >
+            Hledat ubytování
+          </button>
+        </div>
       </div>
     );
   }
@@ -153,7 +216,7 @@ export function AccommodationSearchBar({ initial, onApply, compact }: Props) {
             onClick={apply}
             className="w-full rounded-lg bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2.5 text-sm font-semibold text-white shadow-sm"
           >
-            Hledat
+            Hledat ubytování
           </button>
         </div>
       </div>
