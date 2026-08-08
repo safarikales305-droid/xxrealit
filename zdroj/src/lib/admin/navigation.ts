@@ -70,6 +70,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     children: [
       { id: 'listings-all', label: 'Všechny', href: '/admin/inzeraty', icon: '🏘' },
       { id: 'listings-pending', label: 'Schválení', href: '/admin/inzeraty?status=pending', icon: '⏳', tone: 'yellow' },
+      { id: 'accommodation', label: 'Ubytování', href: '/admin/ubytovani', icon: '🏨', tone: 'blue' },
       { id: 'importy', label: 'Import', href: '/admin/importy', icon: '📥', tone: 'orange' },
       { id: 'listing-stats', label: 'Statistiky', href: '/admin#statistiky', icon: '📊', tone: 'blue' },
       { id: 'articles', label: 'Články / Rady', href: '/admin/clanky', icon: '📄' },

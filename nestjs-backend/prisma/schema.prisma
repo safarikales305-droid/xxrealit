@@ -323,6 +323,7 @@ model User {
   postFavorites Favorite[]
   postComments  Comment[]
   likes        PropertyLike[]
+  accommodationLikes AccommodationLike[]
   listingViews ListingView[]
   comments     PropertyComment[]
 
@@ -1016,6 +1017,9 @@ model Post {
   slug            String?  @unique
   seoTitle        String?
   seoDescription  String?  @db.Text
+  /// Volitelná vazba na ubytování (tip / příspěvek k hotelu).
+  accommodationId String?
+  accommodation   Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -1024,6 +1028,7 @@ model Post {
   @@index([source, createdAt])
   @@index([latitude, longitude])
   @@index([soundTrackId])
+  @@index([accommodationId])
 }
 
 enum ListingViewSource {
@@ -1321,6 +1326,10 @@ model Property {
   /// Čas zveřejnění shorts (řazení feedu); klasické inzeráty mohou mít null.
   publishedAt DateTime?
 
+  /// Shorts / video navázané na ubytování.
+  accommodationId String?
+  accommodation   Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: SetNull)
+
   shortsListingSources     ShortsListing[] @relation("ShortsListingSourceProperty")
   publishedFromShortsDraft ShortsListing? @relation("PublishedShortsProperty")
   tiparPostPublished       TiparPost?     @relation("TiparPublishedProperty")
@@ -1356,6 +1365,7 @@ model Property {
   @@index([importSourceId])
   @@index([hiddenByImportDisabled, isActive])
   @@index([seoLocationId])
+  @@index([accommodationId])
   @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
 }
 
@@ -5919,4 +5929,249 @@ model EmailSettingsAuditLog {
 
   @@index([field, createdAt])
   @@index([changedById, createdAt])
+}
+
+// ─── Ubytování ───────────────────────────────────────────────────────────────
+
+enum AccommodationType {
+  HOTEL
+  APARTMENT
+  PENSION
+  CHALUPA
+  CHATA
+  WELLNESS
+  CAMP
+  LUXURY
+  OTHER
+}
+
+enum AccommodationSource {
+  DEMO
+  XXREALIT
+  BOOKING
+  EXPEDIA
+  OTHER
+}
+
+enum AccommodationStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+}
+
+enum AccommodationOwnershipType {
+  EXTERNAL
+  XXREALIT
+  USER
+}
+
+enum AccommodationDistribution {
+  XXREALIT
+  BOOKING
+  OTHER
+}
+
+enum AccommodationPriceUnit {
+  PER_NIGHT
+  PER_STAY
+  PER_PERSON
+}
+
+enum AccommodationSyncJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Accommodation {
+  id               String                    @id @default(cuid())
+  slug             String                    @unique
+  source           AccommodationSource       @default(DEMO)
+  externalId       String?
+  provider         String                    @default("demo")
+  type             AccommodationType         @default(HOTEL)
+  name             String
+  shortDescription String?                   @db.Text
+  description      String?                   @db.Text
+  country          String                    @default("CZ")
+  region           String?
+  city             String
+  address          String?
+  latitude         Float?
+  longitude        Float?
+  stars            Int?
+  rating           Float?
+  reviewCount      Int                       @default(0)
+  priceFrom        Int?
+  currency         String                    @default("CZK")
+  priceUnit        AccommodationPriceUnit    @default(PER_NIGHT)
+  checkInFrom      String?
+  checkOutUntil    String?
+  featured         Boolean                   @default(false)
+  status           AccommodationStatus       @default(PUBLISHED)
+  published        Boolean                   @default(true)
+  ownershipType    AccommodationOwnershipType @default(EXTERNAL)
+  distribution     AccommodationDistribution[] @default([XXREALIT])
+  amenities        String[]                  @default([])
+  tags             String[]                  @default([])
+  rules            String?                   @db.Text
+  petsAllowed      Boolean                   @default(false)
+  parking          Boolean                   @default(false)
+  wifi             Boolean                   @default(true)
+  breakfast        Boolean                   @default(false)
+  wellness         Boolean                   @default(false)
+  pool             Boolean                   @default(false)
+  airConditioning  Boolean                   @default(false)
+  accessible       Boolean                   @default(false)
+  seoTitle         String?
+  seoDescription   String?                   @db.Text
+  lastSyncedAt     DateTime?
+  createdById      String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  photos           AccommodationPhoto[]
+  facilities       AccommodationFacility[]
+  rooms            AccommodationRoom[]
+  rates            AccommodationRate[]
+  availability     AccommodationAvailability[]
+  likes            AccommodationLike[]
+  posts            Post[]
+  properties       Property[]
+
+  @@index([city])
+  @@index([type])
+  @@index([status, published])
+  @@index([provider, externalId])
+}
+
+model AccommodationPhoto {
+  id              String        @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  url             String
+  alt             String?
+  sortOrder       Int           @default(0)
+  isCover         Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+
+  @@index([accommodationId])
+}
+
+model AccommodationFacility {
+  id              String        @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  name            String
+  icon            String?
+  sortOrder       Int           @default(0)
+
+  @@index([accommodationId])
+}
+
+model AccommodationRoom {
+  id              String        @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?       @db.Text
+  capacity        Int           @default(2)
+  beds            String?
+  priceFrom       Int?
+  currency        String        @default("CZK")
+  rates           AccommodationRate[]
+
+  @@index([accommodationId])
+}
+
+model AccommodationRate {
+  id              String             @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation      @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  roomId          String?
+  room            AccommodationRoom? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  dateFrom        DateTime?
+  dateTo          DateTime?
+  price           Int
+  currency        String             @default("CZK")
+  minNights       Int                @default(1)
+
+  @@index([accommodationId])
+}
+
+model AccommodationAvailability {
+  id              String        @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  date            DateTime      @db.Date
+  available       Boolean       @default(true)
+  roomsLeft       Int?
+
+  @@unique([accommodationId, date])
+}
+
+model AccommodationProviderConfig {
+  id            String   @id @default(cuid())
+  provider      String   @unique
+  apiKey        String?
+  affiliateId   String?
+  environment   String   @default("sandbox")
+  enabled       Boolean  @default(false)
+  lastSyncAt    DateTime?
+  importedCount Int      @default(0)
+  updatedCount  Int      @default(0)
+  errorCount    Int      @default(0)
+  lastError     String?  @db.Text
+  settingsJson  Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AccommodationSyncJob {
+  id             String                     @id @default(cuid())
+  provider       String
+  status         AccommodationSyncJobStatus @default(PENDING)
+  cursor         String?
+  page           Int                        @default(0)
+  processedCount Int                        @default(0)
+  createdCount   Int                        @default(0)
+  updatedCount   Int                        @default(0)
+  failedCount    Int                        @default(0)
+  lastError      String?                    @db.Text
+  pauseReason    String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  logs           AccommodationSyncLog[]
+
+  @@index([status])
+}
+
+model AccommodationSyncLog {
+  id         String               @id @default(cuid())
+  jobId      String
+  job        AccommodationSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  level      String               @default("info")
+  message    String               @db.Text
+  externalId String?
+  createdAt  DateTime             @default(now())
+
+  @@index([jobId])
+}
+
+model AccommodationLike {
+  id              String        @id @default(cuid())
+  accommodationId String
+  accommodation   Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+
+  @@unique([accommodationId, userId])
+  @@index([userId])
 }

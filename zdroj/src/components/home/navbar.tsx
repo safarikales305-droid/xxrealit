@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { type MouseEvent, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
@@ -46,6 +46,8 @@ export function Navbar({
   activePostsCategoryLabel,
 }: NavbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isAccommodationSection = pathname?.startsWith('/ubytovani');
   const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -199,8 +201,18 @@ export function Navbar({
                 onClick={() => onViewModeChange('classic')}
                 className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
               >
-                Klasik
+                Reality
               </button>
+              <Link
+                href="/ubytovani"
+                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
+                  isAccommodationSection
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Ubytování
+              </Link>
               <button
                 type="button"
                 onClick={() => onViewModeChange('posts')}
@@ -376,8 +388,18 @@ export function Navbar({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                Klasik
+                Reality
               </button>
+              <Link
+                href="/ubytovani"
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
+                  isAccommodationSection
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Ubytování
+              </Link>
               <button
                 type="button"
                 onClick={() => onViewModeChange('posts')}

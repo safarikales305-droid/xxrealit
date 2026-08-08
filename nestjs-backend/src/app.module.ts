@@ -61,6 +61,7 @@ import { MetaCenterModule } from './modules/meta-center/meta-center.module';
 import { OpenAiModule } from './modules/openai/openai.module';
 import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
+import { AccommodationModule } from './modules/accommodation/accommodation.module';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
     OpenAiModule,
     AiChatModule,
     AiSalesModule,
+    AccommodationModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })
