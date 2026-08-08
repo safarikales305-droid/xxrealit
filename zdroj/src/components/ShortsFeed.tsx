@@ -359,7 +359,7 @@ export function ShortsFeed({ items }: Props) {
               />
             </div>
 
-            <div className="shorts-actions">
+            <div className="shorts-actions" data-floating-ui data-floating-ui-id="shorts-action-rail" data-floating-action="shorts-rail">
               {soundByClipId[c.id] ? (
                 <ShortsSoundToggle
                   variant="rail"

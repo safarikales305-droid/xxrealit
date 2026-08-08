@@ -121,6 +121,9 @@ export function PwaInstallPrompt() {
         aria-modal="true"
         aria-labelledby="pwa-install-title"
         className="fixed inset-x-0 bottom-0 z-[210] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
+        data-floating-ui
+        data-floating-ui-id="pwa-install-prompt"
+        data-floating-action="cookie-banner"
       >
         <div className="mx-auto max-w-lg rounded-2xl border border-orange-200/60 bg-white p-4 shadow-[0_-8px_40px_rgba(0,0,0,0.18)]">
           <p

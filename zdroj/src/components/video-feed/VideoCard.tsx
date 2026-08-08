@@ -432,6 +432,8 @@ export default function VideoCard({
             e.stopPropagation();
           }}
           className={`add-listing-button ${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
+          data-floating-ui
+          data-floating-action="quick-add"
           aria-label="Přidat inzerát"
         >
           <Plus className="size-6" strokeWidth={2.5} aria-hidden />
@@ -593,7 +595,7 @@ export default function VideoCard({
             ) : null}
 
             {/* Mobil: akce v pravém sloupci */}
-            <div className="shorts-actions lg:hidden">
+            <div className="shorts-actions lg:hidden" data-floating-ui data-floating-ui-id="shorts-action-rail" data-floating-action="shorts-rail">
               {renderActionRail({ desktopLightShare: false })}
             </div>
 

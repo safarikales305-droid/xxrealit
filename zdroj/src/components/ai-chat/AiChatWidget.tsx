@@ -18,6 +18,8 @@ import {
   type AiChatPropertyCard,
 } from '@/lib/ai-chat-api';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { AiChatLauncher } from './AiChatLauncher';
+import { FLOATING_Z } from '@/lib/floating-ui-geometry';
 
 function detectPageType(path: string): string {
   if (path === '/') return 'HOME';
@@ -162,21 +164,16 @@ export function AiChatWidget() {
 
   return (
     <>
-      {!open ? (
-        <button
-          type="button"
-          onClick={() => void handleOpen()}
-          className="fixed bottom-20 right-4 z-[60] flex max-w-[200px] items-center gap-2 rounded-full bg-orange-600 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-orange-700 md:bottom-6"
-          aria-label="Otevřít AI chat"
-        >
-          <span className="text-lg" aria-hidden>💬</span>
-          Poradíme s realitami
-        </button>
-      ) : null}
+      <AiChatLauncher onOpen={() => void handleOpen()} busy={busy} hidden={open} />
 
       {open ? (
         <div
-          className="fixed bottom-0 right-0 z-[70] flex h-[min(85vh,640px)] w-full flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl md:bottom-6 md:right-6 md:h-[min(80vh,600px)] md:w-[380px] md:rounded-2xl"
+          className="fixed inset-0 z-[700] flex flex-col bg-white md:inset-auto md:bottom-6 md:right-6 md:h-[min(80vh,600px)] md:w-[min(100vw-2rem,400px)] md:rounded-2xl md:border md:border-zinc-200 md:shadow-2xl"
+          style={{
+            zIndex: FLOATING_Z.chatPanel,
+            paddingTop: 'env(safe-area-inset-top)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}
           role="dialog"
           aria-label="AI chat XXREALIT"
         >
