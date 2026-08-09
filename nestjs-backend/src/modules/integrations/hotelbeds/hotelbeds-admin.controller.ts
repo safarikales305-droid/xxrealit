@@ -2,6 +2,7 @@ import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { HotelbedsCacheService } from './hotelbeds-cache.service';
+import { HotelbedsDiagnosticsService } from './hotelbeds-diagnostics.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import { HotelbedsConfigService } from './hotelbeds.config';
@@ -13,6 +14,7 @@ export class HotelbedsAdminController {
   constructor(
     private readonly hotelbeds: HotelbedsService,
     private readonly publicService: HotelbedsPublicService,
+    private readonly diagnostics: HotelbedsDiagnosticsService,
     private readonly config: HotelbedsConfigService,
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
@@ -25,6 +27,32 @@ export class HotelbedsAdminController {
       metrics: this.metrics.snapshot(this.cache.stats()),
       contentDiagnostics: this.metrics.contentDiagnostics(),
     };
+  }
+
+  @Get('diagnostics')
+  diagnosticsOverview() {
+    return this.diagnostics.getOverview();
+  }
+
+  @Get('cache')
+  cacheInspector() {
+    return this.diagnostics.getCacheInspector();
+  }
+
+  @Post('diagnose-hotel')
+  diagnoseHotel(@Query('hotelCode') hotelCode?: string) {
+    const code = Number(hotelCode) || 6741;
+    return this.diagnostics.diagnoseHotel(code);
+  }
+
+  @Post('diagnose-public-hotels')
+  diagnosePublicHotels() {
+    return this.diagnostics.diagnosePublicHotels();
+  }
+
+  @Get('hotel-debug/:slug')
+  async hotelDebug(@Param('slug') slug: string) {
+    return this.publicService.getBySlugWithDebug(slug);
   }
 
   @Get('metrics')

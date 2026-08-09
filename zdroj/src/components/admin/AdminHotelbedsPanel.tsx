@@ -11,11 +11,19 @@ import {
   nestAdminHotelbedsClearCache,
   nestAdminHotelbedsLogs,
   nestAdminHotelbedsLogDetail,
+  nestAdminHotelbedsDiagnostics,
+  nestAdminHotelbedsCacheInspector,
+  nestAdminHotelbedsDiagnoseHotel,
+  nestAdminHotelbedsDiagnosePublicHotels,
   type HotelbedsApiLogEntry,
+  type HotelbedsDiagnosticsOverview,
+  type HotelbedsHotelDiagnosis,
   type HotelbedsIntegrationStatus,
+  type HotelbedsPublicHotelsDiagnosis,
   type HotelbedsTestContentResult,
   type HotelbedsTestResult,
   type HotelbedsTestSearchResult,
+  type HotelbedsCacheInspection,
 } from '@/lib/hotelbeds-admin-api';
 
 type LastTest = {
@@ -40,6 +48,13 @@ export function AdminHotelbedsPanel() {
   const [testingContent, setTestingContent] = useState(false);
   const [contentResult, setContentResult] = useState<HotelbedsTestContentResult | null>(null);
   const [contentInfo, setContentInfo] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<HotelbedsDiagnosticsOverview | null>(null);
+  const [cacheInspector, setCacheInspector] = useState<HotelbedsCacheInspection | null>(null);
+  const [showCacheKeys, setShowCacheKeys] = useState(false);
+  const [diagnosingHotel, setDiagnosingHotel] = useState(false);
+  const [hotelDiagnosis, setHotelDiagnosis] = useState<HotelbedsHotelDiagnosis | null>(null);
+  const [diagnosingPublic, setDiagnosingPublic] = useState(false);
+  const [publicDiagnosis, setPublicDiagnosis] = useState<HotelbedsPublicHotelsDiagnosis | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -47,8 +62,12 @@ export function AdminHotelbedsPanel() {
       return;
     }
     setLoading(true);
-    const data = await nestAdminHotelbedsStatus(apiAccessToken);
+    const [data, diag] = await Promise.all([
+      nestAdminHotelbedsStatus(apiAccessToken),
+      nestAdminHotelbedsDiagnostics(apiAccessToken),
+    ]);
     setStatus(data);
+    setDiagnostics(diag);
     setLoading(false);
   }, [apiAccessToken]);
 
@@ -105,6 +124,40 @@ export function AdminHotelbedsPanel() {
     setExpandedLog(data?.log ?? cached ?? null);
   }
 
+  async function handleLoadCacheInspector() {
+    if (!apiAccessToken) return;
+    const data = await nestAdminHotelbedsCacheInspector(apiAccessToken);
+    setCacheInspector(data);
+  }
+
+  async function handleDiagnoseHotelDuo() {
+    if (!apiAccessToken) return;
+    setDiagnosingHotel(true);
+    setError(null);
+    const result = await nestAdminHotelbedsDiagnoseHotel(apiAccessToken, 6741);
+    setDiagnosingHotel(false);
+    if (!result) {
+      setError('Diagnostika Hotel Duo selhala — backend neodpověděl.');
+      return;
+    }
+    setHotelDiagnosis(result);
+    await load();
+  }
+
+  async function handleDiagnosePublicHotels() {
+    if (!apiAccessToken) return;
+    setDiagnosingPublic(true);
+    setError(null);
+    const result = await nestAdminHotelbedsDiagnosePublicHotels(apiAccessToken);
+    setDiagnosingPublic(false);
+    if (!result) {
+      setError('Diagnostika veřejných hotelů selhala — backend neodpověděl.');
+      return;
+    }
+    setPublicDiagnosis(result);
+    await load();
+  }
+
   async function handleTestContent() {
     if (!apiAccessToken) return;
     setTestingContent(true);
@@ -130,14 +183,15 @@ export function AdminHotelbedsPanel() {
   }
 
   const connectionOk = lastTest?.result.success === true;
-  const diagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
+  const contentDiagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
+  const overview = diagnostics;
   const bookingApiStatus =
-    diagnostics?.bookingApiOk || connectionOk || searchResult?.success
+    overview?.bookingApi.status === 'OK' || contentDiagnostics?.bookingApiOk || connectionOk || searchResult?.success
       ? '🟢 Připojeno'
       : '🟡 Neotestováno';
-  const contentApiStatus = diagnostics?.contentApiPermissionDenied
+  const contentApiStatus = overview?.contentApi.permissionDenied || contentDiagnostics?.contentApiPermissionDenied
     ? '🔴 Bez oprávnění'
-    : diagnostics?.contentApiOk
+    : overview?.contentApi.status === 'OK' || contentDiagnostics?.contentApiOk
       ? '🟢 Připojeno'
       : '🔴 Nedostupné';
 
@@ -336,7 +390,7 @@ export function AdminHotelbedsPanel() {
             <dd className="font-medium">{contentApiStatus}</dd>
           </div>
         </dl>
-        {diagnostics?.contentApiPermissionDenied ? (
+        {contentDiagnostics?.contentApiPermissionDenied || overview?.contentApi.permissionDenied ? (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Vyhledávání hotelů a cen funguje. Fotografie, popisy a další statická data čekají na aktivaci Content API.
           </p>
@@ -344,31 +398,318 @@ export function AdminHotelbedsPanel() {
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-zinc-900">Diagnostika obsahu a fotografií</h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={diagnosingHotel || !status?.configured}
+              onClick={() => void handleDiagnoseHotelDuo()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {diagnosingHotel ? 'Diagnostikuji…' : 'Diagnostikovat Hotel Duo (6741)'}
+            </button>
+            <button
+              type="button"
+              disabled={diagnosingPublic || !status?.configured}
+              onClick={() => void handleDiagnosePublicHotels()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {diagnosingPublic ? 'Testuji veřejné hotely…' : 'Test veřejných hotelů'}
+            </button>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-zinc-500">Booking API</dt>
+            <dd className="font-medium">{overview?.bookingApi.status ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Content API</dt>
+            <dd className="font-medium">{overview?.contentApi.status ?? '—'}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-zinc-500">Poslední úspěšný Content API request</dt>
+            <dd className="text-zinc-800">
+              {overview?.lastSuccessfulContentRequest
+                ? `${new Date(overview.lastSuccessfulContentRequest.at).toLocaleString('cs-CZ')} · ${overview.lastSuccessfulContentRequest.endpoint} · HTTP ${overview.lastSuccessfulContentRequest.status} · hotel IDs: ${overview.lastSuccessfulContentRequest.hotelIds.join(', ') || '—'} · ${overview.lastSuccessfulContentRequest.imagesCount} obrázků`
+                : '—'}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-zinc-500">Poslední neúspěšný Content API request</dt>
+            <dd className="text-zinc-800">
+              {overview?.lastFailedContentRequest
+                ? `${new Date(overview.lastFailedContentRequest.at).toLocaleString('cs-CZ')} · ${overview.lastFailedContentRequest.endpoint} · HTTP ${overview.lastFailedContentRequest.status}${overview.lastFailedContentRequest.errorCode ? ` · ${overview.lastFailedContentRequest.errorCode}` : ''}${overview.lastFailedContentRequest.errorMessage ? ` · ${overview.lastFailedContentRequest.errorMessage}` : ''}`
+                : '—'}
+            </dd>
+          </div>
+        </dl>
+
+        {overview?.hotelsWithPhoto ? (
+          <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+              <p className="text-zinc-500">Content API</p>
+              <p className="font-semibold">{overview.hotelsWithPhoto.fromContentApi}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+              <p className="text-zinc-500">Cache</p>
+              <p className="font-semibold">{overview.hotelsWithPhoto.fromCache}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+              <p className="text-zinc-500">DB</p>
+              <p className="font-semibold">{overview.hotelsWithPhoto.fromDatabase}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+              <p className="text-zinc-500">Fallback</p>
+              <p className="font-semibold">{overview.hotelsWithPhoto.fallback}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+              <p className="text-zinc-500">Bez fotografie</p>
+              <p className="font-semibold">{overview.hotelsWithPhoto.withoutPhoto}</p>
+            </div>
+          </div>
+        ) : null}
+
+        {overview?.database ? (
+          <p className="mt-3 text-xs text-zinc-600">{overview.database.note}</p>
+        ) : null}
+
+        {overview?.contentHistory?.length ? (
+          <div className="mt-5 overflow-auto">
+            <h3 className="text-sm font-semibold text-zinc-900">Historie Content API</h3>
+            <table className="mt-2 w-full min-w-[720px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 text-zinc-500">
+                  <th className="py-2 pr-2">Datum</th>
+                  <th className="py-2 pr-2">Hotel ID</th>
+                  <th className="py-2 pr-2">Endpoint</th>
+                  <th className="py-2 pr-2">HTTP</th>
+                  <th className="py-2 pr-2">Obrázky</th>
+                  <th className="py-2 pr-2">Zdroj</th>
+                  <th className="py-2">Doba odezvy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.contentHistory.map((row, idx) => (
+                  <tr key={`${row.at}-${idx}`} className="border-b border-zinc-100">
+                    <td className="py-2 pr-2">{new Date(row.at).toLocaleString('cs-CZ')}</td>
+                    <td className="py-2 pr-2">{row.hotelIds.join(', ') || '—'}</td>
+                    <td className="py-2 pr-2">{row.endpoint}</td>
+                    <td className="py-2 pr-2">{row.httpStatus}</td>
+                    <td className="py-2 pr-2">{row.imagesCount}</td>
+                    <td className="py-2 pr-2">{row.source}</td>
+                    <td className="py-2">{row.responseTimeMs} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-zinc-900">Hotelbeds cache</h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleLoadCacheInspector()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800"
+            >
+              Obnovit cache inspektor
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCacheKeys((v) => !v)}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800"
+            >
+              {showCacheKeys ? 'Skrýt cache klíče' : 'Zobrazit cache klíče'}
+            </button>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <dt className="text-zinc-500">Content entries</dt>
+            <dd className="font-medium">{cacheInspector?.contentEntries ?? overview?.cache.contentEntries ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Image entries</dt>
+            <dd className="font-medium">{cacheInspector?.imageEntries ?? overview?.cache.imageEntries ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Nejstarší záznam</dt>
+            <dd className="font-medium">
+              {cacheInspector?.oldestEntry || overview?.cache.oldestEntry
+                ? new Date((cacheInspector?.oldestEntry ?? overview?.cache.oldestEntry) as string).toLocaleString('cs-CZ')
+                : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Nejnovější záznam</dt>
+            <dd className="font-medium">
+              {cacheInspector?.newestEntry || overview?.cache.newestEntry
+                ? new Date((cacheInspector?.newestEntry ?? overview?.cache.newestEntry) as string).toLocaleString('cs-CZ')
+                : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">TTL content cache</dt>
+            <dd className="font-medium">{cacheInspector?.defaultContentTtlHours ?? overview?.cache.defaultContentTtlHours ?? 24} h</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Expired entries</dt>
+            <dd className="font-medium">{cacheInspector?.expiredEntries ?? overview?.cache.expiredEntries ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Celkem entries</dt>
+            <dd className="font-medium">{cacheInspector?.totalEntries ?? overview?.cache.totalEntries ?? '—'}</dd>
+          </div>
+        </dl>
+
+        {showCacheKeys && (cacheInspector?.keys ?? overview?.cache.keys)?.length ? (
+          <ul className="mt-4 max-h-64 space-y-1 overflow-auto rounded-lg border border-zinc-100 bg-zinc-50 p-3 font-mono text-xs">
+            {(cacheInspector?.keys ?? overview?.cache.keys ?? []).map((key) => (
+              <li key={key}>{key}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      {hotelDiagnosis ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-zinc-900">
+            Diagnostika — {hotelDiagnosis.name ?? 'Hotel'} (#{hotelDiagnosis.hotelId})
+          </h3>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">Booking API</dt>
+              <dd className="font-medium">HTTP {hotelDiagnosis.bookingApi.httpStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Content API</dt>
+              <dd className="font-medium">HTTP {hotelDiagnosis.contentApi.httpStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Cache</dt>
+              <dd className="font-medium">{hotelDiagnosis.cache.hit ? 'HIT' : 'MISS'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">DB content</dt>
+              <dd className="font-medium">{hotelDiagnosis.database.found ? 'FOUND' : 'NOT FOUND'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Images in cache</dt>
+              <dd className="font-medium">{hotelDiagnosis.cache.imagesInCache}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Images in DB</dt>
+              <dd className="font-medium">{hotelDiagnosis.database.imagesCount}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Current image source</dt>
+              <dd className="font-medium">{hotelDiagnosis.currentImageSource}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Last successful Content fetch</dt>
+              <dd className="font-medium">
+                {hotelDiagnosis.lastSuccessfulContentFetch
+                  ? new Date(hotelDiagnosis.lastSuccessfulContentFetch).toLocaleString('cs-CZ')
+                  : '—'}
+              </dd>
+            </div>
+          </dl>
+
+          {hotelDiagnosis.conclusionHints?.length ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-zinc-700">
+              {hotelDiagnosis.conclusionHints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {hotelDiagnosis.images?.length ? (
+            <div className="mt-4 overflow-auto">
+              <h4 className="text-sm font-semibold text-zinc-900">Image URL diagnostika</h4>
+              <table className="mt-2 w-full min-w-[720px] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-zinc-500">
+                    <th className="py-2 pr-2">Raw path</th>
+                    <th className="py-2 pr-2">Assembled URL</th>
+                    <th className="py-2 pr-2">HTTP</th>
+                    <th className="py-2">Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hotelDiagnosis.images.map((img, idx) => (
+                    <tr key={`${img.rawPath}-${idx}`} className="border-b border-zinc-100">
+                      <td className="py-2 pr-2 break-all">{img.rawPath ?? '—'}</td>
+                      <td className="py-2 pr-2 break-all">{img.assembledUrl ?? '—'}</td>
+                      <td className="py-2 pr-2">{img.httpStatus ?? '—'}</td>
+                      <td className="py-2">{img.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {publicDiagnosis?.hotels?.length ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-zinc-900">Test veřejných hotelů</h3>
+          <p className="mt-1 text-xs text-zinc-500">
+            Otestováno: {new Date(publicDiagnosis.testedAt).toLocaleString('cs-CZ')}
+          </p>
+          <ul className="mt-3 space-y-3 text-sm">
+            {publicDiagnosis.hotels.map((hotel) => (
+              <li key={hotel.label} className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2">
+                <p className="font-medium">{hotel.label}</p>
+                {hotel.error ? (
+                  <p className="text-red-700">{hotel.error}</p>
+                ) : (
+                  <p className="text-zinc-700">
+                    ID {hotel.hotelId} · foto: {hotel.cache?.imagesInCache ? 'ano' : 'ne'} · zdroj:{' '}
+                    {hotel.currentImageSource ?? '—'} · cache: {hotel.cache?.hit ? 'HIT' : 'MISS'} · DB:{' '}
+                    {hotel.database?.found ? 'FOUND' : 'NOT FOUND'}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-zinc-600">{publicDiagnosis.note}</p>
+        </div>
+      ) : null}
+
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Content API diagnostika</h2>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-zinc-500">Booking API</dt>
-            <dd className="font-medium">{diagnostics?.bookingApiOk ? '✅' : '❌'}</dd>
+            <dd className="font-medium">{contentDiagnostics?.bookingApiOk ? '✅' : '❌'}</dd>
           </div>
           <div>
             <dt className="text-zinc-500">Content API</dt>
             <dd className="font-medium">
-              {diagnostics?.contentApiPermissionDenied
+              {contentDiagnostics?.contentApiPermissionDenied
                 ? '❌ bez oprávnění'
-                : diagnostics?.contentApiOk
+                : contentDiagnostics?.contentApiOk
                   ? '✅'
                   : '❌'}
             </dd>
           </div>
           <div>
             <dt className="text-zinc-500">Images</dt>
-            <dd className="font-medium">{diagnostics?.imagesOk ? '✅' : '❌'}</dd>
+            <dd className="font-medium">{contentDiagnostics?.imagesOk ? '✅' : '❌'}</dd>
           </div>
           <div className="sm:col-span-2">
             <dt className="text-zinc-500">Poslední Content request</dt>
             <dd className="text-zinc-800">
-              {diagnostics?.lastContentRequest
-                ? `${diagnostics.lastContentRequest.endpoint} · HTTP ${diagnostics.lastContentRequest.status} · ${diagnostics.lastContentRequest.responseTimeMs} ms · ${new Date(diagnostics.lastContentRequest.at).toLocaleString('cs-CZ')}${diagnostics.lastContentRequest.error ? ` · ${diagnostics.lastContentRequest.error}` : ''}`
+              {contentDiagnostics?.lastContentRequest
+                ? `${contentDiagnostics.lastContentRequest.endpoint} · HTTP ${contentDiagnostics.lastContentRequest.status} · ${contentDiagnostics.lastContentRequest.responseTimeMs} ms · ${new Date(contentDiagnostics.lastContentRequest.at).toLocaleString('cs-CZ')}${contentDiagnostics.lastContentRequest.error ? ` · ${contentDiagnostics.lastContentRequest.error}` : ''}`
                 : '—'}
             </dd>
           </div>

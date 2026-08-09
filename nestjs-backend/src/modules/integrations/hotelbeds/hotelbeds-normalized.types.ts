@@ -61,6 +61,7 @@ export type NormalizedAccommodation = {
   coverPhoto: string | null;
   xxrealitCategory: string;
   contentEnriched: boolean;
+  debugSource?: import('./hotelbeds-content-meta.types').HotelbedsDebugSource;
   petsAllowed: boolean;
   accessible: boolean;
 };
