@@ -9,16 +9,8 @@ import {
   type AccommodationItem,
 } from '@/lib/accommodation-client';
 
-type CardItem = AccommodationItem & {
-  available?: boolean;
-  catalogOnly?: boolean;
-  availabilityStatus?: 'verified' | 'unknown';
-  originalPrice?: number | null;
-  originalCurrency?: string;
-};
-
 type Props = {
-  item: CardItem;
+  item: AccommodationItem;
   onFavorite?: (id: string) => void;
   favoriting?: boolean;
 };

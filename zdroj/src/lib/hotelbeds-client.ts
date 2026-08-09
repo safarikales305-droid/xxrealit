@@ -1,6 +1,11 @@
 import { API_BASE_URL } from './api';
 import { ACCOMMODATION_PAGE_SIZE } from './accommodation-categories';
-import type { AccommodationDetail, AccommodationItem, AccommodationListResponse } from './accommodation-client';
+import type {
+  AccommodationAvailabilityStatus,
+  AccommodationDetail,
+  AccommodationItem,
+  AccommodationListResponse,
+} from './accommodation-client';
 
 export type HotelbedsPublicConfig = {
   publicListings: boolean;
@@ -166,7 +171,6 @@ export async function fetchHotelbedsSimilar(
 export async function fetchHotelbedsMapMarkers(params: HotelbedsSearchParams = {}) {
   const res = await fetchHotelbedsSearch({ ...params, limit: 50, page: 1 });
   return res.items
-    .map((i) => i as AccommodationItem & { latitude?: number | null; longitude?: number | null })
     .filter((i) => i.latitude != null && i.longitude != null)
     .map((i) => ({
       id: i.id,
@@ -215,7 +219,7 @@ type RawHotel = {
   pool?: boolean;
   available?: boolean;
   catalogOnly?: boolean;
-  availabilityStatus?: 'verified' | 'unknown';
+  availabilityStatus?: AccommodationAvailabilityStatus;
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -240,15 +244,7 @@ type RawHotel = {
   seoDescription?: string | null;
 };
 
-function mapToAccommodationItem(raw: RawHotel): AccommodationItem & {
-  available?: boolean;
-  latitude?: number | null;
-  longitude?: number | null;
-  originalPrice?: number | null;
-  originalCurrency?: string;
-  providerId?: string;
-  contentEnriched?: boolean;
-} {
+function mapToAccommodationItem(raw: RawHotel): AccommodationItem {
   return {
     id: raw.id,
     slug: raw.slug,

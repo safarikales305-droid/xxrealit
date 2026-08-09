@@ -1,5 +1,8 @@
 import { API_BASE_URL } from './api';
 
+/** Hotelbeds — stav dostupnosti z Booking API vs. katalog bez termínů. */
+export type AccommodationAvailabilityStatus = 'verified' | 'unknown';
+
 export type AccommodationItem = {
   id: string;
   slug: string;
@@ -23,6 +26,17 @@ export type AccommodationItem = {
   wellness: boolean;
   pool: boolean;
   favorited?: boolean;
+  /** Hotelbeds / partner listing — ověřená dostupnost z Booking API */
+  available?: boolean;
+  /** Katalog z Content API/DB bez volání Booking availability */
+  catalogOnly?: boolean;
+  availabilityStatus?: AccommodationAvailabilityStatus;
+  contentEnriched?: boolean;
+  providerId?: string;
+  originalPrice?: number | null;
+  originalCurrency?: string;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export type AccommodationDetail = AccommodationItem & {
@@ -217,11 +231,10 @@ export const ACCOMMODATION_TYPE_LABELS: Record<string, string> = {
 };
 
 export function formatAccommodationPrice(
-  item: Pick<AccommodationItem, 'priceFrom' | 'currency' | 'priceUnit'> & {
-    available?: boolean;
-    availabilityStatus?: 'verified' | 'unknown';
-    catalogOnly?: boolean;
-  },
+  item: Pick<
+    AccommodationItem,
+    'priceFrom' | 'currency' | 'priceUnit' | 'available' | 'availabilityStatus' | 'catalogOnly'
+  >,
 ) {
   if (item.priceFrom == null) {
     if (item.availabilityStatus === 'unknown' || item.catalogOnly || item.available === false) {
