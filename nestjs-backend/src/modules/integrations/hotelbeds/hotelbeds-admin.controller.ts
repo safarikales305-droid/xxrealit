@@ -63,6 +63,10 @@ export class HotelbedsAdminController {
   @Post('cache/clear')
   clearCache() {
     const removed = this.cache.clear();
+    this.metrics.setContentDiagnostics({
+      contentApiPermissionDenied: false,
+      contentApiOk: false,
+    });
     return { success: true, removed };
   }
 }

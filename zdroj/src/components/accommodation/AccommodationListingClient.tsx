@@ -60,7 +60,7 @@ export function AccommodationListingClient({
   const [items, setItems] = useState(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!ssrPrefetched);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'map'>('list');

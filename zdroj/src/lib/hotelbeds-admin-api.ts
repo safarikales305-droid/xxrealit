@@ -11,6 +11,7 @@ function nestAuthHeaders(token: string): HeadersInit {
 export type HotelbedsContentDiagnostics = {
   bookingApiOk: boolean;
   contentApiOk: boolean;
+  contentApiPermissionDenied: boolean;
   imagesOk: boolean;
   lastContentRequest: {
     endpoint: string;
@@ -59,6 +60,7 @@ export type HotelbedsTestSearchResult = HotelbedsTestResult & {
 
 export type HotelbedsTestContentResult = {
   success: boolean;
+  permissionDenied?: boolean;
   hotelCode: number;
   httpStatus: number;
   name: string | null;

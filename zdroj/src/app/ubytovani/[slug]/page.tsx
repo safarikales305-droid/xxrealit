@@ -58,14 +58,21 @@ export default async function UbytovaniSlugPage({ params }: Props) {
   if (ACCOMMODATION_CATEGORY_SLUGS.has(slug)) {
     let initialItems: Awaited<ReturnType<typeof fetchHotelbedsSearch>>['items'] = [];
     let initialTotal = 0;
+    let ssrLoaded = false;
     if (useHotelbeds) {
       const res = await fetchHotelbedsSearch({ category: slug, limit: ACCOMMODATION_PAGE_SIZE, page: 1 }).catch(() => null);
-      initialItems = res?.items ?? [];
-      initialTotal = res?.total ?? 0;
+      if (res) {
+        initialItems = res.items;
+        initialTotal = res.total;
+        ssrLoaded = true;
+      }
     } else {
       const res = await fetchAccommodations({ category: slug, limit: ACCOMMODATION_PAGE_SIZE }).catch(() => null);
-      initialItems = res?.items ?? [];
-      initialTotal = res?.total ?? 0;
+      if (res) {
+        initialItems = res.items;
+        initialTotal = res.total;
+        ssrLoaded = true;
+      }
     }
     return (
       <Shell title={`Ubytování — ${accommodationCategoryLabel(slug)}`}>
@@ -75,7 +82,7 @@ export default async function UbytovaniSlugPage({ params }: Props) {
           initialTotal={initialTotal}
           useHotelbeds={useHotelbeds}
           emptyCategoryLabel={accommodationCategoryLabel(slug)}
-          ssrPrefetched
+          ssrPrefetched={ssrLoaded}
         />
       </Shell>
     );
@@ -84,18 +91,25 @@ export default async function UbytovaniSlugPage({ params }: Props) {
   if (ACCOMMODATION_LOCATION_SLUGS.has(slug)) {
     let initialItems: Awaited<ReturnType<typeof fetchHotelbedsSearch>>['items'] = [];
     let initialTotal = 0;
+    let ssrLoaded = false;
     if (useHotelbeds) {
       const res = await fetchHotelbedsSearch({
         destination: slug.replace(/-/g, ' '),
         limit: ACCOMMODATION_PAGE_SIZE,
         page: 1,
       }).catch(() => null);
-      initialItems = res?.items ?? [];
-      initialTotal = res?.total ?? 0;
+      if (res) {
+        initialItems = res.items;
+        initialTotal = res.total;
+        ssrLoaded = true;
+      }
     } else {
       const res = await fetchAccommodations({ locationSlug: slug, limit: ACCOMMODATION_PAGE_SIZE }).catch(() => null);
-      initialItems = res?.items ?? [];
-      initialTotal = res?.total ?? 0;
+      if (res) {
+        initialItems = res.items;
+        initialTotal = res.total;
+        ssrLoaded = true;
+      }
     }
     return (
       <Shell title={`Ubytování — ${slug.replace(/-/g, ' ')}`}>
@@ -104,7 +118,7 @@ export default async function UbytovaniSlugPage({ params }: Props) {
           initialItems={initialItems}
           initialTotal={initialTotal}
           useHotelbeds={useHotelbeds}
-          ssrPrefetched
+          ssrPrefetched={ssrLoaded}
         />
       </Shell>
     );

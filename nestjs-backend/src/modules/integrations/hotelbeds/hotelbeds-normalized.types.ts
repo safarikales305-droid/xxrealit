@@ -60,6 +60,7 @@ export type NormalizedAccommodation = {
   seoDescription: string | null;
   coverPhoto: string | null;
   xxrealitCategory: string;
+  contentEnriched: boolean;
   petsAllowed: boolean;
   accessible: boolean;
 };
@@ -104,4 +105,5 @@ export type HotelbedsPublicConfig = {
   publicListings: boolean;
   bookingEnabled: boolean;
   environment: string;
+  contentApiAvailable: boolean;
 };

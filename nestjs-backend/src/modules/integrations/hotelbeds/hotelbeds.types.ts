@@ -21,6 +21,7 @@ export type HotelbedsTestSearchResult = {
 
 export type HotelbedsTestContentResult = {
   success: boolean;
+  permissionDenied?: boolean;
   hotelCode: number;
   httpStatus: number;
   name: string | null;

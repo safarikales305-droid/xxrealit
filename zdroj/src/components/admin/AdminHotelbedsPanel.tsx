@@ -39,6 +39,7 @@ export function AdminHotelbedsPanel() {
   const [expandedLog, setExpandedLog] = useState<HotelbedsApiLogEntry | null>(null);
   const [testingContent, setTestingContent] = useState(false);
   const [contentResult, setContentResult] = useState<HotelbedsTestContentResult | null>(null);
+  const [contentInfo, setContentInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -108,6 +109,7 @@ export function AdminHotelbedsPanel() {
     if (!apiAccessToken) return;
     setTestingContent(true);
     setError(null);
+    setContentInfo(null);
     const result = await nestAdminHotelbedsTestContent(apiAccessToken, 6741);
     setTestingContent(false);
     if (!result) {
@@ -115,13 +117,29 @@ export function AdminHotelbedsPanel() {
       return;
     }
     setContentResult(result);
+    if (result.permissionDenied) {
+      setContentInfo(
+        'API klíč nemá aktuálně oprávnění pro Hotel Content API. Booking API je nadále funkční.',
+      );
+      return;
+    }
     if (!result.success) {
       setError(result.error ?? `Content API HTTP ${result.httpStatus}`);
     }
     await load();
   }
 
+  const connectionOk = lastTest?.result.success === true;
   const diagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
+  const bookingApiStatus =
+    diagnostics?.bookingApiOk || connectionOk || searchResult?.success
+      ? '🟢 Připojeno'
+      : '🟡 Neotestováno';
+  const contentApiStatus = diagnostics?.contentApiPermissionDenied
+    ? '🔴 Bez oprávnění'
+    : diagnostics?.contentApiOk
+      ? '🟢 Připojeno'
+      : '🔴 Nedostupné';
 
   async function handleTestSearch() {
     if (!apiAccessToken) return;
@@ -139,7 +157,6 @@ export function AdminHotelbedsPanel() {
     }
   }
 
-  const connectionOk = lastTest?.result.success === true;
   const statusLabel = !status?.configured
     ? '🟡 Neotestováno (chybí ENV)'
     : testing
@@ -308,6 +325,25 @@ export function AdminHotelbedsPanel() {
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">API status</h2>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-zinc-500">Booking API</dt>
+            <dd className="font-medium">{bookingApiStatus}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Content API</dt>
+            <dd className="font-medium">{contentApiStatus}</dd>
+          </div>
+        </dl>
+        {diagnostics?.contentApiPermissionDenied ? (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Vyhledávání hotelů a cen funguje. Fotografie, popisy a další statická data čekají na aktivaci Content API.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Content API diagnostika</h2>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div>
@@ -316,7 +352,13 @@ export function AdminHotelbedsPanel() {
           </div>
           <div>
             <dt className="text-zinc-500">Content API</dt>
-            <dd className="font-medium">{diagnostics?.contentApiOk ? '✅' : '❌'}</dd>
+            <dd className="font-medium">
+              {diagnostics?.contentApiPermissionDenied
+                ? '❌ bez oprávnění'
+                : diagnostics?.contentApiOk
+                  ? '✅'
+                  : '❌'}
+            </dd>
           </div>
           <div>
             <dt className="text-zinc-500">Images</dt>
@@ -377,8 +419,22 @@ export function AdminHotelbedsPanel() {
             </div>
           </dl>
           {contentResult.error ? (
-            <pre className="mt-3 overflow-auto rounded-lg bg-red-50 p-3 text-xs text-red-900">{contentResult.error}</pre>
+            <pre
+              className={`mt-3 overflow-auto rounded-lg p-3 text-xs ${
+                contentResult.permissionDenied
+                  ? 'border border-amber-200 bg-amber-50 text-amber-900'
+                  : 'bg-red-50 text-red-900'
+              }`}
+            >
+              {contentResult.error}
+            </pre>
           ) : null}
+        </div>
+      ) : null}
+
+      {contentInfo ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm">
+          {contentInfo}
         </div>
       ) : null}
 

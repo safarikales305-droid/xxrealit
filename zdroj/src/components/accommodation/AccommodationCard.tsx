@@ -42,7 +42,9 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-400">Bez fotografie</div>
+          <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-zinc-500">
+            <span>Fotografie se připravuje</span>
+          </div>
         )}
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-zinc-800 shadow">
           {ACCOMMODATION_TYPE_LABELS[item.type] ?? item.type}

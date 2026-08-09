@@ -57,10 +57,12 @@ export class HotelbedsPublicService {
   ) {}
 
   getPublicConfig(): HotelbedsPublicConfig {
+    const diagnostics = this.metrics.contentDiagnostics();
     return {
       publicListings: this.config.publicListings,
       bookingEnabled: this.config.bookingEnabled,
       environment: this.config.environment,
+      contentApiAvailable: diagnostics.contentApiOk && !diagnostics.contentApiPermissionDenied,
     };
   }
 
@@ -144,7 +146,7 @@ export class HotelbedsPublicService {
     const { data } = await this.http.postJson<BookingSearchPayload>(bookingUrl, body, 'booking/search');
     const bookingHotels = data.hotels?.hotels ?? [];
     const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
-    const contentMap = await this.getHotelContents(codes);
+    const contentMap = await this.safeGetHotelContents(codes);
 
     const merged = bookingHotels
       .map((bh) => this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut))
@@ -156,16 +158,21 @@ export class HotelbedsPublicService {
 
   private applySearchFilters(items: NormalizedAccommodation[], query: HotelbedsSearchQuery) {
     return items.filter((h) => {
-      if (query.category && !categoryMatchesFilter(h.xxrealitCategory as never, query.category)) return false;
+      if (query.category && !categoryMatchesFilter(h.xxrealitCategory as never, query.category)) {
+        return false;
+      }
       if (query.starsMin && (h.stars ?? 0) < query.starsMin) return false;
       if (query.priceMax && (h.priceFrom ?? Infinity) > query.priceMax) return false;
-      if (query.wifi && !h.wifi) return false;
-      if (query.parking && !h.parking) return false;
-      if (query.breakfast && !h.breakfast) return false;
-      if (query.wellness && !h.wellness) return false;
-      if (query.pool && !h.pool) return false;
-      if (query.pets && !h.petsAllowed) return false;
-      if (query.accessible && !h.accessible) return false;
+      // Facility flags vyžadují Content API — bez enrichmentu je nefiltrujeme
+      if (h.contentEnriched) {
+        if (query.wifi && !h.wifi) return false;
+        if (query.parking && !h.parking) return false;
+        if (query.breakfast && !h.breakfast) return false;
+        if (query.wellness && !h.wellness) return false;
+        if (query.pool && !h.pool) return false;
+        if (query.pets && !h.petsAllowed) return false;
+        if (query.accessible && !h.accessible) return false;
+      }
       if (query.ratingMin && (h.rating ?? 0) < query.ratingMin) return false;
       return true;
     });
@@ -182,21 +189,24 @@ export class HotelbedsPublicService {
     const cached = this.cache.get<NormalizedAccommodation>(cacheKey);
     if (cached) return cached;
 
-    const contentMap = await this.getHotelContents([Number(code)]);
-    const content = contentMap.get(code);
-
     let bookingHotel: HbBookingHotel | undefined;
     try {
-      const availability = await this.fetchAvailabilityForHotel(
+      bookingHotel = await this.fetchAvailabilityForHotel(
         Number(code),
         checkIn,
         checkOut,
         query?.adults ?? 2,
         query?.rooms ?? 1,
       );
-      bookingHotel = availability;
     } catch {
       bookingHotel = undefined;
+    }
+
+    const contentMap = await this.safeGetHotelContents([Number(code)]);
+    const content = contentMap.get(code);
+
+    if (!bookingHotel && !content) {
+      throw new NotFoundException('Hotel nenalezen.');
     }
 
     const merged = this.mergeHotel(
@@ -228,12 +238,28 @@ export class HotelbedsPublicService {
    * Batch fetch statického hotel contentu podle Hotelbeds hotel codes.
    * Odstraní duplicity, rozdělí do batchů a mapuje booking code ↔ content code.
    */
+  /** Content API je volitelné obohacení — nikdy nesmí shodit Booking flow. */
+  private async safeGetHotelContents(codes: number[]): Promise<Map<string, HbContentHotel>> {
+    if (this.metrics.isContentApiDisabled() || !codes.length) {
+      return new Map();
+    }
+    try {
+      return await this.getHotelContents(codes);
+    } catch (err) {
+      this.log.warn(
+        `Content enrichment skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return new Map();
+    }
+  }
+
   async getHotelContents(
     codes: number[],
-    opts?: { skipCache?: boolean },
+    opts?: { skipCache?: boolean; force?: boolean },
   ): Promise<Map<string, HbContentHotel>> {
     const map = new Map<string, HbContentHotel>();
     if (!codes.length) return map;
+    if (!opts?.force && this.metrics.isContentApiDisabled()) return map;
 
     const unique = [...new Set(codes)].filter((c) => Number.isFinite(c) && c > 0);
     const missing: number[] = [];
@@ -275,11 +301,12 @@ export class HotelbedsPublicService {
 
   async testHotelContent(hotelCode = 6741) {
     try {
-      const hotels = await this.fetchContentBatch([hotelCode], `test-content-${hotelCode}`, true);
+      const hotels = await this.fetchContentBatch([hotelCode], `test-content-${hotelCode}`, true, true);
       const hotel = hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0];
       const images = sortHotelbedsImages(hotel?.images);
       return {
         success: Boolean(hotel),
+        permissionDenied: false,
         hotelCode,
         httpStatus: 200,
         name: localizedText(hotel?.name),
@@ -287,14 +314,19 @@ export class HotelbedsPublicService {
         imagesCount: images.length,
         facilitiesCount: hotel?.facilities?.length ?? 0,
         category: hotel?.categoryCode ?? hotel?.category?.code ?? null,
-        language: HOTELBEDS_CONTENT_LANGUAGE_PREFERRED.find(() => true) ?? 'ENG',
+        language: HOTELBEDS_CONTENT_LANGUAGE_PREFERRED[0] ?? 'ENG',
         addressExists: Boolean(hotel?.address?.street || hotel?.address?.content),
         coordinatesExist: Boolean(hotel?.coordinates?.latitude && hotel?.coordinates?.longitude),
       };
     } catch (err) {
       const status = err instanceof HotelbedsHttpError ? err.status : 0;
+      const permissionDenied = status === 401 || status === 403;
+      if (permissionDenied) {
+        this.metrics.markContentApiPermissionDenied();
+      }
       return {
         success: false,
+        permissionDenied,
         hotelCode,
         httpStatus: status,
         name: null,
@@ -305,7 +337,11 @@ export class HotelbedsPublicService {
         language: null,
         addressExists: false,
         coordinatesExist: false,
-        error: err instanceof HotelbedsHttpError ? err.errorBody ?? err.message : String(err),
+        error: permissionDenied
+          ? 'API klíč nemá aktuálně oprávnění pro Hotel Content API. Booking API je nadále funkční.'
+          : err instanceof HotelbedsHttpError
+            ? err.errorBody ?? err.message
+            : String(err),
       };
     }
   }
@@ -314,7 +350,12 @@ export class HotelbedsPublicService {
     codes: number[],
     cacheKey: string,
     skipCache?: boolean,
+    force?: boolean,
   ): Promise<HbContentHotel[]> {
+    if (!force && this.metrics.isContentApiDisabled()) {
+      return [];
+    }
+
     let lastError: unknown;
     for (const language of HOTELBEDS_CONTENT_LANGUAGE_PREFERRED) {
       const url = buildContentHotelsUrl(this.config.contentBaseUrl, codes, language);
@@ -327,9 +368,16 @@ export class HotelbedsPublicService {
         return data.hotels ?? [];
       } catch (err) {
         lastError = err;
-        if (err instanceof HotelbedsHttpError && err.status === 400) {
-          this.log.debug(`Content API language=${language} rejected (400), trying fallback`);
-          continue;
+        if (err instanceof HotelbedsHttpError) {
+          if (err.status === 401 || err.status === 403) {
+            this.metrics.markContentApiPermissionDenied();
+            this.log.warn('Content API permission denied — enrichment disabled until restart/cache clear');
+            return [];
+          }
+          if (err.status === 400) {
+            this.log.debug(`Content API language=${language} rejected (400), trying fallback`);
+            continue;
+          }
         }
         throw err;
       }
@@ -480,6 +528,7 @@ export class HotelbedsPublicService {
       petsAllowed: flags.pets,
       accessible: flags.accessible,
       xxrealitCategory,
+      contentEnriched: Boolean(content),
       seoTitle: `${name} | Ubytování ${city} | XXREALIT`,
       seoDescription: shortDescription,
       coverPhoto,

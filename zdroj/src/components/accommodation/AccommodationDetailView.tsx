@@ -24,11 +24,14 @@ type DetailItem = AccommodationDetail & {
   bookingEnabled?: boolean;
   originalPrice?: number | null;
   originalCurrency?: string;
+  providerId?: string;
+  contentEnriched?: boolean;
 };
 
 type Props = { item: DetailItem };
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200&q=80';
+const PARTNER_DETAIL_UNAVAILABLE =
+  'Detailní informace partnera momentálně nejsou dostupné.';
 
 function GalleryImage({
   src,
@@ -87,15 +90,14 @@ export function AccommodationDetailView({ item }: Props) {
   const [checking, setChecking] = useState(false);
   const isHotelbeds = isHotelbedsSlug(item.slug);
   const bookingDisabled = isHotelbeds || item.bookingEnabled === false;
+  const partnerDetailMissing = isHotelbeds && item.contentEnriched === false;
 
   const photos =
     item.photos.length > 0
       ? item.photos
       : item.coverPhoto
         ? [{ id: 'cover', url: item.coverPhoto, alt: item.name, isCover: true }]
-        : isHotelbeds
-          ? []
-          : [{ id: 'fallback', url: FALLBACK_IMAGE, alt: item.name, isCover: true }];
+        : [];
 
   const sidePhotos = photos.filter((_, i) => i !== current).slice(0, 4);
 
@@ -221,8 +223,8 @@ export function AccommodationDetailView({ item }: Props) {
               className="h-full w-full"
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-              Fotografie hotelu nejsou k dispozici
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center text-sm text-zinc-500">
+              <span>{partnerDetailMissing ? 'Fotografie se připravuje' : 'Fotografie hotelu nejsou k dispozici'}</span>
             </div>
           )}
           {photos.length > 1 ? (
@@ -284,6 +286,9 @@ export function AccommodationDetailView({ item }: Props) {
                 {item.stars ? ` · ${item.stars}★` : ''}
               </p>
               <h1 className="mt-1 text-2xl font-bold text-zinc-900 md:text-3xl">{item.name}</h1>
+              {isHotelbeds && item.providerId ? (
+                <p className="mt-1 text-xs text-zinc-500">Hotelbeds #{item.providerId}</p>
+              ) : null}
               <p className="mt-1 flex items-center gap-1 text-sm text-zinc-600">
                 <MapPin className="size-4 shrink-0" />
                 {item.city}
@@ -315,20 +320,24 @@ export function AccommodationDetailView({ item }: Props) {
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="text-lg font-semibold">Popis</h2>
         <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-700">
-          {item.description ?? item.shortDescription ?? 'Popis bude doplněn.'}
+          {item.description ?? item.shortDescription ?? (partnerDetailMissing ? PARTNER_DETAIL_UNAVAILABLE : 'Popis bude doplněn.')}
         </p>
       </section>
 
-      {item.facilities.length > 0 ? (
+      {item.facilities.length > 0 || partnerDetailMissing ? (
         <section className="rounded-2xl border border-zinc-200 bg-white p-5">
           <h2 className="text-lg font-semibold">Vybavení</h2>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-            {item.facilities.map((f) => (
-              <li key={f.id} className="rounded-lg bg-zinc-50 px-3 py-2 text-sm">
-                {f.name}
-              </li>
-            ))}
-          </ul>
+          {item.facilities.length > 0 ? (
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {item.facilities.map((f) => (
+                <li key={f.id} className="rounded-lg bg-zinc-50 px-3 py-2 text-sm">
+                  {f.name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-zinc-600">{PARTNER_DETAIL_UNAVAILABLE}</p>
+          )}
         </section>
       ) : null}
 

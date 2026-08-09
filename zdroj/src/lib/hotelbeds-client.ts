@@ -6,6 +6,7 @@ export type HotelbedsPublicConfig = {
   publicListings: boolean;
   bookingEnabled: boolean;
   environment: string;
+  contentApiAvailable?: boolean;
 };
 
 export type HotelbedsSearchParams = {
@@ -176,6 +177,8 @@ export async function fetchHotelbedsMapMarkers(params: HotelbedsSearchParams = {
 type RawHotel = {
   id: string;
   slug: string;
+  providerId?: string;
+  contentEnriched?: boolean;
   type: string;
   name: string;
   shortDescription?: string | null;
@@ -229,6 +232,8 @@ function mapToAccommodationItem(raw: RawHotel): AccommodationItem & {
   longitude?: number | null;
   originalPrice?: number | null;
   originalCurrency?: string;
+  providerId?: string;
+  contentEnriched?: boolean;
 } {
   return {
     id: raw.id,
@@ -257,6 +262,8 @@ function mapToAccommodationItem(raw: RawHotel): AccommodationItem & {
     longitude: raw.longitude ?? null,
     originalPrice: raw.priceFromOriginal ?? null,
     originalCurrency: raw.originalCurrency ?? undefined,
+    providerId: raw.providerId,
+    contentEnriched: raw.contentEnriched ?? false,
   };
 }
 
@@ -267,6 +274,8 @@ function mapToAccommodationDetail(raw: RawHotel): AccommodationDetail & {
   checkIn?: string;
   checkOut?: string;
   bookingEnabled?: boolean;
+  providerId?: string;
+  contentEnriched?: boolean;
 } {
   const item = mapToAccommodationItem(raw);
   return {

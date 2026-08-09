@@ -26,12 +26,14 @@ export default async function UbytovaniPage() {
 
   let initialItems: Awaited<ReturnType<typeof fetchHotelbedsSearch>>['items'] = [];
   let initialTotal = 0;
+  let ssrLoaded = false;
 
   if (useHotelbeds) {
     try {
       const res = await fetchHotelbedsSearch({ limit: ACCOMMODATION_PAGE_SIZE, page: 1 });
       initialItems = res.items;
       initialTotal = res.total;
+      ssrLoaded = true;
     } catch {
       // client retry
     }
@@ -57,6 +59,7 @@ export default async function UbytovaniPage() {
           initialTotal={initialTotal}
           hideTopSearch
           useHotelbeds={useHotelbeds}
+          ssrPrefetched={ssrLoaded}
         />
       </main>
     </div>

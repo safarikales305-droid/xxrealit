@@ -17,6 +17,7 @@ export type HotelbedsApiLog = {
 export type HotelbedsContentDiagnostics = {
   bookingApiOk: boolean;
   contentApiOk: boolean;
+  contentApiPermissionDenied: boolean;
   imagesOk: boolean;
   lastContentRequest: {
     endpoint: string;
@@ -36,6 +37,7 @@ export class HotelbedsMetricsService {
   private lastContentSync: { at: string; hotels: number } | null = null;
   private lastContentRequest: HotelbedsContentDiagnostics['lastContentRequest'] = null;
   private contentApiOk = false;
+  private contentApiPermissionDenied = false;
   private imagesOk = false;
   private bookingApiOk = false;
   private readonly logs: HotelbedsApiLog[] = [];
@@ -59,6 +61,8 @@ export class HotelbedsMetricsService {
       };
       if (log.status >= 200 && log.status < 300) {
         this.contentApiOk = true;
+      } else if (log.status === 401 || log.status === 403) {
+        this.contentApiPermissionDenied = true;
       }
     }
     if (log.endpoint.includes('booking/') && log.status >= 200 && log.status < 300) {
@@ -76,9 +80,21 @@ export class HotelbedsMetricsService {
     if (withImages > 0) this.imagesOk = true;
   }
 
+  markContentApiPermissionDenied(): void {
+    this.contentApiPermissionDenied = true;
+    this.contentApiOk = false;
+  }
+
+  isContentApiDisabled(): boolean {
+    return this.contentApiPermissionDenied;
+  }
+
   setContentDiagnostics(partial: Partial<HotelbedsContentDiagnostics>): void {
     if (partial.bookingApiOk != null) this.bookingApiOk = partial.bookingApiOk;
     if (partial.contentApiOk != null) this.contentApiOk = partial.contentApiOk;
+    if (partial.contentApiPermissionDenied != null) {
+      this.contentApiPermissionDenied = partial.contentApiPermissionDenied;
+    }
     if (partial.imagesOk != null) this.imagesOk = partial.imagesOk;
     if (partial.lastContentRequest != null) this.lastContentRequest = partial.lastContentRequest;
   }
@@ -87,6 +103,7 @@ export class HotelbedsMetricsService {
     return {
       bookingApiOk: this.bookingApiOk,
       contentApiOk: this.contentApiOk,
+      contentApiPermissionDenied: this.contentApiPermissionDenied,
       imagesOk: this.imagesOk,
       lastContentRequest: this.lastContentRequest,
     };
