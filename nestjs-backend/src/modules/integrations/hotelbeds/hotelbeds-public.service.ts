@@ -27,6 +27,13 @@ import {
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
 import { isQuotaExceededMessage } from './hotelbeds-content-api-status.util';
 import { HotelbedsImageService } from './hotelbeds-image.service';
+import {
+  applyPublicCatalogFilters,
+  detectHotelFilterReason,
+  isAvailabilitySearchQuery,
+  shouldApplyDestinationFilter,
+  tracePublicCatalogFilters,
+} from './hotelbeds-public-catalog.util';
 import type { HotelbedsContentMeta, HotelbedsDebugSource } from './hotelbeds-content-meta.types';
 import type {
   HotelbedsPublicConfig,
@@ -76,7 +83,9 @@ export class HotelbedsPublicService {
     if (!this.config.publicListings) {
       throw new ServiceUnavailableException('Hotelbeds public listings are disabled.');
     }
-    if (!this.http.getCredentials()) {
+
+    const catalogBrowse = !isAvailabilitySearchQuery(query);
+    if (!catalogBrowse && !this.http.getCredentials()) {
       throw new ServiceUnavailableException('Hotelbeds není nakonfigurován.');
     }
 
@@ -89,11 +98,11 @@ export class HotelbedsPublicService {
     const limit = Math.min(HOTELBEDS_BATCH_MAX, Math.max(1, query.limit ?? HOTELBEDS_PAGE_SIZE));
     const destination = resolveDestination(query.destination);
 
-    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${query.category ?? ''}:${query.starsMin ?? ''}:${query.priceMax ?? ''}:${query.wifi ? 1 : 0}:${query.parking ? 1 : 0}:${query.breakfast ? 1 : 0}:${query.wellness ? 1 : 0}:${query.pool ? 1 : 0}:${query.pets ? 1 : 0}:${query.accessible ? 1 : 0}:${page}:${limit}:${query.catalog ? 'catalog' : 'avail'}`;
+    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${query.category ?? ''}:${query.starsMin ?? ''}:${query.priceMax ?? ''}:${query.wifi ? 1 : 0}:${query.parking ? 1 : 0}:${query.breakfast ? 1 : 0}:${query.wellness ? 1 : 0}:${query.pool ? 1 : 0}:${query.pets ? 1 : 0}:${query.accessible ? 1 : 0}:${page}:${limit}:${catalogBrowse ? 'catalog' : 'avail'}:${query.filterDestination ? 1 : 0}`;
     const cached = this.cache.get<HotelbedsSearchResponse>(cacheKey);
     if (cached) return this.toPublicResponse(cached);
 
-    if (query.catalog !== false) {
+    if (catalogBrowse) {
       const catalogResponse = await this.searchCatalog(query, checkIn, checkOut, destination.label);
       this.cache.set(cacheKey, catalogResponse, CACHE_SEARCH_MS);
       return this.toPublicResponse(catalogResponse);
@@ -147,14 +156,16 @@ export class HotelbedsPublicService {
   ): Promise<HotelbedsSearchResponse> {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(HOTELBEDS_BATCH_MAX, Math.max(1, query.limit ?? HOTELBEDS_PAGE_SIZE));
-    const destination = resolveDestination(query.destination);
-    const cityFilter = query.destination?.trim() ? destination.label : undefined;
+    const cityFilter = shouldApplyDestinationFilter(query)
+      ? resolveDestination(query.destination).label
+      : undefined;
 
+    const dbHotelbedsCount = await this.contentStorage.countCatalog();
     const { items: contentHotels, total: dbTotal } = await this.contentStorage.listCatalog({
       category: query.category,
       city: cityFilter,
-      page,
-      limit,
+      page: shouldApplyDestinationFilter(query) ? page : 1,
+      limit: shouldApplyDestinationFilter(query) ? limit : Math.max(limit, dbHotelbedsCount || limit),
     });
 
     const cacheHits = contentHotels.filter((h) =>
@@ -172,35 +183,36 @@ export class HotelbedsPublicService {
         ),
       ),
     );
-    const filtered = this.applySearchFilters(
-      merged.filter((h): h is NormalizedAccommodation => h != null),
-      query,
-    );
-
+    const mergedItems = merged.filter((h): h is NormalizedAccommodation => h != null);
+    const { items: filtered, trace } = tracePublicCatalogFilters(mergedItems, query);
     const finalTotal = query.category || cityFilter ? filtered.length : dbTotal;
+    const start = (page - 1) * limit;
+    const pageHotels = filtered.slice(start, start + limit);
+
     this.log.log(
       JSON.stringify({
-        event: 'PUBLIC_HOTEL_REQUEST',
-        source: 'DATABASE',
-        dbContent: dbTotal,
-        cacheHits,
-        bookingApi: 'NOT_REQUIRED',
+        event: 'PUBLIC_ACCOMMODATION_QUERY',
+        provider: 'HOTELBEDS',
+        dbHotelbedsCount,
+        totalAccommodationCount: dbHotelbedsCount,
+        dbPageCount: contentHotels.length,
+        mergedCount: mergedItems.length,
+        filteredCount: filtered.length,
+        finalReturnedCount: pageHotels.length,
+        bookingApi: 'NOT_CALLED',
         contentApi: 'NOT_CALLED',
-        finalResults: filtered.length,
-        total: finalTotal,
-        page,
-        limit,
+        filters: trace,
         category: query.category ?? null,
-        city: cityFilter ?? null,
+        destination: cityFilter ?? null,
       }),
     );
 
     return {
-      items: filtered,
+      items: pageHotels,
       total: finalTotal,
       page,
       limit,
-      totalPages: Math.max(1, Math.ceil((query.category || cityFilter ? filtered.length : dbTotal) / limit)),
+      totalPages: Math.max(1, Math.ceil(finalTotal / limit)),
       checkIn,
       checkOut,
       destination: destinationLabel,
@@ -263,25 +275,72 @@ export class HotelbedsPublicService {
   }
 
   private applySearchFilters(items: NormalizedAccommodation[], query: HotelbedsSearchQuery) {
-    return items.filter((h) => {
-      if (query.category && !categoryMatchesFilter(h.xxrealitCategory as never, query.category)) {
-        return false;
-      }
-      if (query.starsMin && (h.stars ?? 0) < query.starsMin) return false;
-      if (query.priceMax && (h.priceFrom ?? Infinity) > query.priceMax) return false;
-      // Facility flags vyžadují Content API — bez enrichmentu je nefiltrujeme
-      if (h.contentEnriched) {
-        if (query.wifi && !h.wifi) return false;
-        if (query.parking && !h.parking) return false;
-        if (query.breakfast && !h.breakfast) return false;
-        if (query.wellness && !h.wellness) return false;
-        if (query.pool && !h.pool) return false;
-        if (query.pets && !h.petsAllowed) return false;
-        if (query.accessible && !h.accessible) return false;
-      }
-      if (query.ratingMin && (h.rating ?? 0) < query.ratingMin) return false;
-      return true;
-    });
+    return applyPublicCatalogFilters(items, query);
+  }
+
+  async testPublicEndpoint(hotelCode = 6741) {
+    const query: HotelbedsSearchQuery = {
+      catalog: true,
+      page: 1,
+      limit: 100,
+    };
+    const dbHotelbedsCount = await this.contentStorage.countCatalog();
+    const imageDelivery = await this.imageService.probeDelivery(hotelCode, 0, 'card');
+
+    let httpStatus = 200;
+    let response: HotelbedsSearchResponse | null = null;
+    let error: string | null = null;
+    try {
+      response = await this.search(query);
+    } catch (err) {
+      httpStatus = 503;
+      error = err instanceof Error ? err.message : String(err);
+    }
+
+    const allMerged = response?.items ?? [];
+    const hotelReturned = allMerged.some((h) => h.providerId === String(hotelCode));
+    let filterReason: string | null = null;
+
+    if (!hotelReturned && !error) {
+      const { items: contentHotels } = await this.contentStorage.listCatalog({
+        page: 1,
+        limit: Math.max(100, dbHotelbedsCount || 1),
+      });
+      const merged = await Promise.all(
+        contentHotels.map((content) =>
+          this.mergeHotel(
+            { code: content.code, name: localizedText(content.name) ?? undefined },
+            content,
+            defaultSearchDates().checkIn,
+            defaultSearchDates().checkOut,
+            { catalogOnly: true },
+          ),
+        ),
+      );
+      const mergedItems = merged.filter((h): h is NormalizedAccommodation => h != null);
+      const traced = tracePublicCatalogFilters(mergedItems, query);
+      filterReason = detectHotelFilterReason(hotelCode, mergedItems, traced.items, traced.trace);
+    }
+
+    return {
+      httpStatus,
+      success: httpStatus === 200,
+      error,
+      dbHotelbedsCount,
+      returnedCount: response?.items.length ?? 0,
+      total: response?.total ?? 0,
+      hotelDuoReturned: hotelReturned ? 'YES' : 'NO',
+      hotelDuoFilterReason: filterReason,
+      bookingApiCalled: false,
+      contentApiCalled: false,
+      imageProxy: {
+        proxyUrl: imageDelivery.proxyUrl,
+        httpStatus: imageDelivery.httpStatus,
+        contentType: imageDelivery.contentType,
+        rawPath: imageDelivery.rawPath,
+      },
+      note: 'Test veřejného katalogu bez termínu — pouze DB, bez Booking/Content API.',
+    };
   }
 
   async getDbHotelSummary(hotelCode: number) {
@@ -300,16 +359,19 @@ export class HotelbedsPublicService {
     if (cached) return this.toPublicItem(cached);
 
     let bookingHotel: HbBookingHotel | undefined;
-    try {
-      bookingHotel = await this.fetchAvailabilityForHotel(
-        Number(code),
-        checkIn,
-        checkOut,
-        query?.adults ?? 2,
-        query?.rooms ?? 1,
-      );
-    } catch {
-      bookingHotel = undefined;
+    const hasExplicitDates = Boolean(query?.checkIn?.trim() && query?.checkOut?.trim());
+    if (hasExplicitDates) {
+      try {
+        bookingHotel = await this.fetchAvailabilityForHotel(
+          Number(code),
+          checkIn,
+          checkOut,
+          query?.adults ?? 2,
+          query?.rooms ?? 1,
+        );
+      } catch {
+        bookingHotel = undefined;
+      }
     }
 
     const contentMap = await this.getContentsFromPersistence([Number(code)]);
@@ -368,16 +430,19 @@ export class HotelbedsPublicService {
     const checkOut = query?.checkOut || defaults.checkOut;
 
     let bookingHotel: HbBookingHotel | undefined;
-    try {
-      bookingHotel = await this.fetchAvailabilityForHotel(
-        Number(code),
-        checkIn,
-        checkOut,
-        query?.adults ?? 2,
-        query?.rooms ?? 1,
-      );
-    } catch {
-      bookingHotel = undefined;
+    const hasExplicitDates = Boolean(query?.checkIn?.trim() && query?.checkOut?.trim());
+    if (hasExplicitDates) {
+      try {
+        bookingHotel = await this.fetchAvailabilityForHotel(
+          Number(code),
+          checkIn,
+          checkOut,
+          query?.adults ?? 2,
+          query?.rooms ?? 1,
+        );
+      } catch {
+        bookingHotel = undefined;
+      }
     }
 
     const contentMap = await this.getContentsFromPersistence([Number(code)]);

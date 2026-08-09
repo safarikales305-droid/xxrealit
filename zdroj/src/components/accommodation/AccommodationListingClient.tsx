@@ -97,8 +97,9 @@ export function AccommodationListingClient({
     });
   }, [useHotelbedsProp]);
 
-  const destination = filters.q || defaults.destination;
+  const destination = filters.q?.trim() || undefined;
   const availabilitySearch = Boolean(searchParams.get('checkIn') && searchParams.get('checkOut'));
+  const catalogBrowse = !availabilitySearch;
 
   const load = useCallback(
     async (pageNum: number, append = false) => {
@@ -108,9 +109,9 @@ export function AccommodationListingClient({
       try {
         if (useHotelbeds) {
           const res = await fetchHotelbedsSearch({
-            destination,
-            checkIn: filters.checkIn || defaults.checkIn,
-            checkOut: filters.checkOut || defaults.checkOut,
+            destination: catalogBrowse ? destination : destination || defaults.destination,
+            checkIn: availabilitySearch ? filters.checkIn || defaults.checkIn : undefined,
+            checkOut: availabilitySearch ? filters.checkOut || defaults.checkOut : undefined,
             adults: filters.guests,
             rooms: filters.rooms,
             page: pageNum,
@@ -125,7 +126,8 @@ export function AccommodationListingClient({
             pets: filters.pets,
             accessible: filters.accessible,
             ratingMin: Number(filters.ratingMin) || undefined,
-            catalog: !availabilitySearch,
+            catalog: catalogBrowse,
+            filterDestination: catalogBrowse ? Boolean(destination) : true,
           });
           setItems((prev) => (append ? [...prev, ...res.items] : res.items));
           setTotal(res.total);
@@ -160,7 +162,7 @@ export function AccommodationListingClient({
         setLoadingMore(false);
       }
     },
-    [apiAccessToken, availabilitySearch, category, destination, filters, locationSlug, searchParams, useHotelbeds, defaults],
+    [apiAccessToken, availabilitySearch, catalogBrowse, category, destination, filters, locationSlug, useHotelbeds, defaults],
   );
 
   const skipFirstClientLoad = useRef(ssrPrefetched);
@@ -186,11 +188,13 @@ export function AccommodationListingClient({
     if (view !== 'map') return;
     if (useHotelbeds) {
       void fetchHotelbedsMapMarkers({
-        destination,
-        checkIn: filters.checkIn || defaults.checkIn,
-        checkOut: filters.checkOut || defaults.checkOut,
+        destination: catalogBrowse ? destination : destination || defaults.destination,
+        checkIn: availabilitySearch ? filters.checkIn || defaults.checkIn : undefined,
+        checkOut: availabilitySearch ? filters.checkOut || defaults.checkOut : undefined,
         adults: filters.guests,
         rooms: filters.rooms,
+        catalog: catalogBrowse,
+        filterDestination: catalogBrowse ? Boolean(destination) : true,
       }).then(setMarkers);
     } else {
       void import('@/lib/accommodation-client').then((m) =>
@@ -201,7 +205,7 @@ export function AccommodationListingClient({
         }).then(setMarkers),
       );
     }
-  }, [view, filters, category, locationSlug, useHotelbeds, destination, defaults]);
+  }, [view, filters, category, locationSlug, useHotelbeds, destination, defaults, catalogBrowse, availabilitySearch]);
 
   async function handleFavorite(id: string) {
     if (!isAuthenticated || !apiAccessToken || useHotelbeds) return;

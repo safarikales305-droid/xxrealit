@@ -34,6 +34,8 @@ export class HotelbedsPublicController {
     @Query('accessible') accessible?: string,
     @Query('ratingMin') ratingMin?: string,
     @Query('catalog') catalog?: string,
+    @Query('availability') availability?: string,
+    @Query('filterDestination') filterDestination?: string,
   ) {
     return this.publicService.search({
       destination,
@@ -56,6 +58,8 @@ export class HotelbedsPublicController {
       accessible: accessible === '1' || accessible === 'true',
       ratingMin: Number(ratingMin) || undefined,
       catalog: parseCatalogQueryParam(catalog),
+      availabilitySearch: availability === '1' || availability === 'true',
+      filterDestination: filterDestination === '1' || filterDestination === 'true',
     });
   }
 

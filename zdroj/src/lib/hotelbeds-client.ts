@@ -36,6 +36,8 @@ export type HotelbedsSearchParams = {
   ratingMin?: number;
   /** Katalog z DB bez Booking availability */
   catalog?: boolean;
+  /** Uživatel zadal destinaci do vyhledávání */
+  filterDestination?: boolean;
 };
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
@@ -88,11 +90,12 @@ export async function fetchHotelbedsSearch(
 ): Promise<AccommodationListResponse & { checkIn: string; checkOut: string; destination: string }> {
   const defaults = defaultHotelbedsSearchParams();
   const catalog = params.catalog ?? true;
+  const availabilitySearch = !catalog;
   const res = await fetch(
     `${API_BASE_URL}/hotelbeds/public/search${buildQuery({
-      destination: params.destination ?? defaults.destination,
-      checkIn: params.checkIn ?? defaults.checkIn,
-      checkOut: params.checkOut ?? defaults.checkOut,
+      destination: catalog ? params.destination : (params.destination ?? defaults.destination),
+      checkIn: availabilitySearch ? params.checkIn ?? defaults.checkIn : undefined,
+      checkOut: availabilitySearch ? params.checkOut ?? defaults.checkOut : undefined,
       adults: params.adults ?? defaults.adults,
       rooms: params.rooms ?? defaults.rooms,
       children: params.children,
@@ -110,6 +113,8 @@ export async function fetchHotelbedsSearch(
       accessible: params.accessible ? '1' : undefined,
       ratingMin: params.ratingMin,
       catalog: catalog ? '1' : '0',
+      availability: availabilitySearch ? '1' : undefined,
+      filterDestination: params.filterDestination ? '1' : undefined,
     })}`,
     { next: { revalidate: 60 } },
   );
@@ -133,13 +138,14 @@ export async function fetchHotelbedsDetail(
   slug: string,
   params?: Pick<HotelbedsSearchParams, 'checkIn' | 'checkOut' | 'adults' | 'rooms'>,
 ): Promise<AccommodationDetail | null> {
+  const hasDates = Boolean(params?.checkIn && params?.checkOut);
   const defaults = defaultHotelbedsSearchParams();
   const res = await fetch(
     `${API_BASE_URL}/hotelbeds/public/hotels/${encodeURIComponent(slug)}${buildQuery({
-      checkIn: params?.checkIn ?? defaults.checkIn,
-      checkOut: params?.checkOut ?? defaults.checkOut,
-      adults: params?.adults ?? defaults.adults,
-      rooms: params?.rooms ?? defaults.rooms,
+      checkIn: hasDates ? params?.checkIn : undefined,
+      checkOut: hasDates ? params?.checkOut : undefined,
+      adults: hasDates ? params?.adults ?? defaults.adults : undefined,
+      rooms: hasDates ? params?.rooms ?? defaults.rooms : undefined,
     })}`,
     { next: { revalidate: 120 } },
   );

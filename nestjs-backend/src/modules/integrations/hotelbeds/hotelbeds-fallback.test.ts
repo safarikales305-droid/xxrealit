@@ -7,6 +7,64 @@ import {
   resolveContentApiAccessStatus,
   shouldBlockContentApiRequest,
 } from './hotelbeds-content-api-status.util';
+import { tracePublicCatalogFilters } from './hotelbeds-public-catalog.util';
+import type { NormalizedAccommodation } from './hotelbeds-normalized.types';
+
+function sampleHotel(overrides: Partial<NormalizedAccommodation> = {}): NormalizedAccommodation {
+  return {
+    id: 'hb-6741',
+    provider: 'HOTELBEDS',
+    providerId: '6741',
+    name: 'Hotel Duo',
+    slug: 'hotel-6741-hotel-duo',
+    description: 'Desc',
+    shortDescription: 'Short',
+    category: 'HOTEL',
+    type: 'HOTEL',
+    stars: 4,
+    rating: null,
+    reviewCount: 0,
+    address: 'Teplicka 492',
+    city: 'Praha',
+    region: null,
+    country: 'CZ',
+    latitude: 50.12,
+    longitude: 14.48,
+    photos: [],
+    facilities: [],
+    rooms: [],
+    boardTypes: [],
+    priceFrom: null,
+    priceFromOriginal: null,
+    currency: 'CZK',
+    originalCurrency: 'EUR',
+    priceUnit: 'PER_NIGHT',
+    available: false,
+    cancellationPolicy: null,
+    checkIn: '2026-01-01',
+    checkOut: '2026-01-03',
+    checkInFrom: '15:00',
+    checkOutUntil: '11:00',
+    sourceEnvironment: 'TEST',
+    amenities: [],
+    tags: [],
+    wifi: false,
+    parking: false,
+    breakfast: false,
+    wellness: false,
+    pool: false,
+    seoTitle: null,
+    seoDescription: null,
+    coverPhoto: null,
+    xxrealitCategory: 'hotely',
+    contentEnriched: true,
+    petsAllowed: false,
+    accessible: false,
+    catalogOnly: true,
+    availabilityStatus: 'unknown',
+    ...overrides,
+  };
+}
 
 test('parseCatalogQueryParam defaults to catalog mode', () => {
   assert.equal(parseCatalogQueryParam(undefined), true);
@@ -91,4 +149,23 @@ test('temporary server errors map to TEMPORARY_ERROR', () => {
     lastFailedMessage: 'Service unavailable',
   });
   assert.equal(status, 'TEMPORARY_ERROR');
+});
+
+test('catalog hotels without price are not removed by priceMax', () => {
+  const traced = tracePublicCatalogFilters([sampleHotel()], { priceMax: 1000, catalog: true });
+  assert.equal(traced.items.length, 1);
+});
+
+test('default catalog browse does not filter by implicit destination', () => {
+  const traced = tracePublicCatalogFilters([sampleHotel({ city: 'Brno' })], { catalog: true });
+  assert.equal(traced.items.length, 1);
+});
+
+test('explicit destination filter can remove hotels outside city', () => {
+  const traced = tracePublicCatalogFilters([sampleHotel({ city: 'Brno' })], {
+    catalog: true,
+    destination: 'Praha',
+    filterDestination: true,
+  });
+  assert.equal(traced.items.length, 0);
 });

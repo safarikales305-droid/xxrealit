@@ -52,7 +52,7 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
           </span>
         ) : item.availabilityStatus === 'unknown' || item.catalogOnly ? (
           <span className="absolute bottom-3 left-3 rounded-full bg-zinc-700/90 px-2.5 py-1 text-[11px] font-semibold text-white shadow">
-            Dostupnost se ověřuje
+            Dostupnost ověříme po zadání termínu
           </span>
         ) : null}
         {onFavorite ? (

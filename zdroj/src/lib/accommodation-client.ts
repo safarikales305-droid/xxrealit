@@ -237,8 +237,8 @@ export function formatAccommodationPrice(
   >,
 ) {
   if (item.priceFrom == null) {
-    if (item.availabilityStatus === 'unknown' || item.catalogOnly || item.available === false) {
-      return 'Cena a dostupnost se ověřuje';
+    if (item.catalogOnly || item.availabilityStatus === 'unknown') {
+      return 'Cenu ověříme po zadání termínu';
     }
     return 'Cena na dotaz';
   }

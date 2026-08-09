@@ -109,6 +109,12 @@ export class HotelbedsAdminController {
     return this.contentSync.syncHotel(code, force === '1' || force === 'true');
   }
 
+  @Post('test-public-endpoint')
+  testPublicEndpoint(@Query('hotelCode') hotelCode?: string) {
+    const code = Number(hotelCode) || 6741;
+    return this.publicService.testPublicEndpoint(code);
+  }
+
   @Post('cache/clear')
   clearCache() {
     const removed = this.cache.clear();

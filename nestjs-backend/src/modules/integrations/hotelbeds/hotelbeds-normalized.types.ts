@@ -93,6 +93,10 @@ export type HotelbedsSearchQuery = {
   ratingMin?: number;
   /** Katalog z DB/cache bez volání Booking availability API */
   catalog?: boolean;
+  /** Explicitní vyhledávání s termínem (checkIn + checkOut) */
+  availabilitySearch?: boolean;
+  /** Uživatel zadal destinaci do vyhledávání */
+  filterDestination?: boolean;
 };
 
 export type HotelbedsSearchResponse = {

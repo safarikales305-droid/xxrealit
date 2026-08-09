@@ -17,6 +17,8 @@ import {
   nestAdminHotelbedsDiagnosePublicHotels,
   nestAdminHotelbedsSyncContent,
   nestAdminHotelbedsSyncHotel,
+  nestAdminHotelbedsTestPublicEndpoint,
+  type HotelbedsPublicEndpointTest,
   nestAdminHotelbedsRawContent,
   type HotelbedsApiLogEntry,
   type HotelbedsDiagnosticsOverview,
@@ -62,6 +64,8 @@ export function AdminHotelbedsPanel() {
   const [syncingHotel, setSyncingHotel] = useState(false);
   const [rawContent, setRawContent] = useState<Record<string, unknown> | null>(null);
   const [syncResult, setSyncResult] = useState<Record<string, unknown> | null>(null);
+  const [testingPublicEndpoint, setTestingPublicEndpoint] = useState(false);
+  const [publicEndpointTest, setPublicEndpointTest] = useState<HotelbedsPublicEndpointTest | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -232,6 +236,22 @@ export function AdminHotelbedsPanel() {
     await load();
   }
 
+  async function handleTestPublicEndpoint() {
+    if (!apiAccessToken) return;
+    setTestingPublicEndpoint(true);
+    setError(null);
+    const result = await nestAdminHotelbedsTestPublicEndpoint(apiAccessToken, 6741);
+    setTestingPublicEndpoint(false);
+    if (!result) {
+      setError('Test public endpointu selhal — backend neodpověděl.');
+      return;
+    }
+    setPublicEndpointTest(result);
+    if (!result.success) {
+      setError(result.error ?? `Public endpoint HTTP ${result.httpStatus}`);
+    }
+  }
+
   const connectionOk = lastTest?.result.success === true;
   const contentDiagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
   const overview = diagnostics;
@@ -296,11 +316,15 @@ export function AdminHotelbedsPanel() {
     ? '🟡 Neotestováno (chybí ENV)'
     : testing
       ? '🟡 Testuji…'
-      : connectionOk
-        ? '🟢 Připojeno'
-        : lastTest
-          ? '🔴 Chyba připojení'
-          : '🟡 Neotestováno';
+      : hasDbContent && (quotaExceeded || contentDiagnostics?.publicFallbackActive)
+        ? '🟠 Omezený režim'
+        : connectionOk
+          ? '🟢 Připojeno'
+          : lastTest
+            ? '🔴 Chyba připojení'
+            : '🟡 Neotestováno';
+  const authenticationStatus = status?.configured ? '🟢 Nakonfigováno' : '🔴 Chybí credentials';
+  const publicListingsStatus = status?.publicListings ? '🟢 Zapnuto' : '🔴 Vypnuto';
 
   if (user?.role !== 'ADMIN') {
     return <p className="text-sm text-red-600">Pouze pro administrátory.</p>;
@@ -342,6 +366,26 @@ export function AdminHotelbedsPanel() {
             <div>
               <dt className="text-zinc-500">Status</dt>
               <dd className="font-medium text-zinc-900">{statusLabel}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Authentication</dt>
+              <dd className="font-medium text-zinc-900">{authenticationStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Booking API</dt>
+              <dd className="font-medium text-zinc-900">{bookingApiStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Content API</dt>
+              <dd className="font-medium text-zinc-900">{contentApiStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">DB fallback</dt>
+              <dd className="font-medium text-zinc-900">{dbContentStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Public listings</dt>
+              <dd className="font-medium text-zinc-900">{publicListingsStatus}</dd>
             </div>
             <div>
               <dt className="text-zinc-500">API Key</dt>
@@ -474,8 +518,9 @@ export function AdminHotelbedsPanel() {
         {quotaExceeded ? (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {hasDbContent
-              ? 'Live Content API má dočasně vyčerpanou kvótu. Uložený obsah hotelů z databáze zůstává dostupný a veřejný portál používá databázový fallback.'
+              ? `Live Content API má dočasně vyčerpanou kvótu. Databázový katalog je aktivní a obsahuje ${dbHotelCount} hotel${dbHotelCount === 1 ? '' : 'ů'}.`
               : 'Live Content API má dočasně vyčerpanou kvótu. Veřejný portál používá databázový fallback, pokud je obsah k dispozici.'}
+            <span className="mt-1 block">Public fallback: aktivní</span>
           </p>
         ) : permissionDenied ? (
           <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
@@ -534,8 +579,60 @@ export function AdminHotelbedsPanel() {
             >
               {diagnosingPublic ? 'Testuji veřejné hotely…' : 'Test veřejných hotelů'}
             </button>
+            <button
+              type="button"
+              disabled={testingPublicEndpoint || !status?.configured}
+              onClick={() => void handleTestPublicEndpoint()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {testingPublicEndpoint ? 'Testuji public endpoint…' : 'Test public endpointu'}
+            </button>
           </div>
         </div>
+
+        {publicEndpointTest ? (
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
+            <h3 className="font-semibold text-zinc-900">Test public endpointu</h3>
+            <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div>
+                <dt className="text-zinc-500">HTTP</dt>
+                <dd className="font-medium">{publicEndpointTest.httpStatus}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">DB HOTELBEDS count</dt>
+                <dd className="font-medium">{publicEndpointTest.dbHotelbedsCount}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Returned count</dt>
+                <dd className="font-medium">{publicEndpointTest.returnedCount}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Hotel Duo returned</dt>
+                <dd className="font-medium">{publicEndpointTest.hotelDuoReturned}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Booking API called</dt>
+                <dd className="font-medium">{publicEndpointTest.bookingApiCalled ? 'YES' : 'NO'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Content API called</dt>
+                <dd className="font-medium">{publicEndpointTest.contentApiCalled ? 'YES' : 'NO'}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-zinc-500">Image proxy</dt>
+                <dd className="font-medium">
+                  HTTP {publicEndpointTest.imageProxy.httpStatus ?? '—'} ·{' '}
+                  {publicEndpointTest.imageProxy.proxyUrl || '—'}
+                </dd>
+              </div>
+            </dl>
+            {publicEndpointTest.hotelDuoFilterReason ? (
+              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900">
+                Důvod: {publicEndpointTest.hotelDuoFilterReason}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {rawContent ? (
           <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs">

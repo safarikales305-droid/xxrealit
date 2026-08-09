@@ -470,6 +470,43 @@ export async function nestAdminHotelbedsSyncContent(
   }
 }
 
+export type HotelbedsPublicEndpointTest = {
+  httpStatus: number;
+  success: boolean;
+  error: string | null;
+  dbHotelbedsCount: number;
+  returnedCount: number;
+  total: number;
+  hotelDuoReturned: 'YES' | 'NO';
+  hotelDuoFilterReason: string | null;
+  bookingApiCalled: boolean;
+  contentApiCalled: boolean;
+  imageProxy: {
+    proxyUrl: string;
+    httpStatus: number | null;
+    contentType: string | null;
+    rawPath: string;
+  };
+  note: string;
+};
+
+export async function nestAdminHotelbedsTestPublicEndpoint(
+  token: string,
+  hotelCode = 6741,
+): Promise<HotelbedsPublicEndpointTest | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/integrations/hotelbeds/test-public-endpoint?hotelCode=${hotelCode}`,
+      { method: 'POST', headers: nestAuthHeaders(token) },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as HotelbedsPublicEndpointTest;
+  } catch {
+    return null;
+  }
+}
+
 export async function nestAdminHotelbedsSyncHotel(
   token: string,
   hotelCode = 6741,
