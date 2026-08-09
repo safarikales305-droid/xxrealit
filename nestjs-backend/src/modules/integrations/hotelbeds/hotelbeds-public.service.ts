@@ -1004,7 +1004,3 @@ export class HotelbedsPublicService {
 function isQuotaExceededMessage(text: string): boolean {
   return /quota\s*exceeded/i.test(text);
 }
-
-function isQuotaExceededMessage(text: string): boolean {
-  return /quota\s*exceeded/i.test(text);
-}
