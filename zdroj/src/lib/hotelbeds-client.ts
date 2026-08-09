@@ -109,7 +109,7 @@ export async function fetchHotelbedsSearch(
       pets: params.pets ? '1' : undefined,
       accessible: params.accessible ? '1' : undefined,
       ratingMin: params.ratingMin,
-      catalog: catalog ? '1' : undefined,
+      catalog: catalog ? '1' : '0',
     })}`,
     { next: { revalidate: 60 } },
   );

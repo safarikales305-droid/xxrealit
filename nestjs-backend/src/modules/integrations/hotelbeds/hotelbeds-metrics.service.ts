@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
 import type { HotelbedsContentHistoryRow } from './hotelbeds-content-meta.types';
+import {
+  isQuotaExceededMessage,
+  resolveContentApiAccessStatus,
+  type ContentApiAccessStatus,
+} from './hotelbeds-content-api-status.util';
 
 export type HotelbedsApiLog = {
   id: string;
@@ -118,7 +123,7 @@ export class HotelbedsMetricsService {
           errorCode: log.errorCode,
           errorMessage: log.errorMessage ?? log.errorBody,
         };
-        if (isQuotaExceededBody(log.errorBody ?? log.errorMessage)) {
+        if (isQuotaExceededMessage(log.errorBody ?? log.errorMessage)) {
           this.markContentApiQuotaExceeded();
         } else if (log.status === 401 || log.status === 403) {
           this.contentApiPermissionDenied = true;
@@ -196,23 +201,33 @@ export class HotelbedsMetricsService {
 
   markContentApiQuotaExceeded(blockMs = QUOTA_BLOCK_MS): void {
     this.contentApiQuotaExceeded = true;
-    this.contentApiPermissionDenied = true;
     this.contentApiOk = false;
     this.contentApiBlockedUntil = Date.now() + blockMs;
   }
 
   isContentApiDisabled(): boolean {
-    if (this.isContentApiQuotaBlocked()) return true;
-    if (this.contentApiQuotaExceeded && this.contentApiBlockedUntil != null) {
-      this.contentApiQuotaExceeded = false;
-      this.contentApiBlockedUntil = null;
-    }
-    return this.contentApiPermissionDenied;
+    return this.isContentApiQuotaBlocked() || this.contentApiPermissionDenied;
   }
 
   isContentApiQuotaBlocked(): boolean {
     if (!this.contentApiQuotaExceeded || this.contentApiBlockedUntil == null) return false;
-    return Date.now() < this.contentApiBlockedUntil;
+    if (Date.now() >= this.contentApiBlockedUntil) {
+      this.contentApiQuotaExceeded = false;
+      this.contentApiBlockedUntil = null;
+      return false;
+    }
+    return true;
+  }
+
+  getContentApiAccessStatus(): ContentApiAccessStatus {
+    const diag = this.contentDiagnostics();
+    return resolveContentApiAccessStatus({
+      contentApiOk: diag.contentApiOk,
+      permissionDenied: diag.contentApiPermissionDenied,
+      quotaBlocked: diag.contentApiQuotaExceeded,
+      lastFailedStatus: diag.lastFailedContentRequest?.status ?? null,
+      lastFailedMessage: diag.lastFailedContentRequest?.errorMessage ?? null,
+    });
   }
 
   setContentDiagnostics(partial: Partial<HotelbedsContentDiagnostics>): void {
@@ -236,7 +251,10 @@ export class HotelbedsMetricsService {
       contentApiPermissionDenied: this.contentApiPermissionDenied,
       contentApiQuotaExceeded: this.isContentApiQuotaBlocked(),
       contentApiBlockedUntil: blockedUntil,
-      publicFallbackActive: this.isContentApiQuotaBlocked() || this.contentApiPermissionDenied,
+      publicFallbackActive:
+        this.isContentApiQuotaBlocked() ||
+        this.contentApiPermissionDenied ||
+        !this.contentApiOk,
       imagesOk: this.imagesOk,
       lastContentRequest: this.lastContentRequest,
       lastSuccessfulContentRequest: this.lastSuccessfulContentRequest,
@@ -279,11 +297,6 @@ export class HotelbedsMetricsService {
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function isQuotaExceededBody(text?: string): boolean {
-  if (!text?.trim()) return false;
-  return /quota\s*exceeded/i.test(text);
 }
 
 function parseHotelIdsFromParams(params?: string): number[] {

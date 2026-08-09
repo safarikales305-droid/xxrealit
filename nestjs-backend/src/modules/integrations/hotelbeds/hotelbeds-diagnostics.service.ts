@@ -44,13 +44,7 @@ export class HotelbedsDiagnosticsService {
 
     const hotelsWithImages = this.countHotelsWithImagesFromCache();
 
-    const contentApiStatus = diagnostics.contentApiQuotaExceeded
-      ? 'QUOTA_EXCEEDED'
-      : diagnostics.contentApiPermissionDenied
-        ? 'PERMISSION_DENIED'
-        : diagnostics.contentApiOk
-          ? 'OK'
-          : 'ERROR';
+    const contentApiStatus = this.metrics.getContentApiAccessStatus();
 
     return {
       bookingApi: {
@@ -59,6 +53,7 @@ export class HotelbedsDiagnosticsService {
       },
       contentApi: {
         status: contentApiStatus,
+        accessStatus: contentApiStatus,
         permissionDenied: diagnostics.contentApiPermissionDenied,
         quotaExceeded: diagnostics.contentApiQuotaExceeded,
         blockedUntil: diagnostics.contentApiBlockedUntil,

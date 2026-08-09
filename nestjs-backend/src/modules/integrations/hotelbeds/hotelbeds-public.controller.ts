@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { parseCatalogQueryParam } from './hotelbeds-content-api-status.util';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 
 @Controller('hotelbeds/public')
@@ -54,7 +55,7 @@ export class HotelbedsPublicController {
       pets: pets === '1' || pets === 'true',
       accessible: accessible === '1' || accessible === 'true',
       ratingMin: Number(ratingMin) || undefined,
-      catalog: catalog === '1' || catalog === 'true',
+      catalog: parseCatalogQueryParam(catalog),
     });
   }
 

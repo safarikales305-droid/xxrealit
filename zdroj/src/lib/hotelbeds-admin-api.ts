@@ -62,6 +62,7 @@ export type HotelbedsDiagnosticsOverview = {
   bookingApi: { status: string; httpStatus: number | null };
   contentApi: {
     status: string;
+    accessStatus?: string;
     permissionDenied: boolean;
     quotaExceeded?: boolean;
     blockedUntil?: string | null;

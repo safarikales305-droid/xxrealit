@@ -235,21 +235,42 @@ export function AdminHotelbedsPanel() {
   const connectionOk = lastTest?.result.success === true;
   const contentDiagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
   const overview = diagnostics;
+  const dbHotelCount =
+    overview?.publicFallback?.dbHotelCount ?? overview?.database.hotelCount ?? 0;
+  const hasDbContent = dbHotelCount > 0;
+  const contentAccessStatus =
+    overview?.contentApi.accessStatus ??
+    overview?.contentApi.status ??
+    (contentDiagnostics?.contentApiQuotaExceeded
+      ? 'QUOTA_EXCEEDED'
+      : contentDiagnostics?.contentApiPermissionDenied
+        ? 'UNAUTHORIZED'
+        : contentDiagnostics?.contentApiOk
+          ? 'AUTHORIZED'
+          : 'UNKNOWN');
+  const quotaExceeded =
+    contentAccessStatus === 'QUOTA_EXCEEDED' ||
+    Boolean(contentDiagnostics?.contentApiQuotaExceeded || overview?.contentApi.quotaExceeded);
+  const permissionDenied =
+    !quotaExceeded &&
+    (contentAccessStatus === 'UNAUTHORIZED' ||
+      Boolean(
+        overview?.contentApi.permissionDenied || contentDiagnostics?.contentApiPermissionDenied,
+      ));
   const bookingApiStatus =
     overview?.bookingApi.status === 'OK' || contentDiagnostics?.bookingApiOk || connectionOk || searchResult?.success
       ? '🟢 Připojeno'
       : '🟡 Neotestováno';
-  const contentApiStatus = contentDiagnostics?.contentApiQuotaExceeded || overview?.contentApi.quotaExceeded
-    ? '🟠 Kvóta dočasně vyčerpána'
-    : overview?.contentApi.permissionDenied || contentDiagnostics?.contentApiPermissionDenied
-      ? '🔴 Bez oprávnění'
-      : overview?.contentApi.status === 'OK' || contentDiagnostics?.contentApiOk
-        ? '🟢 Připojeno'
-        : '🟡 Nedostupné';
-  const dbContentStatus =
-    (overview?.publicFallback?.dbHotelCount ?? overview?.database.hotelCount ?? 0) > 0
-      ? '🟢 Dostupný'
-      : '🟡 Prázdný';
+  const contentApiStatus = quotaExceeded
+    ? '🟠 Content API – kvóta dočasně vyčerpána'
+    : permissionDenied
+      ? '🔴 Content API – bez oprávnění'
+      : contentAccessStatus === 'AUTHORIZED' || overview?.contentApi.status === 'OK' || contentDiagnostics?.contentApiOk
+        ? '🟢 Content API – připojeno'
+        : contentAccessStatus === 'TEMPORARY_ERROR'
+          ? '🟡 Content API – dočasná chyba'
+          : '🟡 Content API – nedostupné';
+  const dbContentStatus = hasDbContent ? '🟢 Dostupný' : '🟡 Prázdný';
   const publicFallbackStatus =
     overview?.publicFallback?.active || contentDiagnostics?.publicFallbackActive
       ? '🟢 Aktivní'
@@ -450,9 +471,21 @@ export function AdminHotelbedsPanel() {
             <dd className="font-medium">{contentApiStatus}</dd>
           </div>
         </dl>
-        {contentDiagnostics?.contentApiPermissionDenied || overview?.contentApi.permissionDenied ? (
+        {quotaExceeded ? (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Vyhledávání hotelů a cen funguje. Fotografie, popisy a další statická data čekají na aktivaci Content API.
+            {hasDbContent
+              ? 'Live Content API má dočasně vyčerpanou kvótu. Uložený obsah hotelů z databáze zůstává dostupný a veřejný portál používá databázový fallback.'
+              : 'Live Content API má dočasně vyčerpanou kvótu. Veřejný portál používá databázový fallback, pokud je obsah k dispozici.'}
+          </p>
+        ) : permissionDenied ? (
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            Účet nemá oprávnění k Hotelbeds Content API. Booking API a uložený obsah z databáze zůstávají k dispozici,
+            pokud existují.
+          </p>
+        ) : hasDbContent ? (
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Statický obsah hotelů je k dispozici z databáze ({dbHotelCount} hotelů). Veřejný portál ho používá jako
+            primární zdroj fotografií a popisů.
           </p>
         ) : null}
       </div>

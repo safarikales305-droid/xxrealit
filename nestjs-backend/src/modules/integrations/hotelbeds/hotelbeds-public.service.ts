@@ -25,6 +25,7 @@ import {
   type HbContentHotel,
 } from './hotelbeds-normalizer';
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
+import { isQuotaExceededMessage } from './hotelbeds-content-api-status.util';
 import { HotelbedsImageService } from './hotelbeds-image.service';
 import type { HotelbedsContentMeta, HotelbedsDebugSource } from './hotelbeds-content-meta.types';
 import type {
@@ -99,7 +100,11 @@ export class HotelbedsPublicService {
     }
 
     try {
-      const allItems = await this.loadSearchBatch(destination, checkIn, checkOut, adults, rooms, query);
+      let allItems = await this.loadSearchBatch(destination, checkIn, checkOut, adults, rooms, query);
+      if (!allItems.length) {
+        const catalogFallback = await this.searchCatalog(query, checkIn, checkOut, destination.label);
+        allItems = catalogFallback.items;
+      }
       const filtered = this.applySearchFilters(allItems, query);
       const total = filtered.length;
       const start = (page - 1) * limit;
@@ -232,6 +237,7 @@ export class HotelbedsPublicService {
     const bookingHotels = data.hotels?.hotels ?? [];
     const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
     const contentMap = await this.getContentsFromPersistence(codes);
+    const dbHits = contentMap.size;
 
     const merged = await Promise.all(
       bookingHotels.map(async (bh) =>
@@ -239,6 +245,18 @@ export class HotelbedsPublicService {
       ),
     );
     const filtered = merged.filter((h): h is NormalizedAccommodation => h != null);
+
+    this.log.log(
+      JSON.stringify({
+        event: 'PUBLIC_HOTEL_REQUEST',
+        source: 'BOOKING_DB_MERGE',
+        bookingHotels: bookingHotels.length,
+        dbContentHits: dbHits,
+        bookingApi: 'OK',
+        contentApi: 'NOT_CALLED',
+        finalResults: filtered.length,
+      }),
+    );
 
     this.cache.set(batchKey, filtered, CACHE_SEARCH_MS);
     return filtered;
@@ -264,6 +282,10 @@ export class HotelbedsPublicService {
       if (query.ratingMin && (h.rating ?? 0) < query.ratingMin) return false;
       return true;
     });
+  }
+
+  async getDbHotelSummary(hotelCode: number) {
+    return this.contentStorage.getDbDiagnostics(hotelCode);
   }
 
   async getBySlug(slug: string, query?: Partial<HotelbedsSearchQuery>): Promise<NormalizedAccommodation> {
@@ -999,8 +1021,4 @@ export class HotelbedsPublicService {
         return 'Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.';
     }
   }
-}
-
-function isQuotaExceededMessage(text: string): boolean {
-  return /quota\s*exceeded/i.test(text);
 }
