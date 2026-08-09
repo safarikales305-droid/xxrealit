@@ -12,6 +12,9 @@ export type HotelbedsContentDiagnostics = {
   bookingApiOk: boolean;
   contentApiOk: boolean;
   contentApiPermissionDenied: boolean;
+  contentApiQuotaExceeded?: boolean;
+  contentApiBlockedUntil?: string | null;
+  publicFallbackActive?: boolean;
   imagesOk: boolean;
   lastContentRequest: {
     endpoint: string;
@@ -57,7 +60,17 @@ export type HotelbedsContentHistoryRow = {
 
 export type HotelbedsDiagnosticsOverview = {
   bookingApi: { status: string; httpStatus: number | null };
-  contentApi: { status: string; permissionDenied: boolean };
+  contentApi: {
+    status: string;
+    permissionDenied: boolean;
+    quotaExceeded?: boolean;
+    blockedUntil?: string | null;
+  };
+  publicFallback?: {
+    active: boolean;
+    dbHotelCount: number;
+    note: string;
+  };
   lastSuccessfulContentRequest: HotelbedsContentDiagnostics['lastSuccessfulContentRequest'];
   lastFailedContentRequest: HotelbedsContentDiagnostics['lastFailedContentRequest'];
   imageSourceCounts: NonNullable<HotelbedsContentDiagnostics['imageSourceCounts']>;
@@ -68,7 +81,7 @@ export type HotelbedsDiagnosticsOverview = {
     fallback: number;
     withoutPhoto: number;
   };
-  database: { available: boolean; note: string };
+  database: { available: boolean; note: string; hotelCount?: number };
   contentHistory: HotelbedsContentHistoryRow[];
   cache: HotelbedsCacheInspection;
 };
@@ -140,7 +153,16 @@ export type HotelbedsHotelDiagnosis = {
 export type HotelbedsPublicHotelsDiagnosis = {
   testedAt: string;
   note: string;
-  hotels: Array<{ label: string; error?: string } & Partial<HotelbedsHotelDiagnosis>>;
+  hotels: Array<{
+    label: string;
+    error?: string;
+    hotelId?: number;
+    database?: { found?: string | boolean; imagesCount?: number; name?: string | null };
+    cache?: { hit?: string | boolean; imagesInCache?: number };
+    images?: number;
+    publicApi?: { ok?: string; error?: string | null };
+    currentImageSource?: string;
+  }>;
 };
 
 export type HotelbedsIntegrationStatus = {
@@ -182,16 +204,36 @@ export type HotelbedsTestSearchResult = HotelbedsTestResult & {
 export type HotelbedsTestContentResult = {
   success: boolean;
   permissionDenied?: boolean;
+  quotaExceeded?: boolean;
   hotelCode: number;
+  effectiveSource?: string;
   httpStatus: number;
   name: string | null;
   descriptionExists: boolean;
   imagesCount: number;
+  imagesRawCount?: number;
   facilitiesCount: number;
   category: string | null;
   language: string | null;
   addressExists: boolean;
   coordinatesExist: boolean;
+  databaseContent?: {
+    found: boolean;
+    name: string | null;
+    imagesCount: number;
+    imagePaths?: string[];
+    descriptionExists: boolean;
+    facilitiesCount: number;
+    address: string | null;
+  };
+  cache?: { hit: boolean; imagesInCache: number };
+  liveContentApi?: {
+    called?: boolean;
+    skipped?: boolean;
+    httpStatus?: number;
+    status?: string;
+    error?: string;
+  };
   error?: string;
 };
 
@@ -395,11 +437,12 @@ export async function nestAdminHotelbedsTestContent(
 export async function nestAdminHotelbedsRawContent(
   token: string,
   hotelCode = 6741,
+  forceLive = false,
 ): Promise<Record<string, unknown> | null> {
   if (!API_BASE_URL) return null;
   try {
     const res = await fetch(
-      `${API_BASE_URL}/admin/integrations/hotelbeds/raw-content?hotelCode=${hotelCode}`,
+      `${API_BASE_URL}/admin/integrations/hotelbeds/raw-content?hotelCode=${hotelCode}${forceLive ? '&forceLive=1' : ''}`,
       { headers: nestAuthHeaders(token), cache: 'no-store' },
     );
     if (!res.ok) return null;

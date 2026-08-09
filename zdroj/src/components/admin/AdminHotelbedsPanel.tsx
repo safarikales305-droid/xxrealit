@@ -207,13 +207,26 @@ export function AdminHotelbedsPanel() {
       return;
     }
     setContentResult(result);
-    if (result.permissionDenied) {
+    if (result.databaseContent?.found && result.databaseContent.imagesCount > 0) {
+      setContentInfo(
+        `DB obsah je k dispozici (${result.databaseContent.imagesCount} fotek). Efektivní zdroj: ${result.effectiveSource ?? 'DATABASE'}.`,
+      );
+    }
+    if (result.quotaExceeded) {
+      setContentInfo(
+        (prev) =>
+          `${prev ? `${prev} ` : ''}Content API quota exceeded — LIVE test přeskočen, DB/cache zůstává aktivní.`,
+      );
+      await load();
+      return;
+    }
+    if (result.permissionDenied && !result.databaseContent?.found) {
       setContentInfo(
         'API klíč nemá aktuálně oprávnění pro Hotel Content API. Booking API je nadále funkční.',
       );
       return;
     }
-    if (!result.success) {
+    if (!result.success && !result.databaseContent?.found) {
       setError(result.error ?? `Content API HTTP ${result.httpStatus}`);
     }
     await load();
@@ -226,11 +239,21 @@ export function AdminHotelbedsPanel() {
     overview?.bookingApi.status === 'OK' || contentDiagnostics?.bookingApiOk || connectionOk || searchResult?.success
       ? '🟢 Připojeno'
       : '🟡 Neotestováno';
-  const contentApiStatus = overview?.contentApi.permissionDenied || contentDiagnostics?.contentApiPermissionDenied
-    ? '🔴 Bez oprávnění'
-    : overview?.contentApi.status === 'OK' || contentDiagnostics?.contentApiOk
-      ? '🟢 Připojeno'
-      : '🔴 Nedostupné';
+  const contentApiStatus = contentDiagnostics?.contentApiQuotaExceeded || overview?.contentApi.quotaExceeded
+    ? '🟠 Kvóta dočasně vyčerpána'
+    : overview?.contentApi.permissionDenied || contentDiagnostics?.contentApiPermissionDenied
+      ? '🔴 Bez oprávnění'
+      : overview?.contentApi.status === 'OK' || contentDiagnostics?.contentApiOk
+        ? '🟢 Připojeno'
+        : '🟡 Nedostupné';
+  const dbContentStatus =
+    (overview?.publicFallback?.dbHotelCount ?? overview?.database.hotelCount ?? 0) > 0
+      ? '🟢 Dostupný'
+      : '🟡 Prázdný';
+  const publicFallbackStatus =
+    overview?.publicFallback?.active || contentDiagnostics?.publicFallbackActive
+      ? '🟢 Aktivní'
+      : '🟢 Aktivní';
 
   async function handleTestSearch() {
     if (!apiAccessToken) return;
@@ -746,9 +769,9 @@ export function AdminHotelbedsPanel() {
                   <p className="text-red-700">{hotel.error}</p>
                 ) : (
                   <p className="text-zinc-700">
-                    ID {hotel.hotelId} · foto: {hotel.cache?.imagesInCache ? 'ano' : 'ne'} · zdroj:{' '}
-                    {hotel.currentImageSource ?? '—'} · cache: {hotel.cache?.hit ? 'HIT' : 'MISS'} · DB:{' '}
-                    {hotel.database?.found ? 'FOUND' : 'NOT FOUND'}
+                    ID {hotel.hotelId} · DB: {hotel.database?.found ?? '—'} · CACHE:{' '}
+                    {hotel.cache?.hit ?? '—'} · IMAGES: {hotel.images ?? hotel.database?.imagesCount ?? 0} ·
+                    PUBLIC API: {hotel.publicApi?.ok ?? '—'} · SOURCE: {hotel.currentImageSource ?? '—'}
                   </p>
                 )}
               </li>
@@ -766,14 +789,16 @@ export function AdminHotelbedsPanel() {
             <dd className="font-medium">{contentDiagnostics?.bookingApiOk ? '✅' : '❌'}</dd>
           </div>
           <div>
-            <dt className="text-zinc-500">Content API</dt>
-            <dd className="font-medium">
-              {contentDiagnostics?.contentApiPermissionDenied
-                ? '❌ bez oprávnění'
-                : contentDiagnostics?.contentApiOk
-                  ? '✅'
-                  : '❌'}
-            </dd>
+            <dt className="text-zinc-500">Content API (LIVE)</dt>
+            <dd className="font-medium">{contentApiStatus}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">DB content</dt>
+            <dd className="font-medium">{dbContentStatus}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Public fallback</dt>
+            <dd className="font-medium">{publicFallbackStatus}</dd>
           </div>
           <div>
             <dt className="text-zinc-500">Images</dt>
@@ -795,44 +820,67 @@ export function AdminHotelbedsPanel() {
           <h3 className="font-semibold text-zinc-900">
             Test Content API — Hotel Duo (#{contentResult.hotelCode})
           </h3>
-          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-zinc-500">HTTP status</dt>
-              <dd className="font-medium">{contentResult.httpStatus}</dd>
+          <p className="mt-1 text-xs text-zinc-500">
+            Efektivní zdroj: <strong>{contentResult.effectiveSource ?? '—'}</strong>
+          </p>
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm">
+              <h4 className="font-semibold text-zinc-900">LIVE Content API</h4>
+              <dl className="mt-2 space-y-1">
+                <div>
+                  <dt className="text-zinc-500">HTTP</dt>
+                  <dd className="font-medium">
+                    {contentResult.liveContentApi?.skipped
+                      ? `${contentResult.liveContentApi.status ?? 'SKIPPED'}`
+                      : contentResult.httpStatus}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Status</dt>
+                  <dd className="font-medium">{contentResult.liveContentApi?.status ?? '—'}</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt className="text-zinc-500">Název</dt>
-              <dd className="font-medium">{contentResult.name ?? '—'}</dd>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-sm">
+              <h4 className="font-semibold text-zinc-900">DATABASE CONTENT</h4>
+              <dl className="mt-2 space-y-1">
+                <div>
+                  <dt className="text-zinc-500">Status</dt>
+                  <dd className="font-medium">
+                    {contentResult.databaseContent?.found ? 'FOUND' : 'NOT FOUND'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Hotel</dt>
+                  <dd className="font-medium">{contentResult.databaseContent?.name ?? contentResult.name ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Obrázky</dt>
+                  <dd className="font-medium">{contentResult.databaseContent?.imagesCount ?? contentResult.imagesCount}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Popis / vybavení</dt>
+                  <dd className="font-medium">
+                    {contentResult.databaseContent?.descriptionExists ? 'Ano' : 'Ne'} /{' '}
+                    {contentResult.databaseContent?.facilitiesCount ?? contentResult.facilitiesCount}
+                  </dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt className="text-zinc-500">Popis</dt>
-              <dd className="font-medium">{contentResult.descriptionExists ? 'Ano' : 'Ne'}</dd>
+            <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm">
+              <h4 className="font-semibold text-zinc-900">CACHE</h4>
+              <dl className="mt-2 space-y-1">
+                <div>
+                  <dt className="text-zinc-500">Status</dt>
+                  <dd className="font-medium">{contentResult.cache?.hit ? 'HIT' : 'MISS'}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Obrázky v cache</dt>
+                  <dd className="font-medium">{contentResult.cache?.imagesInCache ?? 0}</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt className="text-zinc-500">Obrázky</dt>
-              <dd className="font-medium">{contentResult.imagesCount}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Vybavení</dt>
-              <dd className="font-medium">{contentResult.facilitiesCount}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Kategorie</dt>
-              <dd className="font-medium">{contentResult.category ?? '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Jazyk</dt>
-              <dd className="font-medium">{contentResult.language ?? '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Adresa / GPS</dt>
-              <dd className="font-medium">
-                {contentResult.addressExists ? 'Adresa ano' : 'Adresa ne'}
-                {' · '}
-                {contentResult.coordinatesExist ? 'GPS ano' : 'GPS ne'}
-              </dd>
-            </div>
-          </dl>
+          </div>
           {contentResult.error ? (
             <pre
               className={`mt-3 overflow-auto rounded-lg p-3 text-xs ${

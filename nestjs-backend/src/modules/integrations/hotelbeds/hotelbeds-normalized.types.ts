@@ -112,4 +112,5 @@ export type HotelbedsPublicConfig = {
   bookingEnabled: boolean;
   environment: string;
   contentApiAvailable: boolean;
+  dbContentFallback?: boolean;
 };

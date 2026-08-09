@@ -23,7 +23,18 @@ export class HotelbedsContentSyncService {
     private readonly metrics: HotelbedsMetricsService,
   ) {}
 
-  async syncHotel(hotelCode: number) {
+  async syncHotel(hotelCode: number, force = false) {
+    if (!force && this.metrics.isContentApiDisabled()) {
+      const imagesInDb = await this.storage.countImages(hotelCode);
+      return {
+        success: false,
+        hotelCode,
+        skipped: true,
+        reason: this.metrics.isContentApiQuotaBlocked() ? 'QUOTA_EXCEEDED' : 'CONTENT_API_BLOCKED',
+        imagesInDb,
+        message: 'Content API je blokováno — používá se existující DB obsah.',
+      };
+    }
     const contentMap = await this.publicService.getHotelContents([hotelCode], {
       force: true,
       skipCache: true,
@@ -48,6 +59,16 @@ export class HotelbedsContentSyncService {
   }
 
   async syncFromBookingSearch(destination = 'Praha', maxHotels = HOTELBEDS_BATCH_MAX) {
+    if (this.metrics.isContentApiDisabled()) {
+      const dbCount = await this.storage.countCatalog();
+      return {
+        success: false,
+        skipped: true,
+        reason: this.metrics.isContentApiQuotaBlocked() ? 'QUOTA_EXCEEDED' : 'CONTENT_API_BLOCKED',
+        dbHotelCount: dbCount,
+        message: 'Content API je blokováno — sync přeskočen, DB obsah zůstává.',
+      };
+    }
     const dates = defaultSearchDates();
     const dest = resolveDestination(destination);
     const url = `${this.config.bookingBaseUrl}/hotels`;

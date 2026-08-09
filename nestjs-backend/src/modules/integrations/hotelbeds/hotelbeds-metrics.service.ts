@@ -16,10 +16,15 @@ export type HotelbedsApiLog = {
   cached?: boolean;
 };
 
+const QUOTA_BLOCK_MS = 24 * 60 * 60 * 1000;
+
 export type HotelbedsContentDiagnostics = {
   bookingApiOk: boolean;
   contentApiOk: boolean;
   contentApiPermissionDenied: boolean;
+  contentApiQuotaExceeded: boolean;
+  contentApiBlockedUntil: string | null;
+  publicFallbackActive: boolean;
   imagesOk: boolean;
   lastContentRequest: {
     endpoint: string;
@@ -72,6 +77,8 @@ export class HotelbedsMetricsService {
   };
   private contentApiOk = false;
   private contentApiPermissionDenied = false;
+  private contentApiQuotaExceeded = false;
+  private contentApiBlockedUntil: number | null = null;
   private imagesOk = false;
   private bookingApiOk = false;
   private readonly logs: HotelbedsApiLog[] = [];
@@ -111,7 +118,9 @@ export class HotelbedsMetricsService {
           errorCode: log.errorCode,
           errorMessage: log.errorMessage ?? log.errorBody,
         };
-        if (log.status === 401 || log.status === 403) {
+        if (isQuotaExceededBody(log.errorBody ?? log.errorMessage)) {
+          this.markContentApiQuotaExceeded();
+        } else if (log.status === 401 || log.status === 403) {
           this.contentApiPermissionDenied = true;
         }
       }
@@ -185,8 +194,25 @@ export class HotelbedsMetricsService {
     this.contentApiOk = false;
   }
 
+  markContentApiQuotaExceeded(blockMs = QUOTA_BLOCK_MS): void {
+    this.contentApiQuotaExceeded = true;
+    this.contentApiPermissionDenied = true;
+    this.contentApiOk = false;
+    this.contentApiBlockedUntil = Date.now() + blockMs;
+  }
+
   isContentApiDisabled(): boolean {
+    if (this.isContentApiQuotaBlocked()) return true;
+    if (this.contentApiQuotaExceeded && this.contentApiBlockedUntil != null) {
+      this.contentApiQuotaExceeded = false;
+      this.contentApiBlockedUntil = null;
+    }
     return this.contentApiPermissionDenied;
+  }
+
+  isContentApiQuotaBlocked(): boolean {
+    if (!this.contentApiQuotaExceeded || this.contentApiBlockedUntil == null) return false;
+    return Date.now() < this.contentApiBlockedUntil;
   }
 
   setContentDiagnostics(partial: Partial<HotelbedsContentDiagnostics>): void {
@@ -200,10 +226,17 @@ export class HotelbedsMetricsService {
   }
 
   contentDiagnostics(): HotelbedsContentDiagnostics {
+    const blockedUntil =
+      this.contentApiBlockedUntil != null && Date.now() < this.contentApiBlockedUntil
+        ? new Date(this.contentApiBlockedUntil).toISOString()
+        : null;
     return {
       bookingApiOk: this.bookingApiOk,
       contentApiOk: this.contentApiOk,
       contentApiPermissionDenied: this.contentApiPermissionDenied,
+      contentApiQuotaExceeded: this.isContentApiQuotaBlocked(),
+      contentApiBlockedUntil: blockedUntil,
+      publicFallbackActive: this.isContentApiQuotaBlocked() || this.contentApiPermissionDenied,
       imagesOk: this.imagesOk,
       lastContentRequest: this.lastContentRequest,
       lastSuccessfulContentRequest: this.lastSuccessfulContentRequest,
@@ -246,6 +279,11 @@ export class HotelbedsMetricsService {
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function isQuotaExceededBody(text?: string): boolean {
+  if (!text?.trim()) return false;
+  return /quota\s*exceeded/i.test(text);
 }
 
 function parseHotelIdsFromParams(params?: string): number[] {

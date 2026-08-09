@@ -67,6 +67,7 @@ export class HotelbedsPublicService {
       bookingEnabled: this.config.bookingEnabled,
       environment: this.config.environment,
       contentApiAvailable: diagnostics.contentApiOk && !diagnostics.contentApiPermissionDenied,
+      dbContentFallback: true,
     };
   }
 
@@ -91,8 +92,10 @@ export class HotelbedsPublicService {
     const cached = this.cache.get<HotelbedsSearchResponse>(cacheKey);
     if (cached) return this.toPublicResponse(cached);
 
-    if (query.catalog) {
-      return this.toPublicResponse(await this.searchCatalog(query, checkIn, checkOut, destination.label));
+    if (query.catalog !== false) {
+      const catalogResponse = await this.searchCatalog(query, checkIn, checkOut, destination.label);
+      this.cache.set(cacheKey, catalogResponse, CACHE_SEARCH_MS);
+      return this.toPublicResponse(catalogResponse);
     }
 
     try {
@@ -149,6 +152,10 @@ export class HotelbedsPublicService {
       limit,
     });
 
+    const cacheHits = contentHotels.filter((h) =>
+      h.code != null ? this.cache.has(`content:${h.code}`) : false,
+    ).length;
+
     const merged = await Promise.all(
       contentHotels.map((content) =>
         this.mergeHotel(
@@ -165,9 +172,27 @@ export class HotelbedsPublicService {
       query,
     );
 
+    const finalTotal = query.category || cityFilter ? filtered.length : dbTotal;
+    this.log.log(
+      JSON.stringify({
+        event: 'PUBLIC_HOTEL_REQUEST',
+        source: 'DATABASE',
+        dbContent: dbTotal,
+        cacheHits,
+        bookingApi: 'NOT_REQUIRED',
+        contentApi: 'NOT_CALLED',
+        finalResults: filtered.length,
+        total: finalTotal,
+        page,
+        limit,
+        category: query.category ?? null,
+        city: cityFilter ?? null,
+      }),
+    );
+
     return {
       items: filtered,
-      total: query.category || cityFilter ? filtered.length : dbTotal,
+      total: finalTotal,
       page,
       limit,
       totalPages: Math.max(1, Math.ceil((query.category || cityFilter ? filtered.length : dbTotal) / limit)),
@@ -206,7 +231,7 @@ export class HotelbedsPublicService {
     const { data } = await this.http.postJson<BookingSearchPayload>(bookingUrl, body, 'booking/search');
     const bookingHotels = data.hotels?.hotels ?? [];
     const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
-    const contentMap = await this.safeGetHotelContents(codes);
+    const contentMap = await this.getContentsFromPersistence(codes);
 
     const merged = await Promise.all(
       bookingHotels.map(async (bh) =>
@@ -265,7 +290,7 @@ export class HotelbedsPublicService {
       bookingHotel = undefined;
     }
 
-    const contentMap = await this.safeGetHotelContents([Number(code)]);
+    const contentMap = await this.getContentsFromPersistence([Number(code)]);
     const content = contentMap.get(code);
 
     if (!content) {
@@ -333,7 +358,7 @@ export class HotelbedsPublicService {
       bookingHotel = undefined;
     }
 
-    const contentMap = await this.safeGetHotelContents([Number(code)]);
+    const contentMap = await this.getContentsFromPersistence([Number(code)]);
     const content = contentMap.get(code);
     if (!content) {
       throw new NotFoundException('Hotel nenalezen.');
@@ -358,40 +383,46 @@ export class HotelbedsPublicService {
       adults: query?.adults ?? 2,
       rooms: query?.rooms ?? 1,
       limit: 8,
+      catalog: true,
     });
     return search.items.filter((h) => h.slug !== slug).slice(0, 6).map((i) => this.toPublicItem(i));
   }
 
-  /**
-   * Batch fetch statického hotel contentu podle Hotelbeds hotel codes.
-   * Odstraní duplicity, rozdělí do batchů a mapuje booking code ↔ content code.
-   */
-  /** Content API je volitelné obohacení — DB a cache se čtou vždy, API jen pokud není zakázané. */
-  private async safeGetHotelContents(codes: number[]): Promise<Map<string, HbContentHotel>> {
+  /** Veřejný flow: DB → cache. Content API se NEVOLÁ. */
+  private async getContentsFromPersistence(codes: number[]): Promise<Map<string, HbContentHotel>> {
     const map = new Map<string, HbContentHotel>();
     if (!codes.length) return map;
 
     const unique = [...new Set(codes)].filter((c) => Number.isFinite(c) && c > 0);
-    const missing: number[] = [];
-
     for (const code of unique) {
       const dbContent = await this.contentStorage.findByProviderId(code);
       if (dbContent) {
         map.set(String(code), dbContent);
         this.cache.set(`content:${code}`, dbContent, CACHE_CONTENT_MS);
+        this.metrics.recordImageSource('database');
         continue;
       }
       const cached = this.cache.peek<HbContentHotel>(`content:${code}`);
       if (cached) {
         map.set(String(code), cached);
-        continue;
+        this.metrics.recordImageSource('cache');
       }
-      missing.push(code);
     }
+    return map;
+  }
 
-    if (!missing.length || this.metrics.isContentApiDisabled()) {
+  /**
+   * @deprecated Používejte getContentsFromPersistence pro veřejný katalog.
+   * Volá Content API jen pokud není circuit breaker a data chybí v DB/cache.
+   */
+  private async safeGetHotelContents(codes: number[]): Promise<Map<string, HbContentHotel>> {
+    const map = await this.getContentsFromPersistence(codes);
+    if (!codes.length || this.metrics.isContentApiDisabled()) {
       return map;
     }
+
+    const missing = codes.filter((c) => !map.has(String(c)));
+    if (!missing.length) return map;
 
     try {
       const fresh = await this.getHotelContents(missing, { force: false });
@@ -459,6 +490,9 @@ export class HotelbedsPublicService {
         const body = err instanceof HotelbedsHttpError ? err.errorBody : undefined;
         const status = err instanceof HotelbedsHttpError ? err.status : 0;
         if (status >= 400) {
+          if (status === 403 && isQuotaExceededMessage(body ?? msg)) {
+            this.metrics.markContentApiQuotaExceeded();
+          }
           this.metrics.recordContentHistory({
             hotelIds: batch,
             endpoint: 'content/hotels',
@@ -479,6 +513,38 @@ export class HotelbedsPublicService {
   }
 
   async testHotelContent(hotelCode = 6741) {
+    const databaseContent = await this.contentStorage.getDbDiagnostics(hotelCode);
+    const cacheContent = this.cache.peek<HbContentHotel>(`content:${hotelCode}`);
+    const cacheImages = sortHotelbedsImages(cacheContent?.images);
+    const effectiveSource =
+      databaseContent.imagesCount > 0
+        ? cacheContent
+          ? 'DATABASE_CACHE'
+          : 'DATABASE'
+        : cacheContent
+          ? 'HOTELBEDS_CACHE'
+          : 'NONE';
+
+    const quotaBlocked = this.metrics.isContentApiQuotaBlocked();
+    if (quotaBlocked || this.metrics.isContentApiDisabled()) {
+      const diag = this.metrics.contentDiagnostics();
+      return this.buildTestHotelContentResponse({
+        hotelCode,
+        databaseContent,
+        cache: { hit: Boolean(cacheContent), imagesInCache: cacheImages.length },
+        liveContentApi: {
+          called: false,
+          skipped: true,
+          httpStatus: diag.lastFailedContentRequest?.status ?? 403,
+          status: quotaBlocked ? 'QUOTA_EXCEEDED' : 'BLOCKED',
+          error:
+            diag.lastFailedContentRequest?.errorMessage ??
+            'Content API je dočasně blokováno — používá se DB/cache.',
+        },
+        effectiveSource,
+      });
+    }
+
     try {
       const { hotels, raw, language } = await this.fetchContentBatchWithRaw(
         [hotelCode],
@@ -493,53 +559,110 @@ export class HotelbedsPublicService {
         this.storeContentCache(hotel, 'CONTENT_API');
         await this.contentStorage.upsertFromContent(hotel, language);
       }
-      return {
-        success: Boolean(hotel),
-        permissionDenied: false,
+      return this.buildTestHotelContentResponse({
         hotelCode,
-        httpStatus: 200,
-        name: localizedText(hotel?.name),
-        descriptionExists: Boolean(localizedText(hotel?.description)),
-        imagesCount: images.length,
-        imagesRawCount: summary.imagesRawCount,
-        facilitiesCount: hotel?.facilities?.length ?? 0,
-        category: hotel?.categoryCode ?? hotel?.category?.code ?? null,
-        language,
-        addressExists: Boolean(hotel?.address?.street || hotel?.address?.content),
-        coordinatesExist: Boolean(hotel?.coordinates?.latitude && hotel?.coordinates?.longitude),
-        rawSummary: summary,
-      };
+        databaseContent: await this.contentStorage.getDbDiagnostics(hotelCode),
+        cache: {
+          hit: Boolean(this.cache.peek(`content:${hotelCode}`)),
+          imagesInCache: images.length,
+        },
+        liveContentApi: {
+          called: true,
+          skipped: false,
+          httpStatus: 200,
+          status: 'OK',
+          name: localizedText(hotel?.name),
+          descriptionExists: Boolean(localizedText(hotel?.description)),
+          imagesCount: images.length,
+          imagesRawCount: summary.imagesRawCount,
+          facilitiesCount: hotel?.facilities?.length ?? 0,
+          category: hotel?.categoryCode ?? hotel?.category?.code ?? null,
+          language,
+          addressExists: Boolean(hotel?.address?.street || hotel?.address?.content),
+          coordinatesExist: Boolean(hotel?.coordinates?.latitude && hotel?.coordinates?.longitude),
+          rawSummary: summary,
+        },
+        effectiveSource,
+      });
     } catch (err) {
       const status = err instanceof HotelbedsHttpError ? err.status : 0;
-      const permissionDenied = status === 401 || status === 403;
-      if (permissionDenied) {
+      const body = err instanceof HotelbedsHttpError ? err.errorBody : undefined;
+      const quotaExceeded = status === 403 && isQuotaExceededMessage(body ?? '');
+      if (quotaExceeded) {
+        this.metrics.markContentApiQuotaExceeded();
+      } else if (status === 401 || status === 403) {
         this.metrics.markContentApiPermissionDenied();
       }
-      return {
-        success: false,
-        permissionDenied,
+      return this.buildTestHotelContentResponse({
         hotelCode,
-        httpStatus: status,
-        name: null,
-        descriptionExists: false,
-        imagesCount: 0,
-        imagesRawCount: 0,
-        facilitiesCount: 0,
-        category: null,
-        language: HOTELBEDS_CONTENT_LANGUAGE,
-        addressExists: false,
-        coordinatesExist: false,
-        rawSummary: null,
-        error: permissionDenied
-          ? 'API klíč nemá aktuálně oprávnění pro Hotel Content API. Booking API je nadále funkční.'
-          : err instanceof HotelbedsHttpError
-            ? err.errorBody ?? err.message
-            : String(err),
-      };
+        databaseContent,
+        cache: { hit: Boolean(cacheContent), imagesInCache: cacheImages.length },
+        liveContentApi: {
+          called: true,
+          skipped: false,
+          httpStatus: status,
+          status: quotaExceeded ? 'QUOTA_EXCEEDED' : status ? `HTTP_${status}` : 'ERROR',
+          error:
+            err instanceof HotelbedsHttpError
+              ? err.errorBody ?? err.message
+              : String(err),
+        },
+        effectiveSource,
+      });
     }
   }
 
-  async getRawContentDiagnostics(hotelCode = 6741) {
+  private buildTestHotelContentResponse(input: {
+    hotelCode: number;
+    databaseContent: Awaited<ReturnType<HotelbedsContentStorageService['getDbDiagnostics']>>;
+    cache: { hit: boolean; imagesInCache: number };
+    liveContentApi: Record<string, unknown>;
+    effectiveSource: string;
+  }) {
+    const live = input.liveContentApi;
+    const db = input.databaseContent;
+    return {
+      success: Boolean(db.found) || live.httpStatus === 200,
+      permissionDenied: live.status === 'QUOTA_EXCEEDED' || live.status === 'BLOCKED',
+      quotaExceeded: live.status === 'QUOTA_EXCEEDED',
+      hotelCode: input.hotelCode,
+      effectiveSource: input.effectiveSource,
+      databaseContent: db,
+      cache: input.cache,
+      liveContentApi: live,
+      httpStatus: (live.httpStatus as number) ?? 0,
+      name: (live.name as string | null) ?? db.name,
+      descriptionExists: (live.descriptionExists as boolean | undefined) ?? db.descriptionExists,
+      imagesCount: db.imagesCount > 0 ? db.imagesCount : ((live.imagesCount as number) ?? 0),
+      imagesRawCount: (live.imagesRawCount as number | undefined) ?? db.imagesCount,
+      facilitiesCount:
+        db.facilitiesCount > 0 ? db.facilitiesCount : ((live.facilitiesCount as number) ?? 0),
+      category: (live.category as string | null) ?? null,
+      language: (live.language as string | null) ?? HOTELBEDS_CONTENT_LANGUAGE,
+      addressExists: (live.addressExists as boolean | undefined) ?? Boolean(db.address),
+      coordinatesExist:
+        (live.coordinatesExist as boolean | undefined) ?? Boolean(db.coordinates),
+      rawSummary: live.rawSummary ?? null,
+      error: (live.error as string | undefined) ?? null,
+    };
+  }
+
+  async getRawContentDiagnostics(hotelCode = 6741, opts?: { forceLive?: boolean }) {
+    const databaseContent = await this.contentStorage.getDbDiagnostics(hotelCode);
+    if (!opts?.forceLive && this.metrics.isContentApiDisabled()) {
+      const diag = this.metrics.contentDiagnostics();
+      return {
+        httpStatus: diag.lastFailedContentRequest?.status ?? 403,
+        skipped: true,
+        quotaExceeded: this.metrics.isContentApiQuotaBlocked(),
+        language: HOTELBEDS_CONTENT_LANGUAGE,
+        endpoint: buildContentHotelsUrl(this.config.contentBaseUrl, [hotelCode]),
+        hotelFound: databaseContent.found,
+        error: diag.lastFailedContentRequest?.errorMessage ?? 'Content API blocked — using DB/cache',
+        databaseContent,
+        contentApi: 'NOT_CALLED',
+      };
+    }
     try {
       const { hotels, raw, language, endpoint } = await this.fetchContentBatchWithRaw(
         [hotelCode],
@@ -572,11 +695,16 @@ export class HotelbedsPublicService {
       };
     } catch (err) {
       const status = err instanceof HotelbedsHttpError ? err.status : 0;
+      const body = err instanceof HotelbedsHttpError ? err.errorBody : undefined;
+      if (status === 403 && isQuotaExceededMessage(body ?? '')) {
+        this.metrics.markContentApiQuotaExceeded();
+      }
       return {
         httpStatus: status,
         language: HOTELBEDS_CONTENT_LANGUAGE,
         endpoint: buildContentHotelsUrl(this.config.contentBaseUrl, [hotelCode]),
-        hotelFound: false,
+        hotelFound: databaseContent.found,
+        databaseContent,
         error: err instanceof HotelbedsHttpError ? err.errorBody ?? err.message : String(err),
         rawSummary: null,
       };
@@ -871,4 +999,12 @@ export class HotelbedsPublicService {
         return 'Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.';
     }
   }
+}
+
+function isQuotaExceededMessage(text: string): boolean {
+  return /quota\s*exceeded/i.test(text);
+}
+
+function isQuotaExceededMessage(text: string): boolean {
+  return /quota\s*exceeded/i.test(text);
 }

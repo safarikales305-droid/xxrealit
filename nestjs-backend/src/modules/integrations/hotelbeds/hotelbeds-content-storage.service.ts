@@ -134,6 +134,47 @@ export class HotelbedsContentStorageService {
     });
   }
 
+  async getDbDiagnostics(providerHotelId: number) {
+    const row = await this.prisma.accommodation.findFirst({
+      where: { provider: PROVIDER, externalId: String(providerHotelId) },
+      include: {
+        photos: { orderBy: { sortOrder: 'asc' } },
+        facilities: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    if (!row) {
+      return {
+        found: false,
+        hotelCode: providerHotelId,
+        name: null as string | null,
+        slug: null as string | null,
+        imagesCount: 0,
+        imagePaths: [] as string[],
+        descriptionExists: false,
+        facilitiesCount: 0,
+        address: null as string | null,
+        coordinates: null as { latitude: number; longitude: number } | null,
+        lastSyncedAt: null as string | null,
+      };
+    }
+    return {
+      found: true,
+      hotelCode: providerHotelId,
+      name: row.name,
+      slug: row.slug,
+      imagesCount: row.photos.length,
+      imagePaths: row.photos.slice(0, 8).map((p) => p.url),
+      descriptionExists: Boolean(row.description?.trim()),
+      facilitiesCount: row.facilities.length,
+      address: row.address,
+      coordinates:
+        row.latitude != null && row.longitude != null
+          ? { latitude: row.latitude, longitude: row.longitude }
+          : null,
+      lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
+    };
+  }
+
   async listCatalog(opts: {
     category?: string;
     city?: string;

@@ -91,9 +91,11 @@ export class HotelbedsAdminController {
   }
 
   @Get('raw-content')
-  rawContent(@Query('hotelCode') hotelCode?: string) {
+  rawContent(@Query('hotelCode') hotelCode?: string, @Query('forceLive') forceLive?: string) {
     const code = Number(hotelCode) || 6741;
-    return this.publicService.getRawContentDiagnostics(code);
+    return this.publicService.getRawContentDiagnostics(code, {
+      forceLive: forceLive === '1' || forceLive === 'true',
+    });
   }
 
   @Post('sync-content')
@@ -102,18 +104,14 @@ export class HotelbedsAdminController {
   }
 
   @Post('sync-hotel')
-  syncHotel(@Query('hotelCode') hotelCode?: string) {
+  syncHotel(@Query('hotelCode') hotelCode?: string, @Query('force') force?: string) {
     const code = Number(hotelCode) || 6741;
-    return this.contentSync.syncHotel(code);
+    return this.contentSync.syncHotel(code, force === '1' || force === 'true');
   }
 
   @Post('cache/clear')
   clearCache() {
     const removed = this.cache.clear();
-    this.metrics.setContentDiagnostics({
-      contentApiPermissionDenied: false,
-      contentApiOk: false,
-    });
     return { success: true, removed };
   }
 }
