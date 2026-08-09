@@ -1,15 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-export type HotelbedsEnvironment = 'evaluation' | 'production';
+export type HotelbedsEnvironment = 'test' | 'production';
 
+/** Oficiální Hotelbeds TEST endpoint dle dokumentace (api.test.hotelbeds.com). */
 const DEFAULT_BOOKING_BASE: Record<HotelbedsEnvironment, string> = {
-  evaluation: 'https://api.test.hotelbeds.com/hotel-api/1.0',
+  test: 'https://api.test.hotelbeds.com/hotel-api/1.0',
   production: 'https://api.hotelbeds.com/hotel-api/1.0',
 };
 
 const DEFAULT_CONTENT_BASE: Record<HotelbedsEnvironment, string> = {
-  evaluation: 'https://api.test.hotelbeds.com/hotel-content-api/1.0',
+  test: 'https://api.test.hotelbeds.com/hotel-content-api/1.0',
   production: 'https://api.hotelbeds.com/hotel-content-api/1.0',
 };
 
@@ -26,8 +27,9 @@ export class HotelbedsConfigService {
   }
 
   get environment(): HotelbedsEnvironment {
-    const raw = (this.config.get<string>('HOTELBEDS_ENV') ?? 'evaluation').trim().toLowerCase();
-    return raw === 'production' ? 'production' : 'evaluation';
+    const raw = (this.config.get<string>('HOTELBEDS_ENV') ?? 'test').trim().toLowerCase();
+    if (raw === 'production' || raw === 'live') return 'production';
+    return 'test';
   }
 
   get bookingBaseUrl(): string {

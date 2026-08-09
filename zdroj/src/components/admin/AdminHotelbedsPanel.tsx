@@ -99,7 +99,7 @@ export function AdminHotelbedsPanel() {
           </p>
           <h1 className="text-2xl font-bold text-zinc-900">Hotelbeds / HBX Group</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Bezpečný test evaluation API. Credentials zůstávají pouze na serveru.
+            Bezpečný test Hotelbeds test API. Credentials zůstávají pouze na serveru.
           </p>
         </div>
         <Link
@@ -120,7 +120,7 @@ export function AdminHotelbedsPanel() {
             <div>
               <dt className="text-zinc-500">Environment</dt>
               <dd className="font-medium capitalize text-zinc-900">
-                {status?.environment === 'evaluation' ? 'Evaluation / Test' : status?.environment ?? '—'}
+                {status?.environment === 'test' ? 'Test' : status?.environment ?? '—'}
               </dd>
             </div>
             <div>

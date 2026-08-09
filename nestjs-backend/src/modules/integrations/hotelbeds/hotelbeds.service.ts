@@ -92,7 +92,7 @@ export class HotelbedsService {
   }
 
   /**
-   * Admin-only testovací vyhledávání — evaluation API, bez ukládání do DB.
+   * Admin-only testovací vyhledávání — test API, bez ukládání do DB.
    * Používá geolokaci Prahy (bezpečný smoke test availability endpointu).
    */
   async testSearchHotels(): Promise<HotelbedsTestSearchResult> {
