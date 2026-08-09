@@ -10,6 +10,12 @@ import {
   fetchAccommodationDetail,
   fetchAccommodations,
 } from '@/lib/accommodation-client';
+import {
+  fetchHotelbedsConfig,
+  fetchHotelbedsDetail,
+  fetchHotelbedsSearch,
+  isHotelbedsSlug,
+} from '@/lib/hotelbeds-client';
 
 const CATEGORY_SLUGS = new Set<string>(
   ACCOMMODATION_CATEGORIES.map((c) => c.slug).filter(Boolean) as string[],
@@ -29,13 +35,18 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   if (CATEGORY_SLUGS.has(slug) || LOCATION_SLUGS.has(slug)) {
-    return { title: `${slug.replace(/-/g, ' ')} | Ubytování | XXREALIT` };
+    return { title: `${slug.replace(/-/g, ' ')} | Ubytování | XXREALIT`, robots: { index: false } };
   }
-  const detail = await fetchAccommodationDetail(slug);
+  const hbConfig = await fetchHotelbedsConfig().catch(() => null);
+  const detail =
+    hbConfig?.publicListings && isHotelbedsSlug(slug)
+      ? await fetchHotelbedsDetail(slug).catch(() => null)
+      : await fetchAccommodationDetail(slug).catch(() => null);
   if (!detail) return { title: 'Ubytování | XXREALIT' };
   return {
     title: detail.seoTitle ?? `${detail.name} | Ubytování | XXREALIT`,
     description: detail.seoDescription ?? detail.shortDescription ?? undefined,
+    alternates: { canonical: `https://www.xxrealit.cz/ubytovani/${slug}` },
     openGraph: {
       title: detail.name,
       description: detail.shortDescription ?? undefined,
@@ -46,8 +57,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function UbytovaniSlugPage({ params }: Props) {
   const { slug } = await params;
+  const hbConfig = await fetchHotelbedsConfig().catch(() => null);
+  const useHotelbeds = hbConfig?.publicListings === true;
 
-  if (CATEGORY_SLUGS.has(slug)) {
+  if (CATEGORY_SLUGS.has(slug) && !useHotelbeds) {
     const res = await fetchAccommodations({ category: slug, limit: 12 }).catch(() => null);
     return (
       <Shell title={`Ubytování — ${slug}`}>
@@ -61,14 +74,35 @@ export default async function UbytovaniSlugPage({ params }: Props) {
   }
 
   if (LOCATION_SLUGS.has(slug)) {
-    const res = await fetchAccommodations({ locationSlug: slug, limit: 12 }).catch(() => null);
+    let initialItems: Awaited<ReturnType<typeof fetchHotelbedsSearch>>['items'] = [];
+    let initialTotal = 0;
+    if (useHotelbeds) {
+      const res = await fetchHotelbedsSearch({ destination: slug.replace(/-/g, ' '), limit: 12 }).catch(() => null);
+      initialItems = res?.items ?? [];
+      initialTotal = res?.total ?? 0;
+    } else {
+      const res = await fetchAccommodations({ locationSlug: slug, limit: 12 }).catch(() => null);
+      initialItems = res?.items ?? [];
+      initialTotal = res?.total ?? 0;
+    }
     return (
       <Shell title={`Ubytování — ${slug.replace(/-/g, ' ')}`}>
         <AccommodationListingClient
           locationSlug={slug}
-          initialItems={res?.items ?? []}
-          initialTotal={res?.total ?? 0}
+          initialItems={initialItems}
+          initialTotal={initialTotal}
+          useHotelbeds={useHotelbeds}
         />
+      </Shell>
+    );
+  }
+
+  if (useHotelbeds && isHotelbedsSlug(slug)) {
+    const detail = await fetchHotelbedsDetail(slug).catch(() => null);
+    if (!detail) notFound();
+    return (
+      <Shell title={detail.name}>
+        <AccommodationDetailView item={detail} />
       </Shell>
     );
   }

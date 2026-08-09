@@ -49,6 +49,13 @@ export class HotelbedsConfigService {
     return this.config.get<string>('HOTELBEDS_BOOKING_ENABLED')?.trim() === 'true';
   }
 
+  /** Veřejné zobrazení hotelů z Hotelbeds API na /ubytovani */
+  get publicListings(): boolean {
+    const raw = this.config.get<string>('HOTELBEDS_PUBLIC_LISTINGS');
+    if (raw == null || raw === '') return this.environment === 'test';
+    return raw.trim() === 'true';
+  }
+
   isConfigured(): boolean {
     return Boolean(this.apiKey && this.apiSecret);
   }
@@ -76,6 +83,7 @@ export class HotelbedsConfigService {
       bookingBaseUrl: this.bookingBaseUrl,
       contentBaseUrl: this.contentBaseUrl,
       bookingEnabled: this.bookingEnabled,
+      publicListings: this.publicListings,
     };
   }
 }

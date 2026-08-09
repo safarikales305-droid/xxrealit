@@ -18,6 +18,11 @@ const nextConfig = {
         hostname: 'images.unsplash.com',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'photos.hotelbeds.com',
+        pathname: '/**',
+      },
     ],
   },
   // Monorepo-safe: pin Turbopack root when multiple lockfiles exist.

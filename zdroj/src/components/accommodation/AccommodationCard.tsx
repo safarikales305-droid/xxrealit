@@ -9,8 +9,14 @@ import {
   type AccommodationItem,
 } from '@/lib/accommodation-client';
 
+type CardItem = AccommodationItem & {
+  available?: boolean;
+  originalPrice?: number | null;
+  originalCurrency?: string;
+};
+
 type Props = {
-  item: AccommodationItem;
+  item: CardItem;
   onFavorite?: (id: string) => void;
   favoriting?: boolean;
 };
@@ -41,6 +47,11 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-zinc-800 shadow">
           {ACCOMMODATION_TYPE_LABELS[item.type] ?? item.type}
         </span>
+        {'available' in item && item.available !== false ? (
+          <span className="absolute bottom-3 left-3 rounded-full bg-emerald-600/95 px-2.5 py-1 text-[11px] font-semibold text-white shadow">
+            Dostupné
+          </span>
+        ) : null}
         {onFavorite ? (
           <button
             type="button"
@@ -86,7 +97,14 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
         ) : null}
 
         <div className="flex items-center justify-between gap-2 pt-1">
-          <p className="text-sm font-bold text-zinc-900">{formatAccommodationPrice(item)}</p>
+          <div>
+            <p className="text-sm font-bold text-zinc-900">{formatAccommodationPrice(item)}</p>
+            {'originalPrice' in item && item.originalPrice != null && item.originalCurrency ? (
+              <p className="text-[11px] text-zinc-500">
+                ({item.originalPrice.toLocaleString('cs-CZ')} {item.originalCurrency})
+              </p>
+            ) : null}
+          </div>
           <Link
             href={`/ubytovani/${item.slug}`}
             className="rounded-lg bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-95"

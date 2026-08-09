@@ -7,6 +7,8 @@ import {
   nestAdminHotelbedsStatus,
   nestAdminHotelbedsTestConnection,
   nestAdminHotelbedsTestSearch,
+  nestAdminHotelbedsClearCache,
+  nestAdminHotelbedsLogs,
   type HotelbedsIntegrationStatus,
   type HotelbedsTestResult,
   type HotelbedsTestSearchResult,
@@ -26,6 +28,9 @@ export function AdminHotelbedsPanel() {
   const [lastTest, setLastTest] = useState<LastTest | null>(null);
   const [searchResult, setSearchResult] = useState<HotelbedsTestSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [logs, setLogs] = useState<Array<Record<string, unknown>> | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -57,6 +62,21 @@ export function AdminHotelbedsPanel() {
     if (!result.success) {
       setError(result.message);
     }
+  }
+
+  async function handleClearCache() {
+    if (!apiAccessToken) return;
+    setClearingCache(true);
+    await nestAdminHotelbedsClearCache(apiAccessToken);
+    setClearingCache(false);
+    await load();
+  }
+
+  async function handleShowLogs() {
+    if (!apiAccessToken) return;
+    setShowLogs(true);
+    const data = await nestAdminHotelbedsLogs(apiAccessToken, 30);
+    setLogs(data?.logs ?? []);
   }
 
   async function handleTestSearch() {
@@ -143,6 +163,30 @@ export function AdminHotelbedsPanel() {
               <dt className="text-zinc-500">Content API</dt>
               <dd className="break-all font-mono text-xs text-zinc-700">{status?.contentBaseUrl ?? '—'}</dd>
             </div>
+            <div>
+              <dt className="text-zinc-500">Veřejné listingy</dt>
+              <dd className="font-medium text-zinc-900">{status?.publicListings ? 'Zapnuto' : 'Vypnuto'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Požadavky dnes</dt>
+              <dd className="font-medium text-zinc-900">{status?.metrics?.requestsToday ?? 0}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Chyby dnes</dt>
+              <dd className="font-medium text-zinc-900">{status?.metrics?.errorsToday ?? 0}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Cache hit rate</dt>
+              <dd className="font-medium text-zinc-900">{status?.metrics?.cacheHitRate ?? 0} %</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-zinc-500">Poslední search</dt>
+              <dd className="text-zinc-800">
+                {status?.metrics?.lastSearch
+                  ? `${status.metrics.lastSearch.destination} · ${status.metrics.lastSearch.total} hotelů · ${new Date(status.metrics.lastSearch.at).toLocaleString('cs-CZ')}`
+                  : '—'}
+              </dd>
+            </div>
           </dl>
         )}
 
@@ -182,6 +226,23 @@ export function AdminHotelbedsPanel() {
           >
             {searching ? 'Vyhledávám…' : 'Testovací vyhledávání hotelů'}
           </button>
+
+          <button
+            type="button"
+            disabled={clearingCache}
+            onClick={() => void handleClearCache()}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+          >
+            {clearingCache ? 'Mažu cache…' : 'Vymazat cache'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleShowLogs()}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800"
+          >
+            Zobrazit API logy
+          </button>
         </div>
 
         {!status?.configured ? (
@@ -192,6 +253,25 @@ export function AdminHotelbedsPanel() {
           </p>
         ) : null}
       </div>
+
+      {showLogs && logs ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-zinc-900">API logy (bez credentials)</h3>
+          <ul className="mt-3 max-h-80 space-y-2 overflow-auto text-xs">
+            {logs.length === 0 ? (
+              <li className="text-zinc-500">Žádné logy.</li>
+            ) : (
+              logs.map((log, i) => (
+                <li key={i} className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1 font-mono">
+                  {String(log.at)} · {String(log.method)} {String(log.endpoint)} · HTTP {String(log.status)} ·{' '}
+                  {String(log.responseTimeMs)} ms
+                  {log.cached ? ' · cache' : ''}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      ) : null}
 
       {searchResult?.success && searchResult.sample?.length ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">

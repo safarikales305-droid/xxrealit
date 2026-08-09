@@ -34,7 +34,11 @@ export class AccommodationService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.seedDemoIfNeeded();
+    const isProd = process.env.NODE_ENV === 'production';
+    const hotelbedsPublic = process.env.HOTELBEDS_PUBLIC_LISTINGS === 'true';
+    if (!isProd || !hotelbedsPublic) {
+      await this.seedDemoIfNeeded();
+    }
   }
 
   private includePublic = {

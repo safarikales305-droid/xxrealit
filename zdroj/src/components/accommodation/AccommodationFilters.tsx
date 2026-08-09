@@ -9,6 +9,7 @@ export type AccommodationFilterState = {
   checkIn: string;
   checkOut: string;
   guests: number;
+  rooms: number;
   priceMin: string;
   priceMax: string;
   ratingMin: string;
@@ -36,6 +37,7 @@ export function AccommodationSearchBar({ initial, onApply, compact, variant = co
     checkIn: initial?.checkIn ?? searchParams.get('checkIn') ?? '',
     checkOut: initial?.checkOut ?? searchParams.get('checkOut') ?? '',
     guests: initial?.guests ?? (Number(searchParams.get('guests')) || 2),
+    rooms: initial?.rooms ?? (Number(searchParams.get('rooms')) || 1),
     priceMin: initial?.priceMin ?? searchParams.get('priceMin') ?? '',
     priceMax: initial?.priceMax ?? searchParams.get('priceMax') ?? '',
     ratingMin: initial?.ratingMin ?? searchParams.get('ratingMin') ?? '',
@@ -55,6 +57,7 @@ export function AccommodationSearchBar({ initial, onApply, compact, variant = co
     if (filters.checkIn) sp.set('checkIn', filters.checkIn);
     if (filters.checkOut) sp.set('checkOut', filters.checkOut);
     if (filters.guests > 1) sp.set('guests', String(filters.guests));
+    if (filters.rooms > 1) sp.set('rooms', String(filters.rooms));
     if (filters.priceMin) sp.set('priceMin', filters.priceMin);
     if (filters.priceMax) sp.set('priceMax', filters.priceMax);
     if (filters.ratingMin) sp.set('ratingMin', filters.ratingMin);
@@ -139,6 +142,17 @@ export function AccommodationSearchBar({ initial, onApply, compact, variant = co
               className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00] focus:ring-2 focus:ring-orange-500/15"
             />
           </label>
+          <label className="text-sm sm:min-w-[5.5rem]">
+            <span className="mb-1 block text-xs font-medium text-zinc-600">Pokoje</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={filters.rooms}
+              onChange={(e) => setFilters((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00] focus:ring-2 focus:ring-orange-500/15"
+            />
+          </label>
           <button
             type="button"
             onClick={apply}
@@ -189,6 +203,17 @@ export function AccommodationSearchBar({ initial, onApply, compact, variant = co
             max={20}
             value={filters.guests}
             onChange={(e) => setFilters((f) => ({ ...f, guests: Number(e.target.value) || 1 }))}
+            className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block text-xs font-medium text-zinc-600">Pokoje</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={filters.rooms}
+            onChange={(e) => setFilters((f) => ({ ...f, rooms: Number(e.target.value) || 1 }))}
             className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
           />
         </label>

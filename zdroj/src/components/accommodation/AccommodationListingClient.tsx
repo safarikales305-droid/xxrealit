@@ -5,11 +5,16 @@ import { useSearchParams } from 'next/navigation';
 import { Map, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  fetchAccommodationMapMarkers,
   fetchAccommodations,
   toggleAccommodationFavorite,
   type AccommodationItem,
 } from '@/lib/accommodation-client';
+import {
+  defaultHotelbedsSearchParams,
+  fetchHotelbedsConfig,
+  fetchHotelbedsMapMarkers,
+  fetchHotelbedsSearch,
+} from '@/lib/hotelbeds-client';
 import { AccommodationCard, AccommodationCardSkeleton } from './AccommodationCard';
 import { AccommodationCategoryChips } from './ContentTypeTabs';
 import {
@@ -18,12 +23,20 @@ import {
   type AccommodationFilterState,
 } from './AccommodationFilters';
 
+const LOCATION_LABELS: Record<string, string> = {
+  praha: 'Praha',
+  brno: 'Brno',
+  'karlovy-vary': 'Karlovy Vary',
+  'cesky-krumlov': 'Český Krumlov',
+};
+
 type Props = {
   category?: string;
   locationSlug?: string;
   initialItems?: AccommodationItem[];
   initialTotal?: number;
   hideTopSearch?: boolean;
+  useHotelbeds?: boolean;
 };
 
 export function AccommodationListingClient({
@@ -32,9 +45,12 @@ export function AccommodationListingClient({
   initialItems = [],
   initialTotal = 0,
   hideTopSearch = false,
+  useHotelbeds: useHotelbedsProp,
 }: Props) {
   const searchParams = useSearchParams();
+  const defaults = defaultHotelbedsSearchParams();
   const { apiAccessToken, isAuthenticated } = useAuth();
+  const [useHotelbeds, setUseHotelbeds] = useState(useHotelbedsProp ?? false);
   const [items, setItems] = useState(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
@@ -49,10 +65,11 @@ export function AccommodationListingClient({
   const [favoritingId, setFavoritingId] = useState<string | null>(null);
 
   const [filters, setFilters] = useState<AccommodationFilterState>({
-    q: searchParams.get('q') ?? '',
-    checkIn: searchParams.get('checkIn') ?? '',
-    checkOut: searchParams.get('checkOut') ?? '',
-    guests: Number(searchParams.get('guests')) || 2,
+    q: searchParams.get('q') ?? (locationSlug ? LOCATION_LABELS[locationSlug] ?? locationSlug.replace(/-/g, ' ') : ''),
+    checkIn: searchParams.get('checkIn') ?? defaults.checkIn,
+    checkOut: searchParams.get('checkOut') ?? defaults.checkOut,
+    guests: Number(searchParams.get('guests')) || defaults.adults,
+    rooms: Number(searchParams.get('rooms')) || defaults.rooms,
     priceMin: searchParams.get('priceMin') ?? '',
     priceMax: searchParams.get('priceMax') ?? '',
     ratingMin: searchParams.get('ratingMin') ?? '',
@@ -65,41 +82,66 @@ export function AccommodationListingClient({
     accessible: searchParams.get('accessible') === '1',
   });
 
+  useEffect(() => {
+    if (useHotelbedsProp != null) return;
+    void fetchHotelbedsConfig().then((cfg) => {
+      if (cfg?.publicListings) setUseHotelbeds(true);
+    });
+  }, [useHotelbedsProp]);
+
+  const destination = filters.q || defaults.destination;
+
   const load = useCallback(
     async (pageNum: number, append = false) => {
       if (append) setLoadingMore(true);
       else setLoading(true);
       setError(null);
       try {
-        const res = await fetchAccommodations(
-          {
-            q: filters.q || undefined,
-            category: category || undefined,
-            locationSlug: locationSlug || undefined,
-            priceMin: Number(filters.priceMin) || undefined,
-            priceMax: Number(filters.priceMax) || undefined,
-            ratingMin: Number(filters.ratingMin) || undefined,
+        if (useHotelbeds) {
+          const res = await fetchHotelbedsSearch({
+            destination,
+            checkIn: filters.checkIn || defaults.checkIn,
+            checkOut: filters.checkOut || defaults.checkOut,
+            adults: filters.guests,
+            rooms: filters.rooms,
             page: pageNum,
             limit: 12,
-            wifi: filters.wifi,
-            parking: filters.parking,
-            breakfast: filters.breakfast,
-            wellness: filters.wellness,
-            pool: filters.pool,
-          },
-          apiAccessToken,
-        );
-        setItems((prev) => (append ? [...prev, ...res.items] : res.items));
-        setTotal(res.total);
-        setPage(pageNum);
+            priceMax: Number(filters.priceMax) || undefined,
+          });
+          setItems((prev) => (append ? [...prev, ...res.items] : res.items));
+          setTotal(res.total);
+          setPage(pageNum);
+        } else {
+          const res = await fetchAccommodations(
+            {
+              q: filters.q || undefined,
+              category: category || undefined,
+              locationSlug: locationSlug || undefined,
+              priceMin: Number(filters.priceMin) || undefined,
+              priceMax: Number(filters.priceMax) || undefined,
+              ratingMin: Number(filters.ratingMin) || undefined,
+              page: pageNum,
+              limit: 12,
+              wifi: filters.wifi,
+              parking: filters.parking,
+              breakfast: filters.breakfast,
+              wellness: filters.wellness,
+              pool: filters.pool,
+            },
+            apiAccessToken,
+          );
+          setItems((prev) => (append ? [...prev, ...res.items] : res.items));
+          setTotal(res.total);
+          setPage(pageNum);
+        }
       } catch {
-        setError('Data ubytování se nepodařilo načíst. Zkuste to prosím později.');
+        setError('Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.');
       } finally {
         setLoading(false);
         setLoadingMore(false);
       }
     },
-    [apiAccessToken, category, filters, locationSlug],
+    [apiAccessToken, category, destination, filters, locationSlug, useHotelbeds, defaults],
   );
 
   useEffect(() => {
@@ -108,15 +150,27 @@ export function AccommodationListingClient({
 
   useEffect(() => {
     if (view !== 'map') return;
-    void fetchAccommodationMapMarkers({
-      q: filters.q || undefined,
-      category: category || undefined,
-      city: locationSlug,
-    }).then(setMarkers);
-  }, [view, filters.q, category, locationSlug]);
+    if (useHotelbeds) {
+      void fetchHotelbedsMapMarkers({
+        destination,
+        checkIn: filters.checkIn || defaults.checkIn,
+        checkOut: filters.checkOut || defaults.checkOut,
+        adults: filters.guests,
+        rooms: filters.rooms,
+      }).then(setMarkers);
+    } else {
+      void import('@/lib/accommodation-client').then((m) =>
+        m.fetchAccommodationMapMarkers({
+          q: filters.q || undefined,
+          category: category || undefined,
+          city: locationSlug,
+        }).then(setMarkers),
+      );
+    }
+  }, [view, filters, category, locationSlug, useHotelbeds, destination, defaults]);
 
   async function handleFavorite(id: string) {
-    if (!isAuthenticated || !apiAccessToken) return;
+    if (!isAuthenticated || !apiAccessToken || useHotelbeds) return;
     setFavoritingId(id);
     try {
       const res = await toggleAccommodationFavorite(apiAccessToken, id);
@@ -131,15 +185,15 @@ export function AccommodationListingClient({
       {!hideTopSearch ? (
         <>
           <div className="md:hidden">
-            <AccommodationSearchBar compact />
+            <AccommodationSearchBar compact initial={filters} onApply={setFilters} />
           </div>
           <div className="hidden md:block">
-            <AccommodationSearchBar />
+            <AccommodationSearchBar initial={filters} onApply={setFilters} />
           </div>
         </>
       ) : null}
 
-      <AccommodationCategoryChips active={category} />
+      {!useHotelbeds ? <AccommodationCategoryChips active={category} /> : null}
 
       <div className="flex items-center justify-between gap-2 md:hidden">
         <button
@@ -199,7 +253,7 @@ export function AccommodationListingClient({
               <div className="grid gap-2 p-4 sm:grid-cols-2">
                 {markers.length === 0 ? (
                   <p className="col-span-full py-8 text-center text-sm text-zinc-600">
-                    Mapové body se načítají… ({markers.length})
+                    Žádné body na mapě pro aktuální hledání.
                   </p>
                 ) : (
                   markers.map((m) => (
@@ -216,9 +270,6 @@ export function AccommodationListingClient({
                   ))
                 )}
               </div>
-              <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
-                Interaktivní mapa bude doplněna — body odpovídají poloze ubytování v databázi.
-              </p>
             </div>
           ) : loading && items.length === 0 ? (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -226,13 +277,17 @@ export function AccommodationListingClient({
                 <AccommodationCardSkeleton key={i} />
               ))}
             </div>
+          ) : items.length === 0 && !loading ? (
+            <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-600">
+              Pro zadané období nebylo nalezeno žádné ubytování. Zkuste jiný termín nebo destinaci.
+            </p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {items.map((item) => (
                 <AccommodationCard
                   key={item.id}
                   item={item}
-                  onFavorite={isAuthenticated ? handleFavorite : undefined}
+                  onFavorite={isAuthenticated && !useHotelbeds ? handleFavorite : undefined}
                   favoriting={favoritingId === item.id}
                 />
               ))}

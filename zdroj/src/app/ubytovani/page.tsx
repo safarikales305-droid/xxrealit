@@ -4,7 +4,8 @@ import Logo from '@/components/Logo';
 import { AccommodationHero } from '@/components/accommodation/AccommodationHero';
 import { AccommodationListingClient } from '@/components/accommodation/AccommodationListingClient';
 import { ContentTypeTabs } from '@/components/accommodation/ContentTypeTabs';
-import { fetchAccommodationHero, fetchAccommodations } from '@/lib/accommodation-client';
+import { fetchAccommodationHero } from '@/lib/accommodation-client';
+import { fetchHotelbedsConfig, fetchHotelbedsSearch } from '@/lib/hotelbeds-client';
 
 export const metadata: Metadata = {
   title: 'Ubytování | XXREALIT',
@@ -18,15 +19,21 @@ export const metadata: Metadata = {
 };
 
 export default async function UbytovaniPage() {
-  let initialItems: Awaited<ReturnType<typeof fetchAccommodations>>['items'] = [];
+  const hero = await fetchAccommodationHero().catch(() => null);
+  const hbConfig = await fetchHotelbedsConfig().catch(() => null);
+  const useHotelbeds = hbConfig?.publicListings === true;
+
+  let initialItems: Awaited<ReturnType<typeof fetchHotelbedsSearch>>['items'] = [];
   let initialTotal = 0;
-  let hero = await fetchAccommodationHero().catch(() => null);
-  try {
-    const res = await fetchAccommodations({ limit: 12, page: 1 });
-    initialItems = res.items;
-    initialTotal = res.total;
-  } catch {
-    // SSR fallback — client retry
+
+  if (useHotelbeds) {
+    try {
+      const res = await fetchHotelbedsSearch({ limit: 12, page: 1 });
+      initialItems = res.items;
+      initialTotal = res.total;
+    } catch {
+      // client retry
+    }
   }
 
   return (
@@ -48,6 +55,7 @@ export default async function UbytovaniPage() {
           initialItems={initialItems}
           initialTotal={initialTotal}
           hideTopSearch
+          useHotelbeds={useHotelbeds}
         />
       </main>
     </div>

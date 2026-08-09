@@ -17,6 +17,14 @@ export type HotelbedsIntegrationStatus = {
   bookingBaseUrl: string;
   contentBaseUrl: string;
   bookingEnabled: boolean;
+  publicListings?: boolean;
+  metrics?: {
+    requestsToday: number;
+    errorsToday: number;
+    cacheHitRate: number;
+    lastSearch: { at: string; destination: string; total: number } | null;
+    lastContentSync: { at: string; hotels: number } | null;
+  };
 };
 
 export type HotelbedsTestResult = {
@@ -75,6 +83,39 @@ export async function nestAdminHotelbedsTestSearch(
       headers: nestAuthHeaders(token),
     });
     return (await res.json()) as HotelbedsTestSearchResult;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminHotelbedsClearCache(
+  token: string,
+): Promise<{ success: boolean; removed: number } | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/integrations/hotelbeds/cache/clear`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { success: boolean; removed: number };
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminHotelbedsLogs(
+  token: string,
+  limit = 50,
+): Promise<{ logs: Array<Record<string, unknown>> } | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/integrations/hotelbeds/logs?limit=${limit}`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { logs: Array<Record<string, unknown>> };
   } catch {
     return null;
   }
