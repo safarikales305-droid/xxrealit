@@ -4,12 +4,9 @@ import { HotelbedsHttpService } from './hotelbeds-http.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import { HotelbedsConfigService } from './hotelbeds.config';
+import { HotelbedsBookingSyncService } from './hotelbeds-booking-sync.service';
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
 import { HOTELBEDS_BATCH_MAX } from './hotelbeds-normalizer';
-
-type BookingSearchPayload = {
-  hotels?: { hotels?: Array<{ code?: number }>; total?: number };
-};
 
 @Injectable()
 export class HotelbedsContentSyncService {
@@ -21,6 +18,7 @@ export class HotelbedsContentSyncService {
     private readonly publicService: HotelbedsPublicService,
     private readonly storage: HotelbedsContentStorageService,
     private readonly metrics: HotelbedsMetricsService,
+    private readonly bookingSync: HotelbedsBookingSyncService,
   ) {}
 
   async syncHotel(hotelCode: number, force = false) {
@@ -58,17 +56,22 @@ export class HotelbedsContentSyncService {
     };
   }
 
+  /** Legacy: Content API enrichment po Booking search. Při quota exceeded jen Booking sync. */
   async syncFromBookingSearch(destination = 'Praha', maxHotels = HOTELBEDS_BATCH_MAX) {
+    const bookingResult = await this.bookingSync.syncOffersFromBookingApi(destination, maxHotels);
+    if (!bookingResult.success) {
+      return bookingResult;
+    }
+
     if (this.metrics.isContentApiDisabled()) {
-      const dbCount = await this.storage.countCatalog();
       return {
-        success: false,
-        skipped: true,
+        ...bookingResult,
+        contentEnrichmentSkipped: true,
         reason: this.metrics.isContentApiQuotaBlocked() ? 'QUOTA_EXCEEDED' : 'CONTENT_API_BLOCKED',
-        dbHotelCount: dbCount,
-        message: 'Content API je blokováno — sync přeskočen, DB obsah zůstává.',
+        message: `${bookingResult.message} Content API enrichment přeskočeno.`,
       };
     }
+
     const dates = defaultSearchDates();
     const dest = resolveDestination(destination);
     const url = `${this.config.bookingBaseUrl}/hotels`;
@@ -84,12 +87,14 @@ export class HotelbedsContentSyncService {
       filter: { maxHotels },
     };
 
-    const { data } = await this.http.postJson<BookingSearchPayload>(url, body, 'booking/search');
+    const { data } = await this.http.postJson<{
+      hotels?: { hotels?: Array<{ code?: number }> };
+    }>(url, body, 'booking/search');
     const codes = (data.hotels?.hotels ?? [])
       .map((h) => h.code)
       .filter((c): c is number => c != null);
 
-    let synced = 0;
+    let enriched = 0;
     let withImages = 0;
     const errors: string[] = [];
 
@@ -97,9 +102,9 @@ export class HotelbedsContentSyncService {
       try {
         const result = await this.syncHotel(code);
         if (result.success) {
-          synced++;
+          enriched++;
           if ((result.imagesInDb ?? 0) > 0) withImages++;
-        } else {
+        } else if (!result.skipped) {
           errors.push(`#${code}: ${result.message}`);
         }
       } catch (err) {
@@ -107,15 +112,16 @@ export class HotelbedsContentSyncService {
       }
     }
 
-    this.metrics.recordContentSync(synced, withImages);
-    this.log.log(`Hotelbeds content sync: ${synced}/${codes.length} hotels, ${withImages} with images`);
+    this.metrics.recordContentSync(enriched, withImages);
+    this.log.log(`Hotelbeds content enrichment: ${enriched}/${codes.length} hotels`);
 
     return {
       success: true,
       destination: dest.label,
       requested: codes.length,
-      synced,
+      synced: enriched,
       withImages,
+      bookingSync: bookingResult,
       errors: errors.slice(0, 20),
     };
   }

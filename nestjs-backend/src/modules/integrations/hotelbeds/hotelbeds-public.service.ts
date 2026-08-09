@@ -161,25 +161,22 @@ export class HotelbedsPublicService {
       : undefined;
 
     const dbHotelbedsCount = await this.contentStorage.countCatalog();
-    const { items: contentHotels, total: dbTotal } = await this.contentStorage.listCatalog({
+    const fetchAll = !shouldApplyDestinationFilter(query);
+    const { items: catalogRecords, total: dbTotal } = await this.contentStorage.listCatalogRecords({
       category: query.category,
       city: cityFilter,
-      page: shouldApplyDestinationFilter(query) ? page : 1,
-      limit: shouldApplyDestinationFilter(query) ? limit : Math.max(limit, dbHotelbedsCount || limit),
+      page: fetchAll ? 1 : page,
+      limit: fetchAll ? Math.max(limit, dbHotelbedsCount || limit) : limit,
     });
 
-    const cacheHits = contentHotels.filter((h) =>
-      h.code != null ? this.cache.has(`content:${h.code}`) : false,
-    ).length;
-
     const merged = await Promise.all(
-      contentHotels.map((content) =>
+      catalogRecords.map((record) =>
         this.mergeHotel(
-          { code: content.code, name: localizedText(content.name) ?? undefined },
-          content,
+          record.booking,
+          record.content,
           checkIn,
           checkOut,
-          { catalogOnly: true },
+          { catalogOnly: record.bookingOnly && record.booking.minRate == null },
         ),
       ),
     );
@@ -195,7 +192,7 @@ export class HotelbedsPublicService {
         provider: 'HOTELBEDS',
         dbHotelbedsCount,
         totalAccommodationCount: dbHotelbedsCount,
-        dbPageCount: contentHotels.length,
+        dbPageCount: catalogRecords.length,
         mergedCount: mergedItems.length,
         filteredCount: filtered.length,
         finalReturnedCount: pageHotels.length,
@@ -345,6 +342,10 @@ export class HotelbedsPublicService {
 
   async getDbHotelSummary(hotelCode: number) {
     return this.contentStorage.getDbDiagnostics(hotelCode);
+  }
+
+  async getCatalogStats() {
+    return this.contentStorage.getCatalogStats();
   }
 
   async getBySlug(slug: string, query?: Partial<HotelbedsSearchQuery>): Promise<NormalizedAccommodation> {

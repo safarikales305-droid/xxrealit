@@ -16,6 +16,9 @@ export type HotelbedsTestSearchResult = {
   responseTimeMs: number;
   message: string;
   hotelsFound?: number;
+  hotelsReturned?: number;
+  errorCode?: string;
+  errorMessage?: string;
   sample?: Array<{ code?: string; name?: string; categoryCode?: string }>;
 };
 

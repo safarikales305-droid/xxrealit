@@ -3,6 +3,7 @@ import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { HotelbedsCacheService } from './hotelbeds-cache.service';
 import { HotelbedsContentSyncService } from './hotelbeds-content-sync.service';
+import { HotelbedsBookingSyncService } from './hotelbeds-booking-sync.service';
 import { HotelbedsDiagnosticsService } from './hotelbeds-diagnostics.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
@@ -20,6 +21,7 @@ export class HotelbedsAdminController {
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
     private readonly contentSync: HotelbedsContentSyncService,
+    private readonly bookingSync: HotelbedsBookingSyncService,
   ) {}
 
   @Get('status')
@@ -107,6 +109,23 @@ export class HotelbedsAdminController {
   syncHotel(@Query('hotelCode') hotelCode?: string, @Query('force') force?: string) {
     const code = Number(hotelCode) || 6741;
     return this.contentSync.syncHotel(code, force === '1' || force === 'true');
+  }
+
+  @Post('sync-booking-offers')
+  syncBookingOffers(
+    @Query('destination') destination?: string,
+    @Query('maxHotels') maxHotels?: string,
+  ) {
+    return this.bookingSync.syncOffersFromBookingApi(
+      destination || 'Praha',
+      Number(maxHotels) || 30,
+    );
+  }
+
+  @Get('catalog-stats')
+  async catalogStats() {
+    const stats = await this.publicService.getCatalogStats();
+    return { stats };
   }
 
   @Post('test-public-endpoint')

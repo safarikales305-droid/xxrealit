@@ -15,7 +15,9 @@ import {
   nestAdminHotelbedsCacheInspector,
   nestAdminHotelbedsDiagnoseHotel,
   nestAdminHotelbedsDiagnosePublicHotels,
+  nestAdminHotelbedsSyncBookingOffers,
   nestAdminHotelbedsSyncContent,
+  type HotelbedsBookingSyncResult,
   nestAdminHotelbedsSyncHotel,
   nestAdminHotelbedsTestPublicEndpoint,
   type HotelbedsPublicEndpointTest,
@@ -60,6 +62,8 @@ export function AdminHotelbedsPanel() {
   const [hotelDiagnosis, setHotelDiagnosis] = useState<HotelbedsHotelDiagnosis | null>(null);
   const [diagnosingPublic, setDiagnosingPublic] = useState(false);
   const [publicDiagnosis, setPublicDiagnosis] = useState<HotelbedsPublicHotelsDiagnosis | null>(null);
+  const [syncingBookingOffers, setSyncingBookingOffers] = useState(false);
+  const [bookingSyncResult, setBookingSyncResult] = useState<HotelbedsBookingSyncResult | null>(null);
   const [syncingContent, setSyncingContent] = useState(false);
   const [syncingHotel, setSyncingHotel] = useState(false);
   const [rawContent, setRawContent] = useState<Record<string, unknown> | null>(null);
@@ -153,6 +157,23 @@ export function AdminHotelbedsPanel() {
     }
     await load();
     await handleDiagnoseHotelDuo();
+  }
+
+  async function handleSyncBookingOffers() {
+    if (!apiAccessToken) return;
+    setSyncingBookingOffers(true);
+    setError(null);
+    const result = await nestAdminHotelbedsSyncBookingOffers(apiAccessToken, 'Praha', 30);
+    setSyncingBookingOffers(false);
+    if (!result) {
+      setError('Synchronizace z Booking API selhala — backend neodpověděl.');
+      return;
+    }
+    setBookingSyncResult(result);
+    if (!result.success) {
+      setError(result.message);
+    }
+    await load();
   }
 
   async function handleSyncAllContent() {
@@ -290,6 +311,7 @@ export function AdminHotelbedsPanel() {
         : contentAccessStatus === 'TEMPORARY_ERROR'
           ? '🟡 Content API – dočasná chyba'
           : '🟡 Content API – nedostupné';
+  const catalogStats = overview?.database.catalogStats;
   const dbContentStatus = hasDbContent ? '🟢 Dostupný' : '🟡 Prázdný';
   const publicFallbackStatus =
     overview?.publicFallback?.active || contentDiagnostics?.publicFallbackActive
@@ -557,6 +579,14 @@ export function AdminHotelbedsPanel() {
             </button>
             <button
               type="button"
+              disabled={syncingBookingOffers || !status?.configured}
+              onClick={() => void handleSyncBookingOffers()}
+              className="rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-900 disabled:opacity-50"
+            >
+              {syncingBookingOffers ? 'Synchronizuji…' : 'Synchronizovat nabídky z Booking API'}
+            </button>
+            <button
+              type="button"
               disabled={syncingContent || !status?.configured}
               onClick={() => void handleSyncAllContent()}
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
@@ -630,6 +660,38 @@ export function AdminHotelbedsPanel() {
               <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900">
                 Důvod: {publicEndpointTest.hotelDuoFilterReason}
               </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {bookingSyncResult ? (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            <h3 className="font-semibold">Synchronizace Booking API</h3>
+            <p className="mt-1">{bookingSyncResult.message}</p>
+            <dl className="mt-2 grid gap-1 sm:grid-cols-2">
+              <div>
+                <dt className="text-emerald-800">HTTP</dt>
+                <dd className="font-medium">{bookingSyncResult.httpStatus ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-emerald-800">Booking hotels returned</dt>
+                <dd className="font-medium">{bookingSyncResult.bookingHotelsReturned}</dd>
+              </div>
+              <div>
+                <dt className="text-emerald-800">DB před / po</dt>
+                <dd className="font-medium">
+                  {bookingSyncResult.dbHotelbedsBefore} → {bookingSyncResult.dbHotelbedsAfter}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-emerald-800">Nové / aktualizované</dt>
+                <dd className="font-medium">
+                  {bookingSyncResult.created} / {bookingSyncResult.updated}
+                </dd>
+              </div>
+            </dl>
+            {bookingSyncResult.errors.length ? (
+              <p className="mt-2 text-xs text-amber-900">{bookingSyncResult.errors.join(' · ')}</p>
             ) : null}
           </div>
         ) : null}
@@ -930,6 +992,34 @@ export function AdminHotelbedsPanel() {
             <dt className="text-zinc-500">Public fallback</dt>
             <dd className="font-medium">{publicFallbackStatus}</dd>
           </div>
+          {catalogStats ? (
+            <>
+              <div className="sm:col-span-2">
+                <dt className="text-zinc-500">Hotelbeds hotels in DB</dt>
+                <dd className="font-medium">{catalogStats.total}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">With Content</dt>
+                <dd className="font-medium">{catalogStats.withContent}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Without Content</dt>
+                <dd className="font-medium">{catalogStats.withoutContent}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">With Images</dt>
+                <dd className="font-medium">{catalogStats.withImages}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Booking-only</dt>
+                <dd className="font-medium">{catalogStats.bookingOnly}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Content-enriched</dt>
+                <dd className="font-medium">{catalogStats.contentEnriched}</dd>
+              </div>
+            </>
+          ) : null}
           <div>
             <dt className="text-zinc-500">Images</dt>
             <dd className="font-medium">{contentDiagnostics?.imagesOk ? '✅' : '❌'}</dd>
@@ -1081,6 +1171,34 @@ export function AdminHotelbedsPanel() {
               ))
             )}
           </ul>
+        </div>
+      ) : null}
+
+      {searchResult ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-zinc-900">Booking API test</h3>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">HTTP status</dt>
+              <dd className="font-medium">{searchResult.status}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Response hotel count</dt>
+              <dd className="font-medium">{searchResult.hotelsReturned ?? searchResult.hotelsFound ?? 0}</dd>
+            </div>
+            {searchResult.errorCode ? (
+              <div>
+                <dt className="text-zinc-500">Error code</dt>
+                <dd className="font-medium">{searchResult.errorCode}</dd>
+              </div>
+            ) : null}
+            {searchResult.errorMessage ? (
+              <div className="sm:col-span-2">
+                <dt className="text-zinc-500">Error message</dt>
+                <dd className="font-medium">{searchResult.errorMessage}</dd>
+              </div>
+            ) : null}
+          </dl>
         </div>
       ) : null}
 

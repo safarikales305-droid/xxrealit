@@ -35,6 +35,7 @@ export class HotelbedsDiagnosticsService {
     const diagnostics = this.metrics.contentDiagnostics();
     const cacheInspection = this.cache.inspect(200);
     const dbHotelCount = await this.contentStorage.countCatalog();
+    const catalogStats = await this.contentStorage.getCatalogStats();
     const contentLogs = [
       ...this.metrics.getContentHistory(50),
       ...this.metrics.getContentLogsFromApiLogs(),
@@ -76,6 +77,7 @@ export class HotelbedsDiagnosticsService {
       database: {
         available: true,
         hotelCount: dbHotelCount,
+        catalogStats,
         note: 'Hotelbeds content v tabulce Accommodation (provider=HOTELBEDS).',
       },
       contentHistory: contentLogs,

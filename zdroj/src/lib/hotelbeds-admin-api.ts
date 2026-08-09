@@ -82,7 +82,19 @@ export type HotelbedsDiagnosticsOverview = {
     fallback: number;
     withoutPhoto: number;
   };
-  database: { available: boolean; note: string; hotelCount?: number };
+  database: {
+    available: boolean;
+    note: string;
+    hotelCount?: number;
+    catalogStats?: {
+      total: number;
+      withContent: number;
+      withoutContent: number;
+      withImages: number;
+      bookingOnly: number;
+      contentEnriched: number;
+    };
+  };
   contentHistory: HotelbedsContentHistoryRow[];
   cache: HotelbedsCacheInspection;
 };
@@ -199,7 +211,28 @@ export type HotelbedsTestResult = {
 
 export type HotelbedsTestSearchResult = HotelbedsTestResult & {
   hotelsFound?: number;
+  hotelsReturned?: number;
+  errorMessage?: string;
   sample?: Array<{ code?: string; name?: string; categoryCode?: string }>;
+};
+
+export type HotelbedsBookingSyncResult = {
+  success: boolean;
+  skipped?: boolean;
+  reason?: string;
+  httpStatus?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  destination: string;
+  dbHotelbedsBefore: number;
+  dbHotelbedsAfter: number;
+  bookingHotelsReturned: number;
+  loaded: number;
+  created: number;
+  updated: number;
+  errors: string[];
+  contentApiCalled: boolean;
+  message: string;
 };
 
 export type HotelbedsTestContentResult = {
@@ -448,6 +481,24 @@ export async function nestAdminHotelbedsRawContent(
     );
     if (!res.ok) return null;
     return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminHotelbedsSyncBookingOffers(
+  token: string,
+  destination = 'Praha',
+  maxHotels = 30,
+): Promise<HotelbedsBookingSyncResult | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/integrations/hotelbeds/sync-booking-offers?destination=${encodeURIComponent(destination)}&maxHotels=${maxHotels}`,
+      { method: 'POST', headers: nestAuthHeaders(token) },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as HotelbedsBookingSyncResult;
   } catch {
     return null;
   }

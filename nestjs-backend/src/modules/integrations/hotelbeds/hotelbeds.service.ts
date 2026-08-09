@@ -132,7 +132,7 @@ export class HotelbedsService {
         radius: 10,
         unit: 'km',
       },
-      filter: { maxHotels: 5 },
+      filter: { maxHotels: 30 },
     };
 
     const started = Date.now();
@@ -148,13 +148,24 @@ export class HotelbedsService {
       };
 
       if (!response.ok) {
+        const errorCode =
+          typeof payload.error === 'object' && payload.error?.code
+            ? String(payload.error.code)
+            : String(response.status);
+        const errorMessage =
+          typeof payload.error === 'object' && payload.error?.message
+            ? String(payload.error.message)
+            : this.mapHttpError(response.status, payload as Record<string, unknown>);
         return {
           success: false,
           provider: 'Hotelbeds',
           environment: this.config.environment,
           status: response.status,
           responseTimeMs,
-          message: this.mapHttpError(response.status, payload as Record<string, unknown>),
+          message: errorMessage,
+          errorCode,
+          errorMessage,
+          hotelsReturned: 0,
         };
       }
 
@@ -173,6 +184,9 @@ export class HotelbedsService {
         responseTimeMs,
         message: `Testovací vyhledávání úspěšné (${hotelsFound} hotelů).`,
         hotelsFound,
+        hotelsReturned: hotels.length,
+        errorCode: undefined,
+        errorMessage: undefined,
         sample: hotels.slice(0, 5).map((h) => ({
           code: h.code != null ? String(h.code) : undefined,
           name: h.name,
