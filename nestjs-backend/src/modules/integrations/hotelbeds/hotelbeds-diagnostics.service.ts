@@ -5,7 +5,9 @@ import { HotelbedsHttpError, HotelbedsHttpService } from './hotelbeds-http.servi
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import type { HotelbedsContentMeta } from './hotelbeds-content-meta.types';
+import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
 import {
+  HOTELBEDS_CONTENT_LANGUAGE,
   buildContentHotelsUrl,
   buildHotelbedsImageUrl,
   localizedText,
@@ -25,6 +27,7 @@ export class HotelbedsDiagnosticsService {
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
     private readonly publicService: HotelbedsPublicService,
+    private readonly contentStorage: HotelbedsContentStorageService,
   ) {}
 
   getOverview() {
@@ -63,8 +66,8 @@ export class HotelbedsDiagnosticsService {
         withoutPhoto: diagnostics.imageSourceCounts.none,
       },
       database: {
-        available: false,
-        note: 'Hotelbeds content se v projektu neukládá do databáze — pouze in-memory cache.',
+        available: true,
+        note: 'Hotelbeds content se ukládá do tabulky Accommodation (provider=HOTELBEDS).',
       },
       contentHistory: contentLogs,
       cache: cacheInspection,
@@ -87,39 +90,42 @@ export class HotelbedsDiagnosticsService {
     let bookingStatus = 0;
     let bookingName: string | null = null;
     let bookingError: string | null = null;
+    let bookingNote: string | null = null;
     try {
       const url = `${this.config.bookingBaseUrl}/hotels`;
       const body = {
         stay: { checkIn: futureDate(30), checkOut: futureDate(32) },
         occupancies: [{ rooms: 1, adults: 2, children: 0 }],
-        hotels: { hotel: [hotelCode] },
+        geolocation: {
+          latitude: 50.0755,
+          longitude: 14.4378,
+          radius: 15,
+          unit: 'km',
+        },
+        filter: { maxHotels: 200 },
       };
-      const { data, status } = await this.http.postJson<BookingSearchPayload>(
-        url,
-        body,
-        'booking/hotel-detail',
-      );
+      const { data, status } = await this.http.postJson<BookingSearchPayload>(url, body, 'booking/search');
       bookingStatus = status;
-      bookingName = data.hotels?.hotels?.[0]?.name ?? null;
+      const match = (data.hotels?.hotels ?? []).find((h) => h.code === hotelCode);
+      bookingName = match?.name ?? null;
+      if (!match) {
+        bookingNote =
+          'Hotel nebyl v geo search výsledku — to neznamená chybu credentials. Content API je nezávislé na dostupnosti.';
+      }
     } catch (err) {
       bookingStatus = err instanceof HotelbedsHttpError ? err.status : 0;
       bookingError = err instanceof Error ? err.message : String(err);
     }
 
-    let contentStatus = 0;
-    let contentError: string | null = null;
-    try {
-      const result = await this.publicService.testHotelContent(hotelCode);
-      contentStatus = result.httpStatus;
-      contentError = result.error ?? null;
-    } catch (err) {
-      contentStatus = err instanceof HotelbedsHttpError ? err.status : 0;
-      contentError = err instanceof Error ? err.message : String(err);
-    }
+    const rawContent = await this.publicService.getRawContentDiagnostics(hotelCode);
+    const contentStatus = rawContent.httpStatus;
+    const contentError = 'error' in rawContent ? (rawContent.error as string) : null;
 
     const contentAfterTest = this.cache.peek<HbContentHotel>(contentKey);
     const contentForImages = contentAfterTest ?? cachedContent;
     const sortedImages = sortHotelbedsImages(contentForImages?.images);
+    const imagesInDb = await this.contentStorage.countImages(hotelCode);
+    const dbContent = await this.contentStorage.findByProviderId(hotelCode);
     const imageDiagnostics = await Promise.all(
       sortedImages.slice(0, 8).map(async (img) => {
         const assembled = buildHotelbedsImageUrl(img.path, 'card');
@@ -137,31 +143,36 @@ export class HotelbedsDiagnosticsService {
       }),
     );
 
-    const currentImageSource = sortedImages.length
-      ? contentAfterTest || cachedContent
-        ? 'HOTELBEDS_CACHE'
-        : contentStatus === 200
-          ? 'HOTELBEDS_CONTENT_API'
-          : 'NONE'
-      : 'NONE';
+    const currentImageSource = imagesInDb > 0
+      ? 'DATABASE_CACHE'
+      : sortedImages.length
+        ? contentAfterTest || cachedContent
+          ? 'HOTELBEDS_CACHE'
+          : contentStatus === 200
+            ? 'HOTELBEDS_CONTENT_API'
+            : 'NONE'
+        : 'NONE';
 
     const diagnostics = this.metrics.contentDiagnostics();
 
     return {
       hotelId: hotelCode,
-      name: localizedText(cachedContent?.name) ?? bookingName,
+      name: localizedText(cachedContent?.name) ?? localizedText(dbContent?.name) ?? bookingName,
       bookingApi: {
         httpStatus: bookingStatus,
         ok: bookingStatus === 200,
         error: bookingError,
+        note: bookingNote,
       },
       contentApi: {
         httpStatus: contentStatus,
         ok: contentStatus === 200,
         permissionDenied: contentStatus === 401 || contentStatus === 403,
         error: contentError,
-        endpoint: buildContentHotelsUrl(this.config.contentBaseUrl, [hotelCode], 'ENG'),
+        endpoint: buildContentHotelsUrl(this.config.contentBaseUrl, [hotelCode], HOTELBEDS_CONTENT_LANGUAGE),
+        language: HOTELBEDS_CONTENT_LANGUAGE,
       },
+      rawContent,
       cache: {
         hit: Boolean(contentAfterTest ?? cachedContent),
         contentKey,
@@ -170,14 +181,14 @@ export class HotelbedsDiagnosticsService {
         entry: this.cache.getEntryMeta(contentKey) ?? contentEntryMeta,
       },
       database: {
-        found: false,
-        hasContent: false,
-        imagesCount: 0,
-        descriptionLength: 0,
+        found: imagesInDb > 0 || Boolean(dbContent),
+        hasContent: Boolean(dbContent),
+        imagesCount: imagesInDb,
+        descriptionLength: localizedText(dbContent?.description)?.length ?? 0,
         lastSyncedAt: null,
         provider: 'HOTELBEDS',
         sourceEnvironment: this.config.environment,
-        note: 'V projektu neexistuje DB tabulka pro Hotelbeds hotel content.',
+        note: 'Accommodation tabulka, provider=HOTELBEDS.',
       },
       currentImageSource,
       lastSuccessfulContentFetch: diagnostics.lastSuccessfulContentRequest?.at ?? cachedMeta?.fetchedAt ?? null,
@@ -188,7 +199,7 @@ export class HotelbedsDiagnosticsService {
         contentApiStatus: contentStatus || null,
         contentFetchedAt: (this.cache.peek<HotelbedsContentMeta>(metaKey) ?? cachedMeta)?.fetchedAt ?? contentEntryMeta?.createdAt ?? null,
         cacheHit: Boolean(contentAfterTest ?? cachedContent),
-        dbHit: false,
+        dbHit: imagesInDb > 0,
         fallbackUsed: false,
       },
       conclusionHints: this.buildConclusionHints({
@@ -283,7 +294,7 @@ export class HotelbedsDiagnosticsService {
     if (input.cachedMeta) {
       hints.push(`Cache metadata: načteno ${input.cachedMeta.fetchedAt} ze zdroje ${input.cachedMeta.source}.`);
     }
-    hints.push('DB persistence pro Hotelbeds content v projektu není implementována.');
+    hints.push('Hotelbeds content se ukládá do Accommodation (provider=HOTELBEDS).');
     return hints;
   }
 

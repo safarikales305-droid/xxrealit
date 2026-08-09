@@ -4,12 +4,16 @@ export const HOTELBEDS_BATCH_MAX = 100;
 export const HOTELBEDS_CONTENT_BATCH_SIZE = 100;
 
 /**
- * Hotelbeds Content API language codes (3-letter, dle oficiální dokumentace).
- * Preferujeme češtinu, pak angličtinu.
+ * Jediná podporovaná language hodnota pro Hotelbeds Content API.
+ * Používejte výhradně 3písmenné kódy dle dokumentace (ENG, SPA, …).
  */
-export const HOTELBEDS_CONTENT_LANGUAGE_PREFERRED = ['CZE', 'ENG'] as const;
 export const HOTELBEDS_CONTENT_LANGUAGE = 'ENG';
-export const HOTELBEDS_CONTENT_SECONDARY_LANGUAGE = 'ENG';
+
+/** @deprecated Používejte HOTELBEDS_CONTENT_LANGUAGE */
+export const HOTELBEDS_CONTENT_LANGUAGE_PREFERRED = [HOTELBEDS_CONTENT_LANGUAGE] as const;
+
+/** @deprecated Používejte HOTELBEDS_CONTENT_LANGUAGE */
+export const HOTELBEDS_CONTENT_SECONDARY_LANGUAGE = HOTELBEDS_CONTENT_LANGUAGE;
 
 export type HotelbedsImageSize = 'thumbnail' | 'card' | 'detail' | 'hero';
 
@@ -67,7 +71,15 @@ export type HbContentHotel = {
   address?: { content?: string; street?: string; number?: string };
   city?: { content?: string };
   coordinates?: { latitude?: number; longitude?: number };
-  images?: Array<{ path?: string; imageTypeCode?: string; order?: number }>;
+  images?: Array<{
+    path?: string;
+    imageTypeCode?: string;
+    order?: number;
+    visualOrder?: number;
+    roomCode?: string;
+    roomType?: string;
+    characteristicCode?: string;
+  }>;
   facilities?: Array<{ facilityCode?: number; facilityGroupCode?: number; description?: { content?: string } }>;
   rooms?: Array<{
     roomCode?: string;
@@ -112,21 +124,110 @@ export function sortHotelbedsImages(
     const pa = IMAGE_TYPE_PRIORITY[a.imageTypeCode ?? ''] ?? 99;
     const pb = IMAGE_TYPE_PRIORITY[b.imageTypeCode ?? ''] ?? 99;
     if (pa !== pb) return pa - pb;
-    return (a.order ?? 0) - (b.order ?? 0);
+    const oa = a.visualOrder ?? a.order ?? 0;
+    const ob = b.visualOrder ?? b.order ?? 0;
+    return oa - ob;
   });
   const seen = new Set<string>();
   return sorted.filter((img) => {
-    if (!img.path) return false;
-    if (seen.has(img.path)) return false;
-    seen.add(img.path);
+    const path = normalizeImagePath(img.path);
+    if (!path) return false;
+    if (seen.has(path)) return false;
+    seen.add(path);
+    img.path = path;
     return true;
   });
+}
+
+function normalizeImagePath(path?: string | null): string | null {
+  if (!path?.trim()) return null;
+  const trimmed = path.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return trimmed.replace(/^\/+/, '');
+}
+
+type HbContentImage = NonNullable<HbContentHotel['images']>[number];
+
+function normalizeContentImage(raw: unknown): HbContentImage | null {
+  if (typeof raw === 'string') {
+    const path = normalizeImagePath(raw);
+    return path ? { path } : null;
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const path = normalizeImagePath(
+    (o.path ?? o.url ?? o.image ?? o.uri ?? o.imagePath) as string | undefined,
+  );
+  if (!path) return null;
+  return {
+    path,
+    imageTypeCode: (o.imageTypeCode ?? o.type ?? o.imageType) as string | undefined,
+    order: o.order != null ? Number(o.order) : undefined,
+    visualOrder: o.visualOrder != null ? Number(o.visualOrder) : undefined,
+    roomCode: (o.roomCode ?? o.room) as string | undefined,
+    roomType: o.roomType as string | undefined,
+    characteristicCode: o.characteristicCode as string | undefined,
+  };
+}
+
+function extractContentImages(hotel: Record<string, unknown>): HbContentHotel['images'] {
+  const raw = hotel.images ?? hotel.photos ?? hotel.visualizations;
+  if (Array.isArray(raw)) {
+    return raw.map(normalizeContentImage).filter((x): x is NonNullable<typeof x> => x != null);
+  }
+  if (raw && typeof raw === 'object') {
+    const nested = (raw as { image?: unknown }).image;
+    if (Array.isArray(nested)) {
+      return nested.map(normalizeContentImage).filter((x): x is NonNullable<typeof x> => x != null);
+    }
+  }
+  return [];
+}
+
+/** Parsuje Content API response — podporuje hotels[] i hotels.hotels[]. */
+export function parseContentHotelsResponse(data: unknown): HbContentHotel[] {
+  if (!data || typeof data !== 'object') return [];
+  const root = data as Record<string, unknown>;
+  let hotels: unknown[] = [];
+  if (Array.isArray(root.hotels)) {
+    hotels = root.hotels;
+  } else if (root.hotels && typeof root.hotels === 'object') {
+    const nested = (root.hotels as Record<string, unknown>).hotels;
+    if (Array.isArray(nested)) hotels = nested;
+  }
+  return hotels
+    .filter((h): h is Record<string, unknown> => Boolean(h) && typeof h === 'object')
+    .map((hotel) => {
+      const images = extractContentImages(hotel);
+      return { ...(hotel as HbContentHotel), images };
+    });
+}
+
+export function summarizeContentResponse(data: unknown, hotelCode?: number) {
+  const keys = data && typeof data === 'object' ? Object.keys(data as object) : [];
+  const hotels = parseContentHotelsResponse(data);
+  const hotel =
+    hotelCode != null
+      ? hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0]
+      : hotels[0];
+  const images = sortHotelbedsImages(hotel?.images);
+  return {
+    responseKeys: keys,
+    hotelsCount: hotels.length,
+    hotelCode: hotel?.code ?? null,
+    hotelName: localizedText(hotel?.name),
+    imagesRawCount: hotel?.images?.length ?? 0,
+    imagesParsedCount: images.length,
+    descriptionExists: Boolean(localizedText(hotel?.description)),
+    facilitiesCount: hotel?.facilities?.length ?? 0,
+    firstImagePath: images[0]?.path ?? null,
+  };
 }
 
 export function buildContentHotelsUrl(
   contentBaseUrl: string,
   codes: number[],
-  language: string,
+  language: string = HOTELBEDS_CONTENT_LANGUAGE,
 ): string {
   const params = new URLSearchParams({
     fields: 'all',

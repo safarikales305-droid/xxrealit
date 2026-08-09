@@ -57,6 +57,7 @@ export function AccommodationListingClient({
   const defaults = useMemo(() => defaultHotelbedsSearchParams(), []);
   const { apiAccessToken, isAuthenticated } = useAuth();
   const [useHotelbeds, setUseHotelbeds] = useState(useHotelbedsProp ?? false);
+  const [hotelbedsReady, setHotelbedsReady] = useState(useHotelbedsProp != null);
   const [items, setItems] = useState(initialItems);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
@@ -91,7 +92,8 @@ export function AccommodationListingClient({
   useEffect(() => {
     if (useHotelbedsProp != null) return;
     void fetchHotelbedsConfig().then((cfg) => {
-      if (cfg?.publicListings) setUseHotelbeds(true);
+      setUseHotelbeds(cfg?.publicListings ?? false);
+      setHotelbedsReady(true);
     });
   }, [useHotelbedsProp]);
 
@@ -162,12 +164,13 @@ export function AccommodationListingClient({
   const skipFirstClientLoad = useRef(ssrPrefetched);
 
   useEffect(() => {
+    if (!hotelbedsReady) return;
     if (skipFirstClientLoad.current) {
       skipFirstClientLoad.current = false;
       return;
     }
     void load(1, false);
-  }, [load]);
+  }, [load, hotelbedsReady]);
 
   const resultsLabel = useMemo(() => {
     if (total > items.length) {

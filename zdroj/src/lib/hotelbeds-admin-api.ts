@@ -391,3 +391,54 @@ export async function nestAdminHotelbedsTestContent(
     return null;
   }
 }
+
+export async function nestAdminHotelbedsRawContent(
+  token: string,
+  hotelCode = 6741,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/integrations/hotelbeds/raw-content?hotelCode=${hotelCode}`,
+      { headers: nestAuthHeaders(token), cache: 'no-store' },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminHotelbedsSyncContent(
+  token: string,
+  destination = 'Praha',
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/integrations/hotelbeds/sync-content?destination=${encodeURIComponent(destination)}`,
+      { method: 'POST', headers: nestAuthHeaders(token) },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminHotelbedsSyncHotel(
+  token: string,
+  hotelCode = 6741,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/integrations/hotelbeds/sync-hotel?hotelCode=${hotelCode}`,
+      { method: 'POST', headers: nestAuthHeaders(token) },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}

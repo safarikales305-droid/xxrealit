@@ -15,6 +15,9 @@ import {
   nestAdminHotelbedsCacheInspector,
   nestAdminHotelbedsDiagnoseHotel,
   nestAdminHotelbedsDiagnosePublicHotels,
+  nestAdminHotelbedsSyncContent,
+  nestAdminHotelbedsSyncHotel,
+  nestAdminHotelbedsRawContent,
   type HotelbedsApiLogEntry,
   type HotelbedsDiagnosticsOverview,
   type HotelbedsHotelDiagnosis,
@@ -55,6 +58,10 @@ export function AdminHotelbedsPanel() {
   const [hotelDiagnosis, setHotelDiagnosis] = useState<HotelbedsHotelDiagnosis | null>(null);
   const [diagnosingPublic, setDiagnosingPublic] = useState(false);
   const [publicDiagnosis, setPublicDiagnosis] = useState<HotelbedsPublicHotelsDiagnosis | null>(null);
+  const [syncingContent, setSyncingContent] = useState(false);
+  const [syncingHotel, setSyncingHotel] = useState(false);
+  const [rawContent, setRawContent] = useState<Record<string, unknown> | null>(null);
+  const [syncResult, setSyncResult] = useState<Record<string, unknown> | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -128,6 +135,36 @@ export function AdminHotelbedsPanel() {
     if (!apiAccessToken) return;
     const data = await nestAdminHotelbedsCacheInspector(apiAccessToken);
     setCacheInspector(data);
+  }
+
+  async function handleSyncHotelDuo() {
+    if (!apiAccessToken) return;
+    setSyncingHotel(true);
+    setError(null);
+    const result = await nestAdminHotelbedsSyncHotel(apiAccessToken, 6741);
+    setSyncingHotel(false);
+    setSyncResult(result);
+    if (!result?.success) {
+      setError('Synchronizace Hotel Duo selhala.');
+    }
+    await load();
+    await handleDiagnoseHotelDuo();
+  }
+
+  async function handleSyncAllContent() {
+    if (!apiAccessToken) return;
+    setSyncingContent(true);
+    setError(null);
+    const result = await nestAdminHotelbedsSyncContent(apiAccessToken, 'Praha');
+    setSyncingContent(false);
+    setSyncResult(result);
+    await load();
+  }
+
+  async function handleLoadRawContent() {
+    if (!apiAccessToken) return;
+    const data = await nestAdminHotelbedsRawContent(apiAccessToken, 6741);
+    setRawContent(data);
   }
 
   async function handleDiagnoseHotelDuo() {
@@ -411,6 +448,30 @@ export function AdminHotelbedsPanel() {
             </button>
             <button
               type="button"
+              disabled={syncingHotel || !status?.configured}
+              onClick={() => void handleSyncHotelDuo()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {syncingHotel ? 'Synchronizuji…' : 'Synchronizovat Hotel Duo'}
+            </button>
+            <button
+              type="button"
+              disabled={syncingContent || !status?.configured}
+              onClick={() => void handleSyncAllContent()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {syncingContent ? 'Synchronizuji…' : 'Synchronizovat Hotelbeds obsah'}
+            </button>
+            <button
+              type="button"
+              disabled={!status?.configured}
+              onClick={() => void handleLoadRawContent()}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800"
+            >
+              Raw Content API (6741)
+            </button>
+            <button
+              type="button"
               disabled={diagnosingPublic || !status?.configured}
               onClick={() => void handleDiagnosePublicHotels()}
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
@@ -419,6 +480,19 @@ export function AdminHotelbedsPanel() {
             </button>
           </div>
         </div>
+
+        {rawContent ? (
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs">
+            <h3 className="mb-2 font-semibold text-zinc-900">Raw Content API diagnostika — Hotel Duo</h3>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(rawContent, null, 2)}</pre>
+          </div>
+        ) : null}
+
+        {syncResult ? (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap">{JSON.stringify(syncResult, null, 2)}</pre>
+          </div>
+        ) : null}
 
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div>

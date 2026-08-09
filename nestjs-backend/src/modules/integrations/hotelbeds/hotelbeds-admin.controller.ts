@@ -2,6 +2,7 @@ import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { HotelbedsCacheService } from './hotelbeds-cache.service';
+import { HotelbedsContentSyncService } from './hotelbeds-content-sync.service';
 import { HotelbedsDiagnosticsService } from './hotelbeds-diagnostics.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
@@ -18,6 +19,7 @@ export class HotelbedsAdminController {
     private readonly config: HotelbedsConfigService,
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
+    private readonly contentSync: HotelbedsContentSyncService,
   ) {}
 
   @Get('status')
@@ -86,6 +88,23 @@ export class HotelbedsAdminController {
   testContent(@Query('hotelCode') hotelCode?: string) {
     const code = Number(hotelCode) || 6741;
     return this.publicService.testHotelContent(code);
+  }
+
+  @Get('raw-content')
+  rawContent(@Query('hotelCode') hotelCode?: string) {
+    const code = Number(hotelCode) || 6741;
+    return this.publicService.getRawContentDiagnostics(code);
+  }
+
+  @Post('sync-content')
+  syncContent(@Query('destination') destination?: string) {
+    return this.contentSync.syncFromBookingSearch(destination || 'Praha');
+  }
+
+  @Post('sync-hotel')
+  syncHotel(@Query('hotelCode') hotelCode?: string) {
+    const code = Number(hotelCode) || 6741;
+    return this.contentSync.syncHotel(code);
   }
 
   @Post('cache/clear')

@@ -9,7 +9,7 @@ import { categoryMatchesFilter, mapHotelbedsToCategory } from './hotelbeds-categ
 import {
   HOTELBEDS_BATCH_MAX,
   HOTELBEDS_CONTENT_BATCH_SIZE,
-  HOTELBEDS_CONTENT_LANGUAGE_PREFERRED,
+  HOTELBEDS_CONTENT_LANGUAGE,
   HOTELBEDS_PAGE_SIZE,
   buildContentHotelsUrl,
   buildHotelbedsImageUrl,
@@ -17,12 +17,15 @@ import {
   facilityFlags,
   hotelSlug,
   localizedText,
+  parseContentHotelsResponse,
   parseHotelCodeFromSlug,
   sortHotelbedsImages,
   starsFromCategory,
+  summarizeContentResponse,
   type HbBookingHotel,
   type HbContentHotel,
 } from './hotelbeds-normalizer';
+import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
 import type { HotelbedsContentMeta, HotelbedsDebugSource } from './hotelbeds-content-meta.types';
 import type {
   HotelbedsPublicConfig,
@@ -41,9 +44,7 @@ type BookingSearchPayload = {
   error?: { code?: string; message?: string };
 };
 
-type ContentHotelsPayload = {
-  hotels?: HbContentHotel[];
-};
+type ContentHotelsPayload = Record<string, unknown>;
 
 @Injectable()
 export class HotelbedsPublicService {
@@ -55,6 +56,7 @@ export class HotelbedsPublicService {
     private readonly currency: HotelbedsCurrencyService,
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
+    private readonly contentStorage: HotelbedsContentStorageService,
   ) {}
 
   getPublicConfig(): HotelbedsPublicConfig {
@@ -149,12 +151,15 @@ export class HotelbedsPublicService {
     const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
     const contentMap = await this.safeGetHotelContents(codes);
 
-    const merged = bookingHotels
-      .map((bh) => this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut))
-      .filter((h): h is NormalizedAccommodation => h != null);
+    const merged = await Promise.all(
+      bookingHotels.map(async (bh) =>
+        this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut),
+      ),
+    );
+    const filtered = merged.filter((h): h is NormalizedAccommodation => h != null);
 
-    this.cache.set(batchKey, merged, CACHE_SEARCH_MS);
-    return merged;
+    this.cache.set(batchKey, filtered, CACHE_SEARCH_MS);
+    return filtered;
   }
 
   private applySearchFilters(items: NormalizedAccommodation[], query: HotelbedsSearchQuery) {
@@ -206,11 +211,11 @@ export class HotelbedsPublicService {
     const contentMap = await this.safeGetHotelContents([Number(code)]);
     const content = contentMap.get(code);
 
-    if (!bookingHotel && !content) {
+    if (!content) {
       throw new NotFoundException('Hotel nenalezen.');
     }
 
-    const merged = this.mergeHotel(
+    const merged = await this.mergeHotel(
       bookingHotel ?? { code: Number(code), name: localizedText(content?.name) ?? undefined },
       content,
       checkIn,
@@ -248,11 +253,11 @@ export class HotelbedsPublicService {
 
     const contentMap = await this.safeGetHotelContents([Number(code)]);
     const content = contentMap.get(code);
-    if (!bookingHotel && !content) {
+    if (!content) {
       throw new NotFoundException('Hotel nenalezen.');
     }
 
-    const merged = this.mergeHotel(
+    const merged = await this.mergeHotel(
       bookingHotel ?? { code: Number(code), name: localizedText(content?.name) ?? undefined },
       content,
       checkIn,
@@ -279,7 +284,7 @@ export class HotelbedsPublicService {
    * Batch fetch statického hotel contentu podle Hotelbeds hotel codes.
    * Odstraní duplicity, rozdělí do batchů a mapuje booking code ↔ content code.
    */
-  /** Content API je volitelné obohacení — cache se čte vždy, API jen pokud je povolené. */
+  /** Content API je volitelné obohacení — DB a cache se čtou vždy, API jen pokud není zakázané. */
   private async safeGetHotelContents(codes: number[]): Promise<Map<string, HbContentHotel>> {
     const map = new Map<string, HbContentHotel>();
     if (!codes.length) return map;
@@ -288,6 +293,12 @@ export class HotelbedsPublicService {
     const missing: number[] = [];
 
     for (const code of unique) {
+      const dbContent = await this.contentStorage.findByProviderId(code);
+      if (dbContent) {
+        map.set(String(code), dbContent);
+        this.cache.set(`content:${code}`, dbContent, CACHE_CONTENT_MS);
+        continue;
+      }
       const cached = this.cache.peek<HbContentHotel>(`content:${code}`);
       if (cached) {
         map.set(String(code), cached);
@@ -342,6 +353,13 @@ export class HotelbedsPublicService {
         for (const hotel of hotels) {
           if (hotel.code == null) continue;
           this.storeContentCache(hotel, 'CONTENT_API');
+          try {
+            await this.contentStorage.upsertFromContent(hotel);
+          } catch (err) {
+            this.log.warn(
+              `DB persist failed for hotel ${hotel.code}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
           map.set(String(hotel.code), hotel);
           if ((hotel.images?.length ?? 0) > 0) withImages++;
         }
@@ -380,9 +398,19 @@ export class HotelbedsPublicService {
 
   async testHotelContent(hotelCode = 6741) {
     try {
-      const hotels = await this.fetchContentBatch([hotelCode], `test-content-${hotelCode}`, true, true);
+      const { hotels, raw, language } = await this.fetchContentBatchWithRaw(
+        [hotelCode],
+        `test-content-${hotelCode}`,
+        true,
+        true,
+      );
       const hotel = hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0];
       const images = sortHotelbedsImages(hotel?.images);
+      const summary = summarizeContentResponse(raw, hotelCode);
+      if (hotel) {
+        this.storeContentCache(hotel, 'CONTENT_API');
+        await this.contentStorage.upsertFromContent(hotel, language);
+      }
       return {
         success: Boolean(hotel),
         permissionDenied: false,
@@ -391,11 +419,13 @@ export class HotelbedsPublicService {
         name: localizedText(hotel?.name),
         descriptionExists: Boolean(localizedText(hotel?.description)),
         imagesCount: images.length,
+        imagesRawCount: summary.imagesRawCount,
         facilitiesCount: hotel?.facilities?.length ?? 0,
         category: hotel?.categoryCode ?? hotel?.category?.code ?? null,
-        language: HOTELBEDS_CONTENT_LANGUAGE_PREFERRED[0] ?? 'ENG',
+        language,
         addressExists: Boolean(hotel?.address?.street || hotel?.address?.content),
         coordinatesExist: Boolean(hotel?.coordinates?.latitude && hotel?.coordinates?.longitude),
+        rawSummary: summary,
       };
     } catch (err) {
       const status = err instanceof HotelbedsHttpError ? err.status : 0;
@@ -411,16 +441,68 @@ export class HotelbedsPublicService {
         name: null,
         descriptionExists: false,
         imagesCount: 0,
+        imagesRawCount: 0,
         facilitiesCount: 0,
         category: null,
-        language: null,
+        language: HOTELBEDS_CONTENT_LANGUAGE,
         addressExists: false,
         coordinatesExist: false,
+        rawSummary: null,
         error: permissionDenied
           ? 'API klíč nemá aktuálně oprávnění pro Hotel Content API. Booking API je nadále funkční.'
           : err instanceof HotelbedsHttpError
             ? err.errorBody ?? err.message
             : String(err),
+      };
+    }
+  }
+
+  async getRawContentDiagnostics(hotelCode = 6741) {
+    try {
+      const { hotels, raw, language, endpoint } = await this.fetchContentBatchWithRaw(
+        [hotelCode],
+        `raw-content-${hotelCode}`,
+        true,
+        true,
+      );
+      const hotel = hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0];
+      const images = sortHotelbedsImages(hotel?.images);
+      const firstUrl = images[0]?.path ? buildHotelbedsImageUrl(images[0].path, 'card') : null;
+      let imageHttpStatus: number | null = null;
+      if (firstUrl) {
+        try {
+          const res = await fetch(firstUrl, { method: 'HEAD' });
+          imageHttpStatus = res.status;
+        } catch {
+          imageHttpStatus = null;
+        }
+      }
+      const dbImages = await this.contentStorage.countImages(hotelCode);
+      return {
+        httpStatus: 200,
+        language,
+        endpoint,
+        hotelFound: Boolean(hotel),
+        contentLanguage: language,
+        imagesReturnedByApi: images.length,
+        imagesRawCount: hotel?.images?.length ?? 0,
+        imagesParsedCount: images.length,
+        firstImageRawPath: images[0]?.path ?? null,
+        generatedImageUrl: firstUrl,
+        imageHttpStatus,
+        dbContentFound: dbImages > 0,
+        imagesInDb: dbImages,
+        rawSummary: summarizeContentResponse(raw, hotelCode),
+      };
+    } catch (err) {
+      const status = err instanceof HotelbedsHttpError ? err.status : 0;
+      return {
+        httpStatus: status,
+        language: HOTELBEDS_CONTENT_LANGUAGE,
+        endpoint: buildContentHotelsUrl(this.config.contentBaseUrl, [hotelCode]),
+        hotelFound: false,
+        error: err instanceof HotelbedsHttpError ? err.errorBody ?? err.message : String(err),
+        rawSummary: null,
       };
     }
   }
@@ -431,37 +513,34 @@ export class HotelbedsPublicService {
     skipCache?: boolean,
     force?: boolean,
   ): Promise<HbContentHotel[]> {
+    const result = await this.fetchContentBatchWithRaw(codes, cacheKey, skipCache, force);
+    return result.hotels;
+  }
+
+  private async fetchContentBatchWithRaw(
+    codes: number[],
+    cacheKey: string,
+    skipCache?: boolean,
+    force?: boolean,
+  ): Promise<{
+    hotels: HbContentHotel[];
+    raw: ContentHotelsPayload;
+    language: string;
+    endpoint: string;
+  }> {
     if (!force && this.metrics.isContentApiDisabled()) {
-      return [];
+      return { hotels: [], raw: {}, language: HOTELBEDS_CONTENT_LANGUAGE, endpoint: '' };
     }
 
-    let lastError: unknown;
-    for (const language of HOTELBEDS_CONTENT_LANGUAGE_PREFERRED) {
-      const url = buildContentHotelsUrl(this.config.contentBaseUrl, codes, language);
-      try {
-        const data = await this.http.getJson<ContentHotelsPayload>(url, {
-          cacheKey: skipCache ? undefined : cacheKey,
-          cacheTtlMs: skipCache ? undefined : CACHE_CONTENT_MS,
-          label: 'content/hotels',
-        });
-        return data.hotels ?? [];
-      } catch (err) {
-        lastError = err;
-        if (err instanceof HotelbedsHttpError) {
-          if (err.status === 401 || err.status === 403) {
-            this.metrics.markContentApiPermissionDenied();
-            this.log.warn('Content API permission denied — enrichment disabled until restart/cache clear');
-            return [];
-          }
-          if (err.status === 400) {
-            this.log.debug(`Content API language=${language} rejected (400), trying fallback`);
-            continue;
-          }
-        }
-        throw err;
-      }
-    }
-    throw lastError ?? new Error('Content API request failed');
+    const language = HOTELBEDS_CONTENT_LANGUAGE;
+    const url = buildContentHotelsUrl(this.config.contentBaseUrl, codes, language);
+    const data = await this.http.getJson<ContentHotelsPayload>(url, {
+      cacheKey: skipCache ? undefined : cacheKey,
+      cacheTtlMs: skipCache ? undefined : CACHE_CONTENT_MS,
+      label: 'content/hotels',
+    });
+    const hotels = parseContentHotelsResponse(data);
+    return { hotels, raw: data, language, endpoint: url.replace(this.config.contentBaseUrl, 'content') };
   }
 
   private storeContentCache(hotel: HbContentHotel, source: HotelbedsContentMeta['source']): void {
@@ -481,7 +560,8 @@ export class HotelbedsPublicService {
     const cacheHit = this.cache.has(`content:${code}`);
     const meta = this.cache.peek<HotelbedsContentMeta>(`content-meta:${code}`);
     const diagnostics = this.metrics.contentDiagnostics();
-    const hasImages = (content?.images?.length ?? 0) > 0;
+    const sortedImages = sortHotelbedsImages(content?.images);
+    const hasImages = sortedImages.length > 0;
     let imageSource: HotelbedsDebugSource['imageSource'] = 'NONE';
     if (hasImages) {
       imageSource = cacheHit ? 'HOTELBEDS_CACHE' : 'HOTELBEDS_CONTENT_API';
@@ -504,6 +584,27 @@ export class HotelbedsPublicService {
       dbHit: false,
       fallbackUsed: false,
     };
+  }
+
+  async buildDebugSourceAsync(code: number, content?: HbContentHotel): Promise<HotelbedsDebugSource> {
+    const base = this.buildDebugSource(code, content);
+    const dbImages = await this.contentStorage.countImages(code);
+    const hasImages = sortHotelbedsImages(content?.images).length > 0;
+    if (dbImages > 0) {
+      return {
+        ...base,
+        dbHit: true,
+        contentSource: 'DATABASE',
+        imageSource: hasImages
+          ? base.cacheHit
+            ? 'HOTELBEDS_CACHE'
+            : 'DATABASE_CACHE'
+          : dbImages > 0
+            ? 'DATABASE_CACHE'
+            : 'NONE',
+      };
+    }
+    return base;
   }
 
   private toPublicItem(item: NormalizedAccommodation): NormalizedAccommodation {
@@ -544,12 +645,12 @@ export class HotelbedsPublicService {
     return hotel;
   }
 
-  private mergeHotel(
+  private async mergeHotel(
     booking: HbBookingHotel,
     content: HbContentHotel | undefined,
     checkIn: string,
     checkOut: string,
-  ): NormalizedAccommodation | null {
+  ): Promise<NormalizedAccommodation | null> {
     const code = booking.code ?? content?.code;
     if (code == null) return null;
 
@@ -612,7 +713,7 @@ export class HotelbedsPublicService {
 
     const slug = hotelSlug(code, name);
     const coverPhoto = cardPhoto ?? photos[0]?.url ?? null;
-    const debugSource = this.buildDebugSource(code, content);
+    const debugSource = await this.buildDebugSourceAsync(code, content);
     const xxrealitCategory = mapHotelbedsToCategory({
       accommodationTypeCode: content?.accommodationTypeCode,
       categoryName: booking.categoryName ?? content?.category?.description?.content,

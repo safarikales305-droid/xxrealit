@@ -6,6 +6,8 @@ import { HotelbedsCurrencyService } from './hotelbeds-currency.service';
 import { HotelbedsHttpService } from './hotelbeds-http.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicController } from './hotelbeds-public.controller';
+import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
+import { HotelbedsContentSyncService } from './hotelbeds-content-sync.service';
 import { HotelbedsDiagnosticsService } from './hotelbeds-diagnostics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import { HotelbedsRateLimiterService } from './hotelbeds-rate-limiter.service';
@@ -26,7 +28,9 @@ import { HotelbedsService } from './hotelbeds.service';
     HotelbedsService,
     HotelbedsPublicService,
     HotelbedsDiagnosticsService,
+    HotelbedsContentStorageService,
+    HotelbedsContentSyncService,
   ],
-  exports: [HotelbedsService, HotelbedsConfigService, HotelbedsPublicService],
+  exports: [HotelbedsService, HotelbedsConfigService, HotelbedsPublicService, HotelbedsContentSyncService],
 })
 export class HotelbedsModule {}

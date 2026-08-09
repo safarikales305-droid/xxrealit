@@ -213,7 +213,7 @@ export function AccommodationDetailView({ item }: Props) {
 
       {/* Galerie */}
       <div className="grid gap-2 lg:grid-cols-[2fr_1fr] lg:gap-3">
-        <div className="relative h-[280px] overflow-hidden rounded-2xl bg-zinc-100 sm:h-[320px] lg:h-[min(480px,52vh)]">
+        <div className="relative h-[260px] max-h-[460px] overflow-hidden rounded-2xl bg-zinc-100 sm:h-[320px] lg:h-[420px]">
           {photos.length > 0 ? (
             <GalleryImage
               src={photos[current]?.url ?? photos[0]!.url}
@@ -253,7 +253,7 @@ export function AccommodationDetailView({ item }: Props) {
               key={p.id}
               type="button"
               onClick={() => setCurrent(photos.findIndex((x) => x.id === p.id))}
-              className="relative h-[calc(min(480px,52vh)/2-6px)] overflow-hidden rounded-xl"
+              className="relative h-[calc(210px-6px)] overflow-hidden rounded-xl"
             >
               <GalleryImage src={p.url} alt={p.alt ?? ''} sizes="20vw" className="h-full w-full" />
             </button>

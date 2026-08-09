@@ -57,7 +57,7 @@ async function testLanguage(language) {
 }
 
 const results = [];
-for (const lang of ['CZE', 'ENG']) {
+for (const lang of ['ENG']) {
   results.push(await testLanguage(lang));
 }
 
