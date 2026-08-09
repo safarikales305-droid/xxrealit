@@ -5,7 +5,12 @@ import { HotelbedsCurrencyService } from './hotelbeds-currency.service';
 import { defaultSearchDates, resolveDestination } from './hotelbeds-destinations';
 import { HotelbedsHttpError, HotelbedsHttpService } from './hotelbeds-http.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
+import { categoryMatchesFilter, mapHotelbedsToCategory } from './hotelbeds-category.mapper';
 import {
+  HOTELBEDS_BATCH_MAX,
+  HOTELBEDS_CONTENT_LANGUAGE,
+  HOTELBEDS_CONTENT_SECONDARY_LANGUAGE,
+  HOTELBEDS_PAGE_SIZE,
   cancellationSummary,
   facilityFlags,
   hotelSlug,
@@ -71,11 +76,54 @@ export class HotelbedsPublicService {
     const adults = Math.max(1, query.adults ?? 2);
     const rooms = Math.max(1, query.rooms ?? 1);
     const page = Math.max(1, query.page ?? 1);
-    const limit = Math.min(30, Math.max(1, query.limit ?? 12));
+    const limit = Math.min(HOTELBEDS_BATCH_MAX, Math.max(1, query.limit ?? HOTELBEDS_PAGE_SIZE));
     const destination = resolveDestination(query.destination);
 
-    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${page}:${limit}:${query.starsMin ?? ''}:${query.priceMax ?? ''}`;
+    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${query.category ?? ''}:${query.starsMin ?? ''}:${query.priceMax ?? ''}:${query.wifi ? 1 : 0}:${query.parking ? 1 : 0}:${query.breakfast ? 1 : 0}:${query.wellness ? 1 : 0}:${query.pool ? 1 : 0}:${query.pets ? 1 : 0}:${query.accessible ? 1 : 0}:${page}:${limit}`;
     const cached = this.cache.get<HotelbedsSearchResponse>(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const allItems = await this.loadSearchBatch(destination, checkIn, checkOut, adults, rooms, query);
+      const filtered = this.applySearchFilters(allItems, query);
+      const total = filtered.length;
+      const start = (page - 1) * limit;
+      const pageHotels = filtered.slice(start, start + limit);
+
+      const response: HotelbedsSearchResponse = {
+        items: pageHotels,
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        checkIn,
+        checkOut,
+        destination: destination.label,
+        source: 'HOTELBEDS',
+      };
+
+      this.metrics.recordSearch(destination.label, total);
+      this.cache.set(cacheKey, response, CACHE_SEARCH_MS);
+      return response;
+    } catch (err) {
+      this.log.warn(`Hotelbeds search failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof HotelbedsHttpError) {
+        throw new ServiceUnavailableException(this.mapPublicError(err.status));
+      }
+      throw new ServiceUnavailableException('Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.');
+    }
+  }
+
+  private async loadSearchBatch(
+    destination: ReturnType<typeof resolveDestination>,
+    checkIn: string,
+    checkOut: string,
+    adults: number,
+    rooms: number,
+    query: HotelbedsSearchQuery,
+  ): Promise<NormalizedAccommodation[]> {
+    const batchKey = `search-batch:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}`;
+    const cached = this.cache.get<NormalizedAccommodation[]>(batchKey);
     if (cached) return cached;
 
     const bookingUrl = `${this.config.bookingBaseUrl}/hotels`;
@@ -88,47 +136,37 @@ export class HotelbedsPublicService {
         radius: destination.radiusKm,
         unit: 'km',
       },
-      filter: { maxHotels: Math.min(50, page * limit) },
+      filter: { maxHotels: HOTELBEDS_BATCH_MAX },
     };
 
-    try {
-      const { data } = await this.http.postJson<BookingSearchPayload>(bookingUrl, body, 'booking/search');
-      const bookingHotels = data.hotels?.hotels ?? [];
-      const total = data.hotels?.total ?? bookingHotels.length;
-      this.metrics.recordSearch(destination.label, total);
+    const { data } = await this.http.postJson<BookingSearchPayload>(bookingUrl, body, 'booking/search');
+    const bookingHotels = data.hotels?.hotels ?? [];
+    const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
+    const contentMap = await this.fetchContentByCodes(codes);
 
-      const start = (page - 1) * limit;
-      const pageHotels = bookingHotels.slice(start, start + limit);
-      const codes = pageHotels.map((h) => h.code).filter((c): c is number => c != null);
-      const contentMap = await this.fetchContentByCodes(codes);
+    const merged = bookingHotels
+      .map((bh) => this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut))
+      .filter((h): h is NormalizedAccommodation => h != null);
 
-      const items = pageHotels
-        .map((bh) => this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut))
-        .filter((h): h is NormalizedAccommodation => h != null)
-        .filter((h) => (query.starsMin ? (h.stars ?? 0) >= query.starsMin : true))
-        .filter((h) => (query.priceMax ? (h.priceFrom ?? Infinity) <= query.priceMax : true));
+    this.cache.set(batchKey, merged, CACHE_SEARCH_MS);
+    return merged;
+  }
 
-      const response: HotelbedsSearchResponse = {
-        items,
-        total,
-        page,
-        limit,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
-        checkIn,
-        checkOut,
-        destination: destination.label,
-        source: 'HOTELBEDS',
-      };
-
-      this.cache.set(cacheKey, response, CACHE_SEARCH_MS);
-      return response;
-    } catch (err) {
-      this.log.warn(`Hotelbeds search failed: ${err instanceof Error ? err.message : String(err)}`);
-      if (err instanceof HotelbedsHttpError) {
-        throw new ServiceUnavailableException(this.mapPublicError(err.status));
-      }
-      throw new ServiceUnavailableException('Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.');
-    }
+  private applySearchFilters(items: NormalizedAccommodation[], query: HotelbedsSearchQuery) {
+    return items.filter((h) => {
+      if (query.category && !categoryMatchesFilter(h.xxrealitCategory as never, query.category)) return false;
+      if (query.starsMin && (h.stars ?? 0) < query.starsMin) return false;
+      if (query.priceMax && (h.priceFrom ?? Infinity) > query.priceMax) return false;
+      if (query.wifi && !h.wifi) return false;
+      if (query.parking && !h.parking) return false;
+      if (query.breakfast && !h.breakfast) return false;
+      if (query.wellness && !h.wellness) return false;
+      if (query.pool && !h.pool) return false;
+      if (query.pets && !h.petsAllowed) return false;
+      if (query.accessible && !h.accessible) return false;
+      if (query.ratingMin && (h.rating ?? 0) < query.ratingMin) return false;
+      return true;
+    });
   }
 
   async getBySlug(slug: string, query?: Partial<HotelbedsSearchQuery>): Promise<NormalizedAccommodation> {
@@ -199,7 +237,7 @@ export class HotelbedsPublicService {
 
     const url =
       `${this.config.contentBaseUrl}/hotels` +
-      `?language=CAS&useSecondaryLanguage=false&fields=all&codes=${missing.join(',')}`;
+      `?language=${HOTELBEDS_CONTENT_LANGUAGE}&useSecondaryLanguage=true&secondaryLanguage=${HOTELBEDS_CONTENT_SECONDARY_LANGUAGE}&fields=all&codes=${missing.join(',')}`;
 
     try {
       const data = await this.http.getJson<ContentHotelsPayload>(url, {
@@ -308,6 +346,12 @@ export class HotelbedsPublicService {
 
     const slug = hotelSlug(code, name);
     const coverPhoto = photos[0]?.url ?? null;
+    const xxrealitCategory = mapHotelbedsToCategory({
+      accommodationTypeCode: content?.accommodationTypeCode,
+      categoryName: booking.categoryName ?? content?.category?.description?.content,
+      categoryCode: content?.categoryCode ?? booking.categoryCode,
+      name,
+    });
 
     return {
       id: `hb-${code}`,
@@ -351,6 +395,9 @@ export class HotelbedsPublicService {
       breakfast: flags.breakfast || boardTypes.size > 0,
       wellness: flags.wellness,
       pool: flags.pool,
+      petsAllowed: flags.pets,
+      accessible: flags.accessible,
+      xxrealitCategory,
       seoTitle: `${name} | Ubytování ${city} | XXREALIT`,
       seoDescription: shortDescription,
       coverPhoto,

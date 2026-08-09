@@ -22,6 +22,15 @@ export class HotelbedsPublicController {
     @Query('limit') limit?: string,
     @Query('starsMin') starsMin?: string,
     @Query('priceMax') priceMax?: string,
+    @Query('category') category?: string,
+    @Query('wifi') wifi?: string,
+    @Query('parking') parking?: string,
+    @Query('breakfast') breakfast?: string,
+    @Query('wellness') wellness?: string,
+    @Query('pool') pool?: string,
+    @Query('pets') pets?: string,
+    @Query('accessible') accessible?: string,
+    @Query('ratingMin') ratingMin?: string,
   ) {
     return this.publicService.search({
       destination,
@@ -34,6 +43,15 @@ export class HotelbedsPublicController {
       limit: Number(limit) || undefined,
       starsMin: Number(starsMin) || undefined,
       priceMax: Number(priceMax) || undefined,
+      category,
+      wifi: wifi === '1' || wifi === 'true',
+      parking: parking === '1' || parking === 'true',
+      breakfast: breakfast === '1' || breakfast === 'true',
+      wellness: wellness === '1' || wellness === 'true',
+      pool: pool === '1' || pool === 'true',
+      pets: pets === '1' || pets === 'true',
+      accessible: accessible === '1' || accessible === 'true',
+      ratingMin: Number(ratingMin) || undefined,
     });
   }
 

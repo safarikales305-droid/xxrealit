@@ -6,6 +6,7 @@ import {
   buildPortalContentTabs,
   PortalContentTypeTabs,
 } from '@/components/navigation/PortalContentTypeTabs';
+import { ACCOMMODATION_PUBLIC_CATEGORIES } from '@/lib/accommodation-categories';
 
 type Props = {
   activeTab?: 'shorts' | 'classic' | 'accommodation' | 'posts';
@@ -40,20 +41,7 @@ export function AccommodationCategoryChips({
   active?: string;
   basePath?: string;
 }) {
-  const categories = [
-    { slug: '', label: 'Vše' },
-    { slug: 'hotely', label: 'Hotely' },
-    { slug: 'apartmany', label: 'Apartmány' },
-    { slug: 'penziony', label: 'Penziony' },
-    { slug: 'chaty', label: 'Chaty' },
-    { slug: 'chalupy', label: 'Chalupy' },
-    { slug: 'wellness', label: 'Wellness' },
-    { slug: 'kempy', label: 'Kempy' },
-    { slug: 'luxusni', label: 'Luxusní' },
-    { slug: 'u-more', label: 'U moře' },
-    { slug: 'hory', label: 'Hory' },
-    { slug: 'mesto', label: 'Město' },
-  ];
+  const categories = [{ slug: '', label: 'Vše' }, ...ACCOMMODATION_PUBLIC_CATEGORIES];
 
   return (
     <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">

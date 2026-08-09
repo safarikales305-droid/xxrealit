@@ -1,4 +1,9 @@
-const PHOTO_BASE = 'https://photos.hotelbeds.com/giata';
+export const HOTELBEDS_PAGE_SIZE = 24;
+export const HOTELBEDS_BATCH_MAX = 100;
+
+/** Hotelbeds content language: CES = čeština, ENG = angličtina (fallback) */
+export const HOTELBEDS_CONTENT_LANGUAGE = 'CES';
+export const HOTELBEDS_CONTENT_SECONDARY_LANGUAGE = 'ENG';
 
 export type HbBookingHotel = {
   code?: number;
@@ -35,6 +40,7 @@ export type HbContentHotel = {
   countryCode?: string;
   destinationCode?: string;
   categoryCode?: string;
+  accommodationTypeCode?: string;
   category?: { code?: string; description?: { content?: string } };
   address?: { content?: string; street?: string; number?: string };
   city?: { content?: string };
@@ -50,11 +56,18 @@ export type HbContentHotel = {
   ranking?: number;
 };
 
+const PHOTO_BASE = 'https://photos.hotelbeds.com/giata';
+
 export function hotelbedsImageUrl(path?: string | null): string | null {
   if (!path) return null;
-  if (path.startsWith('http')) return path;
-  const clean = path.replace(/^\/+/, '');
-  return `${PHOTO_BASE}/${clean}`;
+  if (path.startsWith('http')) return upscaleHotelbedsPath(path);
+  let clean = path.replace(/^\/+/, '');
+  clean = clean.replace(/_t(\.[a-z]+)$/i, '_b$1').replace(/_s(\.[a-z]+)$/i, '_b$1');
+  return upscaleHotelbedsPath(`${PHOTO_BASE}/${clean}`);
+}
+
+function upscaleHotelbedsPath(url: string): string {
+  return url.replace(/_t(\.[a-z]+)$/i, '_b$1').replace(/_s(\.[a-z]+)$/i, '_b$1');
 }
 
 export function slugifyHotelName(name: string): string {
@@ -95,6 +108,8 @@ export function facilityFlags(facilities: string[]): {
   breakfast: boolean;
   wellness: boolean;
   pool: boolean;
+  pets: boolean;
+  accessible: boolean;
 } {
   const joined = facilities.join(' ').toLowerCase();
   return {
@@ -103,6 +118,8 @@ export function facilityFlags(facilities: string[]): {
     breakfast: /snídan|breakfast|bufet/.test(joined),
     wellness: /wellness|spa|sauna/.test(joined),
     pool: /bazén|pool|swimming/.test(joined),
+    pets: /pet|mazlí|dog|cat/.test(joined),
+    accessible: /barrier|wheelchair|bezbari|accessible|handicap/.test(joined),
   };
 }
 

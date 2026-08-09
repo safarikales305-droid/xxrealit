@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './api';
+import { ACCOMMODATION_PAGE_SIZE } from './accommodation-categories';
 import type { AccommodationDetail, AccommodationItem, AccommodationListResponse } from './accommodation-client';
 
 export type HotelbedsPublicConfig = {
@@ -18,6 +19,15 @@ export type HotelbedsSearchParams = {
   limit?: number;
   starsMin?: number;
   priceMax?: number;
+  category?: string;
+  wifi?: boolean;
+  parking?: boolean;
+  breakfast?: boolean;
+  wellness?: boolean;
+  pool?: boolean;
+  pets?: boolean;
+  accessible?: boolean;
+  ratingMin?: number;
 };
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
@@ -78,9 +88,18 @@ export async function fetchHotelbedsSearch(
       rooms: params.rooms ?? defaults.rooms,
       children: params.children,
       page: params.page,
-      limit: params.limit,
+      limit: params.limit ?? ACCOMMODATION_PAGE_SIZE,
       starsMin: params.starsMin,
       priceMax: params.priceMax,
+      category: params.category,
+      wifi: params.wifi ? '1' : undefined,
+      parking: params.parking ? '1' : undefined,
+      breakfast: params.breakfast ? '1' : undefined,
+      wellness: params.wellness ? '1' : undefined,
+      pool: params.pool ? '1' : undefined,
+      pets: params.pets ? '1' : undefined,
+      accessible: params.accessible ? '1' : undefined,
+      ratingMin: params.ratingMin,
     })}`,
     { next: { revalidate: 60 } },
   );
@@ -92,7 +111,7 @@ export async function fetchHotelbedsSearch(
     items: (data.items ?? []).map(mapToAccommodationItem),
     total: data.total ?? 0,
     page: data.page ?? 1,
-    limit: data.limit ?? 12,
+    limit: data.limit ?? ACCOMMODATION_PAGE_SIZE,
     totalPages: data.totalPages ?? 1,
     checkIn: data.checkIn,
     checkOut: data.checkOut,

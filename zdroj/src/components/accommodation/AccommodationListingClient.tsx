@@ -15,6 +15,8 @@ import {
   fetchHotelbedsMapMarkers,
   fetchHotelbedsSearch,
 } from '@/lib/hotelbeds-client';
+import { ACCOMMODATION_PAGE_SIZE } from '@/lib/accommodation-categories';
+import { AccommodationCategoryEmptyState } from './AccommodationEmptyStates';
 import { AccommodationCard, AccommodationCardSkeleton } from './AccommodationCard';
 import { AccommodationCategoryChips } from './ContentTypeTabs';
 import {
@@ -37,6 +39,7 @@ type Props = {
   initialTotal?: number;
   hideTopSearch?: boolean;
   useHotelbeds?: boolean;
+  emptyCategoryLabel?: string;
 };
 
 export function AccommodationListingClient({
@@ -46,6 +49,7 @@ export function AccommodationListingClient({
   initialTotal = 0,
   hideTopSearch = false,
   useHotelbeds: useHotelbedsProp,
+  emptyCategoryLabel,
 }: Props) {
   const searchParams = useSearchParams();
   const defaults = defaultHotelbedsSearchParams();
@@ -105,8 +109,17 @@ export function AccommodationListingClient({
             adults: filters.guests,
             rooms: filters.rooms,
             page: pageNum,
-            limit: 12,
+            limit: ACCOMMODATION_PAGE_SIZE,
+            category: category || undefined,
             priceMax: Number(filters.priceMax) || undefined,
+            wifi: filters.wifi,
+            parking: filters.parking,
+            breakfast: filters.breakfast,
+            wellness: filters.wellness,
+            pool: filters.pool,
+            pets: filters.pets,
+            accessible: filters.accessible,
+            ratingMin: Number(filters.ratingMin) || undefined,
           });
           setItems((prev) => (append ? [...prev, ...res.items] : res.items));
           setTotal(res.total);
@@ -121,7 +134,7 @@ export function AccommodationListingClient({
               priceMax: Number(filters.priceMax) || undefined,
               ratingMin: Number(filters.ratingMin) || undefined,
               page: pageNum,
-              limit: 12,
+              limit: ACCOMMODATION_PAGE_SIZE,
               wifi: filters.wifi,
               parking: filters.parking,
               breakfast: filters.breakfast,
@@ -193,7 +206,9 @@ export function AccommodationListingClient({
         </>
       ) : null}
 
-      {!useHotelbeds ? <AccommodationCategoryChips active={category} /> : null}
+      {!useHotelbeds ? <AccommodationCategoryChips active={category} /> : (
+        <AccommodationCategoryChips active={category} />
+      )}
 
       <div className="flex items-center justify-between gap-2 md:hidden">
         <button
@@ -225,7 +240,9 @@ export function AccommodationListingClient({
 
         <div className="space-y-4">
           <div className="hidden items-center justify-between md:flex">
-            <p className="text-sm text-zinc-600">{total} nabídek</p>
+            <p className="text-sm text-zinc-600">
+              {items.length} z {total} nabídek
+            </p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -278,9 +295,15 @@ export function AccommodationListingClient({
               ))}
             </div>
           ) : items.length === 0 && !loading ? (
-            <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-600">
-              Pro zadané období nebylo nalezeno žádné ubytování. Zkuste jiný termín nebo destinaci.
-            </p>
+            category && emptyCategoryLabel ? (
+              <AccommodationCategoryEmptyState
+                title={`Pro kategorii „${emptyCategoryLabel}“ nyní nemáme dostupné nabídky`}
+              />
+            ) : (
+              <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-600">
+                Pro zadané období nebylo nalezeno žádné ubytování. Zkuste jiný termín nebo destinaci.
+              </p>
+            )
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {items.map((item) => (
@@ -294,7 +317,7 @@ export function AccommodationListingClient({
             </div>
           )}
 
-          {page * 12 < total ? (
+          {items.length < total ? (
             <div className="flex justify-center pt-2">
               <button
                 type="button"

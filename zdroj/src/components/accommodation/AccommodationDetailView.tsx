@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ChevronLeft, ChevronRight, Heart, MapPin, Star } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -30,6 +30,40 @@ type Props = { item: DetailItem };
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200&q=80';
 
+function GalleryImage({
+  src,
+  alt,
+  priority,
+  className,
+  sizes,
+}: {
+  src: string;
+  alt: string;
+  priority?: boolean;
+  className?: string;
+  sizes?: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const isRemote = src.includes('hotelbeds.com');
+
+  return (
+    <div className={`relative overflow-hidden bg-zinc-100 ${className ?? ''}`}>
+      {!loaded ? <div className="absolute inset-0 animate-pulse bg-zinc-200" /> : null}
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        priority={priority}
+        sizes={sizes}
+        quality={90}
+        unoptimized={isRemote}
+        onLoad={() => setLoaded(true)}
+        className={`object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+    </div>
+  );
+}
+
 export function AccommodationDetailView({ item }: Props) {
   const { apiAccessToken, isAuthenticated } = useAuth();
   const [current, setCurrent] = useState(0);
@@ -46,7 +80,9 @@ export function AccommodationDetailView({ item }: Props) {
         ? [{ id: 'cover', url: item.coverPhoto, alt: item.name, isCover: true }]
         : [{ id: 'fallback', url: FALLBACK_IMAGE, alt: item.name, isCover: true }];
 
-  async function loadSimilar() {
+  const sidePhotos = photos.filter((_, i) => i !== current).slice(0, 4);
+
+  const loadSimilar = useCallback(async () => {
     if (similar.length) return;
     if (isHotelbeds) {
       const rows = await fetchHotelbedsSimilar(item.slug, {
@@ -59,7 +95,7 @@ export function AccommodationDetailView({ item }: Props) {
     const { fetchSimilarAccommodations } = await import('@/lib/accommodation-client');
     const rows = await fetchSimilarAccommodations(item.slug);
     setSimilar(rows);
-  }
+  }, [isHotelbeds, item.checkIn, item.checkOut, item.slug, similar.length]);
 
   async function toggleFavorite() {
     if (!isAuthenticated || !apiAccessToken || isHotelbeds) return;
@@ -70,7 +106,6 @@ export function AccommodationDetailView({ item }: Props) {
   async function checkAvailability() {
     setChecking(true);
     try {
-      // Aktivní kontrola dostupnosti — data už jsou z API, jen potvrdíme uživateli
       await new Promise((r) => setTimeout(r, 400));
     } finally {
       setChecking(false);
@@ -96,79 +131,142 @@ export function AccommodationDetailView({ item }: Props) {
     priceRange: item.priceFrom != null ? `${item.priceFrom} ${item.currency}` : undefined,
   };
 
+  const bookingSummary = (
+    <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:p-5">
+      <div>
+        <p className="text-xl font-bold text-zinc-900 lg:text-2xl">{formatAccommodationPrice(item)}</p>
+        {item.originalPrice != null && item.originalCurrency ? (
+          <p className="text-xs text-zinc-500">
+            ({item.originalPrice.toLocaleString('cs-CZ')} {item.originalCurrency})
+          </p>
+        ) : null}
+      </div>
+
+      {item.checkIn && item.checkOut ? (
+        <div className="grid grid-cols-2 gap-2 text-xs text-zinc-700">
+          <div className="rounded-lg bg-zinc-50 px-3 py-2">
+            <p className="text-zinc-500">Check-in</p>
+            <p className="font-semibold">{item.checkIn}</p>
+          </div>
+          <div className="rounded-lg bg-zinc-50 px-3 py-2">
+            <p className="text-zinc-500">Check-out</p>
+            <p className="font-semibold">{item.checkOut}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {item.available !== false ? (
+        <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+          Dostupné
+        </span>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          disabled={checking}
+          onClick={() => void checkAvailability()}
+          className="w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {checking ? 'Kontroluji…' : 'Zkontrolovat dostupnost'}
+        </button>
+        <button
+          type="button"
+          disabled
+          title="Rezervace bude aktivována po spuštění produkčního partnerství."
+          className="w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-500"
+        >
+          {bookingDisabled ? 'Rezervace připravujeme' : 'Rezervovat'}
+        </button>
+      </div>
+
+      {item.checkInFrom || item.checkOutUntil ? (
+        <p className="text-xs text-zinc-600">
+          Check-in od {item.checkInFrom ?? '—'} · Check-out do {item.checkOutUntil ?? '—'}
+        </p>
+      ) : null}
+    </div>
+  );
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 pb-24 lg:space-y-8 lg:pb-8">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
 
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-4">
-          <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-zinc-100">
-            {photos[current] ? (
-              <Image
-                src={photos[current].url}
-                alt={photos[current].alt ?? item.name}
-                fill
-                className="object-cover"
-                priority
-                sizes="(max-width: 1024px) 100vw, 60vw"
-                unoptimized={photos[current].url.includes('hotelbeds.com')}
-              />
-            ) : null}
-            {photos.length > 1 ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setCurrent((c) => (c - 1 + photos.length) % photos.length)}
-                  className="absolute left-3 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow"
-                >
-                  <ChevronLeft className="size-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrent((c) => (c + 1) % photos.length)}
-                  className="absolute right-3 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow"
-                >
-                  <ChevronRight className="size-5" />
-                </button>
-              </>
-            ) : null}
-          </div>
+      {/* Galerie */}
+      <div className="grid gap-2 lg:grid-cols-[2fr_1fr] lg:gap-3">
+        <div className="relative h-[280px] overflow-hidden rounded-2xl sm:h-[320px] lg:h-[min(480px,52vh)]">
+          <GalleryImage
+            src={photos[current]?.url ?? FALLBACK_IMAGE}
+            alt={photos[current]?.alt ?? item.name}
+            priority
+            sizes="(max-width: 1024px) 100vw, 66vw"
+            className="h-full w-full"
+          />
           {photos.length > 1 ? (
-            <div className="no-scrollbar flex gap-2 overflow-x-auto">
-              {photos.map((p, i) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setCurrent(i)}
-                  className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 ${i === current ? 'border-orange-500' : 'border-transparent'}`}
-                >
-                  <Image
-                    src={p.url}
-                    alt=""
-                    fill
-                    className="object-cover"
-                    sizes="96px"
-                    unoptimized={p.url.includes('hotelbeds.com')}
-                  />
-                </button>
-              ))}
-            </div>
+            <>
+              <button
+                type="button"
+                onClick={() => setCurrent((c) => (c - 1 + photos.length) % photos.length)}
+                className="absolute left-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrent((c) => (c + 1) % photos.length)}
+                className="absolute right-3 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow"
+              >
+                <ChevronRight className="size-5" />
+              </button>
+            </>
           ) : null}
         </div>
 
-        <aside className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm lg:sticky lg:top-24 lg:self-start">
+        <div className="hidden grid-cols-2 gap-2 lg:grid">
+          {sidePhotos.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setCurrent(photos.findIndex((x) => x.id === p.id))}
+              className="relative h-[calc(min(480px,52vh)/2-6px)] overflow-hidden rounded-xl"
+            >
+              <GalleryImage src={p.url} alt={p.alt ?? ''} sizes="20vw" className="h-full w-full" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {photos.length > 1 ? (
+        <div className="no-scrollbar flex gap-2 overflow-x-auto lg:hidden">
+          {photos.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setCurrent(i)}
+              className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 ${i === current ? 'border-orange-500' : 'border-transparent'}`}
+            >
+              <GalleryImage src={p.url} alt="" sizes="96px" className="h-full w-full" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Hlavička + booking */}
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
+        <div className="space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">
                 {ACCOMMODATION_TYPE_LABELS[item.type] ?? item.type}
                 {item.stars ? ` · ${item.stars}★` : ''}
               </p>
-              <h1 className="mt-1 text-2xl font-bold text-zinc-900">{item.name}</h1>
+              <h1 className="mt-1 text-2xl font-bold text-zinc-900 md:text-3xl">{item.name}</h1>
               <p className="mt-1 flex items-center gap-1 text-sm text-zinc-600">
-                <MapPin className="size-4" />
+                <MapPin className="size-4 shrink-0" />
                 {item.city}
                 {item.region ? `, ${item.region}` : ''}
               </p>
+              {item.address ? <p className="mt-1 text-sm text-zinc-500">{item.address}</p> : null}
             </div>
             {isAuthenticated && !isHotelbeds ? (
               <button type="button" onClick={() => void toggleFavorite()} className="rounded-full border p-2">
@@ -186,58 +284,9 @@ export function AccommodationDetailView({ item }: Props) {
               ) : null}
             </p>
           ) : null}
+        </div>
 
-          {item.checkIn && item.checkOut ? (
-            <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
-              <p>
-                <span className="font-semibold">Termín:</span> {item.checkIn} → {item.checkOut}
-              </p>
-              <p className="mt-1">
-                <span className="font-semibold">Hosté:</span> dle vyhledávání
-              </p>
-            </div>
-          ) : null}
-
-          <div>
-            <p className="text-xl font-bold text-zinc-900">{formatAccommodationPrice(item)}</p>
-            {item.originalPrice != null && item.originalCurrency ? (
-              <p className="text-xs text-zinc-500">
-                ({item.originalPrice.toLocaleString('cs-CZ')} {item.originalCurrency})
-              </p>
-            ) : null}
-          </div>
-
-          {item.available !== false ? (
-            <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-              Dostupné
-            </span>
-          ) : null}
-
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              disabled={checking}
-              onClick={() => void checkAvailability()}
-              className="w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {checking ? 'Kontroluji…' : 'Zkontrolovat dostupnost'}
-            </button>
-            <button
-              type="button"
-              disabled
-              title="Rezervace bude aktivována po spuštění produkčního partnerství."
-              className="w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-500"
-            >
-              {bookingDisabled ? 'Rezervace připravujeme' : 'Rezervovat'}
-            </button>
-          </div>
-
-          {item.checkInFrom || item.checkOutUntil ? (
-            <p className="text-xs text-zinc-600">
-              Check-in: {item.checkInFrom ?? '—'} · Check-out: {item.checkOutUntil ?? '—'}
-            </p>
-          ) : null}
-        </aside>
+        <div className="hidden lg:block lg:sticky lg:top-24">{bookingSummary}</div>
       </div>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -272,7 +321,10 @@ export function AccommodationDetailView({ item }: Props) {
           <h2 className="text-lg font-semibold">Pokoje</h2>
           <div className="mt-3 space-y-3">
             {item.rooms.map((r) => (
-              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-100 p-4">
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-100 p-4"
+              >
                 <div>
                   <p className="font-semibold">{r.name}</p>
                   <p className="text-sm text-zinc-600">
@@ -310,14 +362,6 @@ export function AccommodationDetailView({ item }: Props) {
               src={`https://maps.google.com/maps?q=${item.latitude},${item.longitude}&z=14&output=embed`}
             />
           </div>
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-block text-sm font-medium text-orange-600 underline"
-          >
-            Otevřít v mapách
-          </a>
         </section>
       ) : null}
 
@@ -333,6 +377,24 @@ export function AccommodationDetailView({ item }: Props) {
           <p className="text-sm text-zinc-500">Načítání podobných nabídek…</p>
         )}
       </section>
+
+      {/* Mobilní sticky booking bar */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-[100rem] items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-zinc-500">Cena od</p>
+            <p className="text-sm font-bold text-zinc-900">{formatAccommodationPrice(item)}</p>
+          </div>
+          <button
+            type="button"
+            disabled={checking}
+            onClick={() => void checkAvailability()}
+            className="rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Dostupnost
+          </button>
+        </div>
+      </div>
 
       <p className="text-center text-xs text-zinc-500">
         <Link href="/ubytovani" className="text-orange-600 underline">

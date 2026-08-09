@@ -4,6 +4,7 @@ import Logo from '@/components/Logo';
 import { AccommodationHero } from '@/components/accommodation/AccommodationHero';
 import { AccommodationListingClient } from '@/components/accommodation/AccommodationListingClient';
 import { ContentTypeTabs } from '@/components/accommodation/ContentTypeTabs';
+import { ACCOMMODATION_PAGE_SIZE } from '@/lib/accommodation-categories';
 import { fetchAccommodationHero } from '@/lib/accommodation-client';
 import { fetchHotelbedsConfig, fetchHotelbedsSearch } from '@/lib/hotelbeds-client';
 
@@ -28,7 +29,7 @@ export default async function UbytovaniPage() {
 
   if (useHotelbeds) {
     try {
-      const res = await fetchHotelbedsSearch({ limit: 12, page: 1 });
+      const res = await fetchHotelbedsSearch({ limit: ACCOMMODATION_PAGE_SIZE, page: 1 });
       initialItems = res.items;
       initialTotal = res.total;
     } catch {

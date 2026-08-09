@@ -59,6 +59,9 @@ export type NormalizedAccommodation = {
   seoTitle: string | null;
   seoDescription: string | null;
   coverPhoto: string | null;
+  xxrealitCategory: string;
+  petsAllowed: boolean;
+  accessible: boolean;
 };
 
 export type HotelbedsSearchQuery = {
@@ -74,6 +77,15 @@ export type HotelbedsSearchQuery = {
   limit?: number;
   starsMin?: number;
   priceMax?: number;
+  category?: string;
+  wifi?: boolean;
+  parking?: boolean;
+  breakfast?: boolean;
+  wellness?: boolean;
+  pool?: boolean;
+  pets?: boolean;
+  accessible?: boolean;
+  ratingMin?: number;
 };
 
 export type HotelbedsSearchResponse = {
