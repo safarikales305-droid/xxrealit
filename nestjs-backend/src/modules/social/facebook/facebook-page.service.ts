@@ -495,7 +495,7 @@ export class FacebookPageService {
   }
 
   async getAdminStats() {
-    const [loginAccounts, pagesAccounts, pages, syncedPosts, lastSync, lastError] =
+    const [loginAccounts, pagesAccounts, pages, syncedPosts, lastSync, lastError, facebookVideos] =
       await Promise.all([
       this.prisma.facebookConnection.count(),
       this.prisma.facebookPagesUserAuth.count(),
@@ -504,12 +504,21 @@ export class FacebookPageService {
       this.prisma.facebookPageConnection.findFirst({
         where: { lastSyncAt: { not: null } },
         orderBy: { lastSyncAt: 'desc' },
-        select: { lastSyncAt: true },
+        select: { lastSyncAt: true, lastSuccessfulSyncAt: true, pageName: true, connectionStatus: true },
       }),
       this.prisma.facebookPageConnection.findFirst({
         where: { lastSyncError: { not: null } },
         orderBy: { updatedAt: 'desc' },
         select: { lastSyncError: true, pageName: true, updatedAt: true },
+      }),
+      this.prisma.post.count({
+        where: {
+          source: 'FACEBOOK',
+          OR: [
+            { facebookPostType: { in: ['FACEBOOK_VIDEO', 'FACEBOOK_REEL'] } },
+            { videoUrl: { not: null } },
+          ],
+        },
       }),
     ]);
     return {
@@ -517,11 +526,26 @@ export class FacebookPageService {
       connectedLoginAccounts: loginAccounts,
       connectedPages: pages,
       syncedPosts,
+      facebookVideos,
       lastSyncAt: lastSync?.lastSyncAt?.toISOString() ?? null,
+      lastSuccessfulSyncAt: lastSync?.lastSuccessfulSyncAt?.toISOString() ?? null,
+      connectionStatus: lastSync?.connectionStatus ?? null,
       lastError: lastError
         ? { message: lastError.lastSyncError, pageName: lastError.pageName, at: lastError.updatedAt.toISOString() }
         : null,
     };
+  }
+
+  async countFacebookVideoPosts(): Promise<number> {
+    return this.prisma.post.count({
+      where: {
+        source: 'FACEBOOK',
+        OR: [
+          { facebookPostType: { in: ['FACEBOOK_VIDEO', 'FACEBOOK_REEL'] } },
+          { videoUrl: { not: null } },
+        ],
+      },
+    });
   }
 
   async getConnectionStatus(userId: string) {

@@ -29,6 +29,7 @@ import { FacebookAuthService } from './facebook-auth.service';
 import { FacebookPageService } from './facebook-page.service';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookUnifiedOAuthService } from './facebook-unified-oauth.service';
+import { FacebookMediaRefreshService } from './facebook-media-refresh.service';
 
 @Controller('social/facebook')
 export class FacebookPageController implements OnModuleInit {
@@ -40,6 +41,7 @@ export class FacebookPageController implements OnModuleInit {
     private readonly facebookConfig: FacebookConfigService,
     private readonly unifiedOAuth: FacebookUnifiedOAuthService,
     private readonly connectOAuth: MetaConnectOAuthService,
+    private readonly mediaRefresh: FacebookMediaRefreshService,
   ) {}
 
   onModuleInit() {
@@ -282,6 +284,25 @@ export class FacebookPageController implements OnModuleInit {
   @UseGuards(JwtAuthGuard)
   syncNow(@CurrentUser() user: AuthUser) {
     return this.facebookPage.syncNow(user.id);
+  }
+
+  @Post('posts/:postId/refresh-media')
+  refreshPostMedia(@Param('postId') postId: string) {
+    return this.mediaRefresh.refreshPostMediaByPostId(postId, { source: 'player' });
+  }
+
+  @Post('admin/repair-media')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  repairAllMedia() {
+    return this.mediaRefresh.repairAllImportedFacebookVideos();
+  }
+
+  @Get('admin/media-diagnostics')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  async mediaDiagnostics() {
+    const broken = await this.mediaRefresh.countBrokenFacebookVideos();
+    const videoPosts = await this.facebookPage.countFacebookVideoPosts();
+    return { brokenMedia: broken, facebookVideos: videoPosts };
   }
 
   private wantsJsonResponse(req: Request): boolean {

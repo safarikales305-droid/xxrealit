@@ -32,6 +32,15 @@ export const FACEBOOK_PAGE_POSTS_LIMIT = 10;
 /** Interval automatické synchronizace stránek (ms). */
 export const FACEBOOK_PAGE_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
+/** Po kolika ms považovat cached Facebook media URL za zastaralé. */
+export const FACEBOOK_MEDIA_REFRESH_STALE_MS = 6 * 60 * 60 * 1000;
+
+/** Kolik videí obnovit na jedno spojení při cron běhu. */
+export const FACEBOOK_MEDIA_REFRESH_BATCH_SIZE = 20;
+
+/** Interval cron kontroly obnovy Facebook médií (ms). */
+export const FACEBOOK_MEDIA_REFRESH_CRON_INTERVAL_MS = 2 * 60 * 60 * 1000;
+
 /** @deprecated Použijte FACEBOOK_PAGE_API_SCOPES */
 export const FACEBOOK_PAGE_CONNECT_SCOPES = FACEBOOK_PAGE_API_SCOPES;
 

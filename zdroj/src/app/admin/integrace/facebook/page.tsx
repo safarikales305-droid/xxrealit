@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   nestFacebookAdminStats,
+  nestFacebookAdminMediaDiagnostics,
+  nestFacebookAdminRepairMedia,
   nestFacebookConfigStatus,
   nestAdminFacebookUrlImports,
   nestAdminFacebookUrlImportSetEnabled,
@@ -24,6 +26,12 @@ export default function AdminFacebookIntegrationPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [mediaDiagnostics, setMediaDiagnostics] = useState<{
+    brokenMedia: number;
+    facebookVideos: number;
+  } | null>(null);
+  const [repairMsg, setRepairMsg] = useState<string | null>(null);
+  const [repairBusy, setRepairBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
@@ -34,6 +42,10 @@ export default function AdminFacebookIntegrationPage() {
       user?.role === 'ADMIN' && apiAccessToken
         ? await nestAdminFacebookUrlImports(apiAccessToken)
         : null;
+    const diagnostics =
+      user?.role === 'ADMIN' && apiAccessToken
+        ? await nestFacebookAdminMediaDiagnostics(apiAccessToken)
+        : null;
     setRefreshing(false);
     if (!data) {
       setLoadError('Nepodařilo se načíst stav Facebook integrace.');
@@ -43,6 +55,7 @@ export default function AdminFacebookIntegrationPage() {
     setConfig(data);
     setStats(adminStats);
     setUrlImports(imports);
+    setMediaDiagnostics(diagnostics);
   }, [user?.role, apiAccessToken]);
 
   useEffect(() => {
@@ -196,6 +209,26 @@ export default function AdminFacebookIntegrationPage() {
                 <dd className="text-lg font-bold text-zinc-900">{stats?.syncedPosts ?? '—'}</dd>
               </div>
               <div>
+                <dt className="text-zinc-500">Facebook videí</dt>
+                <dd className="text-lg font-bold text-zinc-900">{stats?.facebookVideos ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Nefunkčních médií</dt>
+                <dd className="text-lg font-bold text-zinc-900">{mediaDiagnostics?.brokenMedia ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Stav propojení</dt>
+                <dd className="font-medium text-zinc-800">{stats?.connectionStatus ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Poslední úspěšná synchronizace</dt>
+                <dd className="font-medium text-zinc-800">
+                  {stats?.lastSuccessfulSyncAt
+                    ? new Date(stats.lastSuccessfulSyncAt).toLocaleString('cs-CZ')
+                    : '—'}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-zinc-500">Poslední synchronizace</dt>
                 <dd className="font-medium text-zinc-800">
                   {stats?.lastSyncAt
@@ -208,6 +241,35 @@ export default function AdminFacebookIntegrationPage() {
               <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 Poslední chyba ({stats.lastError.pageName ?? 'stránka'}): {stats.lastError.message}
               </p>
+            ) : null}
+            {repairMsg ? (
+              <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                {repairMsg}
+              </p>
+            ) : null}
+            {apiAccessToken ? (
+              <button
+                type="button"
+                disabled={repairBusy}
+                onClick={() => {
+                  setRepairBusy(true);
+                  setRepairMsg(null);
+                  void nestFacebookAdminRepairMedia(apiAccessToken).then((res) => {
+                    setRepairBusy(false);
+                    if (!res) {
+                      setRepairMsg('Oprava médií selhala.');
+                      return;
+                    }
+                    setRepairMsg(
+                      `Oprava dokončena — zpracováno: ${res.processed}, obnoveno: ${res.refreshed}, chyby: ${res.failed}.`,
+                    );
+                    void refresh();
+                  });
+                }}
+                className="mt-4 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {repairBusy ? 'Opravuji Facebook média…' : 'Opravit Facebook média'}
+              </button>
             ) : null}
           </div>
 

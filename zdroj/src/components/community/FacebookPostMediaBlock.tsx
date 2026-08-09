@@ -1,6 +1,8 @@
 'use client';
 
+import { useCallback } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { nestFacebookPostRefreshMedia } from '@/lib/nest-client';
 import type { ResolvedFacebookPostMedia } from '@/lib/facebook-post-media';
 import { getFacebookVideoContainerClass } from '@/lib/facebook-post-media';
 import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
@@ -36,6 +38,13 @@ export function FacebookPostMediaBlock({
   className = 'mt-3',
   edgeToEdge = false,
 }: Props) {
+  const refreshVideoSrc = useCallback(async () => {
+    if (!postId) return null;
+    const res = await nestFacebookPostRefreshMedia(postId);
+    if (!res.ok) return null;
+    return res.videoUrl?.trim() || null;
+  }, [postId]);
+
   if (media.mode === 'none') return null;
 
   const containerClass = getFacebookVideoContainerClass(facebookPostType);
@@ -112,6 +121,8 @@ export function FacebookPostMediaBlock({
           src={media.videoUrl}
           poster={media.posterUrl}
           postId={postId}
+          permalinkFallback={media.permalink}
+          onRefreshSrc={postId ? refreshVideoSrc : undefined}
           feedAutoplay={feedAutoplay}
           blurred={blurred}
           muted={muted}

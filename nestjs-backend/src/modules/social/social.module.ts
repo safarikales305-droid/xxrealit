@@ -13,6 +13,8 @@ import { FacebookConfigService } from './facebook/facebook-config.service';
 import { FacebookPageService } from './facebook/facebook-page.service';
 import { FacebookUnifiedOAuthService } from './facebook/facebook-unified-oauth.service';
 import { FacebookPageSyncService } from './facebook/facebook-page-sync.service';
+import { FacebookMediaRefreshService } from './facebook/facebook-media-refresh.service';
+import { FacebookMediaRefreshCronService } from './facebook/facebook-media-refresh.cron.service';
 import { FacebookVideoMigrationService } from './facebook/facebook-video-migration.service';
 import { FacebookWebhookController } from './facebook/facebook-webhook.controller';
 import { FacebookUrlImportController } from './facebook-url-import/facebook-url-import.controller';
@@ -79,6 +81,8 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookPageService,
     FacebookUnifiedOAuthService,
     FacebookPageSyncService,
+    FacebookMediaRefreshService,
+    FacebookMediaRefreshCronService,
     FacebookVideoMigrationService,
     FacebookUrlImportService,
     FacebookUrlScraperProvider,

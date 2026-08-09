@@ -342,17 +342,16 @@ export function FacebookPageConnectionCard({ token }: Props) {
       setError(FACEBOOK_RECONNECT_PERMISSION_MSG);
       return;
     }
-    if (res.imported === 0 && res.message) {
-      setOk(
-        `Synchronizace dokončena (importováno: 0). ${res.message}` +
-          (res.found != null ? ` Nalezeno na Facebooku: ${res.found}.` : ''),
-      );
+    const parts = [
+      `Nové příspěvky: ${res.imported ?? 0}`,
+      `Aktualizované příspěvky: ${res.updated ?? 0}`,
+      `Obnovená videa: ${res.videosRefreshed ?? 0}`,
+      `Chyby: ${res.errors ?? 0}`,
+    ];
+    if (res.message && (res.imported ?? 0) === 0 && (res.updated ?? 0) === 0) {
+      setOk(`Synchronizace dokončena. ${parts.join(' · ')} ${res.message}`);
     } else {
-      setOk(
-        `Synchronizace dokončena (importováno: ${res.imported ?? 0}` +
-          (res.found != null ? ` z ${res.found}` : '') +
-          ' příspěvků).',
-      );
+      setOk(`Synchronizace dokončena. ${parts.join(' · ')}`);
     }
     void refresh();
   }

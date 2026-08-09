@@ -11592,7 +11592,10 @@ export type FacebookAdminStats = {
   connectedLoginAccounts?: number;
   connectedPages: number;
   syncedPosts: number;
+  facebookVideos?: number;
   lastSyncAt: string | null;
+  lastSuccessfulSyncAt?: string | null;
+  connectionStatus?: string | null;
   lastError: { message: string | null; pageName: string | null; at: string } | null;
 };
 
@@ -11844,6 +11847,9 @@ export async function nestFacebookPageSyncNow(
   | {
       ok: true;
       imported?: number;
+      updated?: number;
+      videosRefreshed?: number;
+      errors?: number;
       found?: number;
       skippedDuplicates?: number;
       reason?: string;
@@ -11868,6 +11874,9 @@ export async function nestFacebookPageSyncNow(
       };
     }
     const imported = typeof data.imported === 'number' ? data.imported : 0;
+    const updated = typeof data.updated === 'number' ? data.updated : 0;
+    const videosRefreshed = typeof data.videosRefreshed === 'number' ? data.videosRefreshed : 0;
+    const errors = typeof data.errors === 'number' ? data.errors : 0;
     const found = typeof data.found === 'number' ? data.found : undefined;
     const reason = typeof data.reason === 'string' ? data.reason : undefined;
     const graphError = typeof data.graphError === 'string' ? data.graphError : undefined;
@@ -11879,15 +11888,18 @@ export async function nestFacebookPageSyncNow(
         typeof data.error === 'string'
           ? data.error
           : 'Znovu propojte Facebook stránku a povolte oprávnění.';
-    } else if (imported === 0 && graphError) {
+    } else if (imported === 0 && updated === 0 && videosRefreshed === 0 && graphError) {
       message = graphError;
-    } else if (imported === 0 && found === 0) {
+    } else if (imported === 0 && updated === 0 && videosRefreshed === 0 && found === 0) {
       message = graphError ?? 'Meta API nevrátilo žádné příspěvky.';
     }
 
     return {
       ok: true,
       imported,
+      updated,
+      videosRefreshed,
+      errors,
       found,
       skippedDuplicates:
         typeof data.skippedDuplicates === 'number' ? data.skippedDuplicates : undefined,
@@ -11898,6 +11910,72 @@ export async function nestFacebookPageSyncNow(
     };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookPostRefreshMedia(
+  postId: string,
+): Promise<{
+  ok: boolean;
+  refreshed?: boolean;
+  videoUrl?: string | null;
+  thumbnailUrl?: string | null;
+  reason?: string;
+}> {
+  if (!API_BASE_URL) return { ok: false, reason: 'api_missing' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/social/facebook/posts/${encodeURIComponent(postId)}/refresh-media`,
+      { method: 'POST' },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) return { ok: false, reason: String(data.reason ?? data.message ?? 'refresh_failed') };
+    return {
+      ok: data.ok !== false,
+      refreshed: data.refreshed === true,
+      videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : null,
+      thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl : null,
+      reason: typeof data.reason === 'string' ? data.reason : undefined,
+    };
+  } catch {
+    return { ok: false, reason: 'network_error' };
+  }
+}
+
+export async function nestFacebookAdminRepairMedia(
+  token: string,
+): Promise<{ processed: number; refreshed: number; failed: number; skipped: number } | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/admin/repair-media`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      processed: number;
+      refreshed: number;
+      failed: number;
+      skipped: number;
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function nestFacebookAdminMediaDiagnostics(
+  token: string,
+): Promise<{ brokenMedia: number; facebookVideos: number } | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/admin/media-diagnostics`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { brokenMedia: number; facebookVideos: number };
+  } catch {
+    return null;
   }
 }
 

@@ -10,7 +10,8 @@ type Props = {
   src: string;
   poster?: string | null;
   postId?: string;
-  /** Mobilní feed — autoplay při scrollu, bez ovládacích prvků na mobilu. */
+  permalinkFallback?: string | null;
+  onRefreshSrc?: () => Promise<string | null>;
   feedAutoplay?: boolean;
   className?: string;
   blurred?: boolean;
@@ -24,6 +25,8 @@ export function FacebookInlineVideoPlayer({
   src,
   poster,
   postId,
+  permalinkFallback,
+  onRefreshSrc,
   feedAutoplay = false,
   className = '',
   blurred = false,
@@ -33,10 +36,15 @@ export function FacebookInlineVideoPlayer({
   onOpenDetail,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const refreshAttemptedRef = useRef(false);
+  const [playbackSrc, setPlaybackSrc] = useState(src);
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const [generatedPoster, setGeneratedPoster] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [internalMuted, setInternalMuted] = useState(muted);
+  const [loading, setLoading] = useState(true);
+  const [playbackError, setPlaybackError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const effectivePoster =
     poster?.trim() ? nestAbsoluteAssetUrl(poster) : generatedPoster;
@@ -44,10 +52,17 @@ export function FacebookInlineVideoPlayer({
   const isMuted = onToggleMute ? muted : internalMuted;
 
   useEffect(() => {
+    setPlaybackSrc(src);
+    refreshAttemptedRef.current = false;
+    setPlaybackError(false);
+    setLoading(true);
+  }, [src]);
+
+  useEffect(() => {
     setInternalMuted(muted);
   }, [muted]);
 
-  useFeedVideoAutoplay(feedAutoplay, videoRef, postId ?? src, isMuted);
+  useFeedVideoAutoplay(feedAutoplay, videoRef, postId ?? playbackSrc, isMuted);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -62,11 +77,13 @@ export function FacebookInlineVideoPlayer({
     if (!el) return;
     el.muted = isMuted;
     if (!isMuted) el.volume = 1;
-  }, [isMuted]);
+  }, [isMuted, playbackSrc]);
 
   const handleMetadata = useCallback(
     async (e: React.SyntheticEvent<HTMLVideoElement>) => {
       const el = e.currentTarget;
+      setLoading(false);
+      setPlaybackError(false);
       if (el.videoWidth > 0 && el.videoHeight > 0) {
         setAspectRatio(el.videoWidth / el.videoHeight);
       }
@@ -77,6 +94,30 @@ export function FacebookInlineVideoPlayer({
     },
     [poster, generatedPoster],
   );
+
+  const tryRefreshSource = useCallback(async () => {
+    if (!onRefreshSrc || refreshAttemptedRef.current) return;
+    refreshAttemptedRef.current = true;
+    setRefreshing(true);
+    try {
+      const next = await onRefreshSrc();
+      if (next?.trim()) {
+        setPlaybackSrc(next);
+        setPlaybackError(false);
+        setLoading(true);
+        return;
+      }
+    } finally {
+      setRefreshing(false);
+    }
+    setPlaybackError(true);
+    setLoading(false);
+  }, [onRefreshSrc]);
+
+  const handleVideoError = useCallback(() => {
+    setLoading(false);
+    void tryRefreshSource();
+  }, [tryRefreshSource]);
 
   const portrait = aspectRatio != null && aspectRatio < 0.85;
   const landscape = aspectRatio != null && aspectRatio > 1.15;
@@ -120,27 +161,65 @@ export function FacebookInlineVideoPlayer({
           : undefined
       }
     >
-      <video
-        ref={videoRef}
-        src={nestAbsoluteAssetUrl(src)}
-        poster={effectivePoster || undefined}
-        playsInline
-        controls={showControls}
-        preload="metadata"
-        muted={isMuted}
-        loop={feedAutoplay}
-        onLoadedMetadata={handleMetadata}
-        onClick={(e) => {
-          if (mobileFeedMode && onOpenDetail) {
-            e.preventDefault();
-            e.stopPropagation();
-            onOpenDetail();
-          }
-        }}
-        className={`size-full object-contain ${blurred ? 'blur-sm' : ''} ${mobileFeedMode ? 'pointer-events-none md:pointer-events-auto' : ''}`}
-      />
+      {(loading || refreshing) && !playbackError ? (
+        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-zinc-950/80">
+          {effectivePoster ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={effectivePoster} alt="" className="absolute inset-0 size-full object-cover opacity-40" />
+          ) : null}
+          <span className="relative text-sm font-medium text-white/90">
+            {refreshing ? 'Obnovuji video…' : 'Načítám video…'}
+          </span>
+        </div>
+      ) : null}
 
-      {showMuteToggle ? (
+      {playbackError ? (
+        <div className="absolute inset-0 z-[2] flex flex-col items-center justify-center gap-3 bg-zinc-950 p-4 text-center">
+          {effectivePoster ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={effectivePoster} alt="" className="absolute inset-0 size-full object-cover opacity-25" />
+          ) : null}
+          <p className="relative text-sm font-medium text-white">
+            Video se momentálně nepodařilo načíst.
+          </p>
+          {permalinkFallback ? (
+            <a
+              href={permalinkFallback}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative rounded-full bg-[#1877F2] px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-[#166fe0]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Otevřít na Facebooku
+            </a>
+          ) : null}
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          key={playbackSrc}
+          src={nestAbsoluteAssetUrl(playbackSrc)}
+          poster={effectivePoster || undefined}
+          playsInline
+          controls={showControls}
+          preload="metadata"
+          muted={isMuted}
+          loop={feedAutoplay}
+          onLoadedMetadata={handleMetadata}
+          onCanPlay={() => setLoading(false)}
+          onError={handleVideoError}
+          onClick={(e) => {
+            if (mobileFeedMode && onOpenDetail) {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenDetail();
+            }
+          }}
+          className={`size-full object-contain ${blurred ? 'blur-sm' : ''} ${mobileFeedMode ? 'pointer-events-none md:pointer-events-auto' : ''}`}
+        />
+      )}
+
+      {showMuteToggle && !playbackError ? (
         <button
           type="button"
           onClick={handleMuteClick}

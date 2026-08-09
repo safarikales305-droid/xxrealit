@@ -989,6 +989,12 @@ model Post {
   facebookVideoSourceUrl   String?
   facebookVideoHasAudio    Boolean?
   facebookVideoMimeType    String?
+  /// Stabilní Facebook video ID (Graph API) — primární identifikátor média.
+  facebookVideoId          String?
+  /// Facebook page ID zdrojové stránky.
+  facebookPageId           String?
+  /// Poslední obnova cached video/thumbnail URL z Graph API.
+  lastMediaRefreshAt       DateTime?
   publishedAt         DateTime?
   /// Volitelný zvuk/hudba k video příspěvku (sdílená knihovna Shorts hudby).
   soundTrackId        String?
@@ -1026,6 +1032,8 @@ model Post {
   @@index([createdAt])
   @@index([slug])
   @@index([source, createdAt])
+  @@index([facebookVideoId])
+  @@index([source, lastMediaRefreshAt])
   @@index([latitude, longitude])
   @@index([soundTrackId])
   @@index([accommodationId])
@@ -1966,7 +1974,11 @@ model FacebookPageConnection {
   pageAccessTokenEncrypted String    @db.Text
   pagePictureUrl           String?
   isActive                 Boolean   @default(true)
+  connectionStatus         String    @default("CONNECTED")
+  tokenExpiresAt           DateTime?
+  tokenLastCheckedAt       DateTime?
   lastSyncAt               DateTime?
+  lastSuccessfulSyncAt     DateTime?
   lastSyncError            String?   @db.Text
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
@@ -2017,6 +2029,9 @@ model FacebookSyncedPost {
   videoUrlFailureReason String? @db.Text
   videoHasAudio    Boolean?
   videoMimeType    String?
+  facebookVideoId  String?
+  lastMediaRefreshAt DateTime?
+  lastSyncedAt     DateTime?
   createdTime      DateTime?
   rawJson          Json?
   importedPostId   String?
@@ -2027,6 +2042,7 @@ model FacebookSyncedPost {
   pageConnection FacebookPageConnection @relation(fields: [pageConnectionId], references: [id], onDelete: Cascade)
 
   @@index([pageConnectionId, createdAt])
+  @@index([pageConnectionId, lastMediaRefreshAt])
   @@index([userId])
 }
 

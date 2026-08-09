@@ -27,12 +27,16 @@ import {
   isFacebookPermissionError,
   parseFacebookGraphError,
 } from './facebook-graph-permissions.util';
+import { FacebookMediaRefreshService } from './facebook-media-refresh.service';
 
 export type FacebookPageSyncResult = {
   imported: number;
+  updated?: number;
+  videosRefreshed?: number;
   found?: number;
   skippedDuplicates?: number;
   skipped?: boolean;
+  errors?: number;
   pageId?: string;
   error?: string;
   reason?: string;
@@ -42,6 +46,7 @@ export type FacebookPageSyncResult = {
   missingPermissions?: string[];
   permissionDenied?: boolean;
   fallback?: boolean;
+  connectionStatus?: string;
 };
 
 const FACEBOOK_RECONNECT_PERMISSION_MSG =
@@ -57,6 +62,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly crypto: TokenEncryptionService,
     private readonly urlImport: FacebookUrlImportService,
     private readonly fbConfig: FacebookConfigService,
+    private readonly mediaRefresh: FacebookMediaRefreshService,
   ) {}
 
   onModuleInit() {
@@ -189,38 +195,53 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       const items = payload.data ?? [];
       const found = items.length;
       let imported = 0;
+      let updated = 0;
       for (const item of items) {
         if (!item.id) continue;
-        const created = await this.importPagePost(connection, item, pageToken);
-        if (created) imported += 1;
+        const result = await this.importPagePost(connection, item, pageToken);
+        if (result === 'created') imported += 1;
+        else if (result === 'updated') updated += 1;
       }
-      const skippedDuplicates = found - imported;
+      const skippedDuplicates = found - imported - updated;
 
-      this.logger.log(
-        `FACEBOOK_SYNC_GRAPH_RESPONSE pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
-          `found=${found} imported=${imported} skippedDuplicates=${skippedDuplicates} ` +
-          `hasNextPage=${Boolean(payload.paging?.next)}`,
-      );
+      const mediaRefresh = await this.mediaRefresh.refreshStaleMediaForConnection(pageConnectionId);
+
+      const connectionStatus = tokenInspection?.isValid === false ? 'TOKEN_EXPIRED' : 'CONNECTED';
 
       await this.prisma.facebookPageConnection.update({
         where: { id: pageConnectionId },
-        data: { lastSyncAt: new Date(), lastSyncError: null },
+        data: {
+          lastSyncAt: new Date(),
+          lastSyncError: null,
+          lastSuccessfulSyncAt: new Date(),
+          connectionStatus,
+          tokenLastCheckedAt: new Date(),
+        },
       });
+
+      this.logger.log(
+        `[FacebookSync] pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
+          `found=${found} imported=${imported} updated=${updated} videosRefreshed=${mediaRefresh.refreshed}`,
+      );
 
       const result: FacebookPageSyncResult = {
         imported,
+        updated,
+        videosRefreshed: mediaRefresh.refreshed,
+        errors: mediaRefresh.failed,
         found,
         skippedDuplicates,
         pageId: connection.pageId,
         tokenScopes: tokenInspection?.scopes,
+        connectionStatus,
       };
 
       if (found === 0) {
         result.reason = 'no_posts_on_page';
         result.graphError = 'Meta Graph API vrátilo 0 příspěvků pro tuto stránku.';
-      } else if (imported === 0) {
+      } else if (imported === 0 && updated === 0) {
         result.reason = 'all_already_imported';
-        result.graphError = `Nalezeno ${found} příspěvků, všechny už byly dříve importovány.`;
+        result.graphError = `Nalezeno ${found} příspěvků, žádný nový import. Aktualizováno: ${updated}, obnoveno videí: ${mediaRefresh.refreshed}.`;
       }
 
       this.logger.log(
@@ -349,14 +370,27 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     },
     item: GraphFeedItem,
     pageToken?: string,
-  ): Promise<boolean> {
+  ): Promise<'created' | 'updated' | 'skipped'> {
     const facebookPostId = item.id!.trim();
     const existing = await this.prisma.facebookSyncedPost.findUnique({
       where: { facebookPostId },
     });
-    if (existing) return false;
+    if (existing?.importedPostId && pageToken) {
+      await this.mediaRefresh.updateExistingFromGraphItem({
+        postId: existing.importedPostId,
+        syncedPostId: existing.id,
+        pageId: connection.pageId,
+        item,
+        pageToken,
+        existingVideoId: existing.facebookVideoId,
+        logSource: 'sync',
+      });
+      return 'updated';
+    }
+    if (existing) return 'skipped';
 
     const extracted = extractMediaFromGraphItem(item);
+    const videoId = extracted.videoId?.trim() || null;
     const message = (item.message ?? item.story ?? '').trim();
     const permalink = this.normalizePermalink(item.permalink_url) ?? extracted.linkUrl;
     const publishedAt =
@@ -375,12 +409,12 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         },
         select: { id: true },
       });
-      if (dup) return false;
+      if (dup) return 'skipped';
     }
 
     let resolvedVideo = null;
-    if (pageToken && extracted.videoId) {
-      resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, pageToken);
+    if (pageToken && videoId) {
+      resolvedVideo = await resolveFacebookVideoFromGraph(videoId, pageToken);
       if (resolvedVideo.failureReason) {
         this.logger.warn(
           `FACEBOOK_VIDEO_SOURCE_MISSING postId=${facebookPostId} reason=${resolvedVideo.failureReason}`,
@@ -406,7 +440,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       : null;
 
     if (!text && !mediaPlan.thumbnailUrl && !mediaPlan.videoUrl && !permalink) {
-      return false;
+      return 'skipped';
     }
 
     let importedPostId: string;
@@ -434,6 +468,9 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           facebookVideoSourceUrl: mediaPlan.videoUrl,
           facebookVideoHasAudio: mediaPlan.hasAudio,
           facebookVideoMimeType: mediaPlan.mimeType,
+          facebookVideoId: videoId,
+          facebookPageId: connection.pageId,
+          lastMediaRefreshAt: mediaPlan.videoUrl ? new Date() : null,
           previewTitle: message.slice(0, 200) || FACEBOOK_PAGE_BADGE,
           previewDescription: message.slice(0, 500) || null,
           previewImage: mediaPlan.thumbnailUrl,
@@ -466,7 +503,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         err && typeof err === 'object' && 'code' in err
           ? String((err as { code?: string }).code)
           : '';
-      if (code === 'P2002') return false;
+      if (code === 'P2002') return 'skipped';
       throw err;
     }
 
@@ -475,6 +512,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         userId: connection.userId,
         pageConnectionId: connection.id,
         facebookPostId,
+        facebookVideoId: videoId,
         message: message || null,
         story: item.story ?? null,
         permalinkUrl: permalink,
@@ -483,13 +521,15 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         videoUrlFailureReason: mediaPlan.videoUrlFailureReason,
         videoHasAudio: mediaPlan.hasAudio,
         videoMimeType: mediaPlan.mimeType,
+        lastMediaRefreshAt: mediaPlan.videoUrl ? new Date() : null,
+        lastSyncedAt: new Date(),
         createdTime: publishedAt,
         rawJson: item as object,
         importedPostId,
       },
     });
 
-    return true;
+    return 'created';
   }
 
   async syncConnection(connectionId: string) {
@@ -529,8 +569,8 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       let imported = 0;
       for (const item of payload.data ?? []) {
         if (!item.id) continue;
-        const created = await this.importLegacyFeedItem(connection, item);
-        if (created) imported += 1;
+        const result = await this.importLegacyFeedItem(connection, item);
+        if (result) imported += 1;
       }
 
       await this.prisma.socialConnection.update({
@@ -590,7 +630,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, pageId: true },
     });
     if (pageConnection) {
-      return this.importPagePost(
+      const result = await this.importPagePost(
         {
           id: pageConnection.id,
           userId: connection.userId,
@@ -599,6 +639,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         },
         item,
       );
+      return result === 'created';
     }
 
     const extracted = extractMediaFromGraphItem(item);
