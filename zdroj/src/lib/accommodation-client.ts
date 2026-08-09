@@ -216,8 +216,19 @@ export const ACCOMMODATION_TYPE_LABELS: Record<string, string> = {
   OTHER: 'Ubytování',
 };
 
-export function formatAccommodationPrice(item: Pick<AccommodationItem, 'priceFrom' | 'currency' | 'priceUnit'>) {
-  if (item.priceFrom == null) return 'Cena na dotaz';
+export function formatAccommodationPrice(
+  item: Pick<AccommodationItem, 'priceFrom' | 'currency' | 'priceUnit'> & {
+    available?: boolean;
+    availabilityStatus?: 'verified' | 'unknown';
+    catalogOnly?: boolean;
+  },
+) {
+  if (item.priceFrom == null) {
+    if (item.availabilityStatus === 'unknown' || item.catalogOnly || item.available === false) {
+      return 'Cena a dostupnost se ověřuje';
+    }
+    return 'Cena na dotaz';
+  }
   const unit = item.priceUnit === 'PER_STAY' ? 'celý objekt' : 'noc';
   return `od ${item.priceFrom.toLocaleString('cs-CZ')} ${item.currency} / ${unit}`;
 }

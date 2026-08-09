@@ -64,6 +64,9 @@ export type NormalizedAccommodation = {
   debugSource?: import('./hotelbeds-content-meta.types').HotelbedsDebugSource;
   petsAllowed: boolean;
   accessible: boolean;
+  /** Katalog bez ověřené dostupnosti z Booking API */
+  catalogOnly?: boolean;
+  availabilityStatus?: 'verified' | 'unknown';
 };
 
 export type HotelbedsSearchQuery = {
@@ -88,6 +91,8 @@ export type HotelbedsSearchQuery = {
   pets?: boolean;
   accessible?: boolean;
   ratingMin?: number;
+  /** Katalog z DB/cache bez volání Booking availability API */
+  catalog?: boolean;
 };
 
 export type HotelbedsSearchResponse = {

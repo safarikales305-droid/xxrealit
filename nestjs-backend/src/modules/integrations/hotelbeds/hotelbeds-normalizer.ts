@@ -18,12 +18,24 @@ export const HOTELBEDS_CONTENT_SECONDARY_LANGUAGE = HOTELBEDS_CONTENT_LANGUAGE;
 export type HotelbedsImageSize = 'thumbnail' | 'card' | 'detail' | 'hero';
 
 const HOTELBEDS_IMAGE_BASE = 'https://photos.hotelbeds.com/giata';
-const IMAGE_SIZE_SUFFIX: Record<HotelbedsImageSize, string> = {
-  thumbnail: '_t',
-  card: '_b',
-  detail: '_l',
-  hero: '_xl',
+
+/** Hotelbeds GIATA size folders — dle oficiální dokumentace (ne filename suffix). */
+const IMAGE_SIZE_FOLDER: Record<HotelbedsImageSize, string | null> = {
+  thumbnail: 'small',
+  card: 'medium',
+  detail: 'bigger',
+  hero: 'xl',
 };
+
+/** Fallback pořadí pro server-side image delivery. */
+export const HOTELBEDS_IMAGE_FOLDER_FALLBACK = [
+  null,
+  'bigger',
+  'medium',
+  'small',
+  'xl',
+  'original',
+] as const;
 
 const IMAGE_TYPE_PRIORITY: Record<string, number> = {
   GEN: 0,
@@ -90,25 +102,44 @@ export type HbContentHotel = {
   ranking?: number;
 };
 
-function replaceImageSizeSuffix(path: string, suffix: string): string {
-  if (/_(t|s|b|l|xl)(\.[a-z0-9]+)$/i.test(path)) {
-    return path.replace(/_(t|s|b|l|xl)(\.[a-z0-9]+)$/i, `${suffix}$2`);
+/** Odstraní chybné suffixy přidané starou logikou (_b.jpg apod.). */
+export function normalizeHotelbedsImagePath(path: string): string {
+  let clean = path.trim().replace(/^\/+/, '');
+  if (clean.startsWith('http://') || clean.startsWith('https://')) {
+    try {
+      const u = new URL(clean);
+      clean = u.pathname.replace(/^\/giata\/?/, '').replace(/^\/+/, '');
+    } catch {
+      return path;
+    }
   }
-  return path.replace(/(\.[a-z0-9]+)$/i, `${suffix}$1`);
+  return clean.replace(/_(t|b|l|xl)(\.(jpe?g|png|webp))$/i, '$2');
 }
 
-/** Sestaví plnou Hotelbeds GIATA image URL dle velikosti (Use of images). */
+/** Sestaví GIATA URL — path z Content API se NEMĚNÍ, pouze se přidá size folder. */
 export function buildHotelbedsImageUrl(
   path?: string | null,
   size: HotelbedsImageSize = 'card',
+  folderOverride?: string | null,
 ): string | null {
   if (!path?.trim()) return null;
-  const suffix = IMAGE_SIZE_SUFFIX[size];
   if (path.startsWith('http://') || path.startsWith('https://')) {
-    return replaceImageSizeSuffix(path, suffix);
+    return path;
   }
-  const clean = replaceImageSizeSuffix(path.replace(/^\/+/, ''), suffix);
+  const clean = normalizeHotelbedsImagePath(path);
+  const folder = folderOverride !== undefined ? folderOverride : IMAGE_SIZE_FOLDER[size];
+  if (folder) {
+    return `${HOTELBEDS_IMAGE_BASE}/${folder}/${clean}`;
+  }
   return `${HOTELBEDS_IMAGE_BASE}/${clean}`;
+}
+
+export function buildHotelbedsImageUrlWithFolder(
+  path: string,
+  folder: string | null,
+): string {
+  const clean = normalizeHotelbedsImagePath(path);
+  return folder ? `${HOTELBEDS_IMAGE_BASE}/${folder}/${clean}` : `${HOTELBEDS_IMAGE_BASE}/${clean}`;
 }
 
 /** @deprecated Use buildHotelbedsImageUrl(path, 'card') */

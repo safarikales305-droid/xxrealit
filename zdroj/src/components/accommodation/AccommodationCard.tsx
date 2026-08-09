@@ -11,6 +11,8 @@ import {
 
 type CardItem = AccommodationItem & {
   available?: boolean;
+  catalogOnly?: boolean;
+  availabilityStatus?: 'verified' | 'unknown';
   originalPrice?: number | null;
   originalCurrency?: string;
 };
@@ -30,6 +32,8 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
     item.pool ? 'Bazén' : null,
   ].filter(Boolean) as string[];
 
+  const coverIsProxy = Boolean(item.coverPhoto?.includes('/hotelbeds/public/image'));
+
   return (
     <article className="group overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:shadow-md">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-zinc-100">
@@ -38,6 +42,7 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
             src={item.coverPhoto}
             alt={item.name}
             fill
+            unoptimized={coverIsProxy}
             className="object-cover transition group-hover:scale-[1.02]"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
@@ -49,9 +54,13 @@ export function AccommodationCard({ item, onFavorite, favoriting }: Props) {
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-zinc-800 shadow">
           {ACCOMMODATION_TYPE_LABELS[item.type] ?? item.type}
         </span>
-        {'available' in item && item.available !== false ? (
+        {'available' in item && item.available === true ? (
           <span className="absolute bottom-3 left-3 rounded-full bg-emerald-600/95 px-2.5 py-1 text-[11px] font-semibold text-white shadow">
             Dostupné
+          </span>
+        ) : item.availabilityStatus === 'unknown' || item.catalogOnly ? (
+          <span className="absolute bottom-3 left-3 rounded-full bg-zinc-700/90 px-2.5 py-1 text-[11px] font-semibold text-white shadow">
+            Dostupnost se ověřuje
           </span>
         ) : null}
         {onFavorite ? (

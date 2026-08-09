@@ -128,6 +128,59 @@ export class HotelbedsContentStorageService {
     return row?._count.photos ?? 0;
   }
 
+  async countCatalog(): Promise<number> {
+    return this.prisma.accommodation.count({
+      where: { provider: PROVIDER, published: true, status: 'PUBLISHED' },
+    });
+  }
+
+  async listCatalog(opts: {
+    category?: string;
+    city?: string;
+    page: number;
+    limit: number;
+  }): Promise<{ items: HbContentHotel[]; total: number }> {
+    const page = Math.max(1, opts.page);
+    const limit = Math.max(1, Math.min(100, opts.limit));
+    const where: {
+      provider: string;
+      published: boolean;
+      status: 'PUBLISHED';
+      city?: { contains: string; mode: 'insensitive' };
+      tags?: { has: string };
+    } = {
+      provider: PROVIDER,
+      published: true,
+      status: 'PUBLISHED',
+    };
+
+    if (opts.city?.trim()) {
+      where.city = { contains: opts.city.trim(), mode: 'insensitive' };
+    }
+    if (opts.category && opts.category !== 'vse') {
+      where.tags = { has: `hb-cat:${opts.category}` };
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.accommodation.findMany({
+        where,
+        include: {
+          photos: { orderBy: { sortOrder: 'asc' } },
+          facilities: { orderBy: { sortOrder: 'asc' } },
+        },
+        orderBy: [{ featured: 'desc' }, { name: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.accommodation.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => this.toContentHotel(row)),
+      total,
+    };
+  }
+
   private toContentHotel(row: {
     externalId: string | null;
     name: string;

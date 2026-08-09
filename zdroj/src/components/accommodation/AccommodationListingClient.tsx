@@ -98,6 +98,7 @@ export function AccommodationListingClient({
   }, [useHotelbedsProp]);
 
   const destination = filters.q || defaults.destination;
+  const availabilitySearch = Boolean(searchParams.get('checkIn') && searchParams.get('checkOut'));
 
   const load = useCallback(
     async (pageNum: number, append = false) => {
@@ -124,6 +125,7 @@ export function AccommodationListingClient({
             pets: filters.pets,
             accessible: filters.accessible,
             ratingMin: Number(filters.ratingMin) || undefined,
+            catalog: !availabilitySearch,
           });
           setItems((prev) => (append ? [...prev, ...res.items] : res.items));
           setTotal(res.total);
@@ -158,7 +160,7 @@ export function AccommodationListingClient({
         setLoadingMore(false);
       }
     },
-    [apiAccessToken, category, destination, filters, locationSlug, useHotelbeds, defaults],
+    [apiAccessToken, availabilitySearch, category, destination, filters, locationSlug, searchParams, useHotelbeds, defaults],
   );
 
   const skipFirstClientLoad = useRef(ssrPrefetched);

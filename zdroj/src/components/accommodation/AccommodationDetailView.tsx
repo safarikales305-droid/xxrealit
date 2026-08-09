@@ -48,7 +48,7 @@ function GalleryImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
-  const isRemote = src.includes('hotelbeds.com');
+  const isRemote = src.includes('hotelbeds.com') || src.includes('/hotelbeds/public/image');
 
   if (failed) {
     return (

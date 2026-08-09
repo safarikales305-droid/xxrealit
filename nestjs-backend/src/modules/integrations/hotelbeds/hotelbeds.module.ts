@@ -9,6 +9,7 @@ import { HotelbedsPublicController } from './hotelbeds-public.controller';
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
 import { HotelbedsContentSyncService } from './hotelbeds-content-sync.service';
 import { HotelbedsDiagnosticsService } from './hotelbeds-diagnostics.service';
+import { HotelbedsImageService } from './hotelbeds-image.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import { HotelbedsRateLimiterService } from './hotelbeds-rate-limiter.service';
 import { HotelbedsConfigService } from './hotelbeds.config';
@@ -30,6 +31,7 @@ import { HotelbedsService } from './hotelbeds.service';
     HotelbedsDiagnosticsService,
     HotelbedsContentStorageService,
     HotelbedsContentSyncService,
+    HotelbedsImageService,
   ],
   exports: [HotelbedsService, HotelbedsConfigService, HotelbedsPublicService, HotelbedsContentSyncService],
 })

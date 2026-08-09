@@ -6,10 +6,10 @@ import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 import type { HotelbedsContentMeta } from './hotelbeds-content-meta.types';
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
+import { HotelbedsImageService } from './hotelbeds-image.service';
 import {
   HOTELBEDS_CONTENT_LANGUAGE,
   buildContentHotelsUrl,
-  buildHotelbedsImageUrl,
   localizedText,
   sortHotelbedsImages,
   type HbContentHotel,
@@ -28,6 +28,7 @@ export class HotelbedsDiagnosticsService {
     private readonly metrics: HotelbedsMetricsService,
     private readonly publicService: HotelbedsPublicService,
     private readonly contentStorage: HotelbedsContentStorageService,
+    private readonly imageService: HotelbedsImageService,
   ) {}
 
   getOverview() {
@@ -90,6 +91,8 @@ export class HotelbedsDiagnosticsService {
     let bookingStatus = 0;
     let bookingName: string | null = null;
     let bookingError: string | null = null;
+    let bookingErrorCode: string | null = null;
+    let bookingErrorMessage: string | null = null;
     let bookingNote: string | null = null;
     try {
       const url = `${this.config.bookingBaseUrl}/hotels`;
@@ -115,6 +118,10 @@ export class HotelbedsDiagnosticsService {
     } catch (err) {
       bookingStatus = err instanceof HotelbedsHttpError ? err.status : 0;
       bookingError = err instanceof Error ? err.message : String(err);
+      if (err instanceof HotelbedsHttpError && err.errorBody) {
+        bookingErrorCode = err.errorBody.match(/Error code:\s*(.+)/i)?.[1]?.trim() ?? null;
+        bookingErrorMessage = err.errorBody.match(/Message:\s*(.+)/i)?.[1]?.trim() ?? err.errorBody.slice(0, 200);
+      }
     }
 
     const rawContent = await this.publicService.getRawContentDiagnostics(hotelCode);
@@ -127,21 +134,22 @@ export class HotelbedsDiagnosticsService {
     const imagesInDb = await this.contentStorage.countImages(hotelCode);
     const dbContent = await this.contentStorage.findByProviderId(hotelCode);
     const imageDiagnostics = await Promise.all(
-      sortedImages.slice(0, 8).map(async (img) => {
-        const assembled = buildHotelbedsImageUrl(img.path, 'card');
-        let httpStatus: number | null = null;
-        if (assembled) {
-          httpStatus = await this.checkImageUrl(assembled);
-        }
+      sortedImages.slice(0, 8).map(async (img, idx) => {
+        const delivery = await this.imageService.probeDelivery(hotelCode, idx, 'card');
         return {
           rawPath: img.path ?? null,
-          assembledUrl: assembled,
-          httpStatus,
+          assembledUrl: delivery.resolvedUrl,
+          proxyUrl: delivery.proxyUrl,
+          httpStatus: delivery.httpStatus,
+          contentType: delivery.contentType,
+          folder: delivery.folder,
           imageTypeCode: img.imageTypeCode ?? null,
           source: contentAfterTest || cachedContent ? 'HOTELBEDS_CACHE' : contentStatus === 200 ? 'HOTELBEDS_CONTENT_API' : 'NONE',
         };
       }),
     );
+
+    const firstImageDelivery = await this.imageService.probeDelivery(hotelCode, 0, 'card');
 
     const currentImageSource = imagesInDb > 0
       ? 'DATABASE_CACHE'
@@ -154,15 +162,30 @@ export class HotelbedsDiagnosticsService {
         : 'NONE';
 
     const diagnostics = this.metrics.contentDiagnostics();
+    const authOk = Boolean(this.http.getCredentials());
+    const statusBoard = {
+      AUTH: authOk ? 'OK' : 'MISSING_CREDENTIALS',
+      BOOKING_API: bookingStatus === 200 ? 'OK 200' : bookingStatus ? `ERROR ${bookingStatus}` : 'UNKNOWN',
+      CONTENT_API: contentStatus === 200 ? 'OK 200' : contentStatus ? `ERROR ${contentStatus}` : 'UNKNOWN',
+      CONTENT_DB: imagesInDb > 0 || dbContent ? 'OK' : 'EMPTY',
+      HOTEL_IMAGES: sortedImages.length,
+      IMAGE_DELIVERY:
+        firstImageDelivery.httpStatus === 200 ? 'OK 200' : firstImageDelivery.httpStatus ? `ERROR ${firstImageDelivery.httpStatus}` : 'UNKNOWN',
+    };
 
     return {
       hotelId: hotelCode,
       name: localizedText(cachedContent?.name) ?? localizedText(dbContent?.name) ?? bookingName,
+      statusBoard,
       bookingApi: {
         httpStatus: bookingStatus,
         ok: bookingStatus === 200,
         error: bookingError,
+        errorCode: bookingErrorCode,
+        errorMessage: bookingErrorMessage,
         note: bookingNote,
+        environment: this.config.environment,
+        endpoint: `${this.config.bookingBaseUrl}/hotels`,
       },
       contentApi: {
         httpStatus: contentStatus,
@@ -191,6 +214,7 @@ export class HotelbedsDiagnosticsService {
         note: 'Accommodation tabulka, provider=HOTELBEDS.',
       },
       currentImageSource,
+      imageDelivery: firstImageDelivery,
       lastSuccessfulContentFetch: diagnostics.lastSuccessfulContentRequest?.at ?? cachedMeta?.fetchedAt ?? null,
       images: imageDiagnostics,
       debugSource: {
@@ -239,7 +263,7 @@ export class HotelbedsDiagnosticsService {
     return {
       testedAt: new Date().toISOString(),
       hotels,
-      note: 'Diagnostika čte pouze in-memory cache a API logy — DB persistence pro Hotelbeds content neexistuje.',
+      note: 'Diagnostika čte DB, cache, image proxy a API logy.',
     };
   }
 
@@ -309,18 +333,6 @@ export class HotelbedsDiagnosticsService {
       if ((hotel?.images?.length ?? 0) > 0) inCache++;
     }
     return { inCache };
-  }
-
-  private async checkImageUrl(url: string): Promise<number | null> {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
-      clearTimeout(timer);
-      return res.status;
-    } catch {
-      return null;
-    }
   }
 }
 

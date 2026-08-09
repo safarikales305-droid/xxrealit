@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { HotelbedsPublicService } from './hotelbeds-public.service';
 
 @Controller('hotelbeds/public')
@@ -31,6 +32,7 @@ export class HotelbedsPublicController {
     @Query('pets') pets?: string,
     @Query('accessible') accessible?: string,
     @Query('ratingMin') ratingMin?: string,
+    @Query('catalog') catalog?: string,
   ) {
     return this.publicService.search({
       destination,
@@ -52,7 +54,18 @@ export class HotelbedsPublicController {
       pets: pets === '1' || pets === 'true',
       accessible: accessible === '1' || accessible === 'true',
       ratingMin: Number(ratingMin) || undefined,
+      catalog: catalog === '1' || catalog === 'true',
     });
+  }
+
+  @Get('image')
+  async image(
+    @Query('hotelId') hotelId: string,
+    @Query('index') index: string,
+    @Query('size') size: string | undefined,
+    @Res() res: Response,
+  ) {
+    await this.publicService.streamHotelImage(res, Number(hotelId), Number(index), size);
   }
 
   @Get('hotels/:slug')

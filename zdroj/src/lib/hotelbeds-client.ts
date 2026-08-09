@@ -29,6 +29,8 @@ export type HotelbedsSearchParams = {
   pets?: boolean;
   accessible?: boolean;
   ratingMin?: number;
+  /** Katalog z DB bez Booking availability */
+  catalog?: boolean;
 };
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
@@ -80,6 +82,7 @@ export async function fetchHotelbedsSearch(
   params: HotelbedsSearchParams = {},
 ): Promise<AccommodationListResponse & { checkIn: string; checkOut: string; destination: string }> {
   const defaults = defaultHotelbedsSearchParams();
+  const catalog = params.catalog ?? true;
   const res = await fetch(
     `${API_BASE_URL}/hotelbeds/public/search${buildQuery({
       destination: params.destination ?? defaults.destination,
@@ -101,6 +104,7 @@ export async function fetchHotelbedsSearch(
       pets: params.pets ? '1' : undefined,
       accessible: params.accessible ? '1' : undefined,
       ratingMin: params.ratingMin,
+      catalog: catalog ? '1' : undefined,
     })}`,
     { next: { revalidate: 60 } },
   );
@@ -174,6 +178,14 @@ export async function fetchHotelbedsMapMarkers(params: HotelbedsSearchParams = {
     }));
 }
 
+function resolveHotelbedsImageUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (!API_BASE_URL) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${API_BASE_URL}${path}`;
+}
+
 type RawHotel = {
   id: string;
   slug: string;
@@ -202,6 +214,8 @@ type RawHotel = {
   wellness?: boolean;
   pool?: boolean;
   available?: boolean;
+  catalogOnly?: boolean;
+  availabilityStatus?: 'verified' | 'unknown';
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -249,7 +263,7 @@ function mapToAccommodationItem(raw: RawHotel): AccommodationItem & {
     priceFrom: raw.priceFrom ?? null,
     currency: raw.currency ?? 'CZK',
     priceUnit: raw.priceUnit ?? 'PER_NIGHT',
-    coverPhoto: raw.coverPhoto ?? raw.photos?.[0]?.url ?? null,
+    coverPhoto: resolveHotelbedsImageUrl(raw.coverPhoto ?? raw.photos?.[0]?.url ?? null),
     amenities: raw.amenities ?? [],
     tags: raw.tags ?? [],
     wifi: Boolean(raw.wifi),
@@ -257,7 +271,9 @@ function mapToAccommodationItem(raw: RawHotel): AccommodationItem & {
     breakfast: Boolean(raw.breakfast),
     wellness: Boolean(raw.wellness),
     pool: Boolean(raw.pool),
-    available: raw.available ?? true,
+    available: raw.available ?? false,
+    catalogOnly: raw.catalogOnly ?? false,
+    availabilityStatus: raw.availabilityStatus,
     latitude: raw.latitude ?? null,
     longitude: raw.longitude ?? null,
     originalPrice: raw.priceFromOriginal ?? null,
@@ -289,7 +305,7 @@ function mapToAccommodationDetail(raw: RawHotel): AccommodationDetail & {
     petsAllowed: false,
     photos: (raw.photos ?? []).map((p, i) => ({
       id: `${raw.id}-photo-${i}`,
-      url: p.url,
+      url: resolveHotelbedsImageUrl(p.url) ?? p.url,
       alt: p.alt ?? raw.name,
       isCover: i === 0,
     })),

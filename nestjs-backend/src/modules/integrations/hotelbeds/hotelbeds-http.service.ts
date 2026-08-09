@@ -91,9 +91,7 @@ export class HotelbedsHttpService {
     });
 
     if (!response.ok) {
-      this.log.warn(
-        `Hotelbeds GET ${response.status} ${endpointLabel} params=${requestParams}${errorBody ? ` body=${errorBody.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`,
-      );
+      this.logBookingError('GET', endpointLabel, response.status, errorBody, requestParams);
       throw new HotelbedsHttpError(
         `Hotelbeds HTTP ${response.status}`,
         response.status,
@@ -145,6 +143,7 @@ export class HotelbedsHttpService {
     });
 
     if (!response.ok) {
+      this.logBookingError('POST', label ?? url, response.status, errorBody, label);
       throw new HotelbedsHttpError(
         `Hotelbeds HTTP ${response.status}`,
         response.status,
@@ -179,4 +178,35 @@ export class HotelbedsHttpService {
       clearTimeout(timer);
     }
   }
+
+  private logBookingError(
+    method: string,
+    endpoint: string,
+    status: number,
+    errorBody?: string,
+    requestParams?: string,
+  ): void {
+    const parsed = parseHotelbedsError(errorBody);
+    this.log.warn(
+      JSON.stringify({
+        event: 'hotelbeds_api_error',
+        status,
+        errorCode: parsed.code,
+        errorMessage: parsed.message,
+        endpoint,
+        method,
+        environment: this.config.environment,
+        bookingBaseUrl: this.config.bookingBaseUrl,
+        timestamp: new Date().toISOString(),
+        requestParams: requestParams?.slice(0, 300) ?? null,
+      }),
+    );
+  }
+}
+
+function parseHotelbedsError(errorBody?: string): { code: string | null; message: string | null } {
+  if (!errorBody?.trim()) return { code: null, message: null };
+  const code = errorBody.match(/Error code:\s*(.+)/i)?.[1]?.trim() ?? null;
+  const message = errorBody.match(/Message:\s*(.+)/i)?.[1]?.trim() ?? errorBody.slice(0, 200);
+  return { code, message };
 }

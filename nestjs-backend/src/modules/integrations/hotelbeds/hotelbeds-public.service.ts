@@ -12,7 +12,6 @@ import {
   HOTELBEDS_CONTENT_LANGUAGE,
   HOTELBEDS_PAGE_SIZE,
   buildContentHotelsUrl,
-  buildHotelbedsImageUrl,
   cancellationSummary,
   facilityFlags,
   hotelSlug,
@@ -26,6 +25,7 @@ import {
   type HbContentHotel,
 } from './hotelbeds-normalizer';
 import { HotelbedsContentStorageService } from './hotelbeds-content-storage.service';
+import { HotelbedsImageService } from './hotelbeds-image.service';
 import type { HotelbedsContentMeta, HotelbedsDebugSource } from './hotelbeds-content-meta.types';
 import type {
   HotelbedsPublicConfig,
@@ -57,6 +57,7 @@ export class HotelbedsPublicService {
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
     private readonly contentStorage: HotelbedsContentStorageService,
+    private readonly imageService: HotelbedsImageService,
   ) {}
 
   getPublicConfig(): HotelbedsPublicConfig {
@@ -86,9 +87,13 @@ export class HotelbedsPublicService {
     const limit = Math.min(HOTELBEDS_BATCH_MAX, Math.max(1, query.limit ?? HOTELBEDS_PAGE_SIZE));
     const destination = resolveDestination(query.destination);
 
-    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${query.category ?? ''}:${query.starsMin ?? ''}:${query.priceMax ?? ''}:${query.wifi ? 1 : 0}:${query.parking ? 1 : 0}:${query.breakfast ? 1 : 0}:${query.wellness ? 1 : 0}:${query.pool ? 1 : 0}:${query.pets ? 1 : 0}:${query.accessible ? 1 : 0}:${page}:${limit}`;
+    const cacheKey = `search:${destination.label}:${checkIn}:${checkOut}:${adults}:${rooms}:${query.category ?? ''}:${query.starsMin ?? ''}:${query.priceMax ?? ''}:${query.wifi ? 1 : 0}:${query.parking ? 1 : 0}:${query.breakfast ? 1 : 0}:${query.wellness ? 1 : 0}:${query.pool ? 1 : 0}:${query.pets ? 1 : 0}:${query.accessible ? 1 : 0}:${page}:${limit}:${query.catalog ? 'catalog' : 'avail'}`;
     const cached = this.cache.get<HotelbedsSearchResponse>(cacheKey);
     if (cached) return this.toPublicResponse(cached);
+
+    if (query.catalog) {
+      return this.toPublicResponse(await this.searchCatalog(query, checkIn, checkOut, destination.label));
+    }
 
     try {
       const allItems = await this.loadSearchBatch(destination, checkIn, checkOut, adults, rooms, query);
@@ -115,10 +120,62 @@ export class HotelbedsPublicService {
     } catch (err) {
       this.log.warn(`Hotelbeds search failed: ${err instanceof Error ? err.message : String(err)}`);
       if (err instanceof HotelbedsHttpError) {
-        throw new ServiceUnavailableException(this.mapPublicError(err.status));
+        const fallback = await this.searchCatalog(query, checkIn, checkOut, destination.label);
+        if (fallback.total > 0) {
+          this.log.warn(`Booking API HTTP ${err.status} — returning ${fallback.total} hotels from DB catalog.`);
+          return this.toPublicResponse(fallback);
+        }
+        throw new ServiceUnavailableException(this.mapPublicError(err.status, err.errorBody));
       }
       throw new ServiceUnavailableException('Ubytování se momentálně nepodařilo načíst. Zkuste to prosím za chvíli.');
     }
+  }
+
+  private async searchCatalog(
+    query: HotelbedsSearchQuery,
+    checkIn: string,
+    checkOut: string,
+    destinationLabel: string,
+  ): Promise<HotelbedsSearchResponse> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(HOTELBEDS_BATCH_MAX, Math.max(1, query.limit ?? HOTELBEDS_PAGE_SIZE));
+    const destination = resolveDestination(query.destination);
+    const cityFilter = query.destination?.trim() ? destination.label : undefined;
+
+    const { items: contentHotels, total: dbTotal } = await this.contentStorage.listCatalog({
+      category: query.category,
+      city: cityFilter,
+      page,
+      limit,
+    });
+
+    const merged = await Promise.all(
+      contentHotels.map((content) =>
+        this.mergeHotel(
+          { code: content.code, name: localizedText(content.name) ?? undefined },
+          content,
+          checkIn,
+          checkOut,
+          { catalogOnly: true },
+        ),
+      ),
+    );
+    const filtered = this.applySearchFilters(
+      merged.filter((h): h is NormalizedAccommodation => h != null),
+      query,
+    );
+
+    return {
+      items: filtered,
+      total: query.category || cityFilter ? filtered.length : dbTotal,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil((query.category || cityFilter ? filtered.length : dbTotal) / limit)),
+      checkIn,
+      checkOut,
+      destination: destinationLabel,
+      source: 'HOTELBEDS',
+    };
   }
 
   private async loadSearchBatch(
@@ -220,11 +277,36 @@ export class HotelbedsPublicService {
       content,
       checkIn,
       checkOut,
+      {
+        catalogOnly:
+          !bookingHotel ||
+          !((bookingHotel.rooms?.length ?? 0) > 0 || bookingHotel.minRate != null),
+      },
     );
     if (!merged) throw new NotFoundException('Hotel nenalezen.');
 
     this.cache.set(cacheKey, merged, CACHE_DETAIL_MS);
     return this.toPublicItem(merged);
+  }
+
+  async streamHotelImage(
+    res: import('express').Response,
+    hotelId: number,
+    index: number,
+    size?: string,
+  ): Promise<void> {
+    const allowed: Array<import('./hotelbeds-normalizer').HotelbedsImageSize> = [
+      'thumbnail',
+      'card',
+      'detail',
+      'hero',
+    ];
+    const resolvedSize = allowed.includes(size as never) ? (size as import('./hotelbeds-normalizer').HotelbedsImageSize) : 'card';
+    await this.imageService.streamImage(res, hotelId, index, resolvedSize);
+  }
+
+  async getImageDeliveryDiagnostics(hotelId: number, index = 0) {
+    return this.imageService.probeDelivery(hotelId, index, 'card');
   }
 
   async getBySlugWithDebug(
@@ -467,16 +549,7 @@ export class HotelbedsPublicService {
       );
       const hotel = hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0];
       const images = sortHotelbedsImages(hotel?.images);
-      const firstUrl = images[0]?.path ? buildHotelbedsImageUrl(images[0].path, 'card') : null;
-      let imageHttpStatus: number | null = null;
-      if (firstUrl) {
-        try {
-          const res = await fetch(firstUrl, { method: 'HEAD' });
-          imageHttpStatus = res.status;
-        } catch {
-          imageHttpStatus = null;
-        }
-      }
+      const delivery = await this.imageService.probeDelivery(hotelCode, 0, 'card');
       const dbImages = await this.contentStorage.countImages(hotelCode);
       return {
         httpStatus: 200,
@@ -488,8 +561,11 @@ export class HotelbedsPublicService {
         imagesRawCount: hotel?.images?.length ?? 0,
         imagesParsedCount: images.length,
         firstImageRawPath: images[0]?.path ?? null,
-        generatedImageUrl: firstUrl,
-        imageHttpStatus,
+        generatedImageUrl: delivery.resolvedUrl,
+        imageHttpStatus: delivery.httpStatus,
+        imageProxyUrl: delivery.proxyUrl,
+        imageContentType: delivery.contentType,
+        imageDeliveryFolder: delivery.folder,
         dbContentFound: dbImages > 0,
         imagesInDb: dbImages,
         rawSummary: summarizeContentResponse(raw, hotelCode),
@@ -650,6 +726,7 @@ export class HotelbedsPublicService {
     content: HbContentHotel | undefined,
     checkIn: string,
     checkOut: string,
+    opts?: { catalogOnly?: boolean },
   ): Promise<NormalizedAccommodation | null> {
     const code = booking.code ?? content?.code;
     if (code == null) return null;
@@ -670,12 +747,12 @@ export class HotelbedsPublicService {
     const sortedImages = sortHotelbedsImages(content?.images);
     const photos = sortedImages
       .map((img, idx) => ({
-        url: buildHotelbedsImageUrl(img.path, idx === 0 ? 'hero' : 'detail') ?? '',
+        url: this.imageService.buildProxyUrl(code, idx, idx === 0 ? 'hero' : 'detail'),
         alt: name,
       }))
       .filter((p) => p.url);
     const cardPhoto = sortedImages[0]?.path
-      ? buildHotelbedsImageUrl(sortedImages[0].path, 'card')
+      ? this.imageService.buildProxyUrl(code, 0, 'card')
       : null;
 
     const facilities = (content?.facilities ?? [])
@@ -707,6 +784,7 @@ export class HotelbedsPublicService {
 
     const minRate = booking.minRate != null ? Number(booking.minRate) : rooms[0]?.priceFrom ?? null;
     const convertedPrice = this.currency.toDisplayCzk(minRate, booking.currency ?? 'EUR');
+    const hasVerifiedAvailability = !opts?.catalogOnly && (rooms.length > 0 || minRate != null);
     const cancellationPolicy = cancellationSummary(
       booking.rooms?.flatMap((r) => r.rates?.flatMap((rt) => rt.cancellationPolicies ?? []) ?? []) ?? [],
     );
@@ -744,12 +822,14 @@ export class HotelbedsPublicService {
       facilities,
       rooms,
       boardTypes: [...boardTypes],
-      priceFrom: convertedPrice.amount,
-      priceFromOriginal: convertedPrice.originalAmount,
+      priceFrom: hasVerifiedAvailability ? convertedPrice.amount : null,
+      priceFromOriginal: hasVerifiedAvailability ? convertedPrice.originalAmount : null,
       currency: convertedPrice.currency,
       originalCurrency: convertedPrice.originalCurrency,
       priceUnit: 'PER_NIGHT',
-      available: rooms.length > 0 || minRate != null,
+      available: hasVerifiedAvailability,
+      catalogOnly: Boolean(opts?.catalogOnly),
+      availabilityStatus: hasVerifiedAvailability ? 'verified' : 'unknown',
       cancellationPolicy,
       checkIn,
       checkOut,
@@ -774,7 +854,13 @@ export class HotelbedsPublicService {
     };
   }
 
-  private mapPublicError(status: number): string {
+  private mapPublicError(status: number, errorBody?: string): string {
+    if (status === 403 || status === 401) {
+      const hint = errorBody?.match(/Message:\s*(.+)/i)?.[1]?.trim();
+      if (hint) {
+        return `Ubytování se momentálně nepodařilo načíst (${hint}).`;
+      }
+    }
     switch (status) {
       case 401:
       case 403:
