@@ -75,6 +75,7 @@ export default async function UbytovaniSlugPage({ params }: Props) {
           initialTotal={initialTotal}
           useHotelbeds={useHotelbeds}
           emptyCategoryLabel={accommodationCategoryLabel(slug)}
+          ssrPrefetched
         />
       </Shell>
     );
@@ -103,6 +104,7 @@ export default async function UbytovaniSlugPage({ params }: Props) {
           initialItems={initialItems}
           initialTotal={initialTotal}
           useHotelbeds={useHotelbeds}
+          ssrPrefetched
         />
       </Shell>
     );

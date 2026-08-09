@@ -11,6 +11,22 @@ export type XxrealitCategory =
   | 'luxusni'
   | 'ostatni';
 
+const ACCOMMODATION_TYPE_MAP: Record<string, XxrealitCategory> = {
+  HOTEL: 'hotely',
+  APARTHOTEL: 'apartmany',
+  APARTMENT: 'apartmany',
+  HOSTEL: 'penziony',
+  GUESTHOUSE: 'penziony',
+  PENSION: 'penziony',
+  VILLA: 'chaty',
+  CHALET: 'chaty',
+  CABIN: 'chaty',
+  COTTAGE: 'chalupy',
+  RESORT: 'resorty',
+  CAMPING: 'kempy',
+  APART: 'apartmany',
+};
+
 const KEYWORD_RULES: Array<{ category: XxrealitCategory; patterns: RegExp[] }> = [
   { category: 'apartmany', patterns: [/apart/i, /aparthotel/i, /apartment/i] },
   { category: 'penziony', patterns: [/pension/i, /penzion/i, /hostel/i, /guesthouse/i, /guest house/i, /bed and breakfast/i] },
@@ -28,6 +44,11 @@ export function mapHotelbedsToCategory(input: {
   categoryCode?: string | null;
   name?: string | null;
 }): XxrealitCategory {
+  const typeCode = input.accommodationTypeCode?.trim().toUpperCase();
+  if (typeCode && ACCOMMODATION_TYPE_MAP[typeCode]) {
+    return ACCOMMODATION_TYPE_MAP[typeCode];
+  }
+
   const haystack = [
     input.accommodationTypeCode,
     input.categoryName,

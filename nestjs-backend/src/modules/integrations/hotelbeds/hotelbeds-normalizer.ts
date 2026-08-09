@@ -1,9 +1,31 @@
 export const HOTELBEDS_PAGE_SIZE = 24;
 export const HOTELBEDS_BATCH_MAX = 100;
+/** Max hotel codes per Content API request (Hotelbeds pagination default). */
+export const HOTELBEDS_CONTENT_BATCH_SIZE = 100;
 
-/** Hotelbeds content language: CES = čeština, ENG = angličtina (fallback) */
-export const HOTELBEDS_CONTENT_LANGUAGE = 'CES';
+/**
+ * Hotelbeds Content API language codes (3-letter, dle oficiální dokumentace).
+ * Preferujeme češtinu, pak angličtinu.
+ */
+export const HOTELBEDS_CONTENT_LANGUAGE_PREFERRED = ['CZE', 'ENG'] as const;
+export const HOTELBEDS_CONTENT_LANGUAGE = 'ENG';
 export const HOTELBEDS_CONTENT_SECONDARY_LANGUAGE = 'ENG';
+
+export type HotelbedsImageSize = 'thumbnail' | 'card' | 'detail' | 'hero';
+
+const HOTELBEDS_IMAGE_BASE = 'https://photos.hotelbeds.com/giata';
+const IMAGE_SIZE_SUFFIX: Record<HotelbedsImageSize, string> = {
+  thumbnail: '_t',
+  card: '_b',
+  detail: '_l',
+  hero: '_xl',
+};
+
+const IMAGE_TYPE_PRIORITY: Record<string, number> = {
+  GEN: 0,
+  HAB: 1,
+  RES: 2,
+};
 
 export type HbBookingHotel = {
   code?: number;
@@ -56,18 +78,63 @@ export type HbContentHotel = {
   ranking?: number;
 };
 
-const PHOTO_BASE = 'https://photos.hotelbeds.com/giata';
-
-export function hotelbedsImageUrl(path?: string | null): string | null {
-  if (!path) return null;
-  if (path.startsWith('http')) return upscaleHotelbedsPath(path);
-  let clean = path.replace(/^\/+/, '');
-  clean = clean.replace(/_t(\.[a-z]+)$/i, '_b$1').replace(/_s(\.[a-z]+)$/i, '_b$1');
-  return upscaleHotelbedsPath(`${PHOTO_BASE}/${clean}`);
+function replaceImageSizeSuffix(path: string, suffix: string): string {
+  if (/_(t|s|b|l|xl)(\.[a-z0-9]+)$/i.test(path)) {
+    return path.replace(/_(t|s|b|l|xl)(\.[a-z0-9]+)$/i, `${suffix}$2`);
+  }
+  return path.replace(/(\.[a-z0-9]+)$/i, `${suffix}$1`);
 }
 
-function upscaleHotelbedsPath(url: string): string {
-  return url.replace(/_t(\.[a-z]+)$/i, '_b$1').replace(/_s(\.[a-z]+)$/i, '_b$1');
+/** Sestaví plnou Hotelbeds GIATA image URL dle velikosti (Use of images). */
+export function buildHotelbedsImageUrl(
+  path?: string | null,
+  size: HotelbedsImageSize = 'card',
+): string | null {
+  if (!path?.trim()) return null;
+  const suffix = IMAGE_SIZE_SUFFIX[size];
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return replaceImageSizeSuffix(path, suffix);
+  }
+  const clean = replaceImageSizeSuffix(path.replace(/^\/+/, ''), suffix);
+  return `${HOTELBEDS_IMAGE_BASE}/${clean}`;
+}
+
+/** @deprecated Use buildHotelbedsImageUrl(path, 'card') */
+export function hotelbedsImageUrl(path?: string | null): string | null {
+  return buildHotelbedsImageUrl(path, 'card');
+}
+
+export function sortHotelbedsImages(
+  images?: HbContentHotel['images'],
+): NonNullable<HbContentHotel['images']> {
+  if (!images?.length) return [];
+  const sorted = [...images].sort((a, b) => {
+    const pa = IMAGE_TYPE_PRIORITY[a.imageTypeCode ?? ''] ?? 99;
+    const pb = IMAGE_TYPE_PRIORITY[b.imageTypeCode ?? ''] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return (a.order ?? 0) - (b.order ?? 0);
+  });
+  const seen = new Set<string>();
+  return sorted.filter((img) => {
+    if (!img.path) return false;
+    if (seen.has(img.path)) return false;
+    seen.add(img.path);
+    return true;
+  });
+}
+
+export function buildContentHotelsUrl(
+  contentBaseUrl: string,
+  codes: number[],
+  language: string,
+): string {
+  const params = new URLSearchParams({
+    fields: 'all',
+    language,
+    useSecondaryLanguage: 'false',
+    codes: codes.join(','),
+  });
+  return `${contentBaseUrl}/hotels?${params.toString()}`;
 }
 
 export function slugifyHotelName(name: string): string {
@@ -130,4 +197,33 @@ export function cancellationSummary(
   const first = policies[0];
   if (!first?.from) return 'Storno podmínky dle tarifu partnera.';
   return `Storno od ${first.from}${first.amount ? ` (poplatek ${first.amount})` : ''}.`;
+}
+
+export function maskContentRequestParams(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}?${parsed.searchParams.toString()}`;
+  } catch {
+    return url.replace(/https?:\/\/[^/]+/i, '');
+  }
+}
+
+export function formatHotelbedsErrorBody(bodyText: string): string {
+  if (!bodyText.trim()) return '';
+  try {
+    const parsed = JSON.parse(bodyText) as {
+      error?: { code?: string; message?: string };
+      message?: string;
+    };
+    const code = parsed.error?.code;
+    const message = parsed.error?.message ?? parsed.message;
+    if (code || message) {
+      return [code ? `Error code: ${code}` : null, message ? `Message: ${message}` : null]
+        .filter(Boolean)
+        .join('\n');
+    }
+  } catch {
+    // fall through
+  }
+  return bodyText.slice(0, 500);
 }

@@ -8,15 +8,17 @@ import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { categoryMatchesFilter, mapHotelbedsToCategory } from './hotelbeds-category.mapper';
 import {
   HOTELBEDS_BATCH_MAX,
-  HOTELBEDS_CONTENT_LANGUAGE,
-  HOTELBEDS_CONTENT_SECONDARY_LANGUAGE,
+  HOTELBEDS_CONTENT_BATCH_SIZE,
+  HOTELBEDS_CONTENT_LANGUAGE_PREFERRED,
   HOTELBEDS_PAGE_SIZE,
+  buildContentHotelsUrl,
+  buildHotelbedsImageUrl,
   cancellationSummary,
   facilityFlags,
   hotelSlug,
-  hotelbedsImageUrl,
   localizedText,
   parseHotelCodeFromSlug,
+  sortHotelbedsImages,
   starsFromCategory,
   type HbBookingHotel,
   type HbContentHotel,
@@ -142,7 +144,7 @@ export class HotelbedsPublicService {
     const { data } = await this.http.postJson<BookingSearchPayload>(bookingUrl, body, 'booking/search');
     const bookingHotels = data.hotels?.hotels ?? [];
     const codes = bookingHotels.map((h) => h.code).filter((c): c is number => c != null);
-    const contentMap = await this.fetchContentByCodes(codes);
+    const contentMap = await this.getHotelContents(codes);
 
     const merged = bookingHotels
       .map((bh) => this.mergeHotel(bh, contentMap.get(String(bh.code)), checkIn, checkOut))
@@ -180,7 +182,7 @@ export class HotelbedsPublicService {
     const cached = this.cache.get<NormalizedAccommodation>(cacheKey);
     if (cached) return cached;
 
-    const contentMap = await this.fetchContentByCodes([Number(code)]);
+    const contentMap = await this.getHotelContents([Number(code)]);
     const content = contentMap.get(code);
 
     let bookingHotel: HbBookingHotel | undefined;
@@ -222,40 +224,117 @@ export class HotelbedsPublicService {
     return search.items.filter((h) => h.slug !== slug).slice(0, 6);
   }
 
-  private async fetchContentByCodes(codes: number[]): Promise<Map<string, HbContentHotel>> {
+  /**
+   * Batch fetch statického hotel contentu podle Hotelbeds hotel codes.
+   * Odstraní duplicity, rozdělí do batchů a mapuje booking code ↔ content code.
+   */
+  async getHotelContents(
+    codes: number[],
+    opts?: { skipCache?: boolean },
+  ): Promise<Map<string, HbContentHotel>> {
     const map = new Map<string, HbContentHotel>();
     if (!codes.length) return map;
 
-    const unique = [...new Set(codes)].filter((c) => Number.isFinite(c));
+    const unique = [...new Set(codes)].filter((c) => Number.isFinite(c) && c > 0);
     const missing: number[] = [];
     for (const code of unique) {
-      const cached = this.cache.get<HbContentHotel>(`content:${code}`);
-      if (cached) map.set(String(code), cached);
-      else missing.push(code);
+      if (!opts?.skipCache) {
+        const cached = this.cache.get<HbContentHotel>(`content:${code}`);
+        if (cached) {
+          map.set(String(code), cached);
+          continue;
+        }
+      }
+      missing.push(code);
     }
     if (!missing.length) return map;
 
-    const url =
-      `${this.config.contentBaseUrl}/hotels` +
-      `?language=${HOTELBEDS_CONTENT_LANGUAGE}&useSecondaryLanguage=true&secondaryLanguage=${HOTELBEDS_CONTENT_SECONDARY_LANGUAGE}&fields=all&codes=${missing.join(',')}`;
-
-    try {
-      const data = await this.http.getJson<ContentHotelsPayload>(url, {
-        cacheKey: `content-batch:${missing.sort().join(',')}`,
-        cacheTtlMs: CACHE_CONTENT_MS,
-        label: 'content/hotels',
-      });
-      const hotels = data.hotels ?? [];
-      this.metrics.recordContentSync(hotels.length);
-      for (const hotel of hotels) {
-        if (hotel.code == null) continue;
-        this.cache.set(`content:${hotel.code}`, hotel, CACHE_CONTENT_MS);
-        map.set(String(hotel.code), hotel);
+    for (let i = 0; i < missing.length; i += HOTELBEDS_CONTENT_BATCH_SIZE) {
+      const batch = missing.slice(i, i + HOTELBEDS_CONTENT_BATCH_SIZE);
+      const batchKey = `content-batch:${batch.slice().sort((a, b) => a - b).join(',')}`;
+      try {
+        const hotels = await this.fetchContentBatch(batch, batchKey, opts?.skipCache);
+        let withImages = 0;
+        for (const hotel of hotels) {
+          if (hotel.code == null) continue;
+          this.cache.set(`content:${hotel.code}`, hotel, CACHE_CONTENT_MS);
+          map.set(String(hotel.code), hotel);
+          if ((hotel.images?.length ?? 0) > 0) withImages++;
+        }
+        this.metrics.recordContentSync(hotels.length, withImages);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const body = err instanceof HotelbedsHttpError ? err.errorBody : undefined;
+        this.log.warn(
+          `Content fetch failed for batch of ${batch.length} hotels: ${msg}${body ? ` | ${body.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`,
+        );
       }
-    } catch (err) {
-      this.log.warn(`Content fetch failed for ${missing.length} hotels`);
     }
     return map;
+  }
+
+  async testHotelContent(hotelCode = 6741) {
+    try {
+      const hotels = await this.fetchContentBatch([hotelCode], `test-content-${hotelCode}`, true);
+      const hotel = hotels.find((h) => String(h.code) === String(hotelCode)) ?? hotels[0];
+      const images = sortHotelbedsImages(hotel?.images);
+      return {
+        success: Boolean(hotel),
+        hotelCode,
+        httpStatus: 200,
+        name: localizedText(hotel?.name),
+        descriptionExists: Boolean(localizedText(hotel?.description)),
+        imagesCount: images.length,
+        facilitiesCount: hotel?.facilities?.length ?? 0,
+        category: hotel?.categoryCode ?? hotel?.category?.code ?? null,
+        language: HOTELBEDS_CONTENT_LANGUAGE_PREFERRED.find(() => true) ?? 'ENG',
+        addressExists: Boolean(hotel?.address?.street || hotel?.address?.content),
+        coordinatesExist: Boolean(hotel?.coordinates?.latitude && hotel?.coordinates?.longitude),
+      };
+    } catch (err) {
+      const status = err instanceof HotelbedsHttpError ? err.status : 0;
+      return {
+        success: false,
+        hotelCode,
+        httpStatus: status,
+        name: null,
+        descriptionExists: false,
+        imagesCount: 0,
+        facilitiesCount: 0,
+        category: null,
+        language: null,
+        addressExists: false,
+        coordinatesExist: false,
+        error: err instanceof HotelbedsHttpError ? err.errorBody ?? err.message : String(err),
+      };
+    }
+  }
+
+  private async fetchContentBatch(
+    codes: number[],
+    cacheKey: string,
+    skipCache?: boolean,
+  ): Promise<HbContentHotel[]> {
+    let lastError: unknown;
+    for (const language of HOTELBEDS_CONTENT_LANGUAGE_PREFERRED) {
+      const url = buildContentHotelsUrl(this.config.contentBaseUrl, codes, language);
+      try {
+        const data = await this.http.getJson<ContentHotelsPayload>(url, {
+          cacheKey: skipCache ? undefined : cacheKey,
+          cacheTtlMs: skipCache ? undefined : CACHE_CONTENT_MS,
+          label: 'content/hotels',
+        });
+        return data.hotels ?? [];
+      } catch (err) {
+        lastError = err;
+        if (err instanceof HotelbedsHttpError && err.status === 400) {
+          this.log.debug(`Content API language=${language} rejected (400), trying fallback`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError ?? new Error('Content API request failed');
   }
 
   private async fetchAvailabilityForHotel(
@@ -303,13 +382,16 @@ export class HotelbedsPublicService {
     const lat = Number(content?.coordinates?.latitude ?? booking.latitude);
     const lng = Number(content?.coordinates?.longitude ?? booking.longitude);
     const stars = starsFromCategory(content?.categoryCode ?? booking.categoryCode);
-    const photos = (content?.images ?? [])
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((img) => ({
-        url: hotelbedsImageUrl(img.path) ?? '',
+    const sortedImages = sortHotelbedsImages(content?.images);
+    const photos = sortedImages
+      .map((img, idx) => ({
+        url: buildHotelbedsImageUrl(img.path, idx === 0 ? 'hero' : 'detail') ?? '',
         alt: name,
       }))
       .filter((p) => p.url);
+    const cardPhoto = sortedImages[0]?.path
+      ? buildHotelbedsImageUrl(sortedImages[0].path, 'card')
+      : null;
 
     const facilities = (content?.facilities ?? [])
       .map((f) => localizedText(f.description))
@@ -345,7 +427,7 @@ export class HotelbedsPublicService {
     );
 
     const slug = hotelSlug(code, name);
-    const coverPhoto = photos[0]?.url ?? null;
+    const coverPhoto = cardPhoto ?? photos[0]?.url ?? null;
     const xxrealitCategory = mapHotelbedsToCategory({
       accommodationTypeCode: content?.accommodationTypeCode,
       categoryName: booking.categoryName ?? content?.category?.description?.content,

@@ -1,13 +1,30 @@
 import { Injectable } from '@nestjs/common';
 
 export type HotelbedsApiLog = {
+  id: string;
   at: string;
   method: string;
   endpoint: string;
   status: number;
   responseTimeMs: number;
   errorCode?: string;
+  errorMessage?: string;
+  errorBody?: string;
+  requestParams?: string;
   cached?: boolean;
+};
+
+export type HotelbedsContentDiagnostics = {
+  bookingApiOk: boolean;
+  contentApiOk: boolean;
+  imagesOk: boolean;
+  lastContentRequest: {
+    endpoint: string;
+    status: number;
+    responseTimeMs: number;
+    error?: string;
+    at: string;
+  } | null;
 };
 
 @Injectable()
@@ -17,23 +34,62 @@ export class HotelbedsMetricsService {
   private dayKey = todayKey();
   private lastSearch: { at: string; destination: string; total: number } | null = null;
   private lastContentSync: { at: string; hotels: number } | null = null;
+  private lastContentRequest: HotelbedsContentDiagnostics['lastContentRequest'] = null;
+  private contentApiOk = false;
+  private imagesOk = false;
+  private bookingApiOk = false;
   private readonly logs: HotelbedsApiLog[] = [];
   private readonly maxLogs = 200;
 
-  recordRequest(log: Omit<HotelbedsApiLog, 'at'>): void {
+  recordRequest(log: Omit<HotelbedsApiLog, 'at' | 'id'>): string {
     this.rotateDayIfNeeded();
     this.requestsToday++;
     if (log.status >= 400) this.errorsToday++;
-    this.logs.unshift({ ...log, at: new Date().toISOString() });
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.logs.unshift({ ...log, id, at: new Date().toISOString() });
     if (this.logs.length > this.maxLogs) this.logs.length = this.maxLogs;
+
+    if (log.endpoint.includes('content/')) {
+      this.lastContentRequest = {
+        endpoint: log.endpoint,
+        status: log.status,
+        responseTimeMs: log.responseTimeMs,
+        error: log.errorMessage ?? log.errorBody,
+        at: new Date().toISOString(),
+      };
+      if (log.status >= 200 && log.status < 300) {
+        this.contentApiOk = true;
+      }
+    }
+    if (log.endpoint.includes('booking/') && log.status >= 200 && log.status < 300) {
+      this.bookingApiOk = true;
+    }
+    return id;
   }
 
   recordSearch(destination: string, total: number): void {
     this.lastSearch = { at: new Date().toISOString(), destination, total };
   }
 
-  recordContentSync(hotels: number): void {
+  recordContentSync(hotels: number, withImages: number): void {
     this.lastContentSync = { at: new Date().toISOString(), hotels };
+    if (withImages > 0) this.imagesOk = true;
+  }
+
+  setContentDiagnostics(partial: Partial<HotelbedsContentDiagnostics>): void {
+    if (partial.bookingApiOk != null) this.bookingApiOk = partial.bookingApiOk;
+    if (partial.contentApiOk != null) this.contentApiOk = partial.contentApiOk;
+    if (partial.imagesOk != null) this.imagesOk = partial.imagesOk;
+    if (partial.lastContentRequest != null) this.lastContentRequest = partial.lastContentRequest;
+  }
+
+  contentDiagnostics(): HotelbedsContentDiagnostics {
+    return {
+      bookingApiOk: this.bookingApiOk,
+      contentApiOk: this.contentApiOk,
+      imagesOk: this.imagesOk,
+      lastContentRequest: this.lastContentRequest,
+    };
   }
 
   snapshot(cacheStats: { hits: number; misses: number; hitRate: number }) {
@@ -46,11 +102,16 @@ export class HotelbedsMetricsService {
       cacheHitRate: cacheStats.hitRate,
       cacheHits: cacheStats.hits,
       cacheMisses: cacheStats.misses,
+      contentDiagnostics: this.contentDiagnostics(),
     };
   }
 
   getLogs(limit = 50): HotelbedsApiLog[] {
     return this.logs.slice(0, Math.min(limit, this.maxLogs));
+  }
+
+  getLog(id: string): HotelbedsApiLog | null {
+    return this.logs.find((l) => l.id === id) ?? null;
   }
 
   private rotateDayIfNeeded(): void {

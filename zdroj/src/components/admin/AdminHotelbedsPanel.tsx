@@ -7,9 +7,13 @@ import {
   nestAdminHotelbedsStatus,
   nestAdminHotelbedsTestConnection,
   nestAdminHotelbedsTestSearch,
+  nestAdminHotelbedsTestContent,
   nestAdminHotelbedsClearCache,
   nestAdminHotelbedsLogs,
+  nestAdminHotelbedsLogDetail,
+  type HotelbedsApiLogEntry,
   type HotelbedsIntegrationStatus,
+  type HotelbedsTestContentResult,
   type HotelbedsTestResult,
   type HotelbedsTestSearchResult,
 } from '@/lib/hotelbeds-admin-api';
@@ -29,8 +33,12 @@ export function AdminHotelbedsPanel() {
   const [searchResult, setSearchResult] = useState<HotelbedsTestSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
-  const [logs, setLogs] = useState<Array<Record<string, unknown>> | null>(null);
+  const [logs, setLogs] = useState<HotelbedsApiLogEntry[] | null>(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [expandedLog, setExpandedLog] = useState<HotelbedsApiLogEntry | null>(null);
+  const [testingContent, setTestingContent] = useState(false);
+  const [contentResult, setContentResult] = useState<HotelbedsTestContentResult | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) {
@@ -78,6 +86,42 @@ export function AdminHotelbedsPanel() {
     const data = await nestAdminHotelbedsLogs(apiAccessToken, 30);
     setLogs(data?.logs ?? []);
   }
+
+  async function handleExpandLog(id: string) {
+    if (!apiAccessToken) return;
+    if (expandedLogId === id) {
+      setExpandedLogId(null);
+      setExpandedLog(null);
+      return;
+    }
+    setExpandedLogId(id);
+    const cached = logs?.find((l) => l.id === id);
+    if (cached?.requestParams || cached?.errorBody) {
+      setExpandedLog(cached);
+      return;
+    }
+    const data = await nestAdminHotelbedsLogDetail(apiAccessToken, id);
+    setExpandedLog(data?.log ?? cached ?? null);
+  }
+
+  async function handleTestContent() {
+    if (!apiAccessToken) return;
+    setTestingContent(true);
+    setError(null);
+    const result = await nestAdminHotelbedsTestContent(apiAccessToken, 6741);
+    setTestingContent(false);
+    if (!result) {
+      setError('Test Content API selhal — backend neodpověděl.');
+      return;
+    }
+    setContentResult(result);
+    if (!result.success) {
+      setError(result.error ?? `Content API HTTP ${result.httpStatus}`);
+    }
+    await load();
+  }
+
+  const diagnostics = status?.contentDiagnostics ?? status?.metrics?.contentDiagnostics;
 
   async function handleTestSearch() {
     if (!apiAccessToken) return;
@@ -229,6 +273,15 @@ export function AdminHotelbedsPanel() {
 
           <button
             type="button"
+            disabled={testingContent || !status?.configured}
+            onClick={() => void handleTestContent()}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+          >
+            {testingContent ? 'Testuji Content API…' : 'Otestovat Content API'}
+          </button>
+
+          <button
+            type="button"
             disabled={clearingCache}
             onClick={() => void handleClearCache()}
             className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 disabled:opacity-50"
@@ -254,18 +307,127 @@ export function AdminHotelbedsPanel() {
         ) : null}
       </div>
 
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">Content API diagnostika</h2>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-zinc-500">Booking API</dt>
+            <dd className="font-medium">{diagnostics?.bookingApiOk ? '✅' : '❌'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Content API</dt>
+            <dd className="font-medium">{diagnostics?.contentApiOk ? '✅' : '❌'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Images</dt>
+            <dd className="font-medium">{diagnostics?.imagesOk ? '✅' : '❌'}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-zinc-500">Poslední Content request</dt>
+            <dd className="text-zinc-800">
+              {diagnostics?.lastContentRequest
+                ? `${diagnostics.lastContentRequest.endpoint} · HTTP ${diagnostics.lastContentRequest.status} · ${diagnostics.lastContentRequest.responseTimeMs} ms · ${new Date(diagnostics.lastContentRequest.at).toLocaleString('cs-CZ')}${diagnostics.lastContentRequest.error ? ` · ${diagnostics.lastContentRequest.error}` : ''}`
+                : '—'}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      {contentResult ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h3 className="font-semibold text-zinc-900">
+            Test Content API — Hotel Duo (#{contentResult.hotelCode})
+          </h3>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">HTTP status</dt>
+              <dd className="font-medium">{contentResult.httpStatus}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Název</dt>
+              <dd className="font-medium">{contentResult.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Popis</dt>
+              <dd className="font-medium">{contentResult.descriptionExists ? 'Ano' : 'Ne'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Obrázky</dt>
+              <dd className="font-medium">{contentResult.imagesCount}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Vybavení</dt>
+              <dd className="font-medium">{contentResult.facilitiesCount}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Kategorie</dt>
+              <dd className="font-medium">{contentResult.category ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Jazyk</dt>
+              <dd className="font-medium">{contentResult.language ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Adresa / GPS</dt>
+              <dd className="font-medium">
+                {contentResult.addressExists ? 'Adresa ano' : 'Adresa ne'}
+                {' · '}
+                {contentResult.coordinatesExist ? 'GPS ano' : 'GPS ne'}
+              </dd>
+            </div>
+          </dl>
+          {contentResult.error ? (
+            <pre className="mt-3 overflow-auto rounded-lg bg-red-50 p-3 text-xs text-red-900">{contentResult.error}</pre>
+          ) : null}
+        </div>
+      ) : null}
+
       {showLogs && logs ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h3 className="font-semibold text-zinc-900">API logy (bez credentials)</h3>
-          <ul className="mt-3 max-h-80 space-y-2 overflow-auto text-xs">
+          <ul className="mt-3 max-h-96 space-y-2 overflow-auto text-xs">
             {logs.length === 0 ? (
               <li className="text-zinc-500">Žádné logy.</li>
             ) : (
-              logs.map((log, i) => (
-                <li key={i} className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1 font-mono">
-                  {String(log.at)} · {String(log.method)} {String(log.endpoint)} · HTTP {String(log.status)} ·{' '}
-                  {String(log.responseTimeMs)} ms
-                  {log.cached ? ' · cache' : ''}
+              logs.map((log) => (
+                <li key={log.id} className="rounded border border-zinc-100 bg-zinc-50">
+                  <button
+                    type="button"
+                    onClick={() => void handleExpandLog(log.id)}
+                    className="w-full px-2 py-1 text-left font-mono"
+                  >
+                    {log.at} · {log.method} {log.endpoint} · HTTP {log.status} · {log.responseTimeMs} ms
+                    {log.cached ? ' · cache' : ''}
+                  </button>
+                  {expandedLogId === log.id && expandedLog ? (
+                    <div className="border-t border-zinc-200 px-3 py-2 text-zinc-700">
+                      <p>
+                        <span className="font-semibold">Method:</span> {expandedLog.method}
+                      </p>
+                      <p>
+                        <span className="font-semibold">Endpoint:</span> {expandedLog.endpoint}
+                      </p>
+                      <p>
+                        <span className="font-semibold">HTTP status:</span> {expandedLog.status}
+                      </p>
+                      <p>
+                        <span className="font-semibold">Duration:</span> {expandedLog.responseTimeMs} ms
+                      </p>
+                      <p>
+                        <span className="font-semibold">Timestamp:</span> {expandedLog.at}
+                      </p>
+                      {expandedLog.requestParams ? (
+                        <p className="mt-1 break-all">
+                          <span className="font-semibold">Parameters:</span> {expandedLog.requestParams}
+                        </p>
+                      ) : null}
+                      {expandedLog.errorBody ? (
+                        <pre className="mt-2 overflow-auto rounded bg-red-50 p-2 text-red-900">
+                          {expandedLog.errorBody}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </li>
               ))
             )}

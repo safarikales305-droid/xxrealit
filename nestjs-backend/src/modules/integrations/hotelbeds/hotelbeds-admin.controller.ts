@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { HotelbedsCacheService } from './hotelbeds-cache.service';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
+import { HotelbedsPublicService } from './hotelbeds-public.service';
 import { HotelbedsConfigService } from './hotelbeds.config';
 import { HotelbedsService } from './hotelbeds.service';
 
@@ -11,6 +12,7 @@ import { HotelbedsService } from './hotelbeds.service';
 export class HotelbedsAdminController {
   constructor(
     private readonly hotelbeds: HotelbedsService,
+    private readonly publicService: HotelbedsPublicService,
     private readonly config: HotelbedsConfigService,
     private readonly cache: HotelbedsCacheService,
     private readonly metrics: HotelbedsMetricsService,
@@ -21,6 +23,7 @@ export class HotelbedsAdminController {
     return {
       ...this.config.publicStatus(),
       metrics: this.metrics.snapshot(this.cache.stats()),
+      contentDiagnostics: this.metrics.contentDiagnostics(),
     };
   }
 
@@ -34,6 +37,13 @@ export class HotelbedsAdminController {
     return { logs: this.metrics.getLogs(Number(limit) || 50) };
   }
 
+  @Get('logs/:id')
+  logDetail(@Param('id') id: string) {
+    const log = this.metrics.getLog(id);
+    if (!log) return { log: null };
+    return { log };
+  }
+
   @Post('test')
   testConnection() {
     return this.hotelbeds.testConnection();
@@ -42,6 +52,12 @@ export class HotelbedsAdminController {
   @Post('test-search')
   testSearch() {
     return this.hotelbeds.testSearchHotels();
+  }
+
+  @Post('test-content')
+  testContent(@Query('hotelCode') hotelCode?: string) {
+    const code = Number(hotelCode) || 6741;
+    return this.publicService.testHotelContent(code);
   }
 
   @Post('cache/clear')

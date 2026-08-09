@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HotelbedsCacheService } from './hotelbeds-cache.service';
 import { HotelbedsConfigService } from './hotelbeds.config';
+import { formatHotelbedsErrorBody, maskContentRequestParams } from './hotelbeds-normalizer';
 import { HotelbedsMetricsService } from './hotelbeds-metrics.service';
 import { HotelbedsRateLimiterService } from './hotelbeds-rate-limiter.service';
 import { HotelbedsSignatureService } from './hotelbeds-signature.service';
@@ -13,6 +14,8 @@ export class HotelbedsHttpError extends Error {
     readonly status: number,
     readonly endpoint: string,
     readonly responseTimeMs: number,
+    readonly errorBody?: string,
+    readonly requestParams?: string,
   ) {
     super(message);
     this.name = 'HotelbedsHttpError';
@@ -47,7 +50,7 @@ export class HotelbedsHttpService {
       if (cached) {
         this.metrics.recordRequest({
           method: 'GET',
-          endpoint: opts.label ?? url,
+          endpoint: opts.label ?? maskContentRequestParams(url),
           status: 200,
           responseTimeMs: 0,
           cached: true,
@@ -58,6 +61,8 @@ export class HotelbedsHttpService {
     const creds = this.getCredentials();
     if (!creds) throw new Error('Hotelbeds credentials missing');
 
+    const requestParams = maskContentRequestParams(url);
+    const endpointLabel = opts?.label ?? requestParams.split('?')[0] ?? 'content';
     const started = Date.now();
     const response = await this.limiter.schedule(() =>
       this.signedFetch(url, creds.apiKey, creds.secret, { method: 'GET' }),
@@ -71,17 +76,32 @@ export class HotelbedsHttpService {
       parsed = {} as T;
     }
 
+    const errorBody = response.ok ? undefined : formatHotelbedsErrorBody(bodyText);
+    const errorMessage = errorBody?.split('\n').find((l) => l.startsWith('Message:'))?.replace('Message: ', '');
+
     this.metrics.recordRequest({
       method: 'GET',
-      endpoint: opts?.label ?? url.replace(/\?.*$/, ''),
+      endpoint: endpointLabel,
       status: response.status,
       responseTimeMs,
       errorCode: response.ok ? undefined : String(response.status),
+      errorMessage,
+      errorBody,
+      requestParams,
     });
 
     if (!response.ok) {
-      this.log.warn(`Hotelbeds GET ${response.status} ${opts?.label ?? url}`);
-      throw new HotelbedsHttpError(`Hotelbeds HTTP ${response.status}`, response.status, url, responseTimeMs);
+      this.log.warn(
+        `Hotelbeds GET ${response.status} ${endpointLabel} params=${requestParams}${errorBody ? ` body=${errorBody.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`,
+      );
+      throw new HotelbedsHttpError(
+        `Hotelbeds HTTP ${response.status}`,
+        response.status,
+        url,
+        responseTimeMs,
+        errorBody,
+        requestParams,
+      );
     }
 
     if (opts?.cacheKey && opts.cacheTtlMs) {
@@ -110,16 +130,29 @@ export class HotelbedsHttpService {
       parsed = {} as T;
     }
 
+    const errorBody = response.ok ? undefined : formatHotelbedsErrorBody(bodyText);
+    const errorMessage = errorBody?.split('\n').find((l) => l.startsWith('Message:'))?.replace('Message: ', '');
+
     this.metrics.recordRequest({
       method: 'POST',
       endpoint: label ?? url,
       status: response.status,
       responseTimeMs,
       errorCode: response.ok ? undefined : String(response.status),
+      errorMessage,
+      errorBody,
+      requestParams: label ? JSON.stringify(body).slice(0, 300) : undefined,
     });
 
     if (!response.ok) {
-      throw new HotelbedsHttpError(`Hotelbeds HTTP ${response.status}`, response.status, url, responseTimeMs);
+      throw new HotelbedsHttpError(
+        `Hotelbeds HTTP ${response.status}`,
+        response.status,
+        url,
+        responseTimeMs,
+        errorBody,
+        label,
+      );
     }
 
     return { data: parsed, status: response.status, responseTimeMs };

@@ -44,7 +44,16 @@ function GalleryImage({
   sizes?: string;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const isRemote = src.includes('hotelbeds.com');
+
+  if (failed) {
+    return (
+      <div className={`flex items-center justify-center bg-zinc-100 text-sm text-zinc-500 ${className ?? ''}`}>
+        Fotografii se nepodařilo načíst
+      </div>
+    );
+  }
 
   return (
     <div className={`relative overflow-hidden bg-zinc-100 ${className ?? ''}`}>
@@ -58,6 +67,12 @@ function GalleryImage({
         quality={90}
         unoptimized={isRemote}
         onLoad={() => setLoaded(true)}
+        onError={() => {
+          if (isRemote) {
+            console.warn('[Hotelbeds image] failed to load:', src);
+          }
+          setFailed(true);
+        }}
         className={`object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
       />
     </div>
@@ -78,7 +93,9 @@ export function AccommodationDetailView({ item }: Props) {
       ? item.photos
       : item.coverPhoto
         ? [{ id: 'cover', url: item.coverPhoto, alt: item.name, isCover: true }]
-        : [{ id: 'fallback', url: FALLBACK_IMAGE, alt: item.name, isCover: true }];
+        : isHotelbeds
+          ? []
+          : [{ id: 'fallback', url: FALLBACK_IMAGE, alt: item.name, isCover: true }];
 
   const sidePhotos = photos.filter((_, i) => i !== current).slice(0, 4);
 
@@ -194,14 +211,20 @@ export function AccommodationDetailView({ item }: Props) {
 
       {/* Galerie */}
       <div className="grid gap-2 lg:grid-cols-[2fr_1fr] lg:gap-3">
-        <div className="relative h-[280px] overflow-hidden rounded-2xl sm:h-[320px] lg:h-[min(480px,52vh)]">
-          <GalleryImage
-            src={photos[current]?.url ?? FALLBACK_IMAGE}
-            alt={photos[current]?.alt ?? item.name}
-            priority
-            sizes="(max-width: 1024px) 100vw, 66vw"
-            className="h-full w-full"
-          />
+        <div className="relative h-[280px] overflow-hidden rounded-2xl bg-zinc-100 sm:h-[320px] lg:h-[min(480px,52vh)]">
+          {photos.length > 0 ? (
+            <GalleryImage
+              src={photos[current]?.url ?? photos[0]!.url}
+              alt={photos[current]?.alt ?? item.name}
+              priority
+              sizes="(max-width: 1024px) 100vw, 66vw"
+              className="h-full w-full"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              Fotografie hotelu nejsou k dispozici
+            </div>
+          )}
           {photos.length > 1 ? (
             <>
               <button

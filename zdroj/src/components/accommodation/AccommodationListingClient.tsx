@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Map, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -40,6 +40,7 @@ type Props = {
   hideTopSearch?: boolean;
   useHotelbeds?: boolean;
   emptyCategoryLabel?: string;
+  ssrPrefetched?: boolean;
 };
 
 export function AccommodationListingClient({
@@ -50,9 +51,10 @@ export function AccommodationListingClient({
   hideTopSearch = false,
   useHotelbeds: useHotelbedsProp,
   emptyCategoryLabel,
+  ssrPrefetched = false,
 }: Props) {
   const searchParams = useSearchParams();
-  const defaults = defaultHotelbedsSearchParams();
+  const defaults = useMemo(() => defaultHotelbedsSearchParams(), []);
   const { apiAccessToken, isAuthenticated } = useAuth();
   const [useHotelbeds, setUseHotelbeds] = useState(useHotelbedsProp ?? false);
   const [items, setItems] = useState(initialItems);
@@ -157,9 +159,23 @@ export function AccommodationListingClient({
     [apiAccessToken, category, destination, filters, locationSlug, useHotelbeds, defaults],
   );
 
+  const skipFirstClientLoad = useRef(ssrPrefetched);
+
   useEffect(() => {
+    if (skipFirstClientLoad.current) {
+      skipFirstClientLoad.current = false;
+      return;
+    }
     void load(1, false);
   }, [load]);
+
+  const resultsLabel = useMemo(() => {
+    if (total > items.length) {
+      return `Zobrazeno ${items.length} z ${total} nabídek`;
+    }
+    if (items.length === 1) return '1 nabídka';
+    return `Zobrazeno ${items.length} nabídek`;
+  }, [items.length, total]);
 
   useEffect(() => {
     if (view !== 'map') return;
@@ -240,9 +256,7 @@ export function AccommodationListingClient({
 
         <div className="space-y-4">
           <div className="hidden items-center justify-between md:flex">
-            <p className="text-sm text-zinc-600">
-              {items.length} z {total} nabídek
-            </p>
+            <p className="text-sm text-zinc-600">{resultsLabel}</p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -297,7 +311,7 @@ export function AccommodationListingClient({
           ) : items.length === 0 && !loading ? (
             category && emptyCategoryLabel ? (
               <AccommodationCategoryEmptyState
-                title={`Pro kategorii „${emptyCategoryLabel}“ nyní nemáme dostupné nabídky`}
+                title={`V kategorii ${emptyCategoryLabel} jsme pro zvolený termín nenašli žádné dostupné nabídky.`}
               />
             ) : (
               <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-600">
