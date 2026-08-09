@@ -62,6 +62,7 @@ import { OpenAiModule } from './modules/openai/openai.module';
 import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
 import { AccommodationModule } from './modules/accommodation/accommodation.module';
+import { HotelbedsModule } from './modules/integrations/hotelbeds/hotelbeds.module';
 
 @Module({
   imports: [
@@ -130,6 +131,7 @@ import { AccommodationModule } from './modules/accommodation/accommodation.modul
     AiChatModule,
     AiSalesModule,
     AccommodationModule,
+    HotelbedsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

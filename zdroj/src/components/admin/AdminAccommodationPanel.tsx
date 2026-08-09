@@ -106,6 +106,12 @@ export function AdminAccommodationPanel() {
             Hero Ubytování
           </Link>
           <Link
+            href="/admin/integrace/ubytovani/hotelbeds"
+            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800"
+          >
+            Hotelbeds / HBX
+          </Link>
+          <Link
             href="/admin/integrace/ubytovani/booking"
             className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium"
           >
