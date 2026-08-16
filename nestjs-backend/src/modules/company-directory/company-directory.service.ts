@@ -10,7 +10,7 @@ import { AresService } from './ares.service';
 import { COMPANY_DIRECTORY_ENABLED } from './company-directory.constants';
 import {
   buildCompanyListWhere,
-  buildAdminCompanyListWhere,
+  buildAdminCompanyExtendedWhere,
   serializeCompanyDirectoryCard,
   serializeCompanyDirectoryDetail,
 } from './company-directory.serializer';
@@ -165,7 +165,7 @@ export class CompanyDirectoryService {
   async listAdminCompanies(query: Record<string, string | undefined>) {
     const page = Math.max(1, Number(query.page ?? 1) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 50) || 50));
-    const where = buildAdminCompanyListWhere({
+    const where = buildAdminCompanyExtendedWhere({
       q: query.q,
       ico: query.ico,
       category: query.category,
@@ -174,16 +174,13 @@ export class CompanyDirectoryService {
       verified: query.verified,
       active: query.active,
       minRating: query.minRating,
+      hasGoogle: query.hasGoogle,
+      hasEmail: query.hasEmail,
+      claimed: query.claimed,
+      hasReviews: query.hasReviews,
+      noReviews: query.noReviews,
+      contactDiscoveryState: query.contactDiscoveryState,
     });
-
-    if (query.hasGoogle === 'true') where.googlePlaceId = { not: null };
-    if (query.hasGoogle === 'false') where.googlePlaceId = null;
-    if (query.hasEmail === 'true') where.verifiedBusinessEmail = { not: null };
-    if (query.claimed === 'true') {
-      where.profileStatus = { in: ['CLAIMED', 'VERIFIED'] };
-    }
-    if (query.hasReviews === 'true') where.xxrealitReviewCount = { gt: 0 };
-    if (query.noReviews === 'true') where.xxrealitReviewCount = 0;
 
     const [total, rows] = await Promise.all([
       this.prisma.companyDirectoryEntry.count({ where }),

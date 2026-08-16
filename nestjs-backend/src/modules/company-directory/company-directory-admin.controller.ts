@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpException,
+  Logger,
   Param,
   Patch,
   Post,
@@ -38,6 +40,8 @@ import {
 @Controller('admin/company-directory')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class CompanyDirectoryAdminController {
+  private readonly log = new Logger(CompanyDirectoryAdminController.name);
+
   constructor(
     private readonly directory: CompanyDirectoryService,
     private readonly importService: CompanyImportService,
@@ -56,7 +60,8 @@ export class CompanyDirectoryAdminController {
   }
 
   @Get('metrics')
-  metrics() {
+  async metrics() {
+    const contactDiscovery = await this.contactDiscovery.getDiagnostics();
     return {
       ares: this.ares.getMetrics(),
       flags: {
@@ -70,6 +75,7 @@ export class CompanyDirectoryAdminController {
         monthlyNurture: COMPANY_MONTHLY_NURTURE_ENABLED,
         reviews: COMPANY_REVIEWS_ENABLED,
       },
+      contactDiscovery,
       defaults: {
         batchSize: ARES_IMPORT_BATCH_SIZE,
         delayMs: ARES_IMPORT_DELAY_MS,
@@ -235,10 +241,58 @@ export class CompanyDirectoryAdminController {
       limit?: number;
       label?: string;
       force?: boolean;
-      filter?: { category?: CompanyDirectoryCategory; region?: string; city?: string; q?: string };
+      filter?: {
+        category?: CompanyDirectoryCategory;
+        region?: string;
+        city?: string;
+        q?: string;
+        ico?: string;
+        verified?: string;
+        active?: string;
+        minRating?: string;
+        hasGoogle?: string;
+        hasEmail?: string;
+        claimed?: string;
+        hasReviews?: string;
+        noReviews?: string;
+        contactDiscoveryState?: string;
+      };
     },
   ) {
-    return this.contactDiscovery.startBatch(body);
+    this.log.log(
+      JSON.stringify({
+        event: 'CONTACT_BATCH_START_REQUEST',
+        route: 'POST /admin/company-directory/contact/batches/start',
+        bodyKeys: Object.keys(body ?? {}),
+        companyIdsCount: body?.companyIds?.length ?? 0,
+        hasFilter: !!body?.filter,
+        filter: body?.filter
+          ? {
+              category: body.filter.category ?? null,
+              region: body.filter.region ?? null,
+              city: body.filter.city ?? null,
+              q: body.filter.q ? '[set]' : null,
+              hasGoogle: body.filter.hasGoogle ?? null,
+              hasEmail: body.filter.hasEmail ?? null,
+            }
+          : null,
+        limit: body?.limit ?? null,
+        force: body?.force ?? false,
+      }),
+    );
+    try {
+      return this.contactDiscovery.startBatch(body);
+    } catch (err) {
+      const message = err instanceof HttpException ? err.message : 'Unknown error';
+      this.log.warn(
+        JSON.stringify({
+          event: 'CONTACT_BATCH_START_REJECTED',
+          message,
+          status: err instanceof HttpException ? err.getStatus() : 500,
+        }),
+      );
+      throw err;
+    }
   }
 
   @Get('contact/batches')

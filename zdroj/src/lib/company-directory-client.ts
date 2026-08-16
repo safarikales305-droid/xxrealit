@@ -426,8 +426,10 @@ async function adminFetchResult<T>(
     payload = null;
   }
   if (!res.ok) {
+    const rawMessage = payload?.message;
     const message =
-      (typeof payload?.message === 'string' && payload.message) ||
+      (typeof rawMessage === 'string' && rawMessage) ||
+      (Array.isArray(rawMessage) && rawMessage.map(String).join(', ')) ||
       (typeof payload?.error === 'string' && payload.error) ||
       `HTTP ${res.status}`;
     const code = typeof payload?.code === 'string' ? payload.code : undefined;
@@ -442,13 +444,17 @@ async function adminFetch<T>(
   init?: RequestInit,
 ): Promise<T | null> {
   if (!API_BASE_URL) return null;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (init?.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${API_BASE_URL}/admin/company-directory${path}`, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: 'no-store',
   });
   if (!res.ok) return null;
@@ -559,6 +565,23 @@ export async function nestAdminRejectContact(
   });
 }
 
+export type ContactDiscoveryBatchResponse = {
+  id: string;
+  jobId: string;
+  status: string;
+  total: number;
+  totalExpected?: number | null;
+  processed?: number;
+  found?: number;
+  notFound?: number;
+  needsReview?: number;
+  failed?: number;
+  queued?: number;
+  currentCompanyName?: string | null;
+  progressPercent?: number;
+  progressLabel?: string;
+};
+
 export async function nestAdminStartContactDiscoveryBatch(
   token: string,
   body: {
@@ -566,10 +589,25 @@ export async function nestAdminStartContactDiscoveryBatch(
     limit?: number;
     label?: string;
     force?: boolean;
-    filter?: { category?: string; region?: string; city?: string; q?: string };
+    filter?: {
+      category?: string;
+      region?: string;
+      city?: string;
+      q?: string;
+      ico?: string;
+      verified?: string;
+      active?: string;
+      minRating?: string;
+      hasGoogle?: string;
+      hasEmail?: string;
+      claimed?: string;
+      hasReviews?: string;
+      noReviews?: string;
+      contactDiscoveryState?: string;
+    };
   },
-): Promise<Record<string, unknown> | null> {
-  return adminFetch(token, '/contact/batches/start', {
+): Promise<AdminFetchResult<ContactDiscoveryBatchResponse>> {
+  return adminFetchResult<ContactDiscoveryBatchResponse>(token, '/contact/batches/start', {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -601,15 +639,15 @@ export async function nestAdminContactDiscoveryBatchAction(
 export function contactDiscoveryStateLabel(state: string | null | undefined): string {
   switch (state) {
     case 'QUEUED':
-      return 'Ve frontě';
+      return '⏳ Ve frontě';
     case 'SEARCHING':
-      return 'Hledám';
+      return '🔵 Hledám';
     case 'FOUND':
       return 'Nalezeno';
     case 'REVIEW_REQUIRED':
-      return 'Ke kontrole';
+      return '⚠ Ke kontrole';
     case 'VERIFIED':
-      return 'Ověřeno';
+      return '✓ Ověřeno';
     case 'NOT_FOUND':
       return 'Nenalezeno';
     case 'FAILED':
@@ -617,6 +655,18 @@ export function contactDiscoveryStateLabel(state: string | null | undefined): st
     default:
       return 'Nehledáno';
   }
+}
+
+export function contactDiscoveryEmailCell(
+  email: string | null | undefined,
+  state: string | null | undefined,
+): string {
+  if (email?.trim()) {
+    if (state === 'REVIEW_REQUIRED') return `${email}\n⚠ Ke kontrole`;
+    if (state === 'VERIFIED') return `${email}\n✓ Ověřeno`;
+    return email;
+  }
+  return contactDiscoveryStateLabel(state);
 }
 
 export async function nestAdminStartCampaign(

@@ -27,6 +27,7 @@ import {
 } from './company-directory.constants';
 import { computeJobProgress } from './company-job-progress.util';
 import { extractEmails, extractPhone, scoreEmail } from './company-contact-discovery.helpers';
+import { buildAdminCompanyExtendedWhere } from './company-directory.serializer';
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
   'QUEUED',
   'SEARCHING',
@@ -395,6 +396,16 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       region?: string;
       city?: string;
       q?: string;
+      ico?: string;
+      verified?: string;
+      active?: string;
+      minRating?: string;
+      hasGoogle?: string;
+      hasEmail?: string;
+      claimed?: string;
+      hasReviews?: string;
+      noReviews?: string;
+      contactDiscoveryState?: string;
     };
     force?: boolean;
   }) {
@@ -407,17 +418,23 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
 
     let companyIds = input.companyIds ?? [];
     if (companyIds.length === 0 && input.filter) {
-      const where: Prisma.CompanyDirectoryEntryWhereInput = { publicProfile: true };
-      if (input.filter.category) where.categories = { has: input.filter.category };
-      if (input.filter.region?.trim()) where.region = { contains: input.filter.region.trim(), mode: 'insensitive' };
-      if (input.filter.city?.trim()) where.city = { contains: input.filter.city.trim(), mode: 'insensitive' };
-      if (input.filter.q?.trim()) {
-        where.OR = [
-          { name: { contains: input.filter.q.trim(), mode: 'insensitive' } },
-          { ico: { contains: input.filter.q.trim() } },
-        ];
-      }
-      if (!input.force) {
+      const where = buildAdminCompanyExtendedWhere({
+        category: input.filter.category,
+        region: input.filter.region,
+        city: input.filter.city,
+        q: input.filter.q,
+        ico: input.filter.ico,
+        verified: input.filter.verified,
+        active: input.filter.active,
+        minRating: input.filter.minRating,
+        hasGoogle: input.filter.hasGoogle,
+        hasEmail: input.filter.hasEmail,
+        claimed: input.filter.claimed,
+        hasReviews: input.filter.hasReviews,
+        noReviews: input.filter.noReviews,
+        contactDiscoveryState: input.filter.contactDiscoveryState,
+      });
+      if (!input.force && !input.filter.contactDiscoveryState) {
         where.contactDiscoveryState = { notIn: BLOCKED_REQUEUE };
       }
       const rows = await this.prisma.companyDirectoryEntry.findMany({
@@ -427,6 +444,40 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
         orderBy: { updatedAt: 'desc' },
       });
       companyIds = rows.map((r) => r.id);
+      this.log.log(
+        JSON.stringify({
+          event: 'CONTACT_BATCH_FILTER_RESOLVED',
+          filterKeys: Object.keys(input.filter),
+          matched: companyIds.length,
+          limit: input.limit ?? 500,
+          force: input.force ?? false,
+        }),
+      );
+    }
+
+    if (!input.force && companyIds.length > 0) {
+      const [eligible, activeJobs] = await Promise.all([
+        this.prisma.companyDirectoryEntry.findMany({
+          where: {
+            id: { in: companyIds },
+            contactDiscoveryState: { notIn: BLOCKED_REQUEUE },
+          },
+          select: { id: true },
+        }),
+        this.prisma.companyContactDiscoveryJob.findMany({
+          where: {
+            companyId: { in: companyIds },
+            status: {
+              in: [CompanyContactDiscoveryStatus.PENDING, CompanyContactDiscoveryStatus.RUNNING],
+            },
+          },
+          select: { companyId: true },
+        }),
+      ]);
+      const blocked = new Set(
+        activeJobs.map((j) => j.companyId).filter((id): id is string => id != null),
+      );
+      companyIds = eligible.map((r) => r.id).filter((id) => !blocked.has(id));
     }
 
     if (companyIds.length === 0) {
@@ -460,6 +511,33 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     });
 
     return this.serializeBatch(batch);
+  }
+
+  async getDiagnostics() {
+    const [waiting, running, activeBatches] = await Promise.all([
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.PENDING },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.RUNNING },
+      }),
+      this.prisma.companyContactDiscoveryBatch.count({
+        where: {
+          status: { in: [CompanyProviderJobStatus.PENDING, CompanyProviderJobStatus.RUNNING] },
+        },
+      }),
+    ]);
+
+    return {
+      configured: COMPANY_CONTACT_DISCOVERY_ENABLED,
+      worker: this.timer && COMPANY_CONTACT_DISCOVERY_ENABLED ? 'Running' : 'Stopped',
+      provider: COMPANY_CONTACT_DISCOVERY_ENABLED ? 'Configured' : 'Missing',
+      processing: this.processing,
+      queue: { waiting, active: running },
+      activeBatches,
+      concurrency: CONTACT_DISCOVERY_CONCURRENCY,
+      delayMs: CONTACT_DISCOVERY_DELAY_MS,
+    };
   }
 
   async getBatch(batchId: string) {
@@ -777,8 +855,17 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   ) {
     const progress = computeJobProgress(batch.processed, batch.totalExpected, batch.startedAt);
     const isComplete = batch.status === CompanyProviderJobStatus.COMPLETED;
+    const statusLabel =
+      batch.status === CompanyProviderJobStatus.PENDING
+        ? 'QUEUED'
+        : batch.status === CompanyProviderJobStatus.RUNNING
+          ? 'RUNNING'
+          : batch.status;
     return {
       ...batch,
+      jobId: batch.id,
+      total: batch.totalExpected ?? 0,
+      status: statusLabel,
       progress,
       progressPercent: isComplete ? progress.percentage : Math.min(99, progress.percentage),
       progressLabel: progress.label,

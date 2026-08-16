@@ -22,6 +22,7 @@ import {
   nestAdminStartContactDiscoveryBatch,
   nestAdminListContactDiscoveryBatches,
   contactDiscoveryStateLabel,
+  contactDiscoveryEmailCell,
   nestAdminStartCampaign,
   nestAdminGetCampaign,
   nestAdminCampaignAction,
@@ -77,6 +78,7 @@ export default function AdminFirmyPage() {
   const [companies, setCompanies] = useState<AdminCompanyRow[]>([]);
   const [companiesTotal, setCompaniesTotal] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [detailItems, setDetailItems] = useState<Array<Record<string, unknown>>>([]);
@@ -177,6 +179,15 @@ export default function AdminFirmyPage() {
     }
   }, [tab, refreshCompanies, token]);
 
+  const hasActiveContactBatches = useMemo(
+    () =>
+      contactBatches.some((b) => {
+        const status = String(b.status ?? '');
+        return status === 'QUEUED' || status === 'RUNNING' || status === 'PENDING';
+      }),
+    [contactBatches],
+  );
+
   const refreshContactBatches = useCallback(async () => {
     if (!token) return;
     const rows = await nestAdminListContactDiscoveryBatches(token);
@@ -186,9 +197,54 @@ export default function AdminFirmyPage() {
   useEffect(() => {
     if (!token) return;
     void refreshContactBatches();
-    const id = setInterval(() => void refreshContactBatches(), 4000);
+    const id = setInterval(() => void refreshContactBatches(), 2500);
     return () => clearInterval(id);
   }, [token, refreshContactBatches]);
+
+  useEffect(() => {
+    if (!token || tab !== 'companies' || !hasActiveContactBatches) return;
+    const id = setInterval(() => void refreshCompanies(), 2500);
+    return () => clearInterval(id);
+  }, [token, tab, hasActiveContactBatches, refreshCompanies]);
+
+  const startContactBatch = useCallback(
+    async (body: Parameters<typeof nestAdminStartContactDiscoveryBatch>[1]) => {
+      if (!token) return;
+      setDiscoveringContact(true);
+      setErrMsg(null);
+      setMsg(null);
+      const res = await nestAdminStartContactDiscoveryBatch(token, body);
+      if (!res.ok) {
+        const detail =
+          res.code === 'CONTACT_DISCOVERY_PROVIDER_NOT_CONFIGURED'
+            ? 'Provider pro dohledání firemních kontaktů není nakonfigurován.'
+            : res.message;
+        setErrMsg(`Frontu se nepodařilo spustit. HTTP ${res.status}: ${detail}`);
+        setDiscoveringContact(false);
+        return;
+      }
+      const total = res.data.total ?? res.data.totalExpected ?? body.companyIds?.length ?? 0;
+      setMsg(`${total} firem zařazeno do fronty.`);
+      void refreshContactBatches();
+      void refreshCompanies();
+      setDiscoveringContact(false);
+    },
+    [token, refreshContactBatches, refreshCompanies],
+  );
+
+  const buildCompanyFilterPayload = useCallback(
+    () => ({
+      category: companyQuery.category || undefined,
+      region: companyQuery.region || undefined,
+      q: companyQuery.q || undefined,
+      hasGoogle: companyQuery.hasGoogle || undefined,
+      hasEmail: companyQuery.hasEmail || undefined,
+      claimed: companyQuery.claimed || undefined,
+      hasReviews: companyQuery.hasReviews || undefined,
+      active: companyQuery.active || undefined,
+    }),
+    [companyQuery],
+  );
 
   useEffect(() => {
     if (!token || !contactModal) return;
@@ -326,6 +382,50 @@ export default function AdminFirmyPage() {
       </nav>
 
       {msg ? <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p> : null}
+      {errMsg ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{errMsg}</p> : null}
+
+      {metrics?.contactDiscovery ? (
+        <section className="rounded-xl border bg-white p-4 text-sm">
+          <h3 className="font-semibold">Diagnostika AI dohledání kontaktů</h3>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <p>
+              AI contact discovery:{' '}
+              <strong>
+                {(metrics.contactDiscovery as { configured?: boolean }).configured
+                  ? 'Configured'
+                  : 'Missing'}
+              </strong>
+            </p>
+            <p>
+              Worker:{' '}
+              <strong>{String((metrics.contactDiscovery as { worker?: string }).worker ?? '—')}</strong>
+            </p>
+            <p>
+              Queue:{' '}
+              <strong>
+                {String(
+                  (metrics.contactDiscovery as { queue?: { waiting?: number } }).queue?.waiting ?? 0,
+                )}{' '}
+                waiting
+              </strong>
+            </p>
+            <p>
+              Active:{' '}
+              <strong>
+                {String(
+                  (metrics.contactDiscovery as { queue?: { active?: number } }).queue?.active ?? 0,
+                )}
+              </strong>
+            </p>
+            <p>
+              Provider:{' '}
+              <strong>
+                {String((metrics.contactDiscovery as { provider?: string }).provider ?? '—')}
+              </strong>
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {dashboard ? (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -606,18 +706,10 @@ export default function AdminFirmyPage() {
               type="button"
               disabled={selectedCompanyIds.length === 0 || discoveringContact}
               onClick={() => {
-                if (!token) return;
-                setDiscoveringContact(true);
-                void nestAdminStartContactDiscoveryBatch(token, {
+                void startContactBatch({
                   companyIds: selectedCompanyIds,
                   label: `Vybrané firmy (${selectedCompanyIds.length})`,
-                })
-                  .then((r) => {
-                    setMsg(`Dohledání kontaktů zařazeno (${selectedCompanyIds.length} firem).`);
-                    void refreshContactBatches();
-                    return r;
-                  })
-                  .finally(() => setDiscoveringContact(false));
+                });
               }}
               className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"
             >
@@ -625,26 +717,18 @@ export default function AdminFirmyPage() {
             </button>
             <button
               type="button"
+              disabled={discoveringContact}
               onClick={() => {
-                if (!token) return;
                 if (!window.confirm('Zařadit všechny firmy z aktuálního filtru do fronty?')) return;
-                void nestAdminStartContactDiscoveryBatch(token, {
-                  filter: {
-                    category: companyQuery.category || undefined,
-                    region: companyQuery.region || undefined,
-                    city: companyQuery.q || undefined,
-                    q: companyQuery.q || undefined,
-                  },
-                  limit: 500,
+                void startContactBatch({
+                  filter: buildCompanyFilterPayload(),
+                  limit: Math.min(companiesTotal || 2000, 2000),
                   label: 'Filtr — dohledání kontaktů',
-                }).then(() => {
-                  setMsg('Firmy z filtru zařazeny do fronty.');
-                  void refreshContactBatches();
                 });
               }}
-              className="rounded-lg border px-3 py-2 text-sm font-semibold"
+              className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"
             >
-              Dohledat kontakty pro aktuální filtr
+              Dohledat kontakty pro aktuální filtr ({companiesTotal})
             </button>
             <button
               type="button"
@@ -703,8 +787,11 @@ export default function AdminFirmyPage() {
                         ? `${row.xxrealitRatingAverage?.toFixed(1) ?? '—'} (${row.xxrealitReviewCount})`
                         : '—'}
                     </td>
-                    <td className="py-2 pr-2 text-xs">
-                      {row.verifiedBusinessEmail ?? contactDiscoveryStateLabel(row.contactDiscoveryState)}
+                    <td className="py-2 pr-2 text-xs whitespace-pre-line">
+                      {contactDiscoveryEmailCell(
+                        row.verifiedBusinessEmail,
+                        row.contactDiscoveryState,
+                      )}
                     </td>
                     <td className="py-2">
                       <div className="flex flex-col gap-1">
@@ -775,16 +862,23 @@ export default function AdminFirmyPage() {
                     <p className="font-medium">{String(batch.label ?? batch.id)}</p>
                     <p className="text-xs text-zinc-500">
                       {String(batch.status)} · {String(batch.processed ?? 0)} /{' '}
-                      {String(batch.totalExpected ?? '—')} · Nalezeno: {String(batch.found ?? 0)} ·
+                      {String(batch.total ?? batch.totalExpected ?? '—')} · Nalezeno:{' '}
+                      {String(batch.found ?? 0)} · Ke kontrole: {String(batch.needsReview ?? 0)} ·
+                      Nenalezeno: {String(batch.notFound ?? 0)} · Chyby: {String(batch.failed ?? 0)} ·
                       Fronta: {String(batch.queued ?? 0)}
                     </p>
+                    {batch.currentCompanyName ? (
+                      <p className="mt-1 text-xs text-zinc-600">
+                        Aktuálně: <strong>{String(batch.currentCompanyName)}</strong>
+                      </p>
+                    ) : null}
                     <CompanyImportProgressBar
                       title="AI dohledání kontaktů"
                       status={String(batch.status)}
                       percent={Number(batch.progressPercent ?? 0)}
                       label={String(
                         (batch.progress as { label?: string } | undefined)?.label ??
-                          `${batch.processed ?? 0} zpracováno`,
+                          `${batch.processed ?? 0} / ${batch.total ?? batch.totalExpected ?? '—'}`,
                       )}
                     />
                   </div>

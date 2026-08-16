@@ -1,4 +1,9 @@
-import { CompanyDirectoryCategory, CompanyDirectoryEntry, Prisma } from '@prisma/client';
+import {
+  CompanyContactDiscoveryEntryState,
+  CompanyDirectoryCategory,
+  CompanyDirectoryEntry,
+  Prisma,
+} from '@prisma/client';
 import { mapAresActivitiesToCategories } from './ares-activity.mapper';
 import type { AresEconomicSubject } from './ares.types';
 import { buildCompanySlug } from './company-directory.slug';
@@ -262,6 +267,51 @@ export function buildAdminCompanyListWhere(query: {
   const minRating = Number(query.minRating);
   if (Number.isFinite(minRating) && minRating > 0) {
     where.googleRating = { gte: minRating };
+  }
+
+  return where;
+}
+
+/** Sdílený filtr pro admin seznam firem i bulk contact discovery. */
+export function buildAdminCompanyExtendedWhere(query: {
+  q?: string;
+  ico?: string;
+  category?: string;
+  region?: string;
+  city?: string;
+  verified?: string;
+  active?: string;
+  minRating?: string;
+  hasGoogle?: string;
+  hasEmail?: string;
+  claimed?: string;
+  hasReviews?: string;
+  noReviews?: string;
+  contactDiscoveryState?: string;
+}): Prisma.CompanyDirectoryEntryWhereInput {
+  const where = buildAdminCompanyListWhere({
+    q: query.q,
+    ico: query.ico,
+    category: query.category,
+    region: query.region,
+    city: query.city,
+    verified: query.verified,
+    active: query.active,
+    minRating: query.minRating,
+  });
+
+  if (query.hasGoogle === 'true') where.googlePlaceId = { not: null };
+  if (query.hasGoogle === 'false') where.googlePlaceId = null;
+  if (query.hasEmail === 'true') where.verifiedBusinessEmail = { not: null };
+  if (query.hasEmail === 'false') where.verifiedBusinessEmail = null;
+  if (query.claimed === 'true') {
+    where.profileStatus = { in: ['CLAIMED', 'VERIFIED'] };
+  }
+  if (query.hasReviews === 'true') where.xxrealitReviewCount = { gt: 0 };
+  if (query.noReviews === 'true') where.xxrealitReviewCount = 0;
+
+  if (query.contactDiscoveryState?.trim()) {
+    where.contactDiscoveryState = query.contactDiscoveryState.trim() as CompanyContactDiscoveryEntryState;
   }
 
   return where;
