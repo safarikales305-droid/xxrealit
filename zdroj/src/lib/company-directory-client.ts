@@ -103,14 +103,22 @@ export type ImportJobView = {
   created: number;
   updated: number;
   failed: number;
-  skipped: number;
+  skipped?: number;
   progressPercent: number;
   progressLabel: string;
   etaSeconds?: number | null;
   requestsCount?: number;
+  totalExpected?: number | null;
+  totalFound?: number | null;
   lastActivityAt?: string | null;
   startedAt?: string | null;
   error?: string | null;
+  currentCompanyName?: string | null;
+  currentBatchFrom?: number | null;
+  currentBatchTo?: number | null;
+  subQueryIndex?: number | null;
+  subQueryCount?: number | null;
+  importLimit?: number | null;
 };
 
 export type AdminCompanyRow = CompanyDirectoryCard & {
@@ -455,4 +463,19 @@ export async function nestVerifyCompanyReview(
   const data = (await res.json()) as { ok?: boolean; reviewId?: string; message?: string };
   if (!res.ok) return { error: (data as { message?: string }).message ?? 'Ověření selhalo.' };
   return data;
+}
+
+export async function nestAdminListReviews(
+  token: string,
+  status?: string,
+): Promise<Array<Record<string, unknown>> | null> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return adminFetch(token, `/reviews${qs}`);
+}
+
+export async function nestAdminDeleteReviewMedia(
+  token: string,
+  mediaId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/reviews/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE' });
 }

@@ -13,15 +13,23 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { naceCodesForCategory } from './ares-activity.mapper';
 import { AresApiException, AresService } from './ares.service';
-import type { AresEconomicSubject } from './ares.types';
+import type { AresEconomicSubject, AresSearchFilter } from './ares.types';
 import {
   ARES_IMPORT_DELAY_MS,
   ARES_IMPORT_ENABLED,
   ARES_IMPORT_MAX_REQUESTS_PER_RUN,
   ARES_WORKER_TICK_MS,
 } from './company-directory.constants';
+import {
+  buildAresSearchFilter,
+  computeAggregateTotal,
+  isAresTooManyResultsError,
+  isPragueLocation,
+  parseSearchCheckpoint,
+  splitAresSearchFilter,
+  type AresSearchCheckpoint,
+} from './ares-import-split.util';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { computeJobProgress } from './company-job-progress.util';
 
@@ -34,6 +42,8 @@ type StartImportInput = {
   delayMs?: number;
   importMode?: 'SEARCH' | 'ICO_LIST';
   icoList?: string[];
+  limit?: number;
+  query?: string;
 };
 
 @Injectable()
@@ -75,6 +85,47 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       );
     }
     const searchFilter = this.buildSearchFilter(input);
+    const importLimit =
+      input.limit != null && Number.isFinite(input.limit) && input.limit > 0
+        ? Math.floor(input.limit)
+        : null;
+
+    const baseFilter = searchFilter as AresSearchFilter;
+    const needsSplit =
+      importMode === 'SEARCH' &&
+      (isPragueLocation(input.city, input.region) ||
+        input.city?.trim().toLowerCase() === 'praha');
+
+    const initialCheckpoint: Prisma.InputJsonValue | undefined =
+      needsSplit && importMode === 'SEARCH'
+        ? ({
+            mode: 'SEARCH',
+            subQueries: splitAresSearchFilter(baseFilter, input),
+            subQueryIndex: 0,
+            subQueryStart: 0,
+            subQueryTotals: [],
+            aggregateTotal: null,
+            importLimit,
+            currentCompanyName: null,
+            currentBatchFrom: null,
+            currentBatchTo: null,
+            stopped: false,
+          } satisfies AresSearchCheckpoint)
+        : importLimit != null
+          ? ({
+              mode: 'SEARCH',
+              subQueries: [],
+              subQueryIndex: 0,
+              subQueryStart: 0,
+              subQueryTotals: [],
+              aggregateTotal: null,
+              importLimit,
+              currentCompanyName: null,
+              currentBatchFrom: null,
+              currentBatchTo: null,
+              stopped: false,
+            } satisfies AresSearchCheckpoint)
+          : undefined;
 
     return this.prisma.companyImportJob.create({
       data: {
@@ -87,11 +138,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         importMode,
         icoList: (input.icoList ?? []).map((ico) => ico.replace(/\D/g, '').padStart(8, '0')),
         searchFilter: searchFilter as Prisma.InputJsonValue,
+        checkpoint: initialCheckpoint,
         status: CompanyImportJobStatus.PENDING,
         totalExpected:
           importMode === 'ICO_LIST'
             ? (input.icoList ?? []).length
-            : undefined,
+            : null,
       },
     });
   }
@@ -126,11 +178,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     ) {
       return job;
     }
+    const checkpoint = this.mergeCheckpoint(job.checkpoint, { stopped: true });
     return this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
         status: CompanyImportJobStatus.PAUSED,
         error: 'Zastaveno administrátorem.',
+        checkpoint,
       },
     });
   }
@@ -284,37 +338,155 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const filter = (job.searchFilter ?? this.buildSearchFilter(job)) as Record<string, unknown>;
-      const start = job.lastCursor;
+      const baseFilter = (job.searchFilter ?? this.buildSearchFilter(job)) as AresSearchFilter;
       const pocet = batchSize;
+      let checkpoint = parseSearchCheckpoint(job.checkpoint) ?? {
+        mode: 'SEARCH' as const,
+        subQueries: [] as AresSearchFilter[],
+        subQueryIndex: 0,
+        subQueryStart: job.lastCursor,
+        subQueryTotals: [] as number[],
+        aggregateTotal: job.totalExpected,
+        importLimit: null,
+        currentCompanyName: null,
+        currentBatchFrom: null,
+        currentBatchTo: null,
+        stopped: false,
+      };
+
+      if (checkpoint.stopped) return;
+
+      let activeFilter = baseFilter;
+      let start = checkpoint.subQueryStart || job.lastCursor;
+
+      if (checkpoint.subQueries.length > 0) {
+        const idx = Math.min(checkpoint.subQueryIndex, checkpoint.subQueries.length - 1);
+        activeFilter = checkpoint.subQueries[idx] ?? baseFilter;
+        start = checkpoint.subQueryStart;
+      }
+
       if (requests >= maxRequests) return;
 
       requests += 1;
-      const response = await this.ares.searchCompanies({
-        ...(filter as object),
-        start,
-        pocet,
-      });
+      let response;
+      try {
+        response = await this.ares.searchCompanies({
+          ...activeFilter,
+          start,
+          pocet,
+        });
+      } catch (err) {
+        if (isAresTooManyResultsError(err) && checkpoint.subQueries.length === 0) {
+          const subQueries = splitAresSearchFilter(baseFilter, job);
+          checkpoint = {
+            ...checkpoint,
+            subQueries,
+            subQueryIndex: 0,
+            subQueryStart: 0,
+          };
+          await this.prisma.companyImportJob.update({
+            where: { id: jobId },
+            data: {
+              checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+              error: null,
+              lastActivityAt: new Date(),
+            },
+          });
+          this.log.warn(
+            `Import ${jobId}: dotaz rozdělen na ${subQueries.length} poddotazů (ARES >1000).`,
+          );
+          return;
+        }
+        throw err;
+      }
+
       const subjects = response.ekonomickeSubjekty ?? [];
-      const totalExpected = response.pocetCelkem ?? job.totalExpected ?? null;
+      const subTotal = response.pocetCelkem ?? null;
+
+      if (
+        subTotal != null &&
+        subTotal > 1000 &&
+        checkpoint.subQueries.length === 0
+      ) {
+        const subQueries = splitAresSearchFilter(baseFilter, job);
+        checkpoint = {
+          ...checkpoint,
+          subQueries,
+          subQueryIndex: 0,
+          subQueryStart: 0,
+        };
+        await this.prisma.companyImportJob.update({
+          where: { id: jobId },
+          data: {
+            checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+            error: null,
+          },
+        });
+        this.log.warn(
+          `Import ${jobId}: ${subTotal} výsledků – rozděleno na ${subQueries.length} poddotazů.`,
+        );
+        return;
+      }
+
+      if (checkpoint.subQueries.length > 0 && subTotal != null) {
+        checkpoint.subQueryTotals[checkpoint.subQueryIndex] = subTotal;
+        checkpoint.aggregateTotal = computeAggregateTotal(
+          checkpoint.subQueryTotals,
+          checkpoint.importLimit,
+        );
+      }
+
+      const totalExpected =
+        checkpoint.aggregateTotal ??
+        (checkpoint.importLimit != null
+          ? Math.min(subTotal ?? checkpoint.importLimit, checkpoint.importLimit)
+          : subTotal) ??
+        job.totalExpected ??
+        null;
 
       let created = job.created;
       let updated = job.updated;
       let failed = job.failed;
+      let skipped = job.skipped;
       let processed = job.processed;
       let lastIco = job.lastIco;
+      let currentCompanyName: string | null = null;
+
+      const importLimit = checkpoint.importLimit;
 
       for (const subject of subjects) {
+        if (importLimit != null && processed >= importLimit) break;
+
+        const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
+        const dupInJob = await this.prisma.companyImportItem.findFirst({
+          where: {
+            jobId,
+            ico: normalizedIco,
+            result: { in: [CompanyImportItemResult.CREATED, CompanyImportItemResult.UPDATED, CompanyImportItemResult.SKIPPED] },
+          },
+        });
+        if (dupInJob) {
+          skipped += 1;
+          continue;
+        }
+
         try {
           const result = await this.upsertFromSubject(subject, job.category, jobId);
           if (result.action === 'created') created += 1;
           if (result.action === 'updated') updated += 1;
+          if (result.action === 'skipped') skipped += 1;
           processed += 1;
-          lastIco = subject.ico;
+          lastIco = normalizedIco;
+          currentCompanyName = result.name ?? subject.obchodniJmeno ?? null;
           await this.logImportItem({
             jobId,
-            ico: subject.ico,
-            result: result.action === 'created' ? CompanyImportItemResult.CREATED : CompanyImportItemResult.UPDATED,
+            ico: normalizedIco,
+            result:
+              result.action === 'created'
+                ? CompanyImportItemResult.CREATED
+                : result.action === 'skipped'
+                  ? CompanyImportItemResult.SKIPPED
+                  : CompanyImportItemResult.UPDATED,
             companyId: result.companyId,
             name: result.name,
             city: result.city,
@@ -325,7 +497,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           processed += 1;
           await this.logImportItem({
             jobId,
-            ico: subject.ico,
+            ico: normalizedIco,
             result: CompanyImportItemResult.FAILED,
             errorMessage: err instanceof Error ? err.message.slice(0, 500) : 'Chyba importu',
           });
@@ -333,11 +505,38 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         await this.sleep(Math.min(300, delayMs));
       }
 
-      const nextCursor = start + subjects.length;
-      const noMore =
+      const nextStart = start + subjects.length;
+      const subQueryExhausted =
         subjects.length === 0 ||
-        (totalExpected != null && nextCursor >= totalExpected) ||
-        subjects.length < pocet;
+        subjects.length < pocet ||
+        (subTotal != null && nextStart >= Math.min(subTotal, 1000));
+
+      let nextSubQueryIndex = checkpoint.subQueryIndex;
+      let nextSubQueryStart = nextStart;
+
+      if (subQueryExhausted && checkpoint.subQueries.length > 0) {
+        nextSubQueryIndex += 1;
+        nextSubQueryStart = 0;
+      }
+
+      const allSubQueriesDone =
+        checkpoint.subQueries.length === 0
+          ? subQueryExhausted
+          : nextSubQueryIndex >= checkpoint.subQueries.length;
+
+      const limitReached = importLimit != null && processed >= importLimit;
+
+      checkpoint = {
+        ...checkpoint,
+        subQueryIndex: nextSubQueryIndex,
+        subQueryStart: nextSubQueryStart,
+        currentCompanyName,
+        currentBatchFrom: processed > 0 ? processed - subjects.length + 1 : null,
+        currentBatchTo: processed > 0 ? processed : null,
+        aggregateTotal: totalExpected,
+      };
+
+      const noMore = allSubQueriesDone || limitReached;
 
       await this.prisma.companyImportJob.update({
         where: { id: jobId },
@@ -346,15 +545,17 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           created,
           updated,
           failed,
-          lastCursor: nextCursor,
+          skipped,
+          lastCursor: checkpoint.subQueries.length > 0 ? nextSubQueryStart : nextStart,
           lastIco,
           totalExpected,
           requestsCount: { increment: requests },
           lastActivityAt: new Date(),
           heartbeatAt: new Date(),
-          checkpoint: { mode: 'SEARCH', start: nextCursor } as Prisma.InputJsonValue,
+          checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
           status: noMore ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
           finishedAt: noMore ? new Date() : null,
+          error: null,
         },
       });
     } catch (err) {
@@ -485,18 +686,27 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     district?: string | null;
     city?: string | null;
   }) {
-    const locationText =
-      input.city?.trim() ||
-      input.district?.trim() ||
-      input.region?.trim() ||
-      undefined;
+    return buildAresSearchFilter(input);
+  }
 
-    const czNace = input.category ? naceCodesForCategory(input.category) : undefined;
-
-    return {
-      sidlo: locationText ? { textovaAdresa: locationText } : undefined,
-      czNace: czNace && czNace.length > 0 ? czNace : undefined,
+  private mergeCheckpoint(
+    raw: Prisma.JsonValue | null | undefined,
+    patch: Partial<AresSearchCheckpoint>,
+  ): Prisma.InputJsonValue {
+    const current = parseSearchCheckpoint(raw) ?? {
+      mode: 'SEARCH' as const,
+      subQueries: [],
+      subQueryIndex: 0,
+      subQueryStart: 0,
+      subQueryTotals: [],
+      aggregateTotal: null,
+      importLimit: null,
+      currentCompanyName: null,
+      currentBatchFrom: null,
+      currentBatchTo: null,
+      stopped: false,
     };
+    return { ...current, ...patch } as unknown as Prisma.InputJsonValue;
   }
 
   private async completeJob(jobId: string) {
@@ -556,7 +766,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     lastActivityAt?: Date | null;
     heartbeatAt?: Date | null;
     searchFilter?: Prisma.JsonValue;
+    checkpoint?: Prisma.JsonValue | null;
   }) {
+    const checkpoint = parseSearchCheckpoint(job.checkpoint);
+    const displayStatus =
+      checkpoint?.stopped && job.status === CompanyImportJobStatus.PAUSED
+        ? 'STOPPED'
+        : job.status;
     const progress = computeJobProgress(job.processed, job.totalExpected, job.startedAt);
     return {
       id: job.id,
@@ -565,7 +781,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       region: job.region,
       district: job.district,
       city: job.city,
-      status: job.status,
+      status: displayStatus,
       processed: job.processed,
       created: job.created,
       updated: job.updated,
@@ -574,6 +790,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       lastCursor: job.lastCursor,
       lastIco: job.lastIco,
       totalExpected: job.totalExpected,
+      totalFound: job.totalExpected,
       progress,
       progressLabel: progress.label,
       progressPercent: progress.percentage,
@@ -590,6 +807,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       error: job.error,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
+      currentCompanyName: checkpoint?.currentCompanyName ?? null,
+      currentBatchFrom: checkpoint?.currentBatchFrom ?? null,
+      currentBatchTo: checkpoint?.currentBatchTo ?? null,
+      subQueryIndex: checkpoint?.subQueryIndex ?? null,
+      subQueryCount: checkpoint?.subQueries?.length ?? null,
+      importLimit: checkpoint?.importLimit ?? null,
     };
   }
 

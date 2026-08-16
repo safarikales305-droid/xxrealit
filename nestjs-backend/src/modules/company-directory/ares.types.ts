@@ -55,6 +55,8 @@ export type AresSearchFilter = {
     textovaAdresa?: string;
     kodObce?: number;
     nazevObce?: string;
+    kodKraje?: number;
+    kodOkresu?: number;
   };
   czNace?: string[];
   pravniForma?: string[];

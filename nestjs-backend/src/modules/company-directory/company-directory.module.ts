@@ -8,6 +8,7 @@ import { CompanyClaimService } from './company-claim.service';
 import { CompanyContactDiscoveryService } from './company-contact-discovery.service';
 import { CompanyDirectoryAdminController } from './company-directory-admin.controller';
 import { CompanyDirectoryPublicController } from './company-directory-public.controller';
+import { CompanyReviewMediaController } from './company-review-media.controller';
 import { CompanyDirectoryService } from './company-directory.service';
 import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
@@ -18,7 +19,7 @@ import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
 
 @Module({
   imports: [BrokersModule, EmailsModule, SocialModule],
-  controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController],
+  controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController, CompanyReviewMediaController],
   providers: [
     AresService,
     CompanyDirectoryService,

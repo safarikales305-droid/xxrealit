@@ -23,7 +23,7 @@ import {
   type ImportJobView,
 } from '@/lib/company-directory-client';
 
-type Tab = 'ares' | 'companies' | 'claims';
+type Tab = 'ares' | 'companies' | 'claims' | 'reviews';
 
 export default function AdminFirmyPage() {
   const router = useRouter();
@@ -55,11 +55,13 @@ export default function AdminFirmyPage() {
 
   const [form, setForm] = useState({
     category: 'STAVEBNICTVI',
-    region: 'Pardubický kraj',
-    city: 'Pardubice',
+    region: 'Hlavní město Praha',
+    city: 'Praha',
+    query: 'praha',
+    limit: 500,
     batchSize: 10,
     delayMs: 1500,
-    importMode: 'ICO_LIST' as 'ICO_LIST' | 'SEARCH',
+    importMode: 'SEARCH' as 'ICO_LIST' | 'SEARCH',
     icoList: '05754194\n00006947',
   });
 
@@ -139,6 +141,7 @@ export default function AdminFirmyPage() {
       batchSize: form.batchSize,
       delayMs: form.delayMs,
       importMode: form.importMode,
+      limit: form.limit,
       icoList: form.importMode === 'ICO_LIST' ? icoList : undefined,
     });
     if (res?.id) {
@@ -166,6 +169,7 @@ export default function AdminFirmyPage() {
           [
             ['ares', 'ARES import'],
             ['companies', 'Importované firmy'],
+            ['reviews', 'Recenze'],
             ['claims', 'Claim requests'],
           ] as const
         ).map(([key, label]) => (
@@ -244,9 +248,16 @@ export default function AdminFirmyPage() {
                 placeholder="Město"
                 className="rounded-lg border px-3 py-2 text-sm"
               />
-              <input
-                type="number"
-                value={form.batchSize}
+          <input
+            type="number"
+            value={form.limit}
+            onChange={(e) => setForm((f) => ({ ...f, limit: Number(e.target.value) }))}
+            placeholder="Limit firem"
+            className="rounded-lg border px-3 py-2 text-sm"
+          />
+          <input
+            type="number"
+            value={form.batchSize}
                 onChange={(e) => setForm((f) => ({ ...f, batchSize: Number(e.target.value) }))}
                 placeholder="Batch size"
                 className="rounded-lg border px-3 py-2 text-sm"
@@ -342,9 +353,32 @@ export default function AdminFirmyPage() {
                     </div>
 
                     <p className="mt-3 text-xs text-zinc-600">
-                      Processed {job.processed} · Created {job.created} · Updated {job.updated} ·
-                      Skipped {job.skipped} · Failed {job.failed}
-                      {job.requestsCount != null ? ` · Requests ${job.requestsCount}` : ''}
+                      Celkem nalezeno: {job.totalFound ?? job.totalExpected ?? '—'}
+                      <br />
+                      Zpracováno: {job.processed}
+                      {job.totalExpected != null ? ` / ${job.totalExpected}` : ''} · Nové: {job.created}{' '}
+                      · Aktualizované: {job.updated} · Přeskočené: {job.skipped ?? 0} · Chyby:{' '}
+                      {job.failed}
+                      <br />
+                      API requesty: {job.requestsCount ?? 0}
+                      {job.currentBatchFrom != null && job.currentBatchTo != null ? (
+                        <>
+                          <br />
+                          Aktuální dávka: {job.currentBatchFrom}–{job.currentBatchTo}
+                        </>
+                      ) : null}
+                      {job.currentCompanyName ? (
+                        <>
+                          <br />
+                          Aktuální firma: {job.currentCompanyName}
+                        </>
+                      ) : null}
+                      {job.subQueryCount != null && job.subQueryCount > 0 ? (
+                        <>
+                          <br />
+                          Poddotaz: {(job.subQueryIndex ?? 0) + 1} / {job.subQueryCount}
+                        </>
+                      ) : null}
                     </p>
                     {job.error ? <p className="mt-1 text-xs text-red-600">{job.error}</p> : null}
                   </div>

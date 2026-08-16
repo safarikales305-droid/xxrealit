@@ -394,6 +394,56 @@ export class CompanyReviewService {
     return { ok: true, status };
   }
 
+  async listAdminReviews(status?: string) {
+    const where =
+      status?.trim() && status !== 'ALL'
+        ? { status: status.trim().toUpperCase() as CompanyReviewStatus }
+        : {};
+    const rows = await this.prisma.companyReview.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        company: { select: { id: true, name: true, slug: true } },
+        authorUser: { select: { id: true, email: true, name: true } },
+        media: true,
+        _count: { select: { reports: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      company: r.company,
+      authorEmail: r.authorUser.email,
+      authorName: r.authorDisplayName ?? r.authorUser.name,
+      rating: r.rating,
+      sentiment: r.sentiment,
+      title: r.title,
+      bodyPreview: r.body.slice(0, 160),
+      imageCount: r.media.filter((m) => m.type === 'IMAGE').length,
+      videoCount: r.media.filter((m) => m.type === 'VIDEO').length,
+      status: r.status,
+      emailVerified: r.emailVerified,
+      createdAt: r.createdAt.toISOString(),
+      publishedAt: r.publishedAt?.toISOString() ?? null,
+      reportCount: r._count.reports,
+      media: r.media,
+    }));
+  }
+
+  async deleteReviewMedia(mediaId: string) {
+    const media = await this.prisma.companyReviewMedia.findUnique({
+      where: { id: mediaId },
+    });
+    if (!media) throw new NotFoundException('Médium nenalezeno.');
+    await this.prisma.companyReviewMedia.delete({ where: { id: mediaId } });
+    await this.audit.log({
+      action: 'MODERATION',
+      message: `Odstraněno médium ${mediaId} z recenze ${media.reviewId}`,
+      meta: { mediaId, reviewId: media.reviewId },
+    });
+    return { ok: true };
+  }
+
   private async resolveAuthorUser(email: string, displayName?: string) {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) return existing;

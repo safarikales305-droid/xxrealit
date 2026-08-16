@@ -5,6 +5,10 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Building2, MapPin, Star } from 'lucide-react';
 import {
+  CompanyReviewMediaUpload,
+  type ReviewMediaItem,
+} from '@/components/company-directory/CompanyReviewMediaUpload';
+import {
   nestGetCompanyBySlug,
   nestGetCompanyReviews,
   nestSubmitCompanyClaim,
@@ -20,6 +24,7 @@ type ReviewItem = {
   body: string;
   authorDisplayName: string;
   publishedAt?: string | null;
+  media?: Array<{ type: string; url: string; thumbnailUrl?: string | null }>;
   response?: { body: string; verifiedCompanyResponse: boolean; createdAt: string } | null;
 };
 
@@ -52,6 +57,12 @@ export default function FirmaDetailPage() {
     contactPhone: '',
     ico: '',
   });
+  const [reviewMedia, setReviewMedia] = useState<{ images: ReviewMediaItem[]; videos: ReviewMediaItem[] }>({
+    images: [],
+    videos: [],
+  });
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewForm, setReviewForm] = useState({
     rating: 5,
     sentiment: 'POSITIVE' as 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL',
@@ -104,7 +115,22 @@ export default function FirmaDetailPage() {
 
   async function submitReview(e: React.FormEvent) {
     e.preventDefault();
-    if (!company) return;
+    if (!company || submittingReview) return;
+    setSubmittingReview(true);
+    const media = [
+      ...reviewMedia.images.map((m) => ({
+        type: 'IMAGE' as const,
+        url: m.url,
+        thumbnailUrl: m.thumbnailUrl ?? undefined,
+        mimeType: m.mimeType ?? undefined,
+      })),
+      ...reviewMedia.videos.map((m) => ({
+        type: 'VIDEO' as const,
+        url: m.url,
+        thumbnailUrl: m.thumbnailUrl ?? undefined,
+        mimeType: m.mimeType ?? undefined,
+      })),
+    ];
     const res = await nestSubmitCompanyReview({
       companySlug: company.slug,
       companyId: company.id,
@@ -116,12 +142,15 @@ export default function FirmaDetailPage() {
       authorDisplayName: reviewForm.authorDisplayName || undefined,
       submittedBusinessEmail: reviewForm.submittedBusinessEmail || undefined,
       confirmedExperience: reviewForm.confirmedExperience,
+      media: media.length > 0 ? media : undefined,
     });
+    setSubmittingReview(false);
     if (res?.error) {
       setReviewMsg(res.error);
     } else {
       setReviewMsg(res?.message ?? 'Recenze odeslána. Zkontrolujte email pro ověření.');
       setReviewOpen(false);
+      setReviewMedia({ images: [], videos: [] });
     }
   }
 
@@ -256,6 +285,12 @@ export default function FirmaDetailPage() {
             </section>
           )}
 
+          {company.profileStatus === 'UNCLAIMED' ? (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              Tento profil ještě nebyl převzat firmou.
+            </p>
+          ) : null}
+
           <div className="mt-8 flex flex-col gap-2 sm:flex-row" id="prevzit-profil">
             <button
               type="button"
@@ -360,11 +395,18 @@ export default function FirmaDetailPage() {
                 />
                 Potvrzuji, že recenze vychází z mé skutečné zkušenosti s touto firmou.
               </label>
+              <CompanyReviewMediaUpload
+                images={reviewMedia.images}
+                videos={reviewMedia.videos}
+                onChange={setReviewMedia}
+                disabled={submittingReview}
+              />
               <button
                 type="submit"
-                className="sticky bottom-2 w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-semibold text-white sm:w-auto"
+                disabled={submittingReview}
+                className="sticky bottom-2 w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto"
               >
-                Odeslat recenzi
+                {submittingReview ? 'Odesílám…' : 'Odeslat recenzi'}
               </button>
             </form>
           ) : null}
@@ -411,6 +453,32 @@ export default function FirmaDetailPage() {
                 </div>
                 {r.title ? <p className="mt-1 font-medium">{r.title}</p> : null}
                 <p className="mt-2 text-zinc-700">{r.body}</p>
+                {r.media && r.media.length > 0 ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {r.media.map((m, idx) =>
+                      m.type === 'VIDEO' ? (
+                        <video
+                          key={`${r.id}-v-${idx}`}
+                          src={m.url}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="col-span-2 aspect-video w-full rounded-lg bg-black"
+                        />
+                      ) : (
+                        <button
+                          key={`${r.id}-i-${idx}`}
+                          type="button"
+                          onClick={() => setLightboxUrl(m.url)}
+                          className="overflow-hidden rounded-lg border"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={m.thumbnailUrl ?? m.url} alt="" className="aspect-square w-full object-cover" />
+                        </button>
+                      ),
+                    )}
+                  </div>
+                ) : null}
                 {r.publishedAt ? (
                   <p className="mt-2 text-xs text-zinc-500">
                     {new Date(r.publishedAt).toLocaleDateString('cs-CZ')}
@@ -430,6 +498,19 @@ export default function FirmaDetailPage() {
               </article>
             ))}
           </section>
+        ) : null}
+
+        {lightboxUrl ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setLightboxUrl(null)}
+            onKeyDown={() => setLightboxUrl(null)}
+            role="button"
+            tabIndex={0}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={lightboxUrl} alt="" className="max-h-[90vh] max-w-full rounded-lg object-contain" />
+          </div>
         ) : null}
 
         {data?.similar?.length ? (

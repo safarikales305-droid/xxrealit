@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -106,7 +107,7 @@ export class CompanyDirectoryAdminController {
       batchSize?: number;
       delayMs?: number;
       importMode?: 'SEARCH' | 'ICO_LIST';
-      icoList?: string[];
+      limit?: number;
     },
   ) {
     return this.importService.startImport(body);
@@ -222,5 +223,15 @@ export class CompanyDirectoryAdminController {
     @Body() body: { action: 'approve' | 'reject' | 'hide'; note?: string },
   ) {
     return this.reviews.moderateReview(id, body.action, undefined, body.note);
+  }
+
+  @Get('reviews')
+  listReviews(@Query('status') status?: string) {
+    return this.reviews.listAdminReviews(status);
+  }
+
+  @Delete('reviews/media/:mediaId')
+  deleteReviewMedia(@Param('mediaId') mediaId: string) {
+    return this.reviews.deleteReviewMedia(mediaId);
   }
 }

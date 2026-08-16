@@ -120,7 +120,19 @@ export class CompanyEmailService {
         reviewPreview: review.body.slice(0, 160),
         reviewUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#recenze`,
         claimUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#prevzit-profil`,
+        mediaSummary: await this.reviewMediaSummary(reviewId),
       },
     });
+  }
+
+  private async reviewMediaSummary(reviewId: string): Promise<string> {
+    const media = await this.prisma.companyReviewMedia.findMany({ where: { reviewId } });
+    const images = media.filter((m) => m.type === 'IMAGE').length;
+    const videos = media.filter((m) => m.type === 'VIDEO').length;
+    if (images === 0 && videos === 0) return '';
+    const parts: string[] = [];
+    if (images > 0) parts.push(`${images} fotografií`);
+    if (videos > 0) parts.push(`${videos} videí`);
+    return `Recenze obsahuje ${parts.join(' a ')}.`;
   }
 }
