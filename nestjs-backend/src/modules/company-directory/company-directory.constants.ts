@@ -99,6 +99,11 @@ export const GOOGLE_ENRICHMENT_DELAY_MS = Math.max(
   Number(process.env.GOOGLE_ENRICHMENT_DELAY_MS ?? 2000) || 2000,
 );
 
+export const CONTACT_DISCOVERY_CONCURRENCY = Math.max(
+  1,
+  Math.min(3, Number(process.env.CONTACT_DISCOVERY_CONCURRENCY ?? 1) || 1),
+);
+
 export const CONTACT_DISCOVERY_BATCH_SIZE = Math.max(
   1,
   Math.min(10, Number(process.env.CONTACT_DISCOVERY_BATCH_SIZE ?? 1) || 1),

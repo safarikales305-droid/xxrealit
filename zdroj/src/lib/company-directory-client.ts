@@ -186,7 +186,14 @@ export type ImportJobView = {
   currentBatchTo?: number | null;
   subQueryIndex?: number | null;
   subQueryCount?: number | null;
+  currentPartitionLabel?: string | null;
+  regionsCompleted?: number | null;
+  regionsTotal?: number | null;
+  rawResults?: number | null;
+  duplicatesSkipped?: number | null;
+  importPhase?: string | null;
   importLimit?: number | null;
+  needsResplit?: boolean;
 };
 
 export type AdminCompanyRow = CompanyDirectoryCard & {
@@ -197,6 +204,7 @@ export type AdminCompanyRow = CompanyDirectoryCard & {
   xxrealitReviewCount?: number | null;
   aresLastSyncAt?: string | null;
   updatedAt?: string;
+  contactDiscoveryState?: string | null;
 };
 
 const CATEGORY_LABELS: Record<CompanyDirectoryCategoryKey, string> = {
@@ -328,7 +336,7 @@ export async function nestAdminCompanyImportJobs(
 export async function nestAdminCompanyImportAction(
   token: string,
   jobId: string,
-  action: 'pause' | 'resume' | 'stop',
+  action: 'pause' | 'resume' | 'stop' | 'resplit',
 ): Promise<Record<string, unknown> | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(
@@ -487,6 +495,66 @@ export async function nestAdminRejectContact(
   return adminFetch(token, `/contacts/${encodeURIComponent(contactId)}/reject`, {
     method: 'PATCH',
   });
+}
+
+export async function nestAdminStartContactDiscoveryBatch(
+  token: string,
+  body: {
+    companyIds?: string[];
+    limit?: number;
+    label?: string;
+    force?: boolean;
+    filter?: { category?: string; region?: string; city?: string; q?: string };
+  },
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, '/contact/batches/start', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminListContactDiscoveryBatches(
+  token: string,
+): Promise<Array<Record<string, unknown>> | null> {
+  return adminFetch(token, '/contact/batches');
+}
+
+export async function nestAdminGetContactDiscoveryBatch(
+  token: string,
+  batchId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/contact/batches/${encodeURIComponent(batchId)}`);
+}
+
+export async function nestAdminContactDiscoveryBatchAction(
+  token: string,
+  batchId: string,
+  action: 'pause' | 'resume' | 'stop',
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/contact/batches/${encodeURIComponent(batchId)}/${action}`, {
+    method: 'POST',
+  });
+}
+
+export function contactDiscoveryStateLabel(state: string | null | undefined): string {
+  switch (state) {
+    case 'QUEUED':
+      return 'Ve frontě';
+    case 'SEARCHING':
+      return 'Hledám';
+    case 'FOUND':
+      return 'Nalezeno';
+    case 'REVIEW_REQUIRED':
+      return 'Ke kontrole';
+    case 'VERIFIED':
+      return 'Ověřeno';
+    case 'NOT_FOUND':
+      return 'Nenalezeno';
+    case 'FAILED':
+      return 'Chyba';
+    default:
+      return 'Nehledáno';
+  }
 }
 
 export async function nestAdminStartCampaign(

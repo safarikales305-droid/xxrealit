@@ -3,11 +3,19 @@ import assert from 'node:assert/strict';
 import { CompanyDirectoryCategory } from '@prisma/client';
 import {
   buildAresSearchFilter,
+  buildInitialPartitions,
   isPragueLocation,
+  isWholeCountryRegion,
   splitAresSearchFilter,
 } from './ares-import-split.util';
 
 describe('ares-import-split', () => {
+  it('detects whole country region', () => {
+    assert.equal(isWholeCountryRegion('Celá ČR'), true);
+    assert.equal(isWholeCountryRegion('čr'), true);
+    assert.equal(isWholeCountryRegion('Pardubický kraj'), false);
+  });
+
   it('detects Prague location', () => {
     assert.equal(isPragueLocation('Praha', null), true);
     assert.equal(isPragueLocation('praha', 'Hlavní město Praha'), true);
@@ -37,5 +45,22 @@ describe('ares-import-split', () => {
     });
     assert.equal(filter.sidlo?.kodKraje, 94);
     assert.ok(filter.czNace?.includes('41'));
+    assert.equal(filter.sidlo?.textovaAdresa, undefined);
+  });
+
+  it('whole country creates region partitions with category preserved', () => {
+    const base = buildAresSearchFilter({
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      region: 'Celá ČR',
+    });
+    const parts = buildInitialPartitions(base, {
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      region: 'Celá ČR',
+      wholeCountry: true,
+    });
+    assert.ok(parts.length >= 14 * 3, `expected >=42 partitions, got ${parts.length}`);
+    assert.ok(parts.every((p) => p.filter.czNace?.length === 1));
+    assert.ok(parts.every((p) => p.filter.sidlo?.kodKraje != null || p.filter.sidlo?.nazevObce?.startsWith('Praha')));
+    assert.equal(parts.some((p) => p.filter.sidlo?.textovaAdresa === 'čr'), false);
   });
 });

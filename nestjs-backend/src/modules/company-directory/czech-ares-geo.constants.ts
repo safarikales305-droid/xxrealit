@@ -1,0 +1,38 @@
+/** Okresy podle kódu kraje (ARES sidlo.kodKraje). */
+export const OKRES_NAMES_BY_KRAJ_CODE: Record<number, string[]> = {
+  19: [], // Praha — řeší se městskými částmi
+  27: [
+    'Benešov',
+    'Beroun',
+    'Kladno',
+    'Kolín',
+    'Kutná Hora',
+    'Mělník',
+    'Mladá Boleslav',
+    'Nymburk',
+    'Praha-východ',
+    'Praha-západ',
+    'Příbram',
+    'Rakovník',
+  ],
+  35: [
+    'České Budějovice',
+    'Český Krumlov',
+    'Jindřichův Hradec',
+    'Písek',
+    'Prachatice',
+    'Strakonice',
+    'Tábor',
+  ],
+  43: ['Domažlice', 'Klatovy', 'Plzeň-jih', 'Plzeň-město', 'Plzeň-sever', 'Rokycany', 'Tachov'],
+  51: ['Cheb', 'Karlovy Vary', 'Sokolov'],
+  60: ['Děčín', 'Chomutov', 'Litoměřice', 'Louny', 'Most', 'Teplice', 'Ústí nad Labem'],
+  78: ['Česká Lípa', 'Jablonec nad Nisou', 'Liberec', 'Semily'],
+  86: ['Hradec Králové', 'Jičín', 'Náchod', 'Rychnov nad Kněžnou', 'Trutnov'],
+  94: ['Chrudim', 'Pardubice', 'Svitavy', 'Ústí nad Orlicí'],
+  108: ['Havlíčkův Brod', 'Jihlava', 'Pelhřimov', 'Třebíč', 'Žďár nad Sázavou'],
+  116: ['Blansko', 'Brno-město', 'Brno-venkov', 'Břeclav', 'Hodonín', 'Vyškov', 'Znojmo'],
+  124: ['Jeseník', 'Olomouc', 'Prostějov', 'Přerov', 'Šumperk'],
+  132: ['Kroměříž', 'Uherské Hradiště', 'Vsetín', 'Zlín'],
+  141: ['Bruntál', 'Frýdek-Místek', 'Karviná', 'Nový Jičín', 'Opava', 'Ostrava-město'],
+};

@@ -136,6 +136,11 @@ export class CompanyDirectoryAdminController {
     return this.importService.stopJob(id);
   }
 
+  @Post('import/jobs/:id/resplit')
+  resplitImport(@Param('id') id: string) {
+    return this.importService.resumeWithResplit(id);
+  }
+
   @Get('google/jobs')
   listGoogleJobs() {
     return this.google.listJobs();
@@ -218,13 +223,42 @@ export class CompanyDirectoryAdminController {
   }
 
   @Post('contact/batches/start')
-  startContactBatch(@Body() body: { companyIds?: string[]; limit?: number }) {
+  startContactBatch(
+    @Body()
+    body: {
+      companyIds?: string[];
+      limit?: number;
+      label?: string;
+      force?: boolean;
+      filter?: { category?: CompanyDirectoryCategory; region?: string; city?: string; q?: string };
+    },
+  ) {
     return this.contactDiscovery.startBatch(body);
   }
 
   @Get('contact/batches')
   listContactBatches() {
     return this.contactDiscovery.listBatches();
+  }
+
+  @Get('contact/batches/:id')
+  getContactBatch(@Param('id') id: string) {
+    return this.contactDiscovery.getBatch(id);
+  }
+
+  @Post('contact/batches/:id/pause')
+  pauseContactBatch(@Param('id') id: string) {
+    return this.contactDiscovery.pauseBatch(id);
+  }
+
+  @Post('contact/batches/:id/resume')
+  resumeContactBatch(@Param('id') id: string) {
+    return this.contactDiscovery.resumeBatch(id);
+  }
+
+  @Post('contact/batches/:id/stop')
+  stopContactBatch(@Param('id') id: string) {
+    return this.contactDiscovery.stopBatch(id);
   }
 
   @Patch('contacts/:id/confirm')

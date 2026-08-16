@@ -21,6 +21,7 @@ import { CompanyLeadService, CompanyEngagementFacadeService } from './company-le
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
 import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
+import { AresQueryPartitionService } from './ares-query-partition.service';
 
 @Module({
   imports: [BrokersModule, EmailsModule, SocialModule],
@@ -41,6 +42,7 @@ import { GooglePlacesReputationProvider } from './google-places-reputation.provi
     CompanyLeadService,
     CompanyEngagementFacadeService,
     PublicProfileDirectoryService,
+    AresQueryPartitionService,
     GooglePlacesReputationProvider,
     {
       provide: COMPANY_REPUTATION_PROVIDER,

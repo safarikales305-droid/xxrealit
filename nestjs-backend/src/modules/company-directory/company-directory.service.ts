@@ -207,6 +207,7 @@ export class CompanyDirectoryService {
         aresLastSyncAt: row.aresLastSyncAt?.toISOString() ?? null,
         updatedAt: row.updatedAt.toISOString(),
         contactCount: row._count.contacts,
+        contactDiscoveryState: row.contactDiscoveryState,
       })),
       total,
       page,

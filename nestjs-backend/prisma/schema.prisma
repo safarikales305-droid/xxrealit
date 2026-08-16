@@ -6371,11 +6371,13 @@ enum CompanyEmailLogStatus {
 
 enum CompanyContactDiscoveryEntryState {
   NOT_SEARCHED
+  QUEUED
   SEARCHING
   FOUND
   REVIEW_REQUIRED
   VERIFIED
   NOT_FOUND
+  FAILED
 }
 
 enum CompanyEngagementEventType {
@@ -6638,17 +6640,23 @@ model CompanyContactDiscoveryJob {
   batch   CompanyContactDiscoveryBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   website         String?
+  email           String?
+  sourceUrl       String?
   candidateEmails String[] @default([])
   sourceUrls      String[] @default([])
   confidence      Float?
+  error           String? @db.Text
+  attempts        Int @default(0)
 
   status CompanyContactDiscoveryStatus @default(PENDING)
 
+  startedAt  DateTime?
+  finishedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
-  @@index([batchId])
+  @@index([batchId, status])
 }
 
 model CompanyImportItem {
@@ -6748,22 +6756,27 @@ model CompanyContactDiscoveryBatch {
   id     String @id @default(cuid())
   status CompanyProviderJobStatus @default(PENDING)
 
-  processed     Int @default(0)
-  found         Int @default(0)
-  notFound      Int @default(0)
-  needsReview   Int @default(0)
-  failed        Int @default(0)
-  totalExpected Int?
+  label            String?
+  processed        Int @default(0)
+  found            Int @default(0)
+  notFound         Int @default(0)
+  needsReview      Int @default(0)
+  failed           Int @default(0)
+  queued           Int @default(0)
+  totalExpected    Int?
+  currentCompanyName String?
 
-  batchSize Int?
-  delayMs   Int?
+  batchSize  Int?
+  delayMs    Int?
   lastCursor Int @default(0)
   companyIds String[] @default([])
+  filterJson Json?
 
   startedAt      DateTime?
   finishedAt     DateTime?
   lastActivityAt DateTime?
   error          String? @db.Text
+  createdByUserId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

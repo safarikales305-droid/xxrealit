@@ -24,12 +24,14 @@ import {
 import {
   buildAresSearchFilter,
   computeAggregateTotal,
+  createEmptySearchCheckpoint,
+  buildInitialPartitions,
   isAresTooManyResultsError,
-  isPragueLocation,
+  isWholeCountryRegion,
   parseSearchCheckpoint,
-  splitAresSearchFilter,
   type AresSearchCheckpoint,
 } from './ares-import-split.util';
+import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { computeJobProgress } from './company-job-progress.util';
 
@@ -55,6 +57,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ares: AresService,
+    private readonly partitionService: AresQueryPartitionService,
   ) {}
 
   onModuleInit(): void {
@@ -79,9 +82,16 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     }
 
     const importMode = input.importMode ?? (input.icoList?.length ? 'ICO_LIST' : 'SEARCH');
-    if (importMode === 'SEARCH' && !input.city?.trim() && !input.region?.trim() && !input.district?.trim()) {
+    const wholeCountry = isWholeCountryRegion(input.region);
+    if (
+      importMode === 'SEARCH' &&
+      !wholeCountry &&
+      !input.city?.trim() &&
+      !input.region?.trim() &&
+      !input.district?.trim()
+    ) {
       throw new BadRequestException(
-        'Pro vyhledávací import zadejte alespoň kraj, okres nebo město.',
+        'Pro vyhledávací import zadejte Celá ČR, kraj, okres nebo město.',
       );
     }
     const searchFilter = this.buildSearchFilter(input);
@@ -91,46 +101,30 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         : null;
 
     const baseFilter = searchFilter as AresSearchFilter;
-    const needsSplit =
-      importMode === 'SEARCH' &&
-      (isPragueLocation(input.city, input.region) ||
-        input.city?.trim().toLowerCase() === 'praha');
+    const partitionCtx = {
+      category: input.category ?? null,
+      region: wholeCountry ? 'Celá ČR' : input.region ?? null,
+      district: input.district ?? null,
+      city: input.city ?? null,
+      wholeCountry,
+    };
 
-    const initialCheckpoint: Prisma.InputJsonValue | undefined =
-      needsSplit && importMode === 'SEARCH'
-        ? ({
-            mode: 'SEARCH',
-            subQueries: splitAresSearchFilter(baseFilter, input),
-            subQueryIndex: 0,
-            subQueryStart: 0,
-            subQueryTotals: [],
-            aggregateTotal: null,
-            importLimit,
-            currentCompanyName: null,
-            currentBatchFrom: null,
-            currentBatchTo: null,
-            stopped: false,
-          } satisfies AresSearchCheckpoint)
-        : importLimit != null
-          ? ({
-              mode: 'SEARCH',
-              subQueries: [],
-              subQueryIndex: 0,
-              subQueryStart: 0,
-              subQueryTotals: [],
-              aggregateTotal: null,
-              importLimit,
-              currentCompanyName: null,
-              currentBatchFrom: null,
-              currentBatchTo: null,
-              stopped: false,
-            } satisfies AresSearchCheckpoint)
-          : undefined;
+    let initialCheckpoint: Prisma.InputJsonValue | undefined;
+    if (importMode === 'SEARCH') {
+      const parts = buildInitialPartitions(baseFilter, partitionCtx);
+      const checkpoint = createEmptySearchCheckpoint(importLimit);
+      checkpoint.phase = parts.length > 1 ? 'PARTITIONING' : 'RUNNING';
+      checkpoint.subQueries = parts.map((p) => p.filter);
+      checkpoint.subQueryLabels = parts.map((p) => p.label);
+      checkpoint.subQueryDepths = parts.map((p) => p.depth);
+      checkpoint.regionsTotal = wholeCountry ? 14 : null;
+      initialCheckpoint = checkpoint as unknown as Prisma.InputJsonValue;
+    }
 
     return this.prisma.companyImportJob.create({
       data: {
         category: input.category ?? null,
-        region: input.region?.trim() || null,
+        region: wholeCountry ? 'Celá ČR' : input.region?.trim() || null,
         district: input.district?.trim() || null,
         city: input.city?.trim() || null,
         batchSize: input.batchSize ?? undefined,
@@ -166,7 +160,43 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     }
     return this.prisma.companyImportJob.update({
       where: { id: jobId },
-      data: { status: CompanyImportJobStatus.PENDING },
+      data: { status: CompanyImportJobStatus.PENDING, error: null },
+    });
+  }
+
+  /** Obnoví failed job s automatickým re-partition (TOO_MANY_RESULTS). */
+  async resumeWithResplit(jobId: string) {
+    const job = await this.getJobOrThrow(jobId);
+    if (job.status !== CompanyImportJobStatus.FAILED) {
+      throw new BadRequestException('Re-partition je dostupný jen pro FAILED job.');
+    }
+    const checkpoint = parseSearchCheckpoint(job.checkpoint) ?? createEmptySearchCheckpoint(null);
+    const baseFilter = (job.searchFilter ?? this.buildSearchFilter(job)) as AresSearchFilter;
+    const wholeCountry = isWholeCountryRegion(job.region);
+    const parts = buildInitialPartitions(baseFilter, {
+      category: job.category,
+      region: job.region,
+      district: job.district,
+      city: job.city,
+      wholeCountry,
+    });
+    checkpoint.subQueries = parts.map((p) => p.filter);
+    checkpoint.subQueryLabels = parts.map((p) => p.label);
+    checkpoint.subQueryDepths = parts.map((p) => p.depth);
+    checkpoint.subQueryIndex = 0;
+    checkpoint.subQueryStart = 0;
+    checkpoint.needsResplit = false;
+    checkpoint.phase = 'PARTITIONING';
+    checkpoint.stopped = false;
+
+    return this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        status: CompanyImportJobStatus.PENDING,
+        error: null,
+        finishedAt: null,
+        checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+      },
     });
   }
 
@@ -340,34 +370,84 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       const baseFilter = (job.searchFilter ?? this.buildSearchFilter(job)) as AresSearchFilter;
       const pocet = batchSize;
-      let checkpoint = parseSearchCheckpoint(job.checkpoint) ?? {
-        mode: 'SEARCH' as const,
-        subQueries: [] as AresSearchFilter[],
-        subQueryIndex: 0,
-        subQueryStart: job.lastCursor,
-        subQueryTotals: [] as number[],
-        aggregateTotal: job.totalExpected,
-        importLimit: null,
-        currentCompanyName: null,
-        currentBatchFrom: null,
-        currentBatchTo: null,
-        stopped: false,
-      };
+      const partitionCtx = this.partitionService.buildContext(job);
+      partitionCtx.wholeCountry = isWholeCountryRegion(job.region);
+
+      let checkpoint =
+        parseSearchCheckpoint(job.checkpoint) ?? createEmptySearchCheckpoint(null);
+      checkpoint.subQueryStart = checkpoint.subQueryStart || job.lastCursor;
+
+      if (checkpoint.subQueries.length === 0) {
+        const parts = buildInitialPartitions(baseFilter, partitionCtx);
+        checkpoint.subQueries = parts.map((p) => p.filter);
+        checkpoint.subQueryLabels = parts.map((p) => p.label);
+        checkpoint.subQueryDepths = parts.map((p) => p.depth);
+        checkpoint.regionsTotal = partitionCtx.wholeCountry ? 14 : checkpoint.regionsTotal;
+        checkpoint.phase = parts.length > 1 ? 'PARTITIONING' : 'RUNNING';
+      }
 
       if (checkpoint.stopped) return;
 
-      let activeFilter = baseFilter;
-      let start = checkpoint.subQueryStart || job.lastCursor;
+      const idx = Math.min(checkpoint.subQueryIndex, Math.max(0, checkpoint.subQueries.length - 1));
+      let activeFilter = checkpoint.subQueries[idx] ?? baseFilter;
+      let start = checkpoint.subQueryStart;
+      const partitionLabel =
+        checkpoint.subQueryLabels[idx] ??
+        `partition-${idx + 1}/${checkpoint.subQueries.length}`;
+      checkpoint.currentPartitionLabel = partitionLabel;
+      checkpoint.phase = 'RUNNING';
 
-      if (checkpoint.subQueries.length > 0) {
-        const idx = Math.min(checkpoint.subQueryIndex, checkpoint.subQueries.length - 1);
-        activeFilter = checkpoint.subQueries[idx] ?? baseFilter;
-        start = checkpoint.subQueryStart;
+      const partitionDepth = checkpoint.subQueryDepths[idx] ?? 0;
+
+      if (checkpoint.subQueryTotals[idx] == null && requests < maxRequests) {
+        requests += 1;
+        try {
+          const countResult = await this.partitionService.countPartition(activeFilter, partitionCtx, {
+            partitionId: `${jobId}:${idx}`,
+            partitionLabel,
+          });
+          checkpoint.subQueryTotals[idx] = countResult.total ?? 0;
+          if (this.partitionService.needsFurtherSplit(countResult.total)) {
+            const children = this.partitionService.furtherPartitions(
+              activeFilter,
+              partitionCtx,
+              partitionDepth,
+            );
+            if (children.length > 0) {
+              await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+              return;
+            }
+            this.log.warn(
+              `Import ${jobId}: partition ${partitionLabel} NEEDS_FURTHER_SPLIT (total=${countResult.total})`,
+            );
+          }
+        } catch (err) {
+          if (isAresTooManyResultsError(err)) {
+            const children = this.partitionService.furtherPartitions(
+              activeFilter,
+              partitionCtx,
+              partitionDepth,
+            );
+            if (children.length > 0) {
+              await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+              return;
+            }
+          }
+          throw err;
+        }
       }
 
-      if (requests >= maxRequests) return;
+      if (requests >= maxRequests) {
+        await this.persistCheckpoint(jobId, job, checkpoint);
+        return;
+      }
 
       requests += 1;
+      this.partitionService.logPartitionRequest('FETCH', activeFilter, partitionCtx, {
+        partitionId: `${jobId}:${idx}`,
+        partitionLabel,
+      }, { page: start, limit: pocet });
+
       let response;
       try {
         response = await this.ares.searchCompanies({
@@ -376,60 +456,37 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           pocet,
         });
       } catch (err) {
-        if (isAresTooManyResultsError(err) && checkpoint.subQueries.length === 0) {
-          const subQueries = splitAresSearchFilter(baseFilter, job);
-          checkpoint = {
-            ...checkpoint,
-            subQueries,
-            subQueryIndex: 0,
-            subQueryStart: 0,
-          };
-          await this.prisma.companyImportJob.update({
-            where: { id: jobId },
-            data: {
-              checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
-              error: null,
-              lastActivityAt: new Date(),
-            },
-          });
-          this.log.warn(
-            `Import ${jobId}: dotaz rozdělen na ${subQueries.length} poddotazů (ARES >1000).`,
+        if (isAresTooManyResultsError(err)) {
+          const children = this.partitionService.furtherPartitions(
+            activeFilter,
+            partitionCtx,
+            partitionDepth,
           );
-          return;
+          if (children.length > 0) {
+            await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+            return;
+          }
         }
         throw err;
       }
 
       const subjects = response.ekonomickeSubjekty ?? [];
-      const subTotal = response.pocetCelkem ?? null;
+      const subTotal = response.pocetCelkem ?? checkpoint.subQueryTotals[idx] ?? null;
 
-      if (
-        subTotal != null &&
-        subTotal > 1000 &&
-        checkpoint.subQueries.length === 0
-      ) {
-        const subQueries = splitAresSearchFilter(baseFilter, job);
-        checkpoint = {
-          ...checkpoint,
-          subQueries,
-          subQueryIndex: 0,
-          subQueryStart: 0,
-        };
-        await this.prisma.companyImportJob.update({
-          where: { id: jobId },
-          data: {
-            checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
-            error: null,
-          },
-        });
-        this.log.warn(
-          `Import ${jobId}: ${subTotal} výsledků – rozděleno na ${subQueries.length} poddotazů.`,
+      if (subTotal != null && subTotal > 1000) {
+        const children = this.partitionService.furtherPartitions(
+          activeFilter,
+          partitionCtx,
+          partitionDepth,
         );
-        return;
+        if (children.length > 0) {
+          await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+          return;
+        }
       }
 
-      if (checkpoint.subQueries.length > 0 && subTotal != null) {
-        checkpoint.subQueryTotals[checkpoint.subQueryIndex] = subTotal;
+      if (subTotal != null) {
+        checkpoint.subQueryTotals[idx] = subTotal;
         checkpoint.aggregateTotal = computeAggregateTotal(
           checkpoint.subQueryTotals,
           checkpoint.importLimit,
@@ -451,12 +508,15 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       let processed = job.processed;
       let lastIco = job.lastIco;
       let currentCompanyName: string | null = null;
+      let rawResults = checkpoint.rawResults;
+      let duplicatesSkipped = checkpoint.duplicatesSkipped;
 
       const importLimit = checkpoint.importLimit;
 
       for (const subject of subjects) {
         if (importLimit != null && processed >= importLimit) break;
 
+        rawResults += 1;
         const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
         const dupInJob = await this.prisma.companyImportItem.findFirst({
           where: {
@@ -467,6 +527,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         });
         if (dupInJob) {
           skipped += 1;
+          duplicatesSkipped += 1;
           continue;
         }
 
@@ -505,11 +566,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         await this.sleep(Math.min(300, delayMs));
       }
 
+      const partitionTotal = subTotal ?? checkpoint.subQueryTotals[idx] ?? null;
       const nextStart = start + subjects.length;
       const subQueryExhausted =
         subjects.length === 0 ||
         subjects.length < pocet ||
-        (subTotal != null && nextStart >= Math.min(subTotal, 1000));
+        (partitionTotal != null && nextStart >= Math.min(partitionTotal, 1000));
 
       let nextSubQueryIndex = checkpoint.subQueryIndex;
       let nextSubQueryStart = nextStart;
@@ -517,6 +579,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       if (subQueryExhausted && checkpoint.subQueries.length > 0) {
         nextSubQueryIndex += 1;
         nextSubQueryStart = 0;
+        if (partitionCtx.wholeCountry) {
+          checkpoint.regionsCompleted = Math.min(
+            checkpoint.regionsTotal ?? 14,
+            checkpoint.regionsCompleted + 1,
+          );
+        }
       }
 
       const allSubQueriesDone =
@@ -531,6 +599,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         subQueryIndex: nextSubQueryIndex,
         subQueryStart: nextSubQueryStart,
         currentCompanyName,
+        rawResults,
+        duplicatesSkipped,
         currentBatchFrom: processed > 0 ? processed - subjects.length + 1 : null,
         currentBatchTo: processed > 0 ? processed : null,
         aggregateTotal: totalExpected,
@@ -693,19 +763,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     raw: Prisma.JsonValue | null | undefined,
     patch: Partial<AresSearchCheckpoint>,
   ): Prisma.InputJsonValue {
-    const current = parseSearchCheckpoint(raw) ?? {
-      mode: 'SEARCH' as const,
-      subQueries: [],
-      subQueryIndex: 0,
-      subQueryStart: 0,
-      subQueryTotals: [],
-      aggregateTotal: null,
-      importLimit: null,
-      currentCompanyName: null,
-      currentBatchFrom: null,
-      currentBatchTo: null,
-      stopped: false,
-    };
+    const current = parseSearchCheckpoint(raw) ?? createEmptySearchCheckpoint(null);
     return { ...current, ...patch } as unknown as Prisma.InputJsonValue;
   }
 
@@ -769,11 +827,15 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     checkpoint?: Prisma.JsonValue | null;
   }) {
     const checkpoint = parseSearchCheckpoint(job.checkpoint);
+    const isComplete = job.status === CompanyImportJobStatus.COMPLETED;
+    const progress = computeJobProgress(job.processed, job.totalExpected, job.startedAt);
+    const progressPercent = isComplete
+      ? progress.percentage
+      : Math.min(99, progress.percentage);
     const displayStatus =
       checkpoint?.stopped && job.status === CompanyImportJobStatus.PAUSED
         ? 'STOPPED'
         : job.status;
-    const progress = computeJobProgress(job.processed, job.totalExpected, job.startedAt);
     return {
       id: job.id,
       source: job.source,
@@ -793,7 +855,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       totalFound: job.totalExpected,
       progress,
       progressLabel: progress.label,
-      progressPercent: progress.percentage,
+      progressPercent,
       etaSeconds: progress.etaSeconds,
       requestsCount: job.requestsCount ?? 0,
       lastActivityAt: job.lastActivityAt?.toISOString() ?? null,
@@ -808,12 +870,79 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
       currentCompanyName: checkpoint?.currentCompanyName ?? null,
+      currentPartitionLabel: checkpoint?.currentPartitionLabel ?? null,
       currentBatchFrom: checkpoint?.currentBatchFrom ?? null,
       currentBatchTo: checkpoint?.currentBatchTo ?? null,
       subQueryIndex: checkpoint?.subQueryIndex ?? null,
       subQueryCount: checkpoint?.subQueries?.length ?? null,
+      regionsCompleted: checkpoint?.regionsCompleted ?? null,
+      regionsTotal: checkpoint?.regionsTotal ?? null,
+      rawResults: checkpoint?.rawResults ?? null,
+      duplicatesSkipped: checkpoint?.duplicatesSkipped ?? null,
+      importPhase: checkpoint?.phase ?? null,
       importLimit: checkpoint?.importLimit ?? null,
+      needsResplit: checkpoint?.needsResplit ?? false,
     };
+  }
+
+  private async replacePartitionAtIndex(
+    jobId: string,
+    checkpoint: AresSearchCheckpoint,
+    index: number,
+    children: Array<{ filter: AresSearchFilter; label: string; depth: number }>,
+  ) {
+    const before = checkpoint.subQueries.slice(0, index);
+    const beforeLabels = checkpoint.subQueryLabels.slice(0, index);
+    const beforeDepths = checkpoint.subQueryDepths.slice(0, index);
+    const after = checkpoint.subQueries.slice(index + 1);
+    const afterLabels = checkpoint.subQueryLabels.slice(index + 1);
+    const afterDepths = checkpoint.subQueryDepths.slice(index + 1);
+
+    checkpoint.subQueries = [
+      ...before,
+      ...children.map((c) => c.filter),
+      ...after,
+    ];
+    checkpoint.subQueryLabels = [
+      ...beforeLabels,
+      ...children.map((c) => c.label),
+      ...afterLabels,
+    ];
+    checkpoint.subQueryDepths = [
+      ...beforeDepths,
+      ...children.map((c) => c.depth),
+      ...afterDepths,
+    ];
+    checkpoint.subQueryStart = 0;
+    checkpoint.phase = 'PARTITIONING';
+
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+        error: null,
+        lastActivityAt: new Date(),
+      },
+    });
+    this.log.warn(
+      `Import ${jobId}: partition ${index + 1} rozdělen na ${children.length} poddotazů (celkem ${checkpoint.subQueries.length}).`,
+    );
+  }
+
+  private async persistCheckpoint(
+    jobId: string,
+    job: { requestsCount?: number },
+    checkpoint: AresSearchCheckpoint,
+  ) {
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+        lastActivityAt: new Date(),
+        heartbeatAt: new Date(),
+        status: CompanyImportJobStatus.PENDING,
+      },
+    });
   }
 
   private sleep(ms: number) {

@@ -19,6 +19,9 @@ import {
   nestAdminGetContactDetail,
   nestAdminConfirmContact,
   nestAdminRejectContact,
+  nestAdminStartContactDiscoveryBatch,
+  nestAdminListContactDiscoveryBatches,
+  contactDiscoveryStateLabel,
   nestAdminStartCampaign,
   nestAdminGetCampaign,
   nestAdminCampaignAction,
@@ -80,6 +83,8 @@ export default function AdminFirmyPage() {
   const [campaignModal, setCampaignModal] = useState<{ companyId: string; name: string } | null>(null);
   const [campaignDetail, setCampaignDetail] = useState<CampaignDetail | null>(null);
   const [engagementStats, setEngagementStats] = useState<Record<string, number> | null>(null);
+  const [contactBatches, setContactBatches] = useState<Array<Record<string, unknown>>>([]);
+  const [discoveringContact, setDiscoveringContact] = useState(false);
 
   const [companyQuery, setCompanyQuery] = useState({
     q: '',
@@ -94,12 +99,11 @@ export default function AdminFirmyPage() {
 
   const [form, setForm] = useState({
     category: 'STAVEBNICTVI',
-    region: 'Hlavní město Praha',
-    city: 'Praha',
-    query: 'praha',
-    limit: 500,
-    batchSize: 10,
-    delayMs: 1500,
+    region: 'Celá ČR',
+    city: '',
+    limit: 1500,
+    batchSize: 100,
+    delayMs: 500,
     importMode: 'SEARCH' as 'ICO_LIST' | 'SEARCH',
     icoList: '05754194\n00006947',
   });
@@ -163,11 +167,28 @@ export default function AdminFirmyPage() {
     }
   }, [tab, refreshCompanies, token]);
 
+  const refreshContactBatches = useCallback(async () => {
+    if (!token) return;
+    const rows = await nestAdminListContactDiscoveryBatches(token);
+    if (rows) setContactBatches(rows);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    void refreshContactBatches();
+    const id = setInterval(() => void refreshContactBatches(), 4000);
+    return () => clearInterval(id);
+  }, [token, refreshContactBatches]);
+
   useEffect(() => {
     if (!token || !contactModal) return;
-    void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
-      setContactDetail((d as ContactDetail) ?? null),
-    );
+    const load = () =>
+      void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+        setContactDetail((d as ContactDetail) ?? null),
+      );
+    load();
+    const id = setInterval(load, 2500);
+    return () => clearInterval(id);
   }, [token, contactModal]);
 
   useEffect(() => {
@@ -297,12 +318,27 @@ export default function AdminFirmyPage() {
                 <option value="ICO_LIST">Seznam IČO (test)</option>
                 <option value="SEARCH">Vyhledávání ARES</option>
               </select>
-              <input
+              <select
                 value={form.region}
                 onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
-                placeholder="Kraj"
                 className="rounded-lg border px-3 py-2 text-sm"
-              />
+              >
+                <option value="Celá ČR">Celá ČR</option>
+                <option value="Hlavní město Praha">Hlavní město Praha</option>
+                <option value="Středočeský kraj">Středočeský kraj</option>
+                <option value="Jihočeský kraj">Jihočeský kraj</option>
+                <option value="Plzeňský kraj">Plzeňský kraj</option>
+                <option value="Karlovarský kraj">Karlovarský kraj</option>
+                <option value="Ústecký kraj">Ústecký kraj</option>
+                <option value="Liberecký kraj">Liberecký kraj</option>
+                <option value="Královéhradecký kraj">Královéhradecký kraj</option>
+                <option value="Pardubický kraj">Pardubický kraj</option>
+                <option value="Vysočina">Vysočina</option>
+                <option value="Jihomoravský kraj">Jihomoravský kraj</option>
+                <option value="Olomoucký kraj">Olomoucký kraj</option>
+                <option value="Zlínský kraj">Zlínský kraj</option>
+                <option value="Moravskoslezský kraj">Moravskoslezský kraj</option>
+              </select>
               <input
                 value={form.city}
                 onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
@@ -313,14 +349,14 @@ export default function AdminFirmyPage() {
             type="number"
             value={form.limit}
             onChange={(e) => setForm((f) => ({ ...f, limit: Number(e.target.value) }))}
-            placeholder="Limit firem"
+            placeholder="Max. počet firem k importu"
             className="rounded-lg border px-3 py-2 text-sm"
           />
           <input
             type="number"
             value={form.batchSize}
                 onChange={(e) => setForm((f) => ({ ...f, batchSize: Number(e.target.value) }))}
-                placeholder="Batch size"
+                placeholder="Velikost dávky (ARES request)"
                 className="rounded-lg border px-3 py-2 text-sm"
               />
               <input
@@ -375,6 +411,19 @@ export default function AdminFirmyPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {job.status === 'FAILED' && isAresTooMany(job.error) ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void nestAdminCompanyImportAction(token, job.id, 'resplit').then(() =>
+                                refreshJobs(),
+                              )
+                            }
+                            className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-800"
+                          >
+                            Pokračovat s rozdělením
+                          </button>
+                        ) : null}
                         {(['pause', 'resume', 'stop'] as const).map((action) => (
                           <button
                             key={action}
@@ -434,6 +483,18 @@ export default function AdminFirmyPage() {
                           Aktuální firma: {job.currentCompanyName}
                         </>
                       ) : null}
+                      {job.currentPartitionLabel ? (
+                        <>
+                          <br />
+                          Partition: {job.currentPartitionLabel}
+                        </>
+                      ) : null}
+                      {job.regionsTotal != null ? (
+                        <>
+                          <br />
+                          Kraje: {job.regionsCompleted ?? 0} / {job.regionsTotal}
+                        </>
+                      ) : null}
                       {job.subQueryCount != null && job.subQueryCount > 0 ? (
                         <>
                           <br />
@@ -486,6 +547,50 @@ export default function AdminFirmyPage() {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
+              disabled={selectedCompanyIds.length === 0 || discoveringContact}
+              onClick={() => {
+                if (!token) return;
+                setDiscoveringContact(true);
+                void nestAdminStartContactDiscoveryBatch(token, {
+                  companyIds: selectedCompanyIds,
+                  label: `Vybrané firmy (${selectedCompanyIds.length})`,
+                })
+                  .then((r) => {
+                    setMsg(`Dohledání kontaktů zařazeno (${selectedCompanyIds.length} firem).`);
+                    void refreshContactBatches();
+                    return r;
+                  })
+                  .finally(() => setDiscoveringContact(false));
+              }}
+              className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              {discoveringContact ? 'Zařazuji…' : `Dohledat kontakty (${selectedCompanyIds.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!token) return;
+                if (!window.confirm('Zařadit všechny firmy z aktuálního filtru do fronty?')) return;
+                void nestAdminStartContactDiscoveryBatch(token, {
+                  filter: {
+                    category: companyQuery.category || undefined,
+                    region: companyQuery.region || undefined,
+                    city: companyQuery.q || undefined,
+                    q: companyQuery.q || undefined,
+                  },
+                  limit: 500,
+                  label: 'Filtr — dohledání kontaktů',
+                }).then(() => {
+                  setMsg('Firmy z filtru zařazeny do fronty.');
+                  void refreshContactBatches();
+                });
+              }}
+              className="rounded-lg border px-3 py-2 text-sm font-semibold"
+            >
+              Dohledat kontakty pro aktuální filtr
+            </button>
+            <button
+              type="button"
               disabled={selectedCompanyIds.length === 0}
               onClick={() =>
                 void nestAdminBulkStartCampaign(token, selectedCompanyIds).then((r) =>
@@ -519,7 +624,6 @@ export default function AdminFirmyPage() {
                       <input
                         type="checkbox"
                         checked={selectedCompanyIds.includes(row.id)}
-                        disabled={!row.verifiedBusinessEmail}
                         onChange={(e) =>
                           setSelectedCompanyIds((prev) =>
                             e.target.checked
@@ -542,7 +646,9 @@ export default function AdminFirmyPage() {
                         ? `${row.xxrealitRatingAverage?.toFixed(1) ?? '—'} (${row.xxrealitReviewCount})`
                         : '—'}
                     </td>
-                    <td className="py-2 pr-2 text-xs">{row.verifiedBusinessEmail ?? '—'}</td>
+                    <td className="py-2 pr-2 text-xs">
+                      {row.verifiedBusinessEmail ?? contactDiscoveryStateLabel(row.contactDiscoveryState)}
+                    </td>
                     <td className="py-2">
                       <div className="flex flex-col gap-1">
                         <Link href={`/firmy/${row.slug}`} className="text-xs text-orange-700 hover:underline">
@@ -600,6 +706,35 @@ export default function AdminFirmyPage() {
               </div>
             ))}
           </div>
+
+          <section className="mt-6 rounded-xl border bg-zinc-50 p-4">
+            <h3 className="text-sm font-semibold">Dohledávání kontaktů</h3>
+            {contactBatches.length === 0 ? (
+              <p className="mt-2 text-xs text-zinc-500">Zatím žádné běžící joby.</p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {contactBatches.map((batch) => (
+                  <div key={String(batch.id)} className="rounded-lg border bg-white p-3 text-sm">
+                    <p className="font-medium">{String(batch.label ?? batch.id)}</p>
+                    <p className="text-xs text-zinc-500">
+                      {String(batch.status)} · {String(batch.processed ?? 0)} /{' '}
+                      {String(batch.totalExpected ?? '—')} · Nalezeno: {String(batch.found ?? 0)} ·
+                      Fronta: {String(batch.queued ?? 0)}
+                    </p>
+                    <CompanyImportProgressBar
+                      title="AI dohledání kontaktů"
+                      status={String(batch.status)}
+                      percent={Number(batch.progressPercent ?? 0)}
+                      label={String(
+                        (batch.progress as { label?: string } | undefined)?.label ??
+                          `${batch.processed ?? 0} zpracováno`,
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </section>
       ) : null}
 
@@ -672,7 +807,7 @@ export default function AdminFirmyPage() {
               </button>
             </div>
             <p className="mt-3 text-sm">
-              Stav: <strong>{contactDetail?.state ?? '—'}</strong>
+              Stav: <strong>{contactDiscoveryStateLabel(contactDetail?.state)}</strong>
             </p>
             {contactDetail?.latestContact ? (
               <div className="mt-4 space-y-2 rounded-lg border p-3 text-sm">
@@ -915,4 +1050,10 @@ export default function AdminFirmyPage() {
       ) : null}
     </div>
   );
+}
+
+function isAresTooMany(error?: string | null): boolean {
+  if (!error) return false;
+  const msg = error.toLowerCase();
+  return msg.includes('příliš mnoho') || msg.includes('1000') || msg.includes('1 000');
 }
