@@ -18,8 +18,9 @@ import { CompanyEngagementEventService } from './company-engagement-event.servic
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { CompanyEmailQueueService } from './company-email-queue.service';
 import { CompanyLeadService, CompanyEngagementFacadeService } from './company-lead.service';
-import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
+import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
+import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
 
 @Module({
   imports: [BrokersModule, EmailsModule, SocialModule],
@@ -39,6 +40,7 @@ import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
     CompanyEmailQueueService,
     CompanyLeadService,
     CompanyEngagementFacadeService,
+    PublicProfileDirectoryService,
     GooglePlacesReputationProvider,
     {
       provide: COMPANY_REPUTATION_PROVIDER,

@@ -145,16 +145,22 @@ export function RightSidebar({ className = '' }: Props) {
         </div>
         <div className="mt-3 flex flex-col gap-2">
           <Link
-            href="/makleri"
+            href="/profesionalove"
             className="inline-flex justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-semibold text-white"
+          >
+            Všechny profily
+          </Link>
+          <Link
+            href="/profesionalove?filter=agents"
+            className="inline-flex justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:border-orange-300"
           >
             Profesionálové
           </Link>
           <Link
-            href="/firmy"
+            href="/profesionalove?filter=companies"
             className="inline-flex justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:border-orange-300"
           >
-            Registr firem
+            Firmy
           </Link>
         </div>
       </div>

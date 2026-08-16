@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInlineVideoPlayer';
@@ -95,7 +96,9 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
   );
 
   return (
-    <main className="min-h-[100dvh] bg-black px-0 py-0 text-white md:bg-[#fafafa] md:px-3 md:py-4 md:text-zinc-900">
+    <>
+      <PublicHeader activeSection="posts" />
+      <main className="min-h-[100dvh] bg-black px-0 py-0 text-white md:bg-[#fafafa] md:px-3 md:py-4 md:text-zinc-900">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-3 pt-3 md:px-0 md:pt-0">
         <button
           type="button"
@@ -231,6 +234,7 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
           </div>
         </article>
       ) : null}
-    </main>
+      </main>
+    </>
   );
 }

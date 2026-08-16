@@ -92,7 +92,9 @@ export function PortalProfilesCarousel({ category }: Props) {
 
   return (
     <section className="mb-4 rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm md:mb-6 md:p-5">
-      <h2 className="text-sm font-bold text-zinc-900 md:text-base">Profily na portálu</h2>
+      <h2 className="text-sm font-bold text-zinc-900 md:text-base">
+        Firmy a profesionálové na portálu
+      </h2>
       {profiles.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">V této kategorii zatím nejsou žádné veřejné profily.</p>
       ) : (
@@ -104,6 +106,12 @@ export function PortalProfilesCarousel({ category }: Props) {
           </div>
         </div>
       )}
+      <Link
+        href="/profesionalove"
+        className="mt-3 inline-block text-xs font-semibold text-orange-700 hover:underline"
+      >
+        Zobrazit všechny profily →
+      </Link>
     </section>
   );
 }

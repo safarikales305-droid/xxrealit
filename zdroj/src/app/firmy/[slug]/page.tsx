@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Building2, MapPin, Star } from 'lucide-react';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import {
   CompanyReviewMediaUpload,
   type ReviewMediaItem,
@@ -207,9 +208,10 @@ export default function FirmaDetailPage() {
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16">
+      <PublicHeader activeSection="profiles" />
       <div className="mx-auto max-w-3xl px-4 pt-8 sm:px-6">
-        <Link href="/firmy" className="text-sm font-semibold text-[#e85d00] hover:underline">
-          ← Registr firem
+        <Link href="/profesionalove" className="text-sm font-semibold text-[#e85d00] hover:underline">
+          ← Lidé a firmy
         </Link>
 
         <article className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">

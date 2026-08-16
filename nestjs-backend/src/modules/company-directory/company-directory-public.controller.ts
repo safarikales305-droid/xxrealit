@@ -6,6 +6,7 @@ import { CompanyClaimService } from './company-claim.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementFacadeService, CompanyLeadService } from './company-lead.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
+import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REVIEWS_ENABLED } from './company-directory.constants';
 import { CompanyEngagementEventType } from '@prisma/client';
 import type { Request } from 'express';
@@ -19,7 +20,18 @@ export class CompanyDirectoryPublicController {
     private readonly engagement: CompanyEngagementFacadeService,
     private readonly leads: CompanyLeadService,
     private readonly campaigns: CompanyEngagementCampaignService,
+    private readonly profileDirectory: PublicProfileDirectoryService,
   ) {}
+
+  @Get('public/directory')
+  listProfileDirectory(@Query() query: Record<string, string | undefined>) {
+    return this.profileDirectory.list(query);
+  }
+
+  @Get('public/directory/stats')
+  profileDirectoryStats() {
+    return this.profileDirectory.getStats();
+  }
 
   @Get('public')
   list(@Query() query: Record<string, string | undefined>) {

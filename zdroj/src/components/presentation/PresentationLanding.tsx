@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { SiteFooter } from '@/components/legal/SiteFooter';
 import { PortalTermsHtml } from '@/components/legal/PortalTermsHtml';
-import { PresentationHeader } from '@/components/presentation/PresentationHeader';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { PresentationSectionBlock } from '@/components/presentation/PresentationSection';
 import type { PortalPresentationPage } from '@/lib/portal-presentation';
 import type { OPortaluPublicPayload } from '@/lib/o-portalu-public';
@@ -91,10 +91,33 @@ export function PresentationLanding({ page, marketing }: Props) {
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] text-zinc-900">
-      <PresentationHeader navSections={navSections} onCtaClick={onCtaClick} />
+      <PublicHeader />
+
+      {navSections.length > 0 ? (
+        <nav
+          className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-40 border-b border-zinc-200 bg-white/95 backdrop-blur"
+          aria-label="Sekce stránky O portálu"
+        >
+          <div
+            className="no-scrollbar mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-2 sm:px-6"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {navSections.map((s) => (
+              <a
+                key={s.anchor}
+                href={`#${s.anchor}`}
+                className="shrink-0 whitespace-nowrap rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-orange-300 hover:bg-orange-50"
+              >
+                {s.icon ? `${s.icon} ` : ''}
+                {s.title}
+              </a>
+            ))}
+          </div>
+        </nav>
+      ) : null}
 
       <section
-        className="relative flex min-h-[100dvh] items-center overflow-hidden text-white pt-[calc(3.5rem+env(safe-area-inset-top))]"
+        className="relative flex min-h-[100dvh] items-center overflow-hidden text-white pt-[calc(1rem+env(safe-area-inset-top))]"
         style={heroStyle}
       >
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.12),transparent_45%)]" />

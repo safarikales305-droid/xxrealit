@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { FollowButton } from '@/components/profile/follow-button';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { PublicProfilePostsFeed, type PublicProfilePost } from '@/components/profile/PublicProfilePostsFeed';
 import { RecommendedListingsSidebar } from '@/components/profile/RecommendedListingsSidebar';
 import { UserPropertiesList } from '@/components/profile/user-properties-list';
@@ -227,22 +228,7 @@ export default async function ProfilePage({
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-zinc-900">
-      <header className="border-b border-zinc-200 bg-white px-4 py-4 md:px-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <Link
-            href="/"
-            className="text-sm font-semibold text-[#e85d00] hover:text-[#ff6a00]"
-          >
-            ← XXrealit
-          </Link>
-          <Link
-            href="/login"
-            className="text-sm text-zinc-600 hover:text-zinc-900"
-          >
-            Účet
-          </Link>
-        </div>
-      </header>
+      <PublicHeader activeSection="profiles" />
 
       <main className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">

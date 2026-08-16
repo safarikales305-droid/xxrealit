@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { Building2, MapPin, Search, Star } from 'lucide-react';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import {
   COMPANY_DIRECTORY_CATEGORIES,
   nestListCompanies,
@@ -56,15 +57,20 @@ export default function FirmyPage() {
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16 text-zinc-900">
-      <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur">
+      <PublicHeader activeSection="profiles" />
+      <div className="border-b border-zinc-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
-          <Link href="/" className="text-sm font-semibold text-[#e85d00] hover:underline">
-            ← Domů
-          </Link>
-          <h1 className="mt-3 text-2xl font-bold tracking-tight">Registr firem a profesionálů</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Veřejné firemní profily doplněné z rejstříku ARES.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Registr firem</h1>
+              <p className="mt-1 text-sm text-zinc-600">
+                Firemní profily z ARES.{' '}
+                <Link href="/profesionalove" className="font-semibold text-orange-700 hover:underline">
+                  Zobrazit všechny profily →
+                </Link>
+              </p>
+            </div>
+          </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <label className="relative block sm:col-span-2">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />

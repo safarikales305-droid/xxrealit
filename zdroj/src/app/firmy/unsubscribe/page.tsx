@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { nestCompanyUnsubscribe } from '@/lib/company-directory-client';
 
 export default function CompanyUnsubscribePage() {
@@ -27,7 +28,9 @@ export default function CompanyUnsubscribePage() {
   }, [token]);
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-16">
+    <div className="min-h-screen bg-zinc-50">
+      <PublicHeader activeSection="profiles" />
+      <div className="mx-auto max-w-lg px-4 py-16">
       <h1 className="text-2xl font-bold text-zinc-900">Odhlášení z emailů</h1>
       {status === 'loading' ? (
         <p className="mt-4 text-sm text-zinc-600">Zpracovávám…</p>
@@ -43,6 +46,7 @@ export default function CompanyUnsubscribePage() {
       <Link href="/" className="mt-6 inline-block text-sm font-semibold text-orange-700 hover:underline">
         ← Na úvod
       </Link>
+      </div>
     </div>
   );
 }

@@ -63,6 +63,74 @@ export type CompanyDirectoryListResponse = {
   pageSize: number;
 };
 
+export type PublicProfileDirectoryItem = {
+  type: 'USER' | 'COMPANY';
+  id: string;
+  slug: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  logoUrl: string | null;
+  category: string;
+  categoryLabel: string;
+  city: string | null;
+  region: string | null;
+  rating: number | null;
+  reviewCount: number | null;
+  verified: boolean;
+  claimed: boolean;
+  source: string;
+  profileUrl: string;
+  badges: string[];
+  active: boolean;
+  postCount?: number;
+};
+
+export type PublicProfileDirectoryResponse = {
+  items: PublicProfileDirectoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalPublicProfiles: number;
+    companies: number;
+    professionals: number;
+    publicUsers: number;
+    categories: number;
+    regions: number;
+  };
+};
+
+export async function nestListPublicProfileDirectory(
+  query?: Record<string, string | number | undefined>,
+): Promise<PublicProfileDirectoryResponse | null> {
+  if (!API_BASE_URL) return null;
+  const params = new URLSearchParams();
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value != null && String(value).length > 0) params.set(key, String(value));
+    }
+  }
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/directory${qs ? `?${qs}` : ''}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as PublicProfileDirectoryResponse;
+}
+
+export async function nestPublicProfileDirectoryStats(): Promise<
+  PublicProfileDirectoryResponse['stats'] | null
+> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/directory/stats`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as PublicProfileDirectoryResponse['stats'];
+}
+
 export type CompanyDirectoryDetailResponse = {
   company: CompanyDirectoryCard & {
     dic?: string | null;

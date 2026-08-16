@@ -5,6 +5,7 @@ import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButt
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { loginRedirectPath } from '@/lib/login-redirect';
@@ -95,9 +96,10 @@ export default function MaklerPublicPage() {
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-20 text-zinc-900">
-      <div className="mx-auto max-w-4xl px-4 pt-6 sm:px-6">
-        <Link href="/makleri" className="text-sm font-semibold text-[#e85d00] hover:underline">
-          ← Makléři
+      <PublicHeader activeSection="profiles" />
+      <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6">
+        <Link href="/profesionalove" className="text-sm font-semibold text-[#e85d00] hover:underline">
+          ← Lidé a firmy
         </Link>
       </div>
 

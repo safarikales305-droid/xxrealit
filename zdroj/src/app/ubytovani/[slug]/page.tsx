@@ -1,10 +1,8 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import Logo from '@/components/Logo';
 import { AccommodationListingClient } from '@/components/accommodation/AccommodationListingClient';
 import { AccommodationDetailView } from '@/components/accommodation/AccommodationDetailView';
 import { AccommodationHotelNotFound } from '@/components/accommodation/AccommodationEmptyStates';
-import { ContentTypeTabs } from '@/components/accommodation/ContentTypeTabs';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import {
   ACCOMMODATION_CATEGORY_SLUGS,
   ACCOMMODATION_LOCATION_SLUGS,
@@ -167,17 +165,7 @@ function Shell({
 }) {
   return (
     <div className="min-h-screen bg-zinc-50">
-      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-[100rem] items-center justify-between px-4 py-3">
-          <Link href="/" aria-label="XXREALIT domů">
-            <Logo />
-          </Link>
-          <Link href="/ubytovani" className="text-sm font-medium text-orange-600">
-            ← Ubytování
-          </Link>
-        </div>
-      </header>
-      <ContentTypeTabs activeTab="accommodation" />
+      <PublicHeader activeSection="accommodation" />
       <main className="mx-auto max-w-[100rem] px-4 py-6">
         {hideTitle ? null : (
           <h1 className="mb-4 text-2xl font-bold capitalize text-zinc-900 md:text-3xl">{title}</h1>

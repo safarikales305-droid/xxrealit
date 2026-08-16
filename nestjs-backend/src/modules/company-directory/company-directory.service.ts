@@ -242,7 +242,9 @@ export class CompanyDirectoryService {
 
     const roles = mapCommunityCategoryToRoles(options?.category);
     const professionals = await this.brokersService.listPublicProfessionals(roles);
-    const personCards: FeaturedProfileCard[] = professionals.slice(0, personLimit).map((p) => ({
+    const daySeed = new Date().toISOString().slice(0, 10);
+    const rotatedProfessionals = rotateWithSeed(professionals, daySeed);
+    const personCards: FeaturedProfileCard[] = rotatedProfessionals.slice(0, personLimit * 2).slice(0, personLimit).map((p) => ({
       type: 'person',
       id: p.id,
       name: p.name ?? 'Profesionál',
@@ -272,9 +274,10 @@ export class CompanyDirectoryService {
           { googleReviewCount: 'desc' },
           { updatedAt: 'desc' },
         ],
-        take: companyLimit * 2,
+        take: companyLimit * 3,
       });
-      companyCards = companies.slice(0, companyLimit).map((row) => {
+      const rotatedCompanies = rotateWithSeed(companies, `${daySeed}-companies`);
+      companyCards = rotatedCompanies.slice(0, companyLimit).map((row) => {
         const card = serializeCompanyDirectoryCard(row);
         return {
           type: 'company' as const,
@@ -324,6 +327,11 @@ export class CompanyDirectoryService {
       pendingContact,
       pendingClaims,
       pendingReports,
+      publicCompanies,
+      publicUsers,
+      professionalCount,
+      claimedCompanies,
+      verifiedProfessionals,
     ] = await Promise.all([
       this.prisma.companyDirectoryEntry.count(),
       this.prisma.companyDirectoryEntry.count({ where: { aresSource: true } }),
@@ -339,6 +347,15 @@ export class CompanyDirectoryService {
       }),
       this.prisma.companyClaimRequest.count({ where: { status: { in: ['PENDING', 'UNDER_REVIEW'] } } }),
       this.prisma.companyProfileReport.count({ where: { status: { in: ['REQUESTED', 'UNDER_REVIEW'] } } }),
+      this.prisma.companyDirectoryEntry.count({ where: { publicProfile: true } }),
+      this.prisma.user.count({
+        where: { role: 'USER', publicProfile: true, accountLimited: { not: true } },
+      }),
+      this.brokersService.listPublicProfessionals().then((rows) => rows.length),
+      this.prisma.companyDirectoryEntry.count({
+        where: { profileStatus: { in: [CompanyDirectoryProfileStatus.CLAIMED, CompanyDirectoryProfileStatus.VERIFIED] } },
+      }),
+      this.brokersService.listPublicProfessionals().then((rows) => rows.filter((r) => r.isVerified).length),
     ]);
 
     return {
@@ -352,6 +369,11 @@ export class CompanyDirectoryService {
       pendingContact,
       pendingClaims,
       pendingReports,
+      publicCompanies,
+      publicUsers,
+      publicProfilesTotal: publicCompanies + publicUsers + professionalCount,
+      claimedCompanies,
+      verifiedProfessionals,
     };
   }
 
@@ -464,4 +486,15 @@ function interleaveProfiles(
     if (companies[i]) out.push(companies[i]);
   }
   return out;
+}
+
+function rotateWithSeed<T extends { id: string }>(items: T[], seed: string): T[] {
+  if (items.length <= 1) return items;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  const offset = Math.abs(hash) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
 }

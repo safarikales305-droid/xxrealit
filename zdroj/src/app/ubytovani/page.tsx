@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import Logo from '@/components/Logo';
 import { AccommodationHero } from '@/components/accommodation/AccommodationHero';
 import { AccommodationListingClient } from '@/components/accommodation/AccommodationListingClient';
-import { ContentTypeTabs } from '@/components/accommodation/ContentTypeTabs';
+import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { ACCOMMODATION_PAGE_SIZE } from '@/lib/accommodation-categories';
 import { fetchAccommodationHero } from '@/lib/accommodation-client';
 import { fetchHotelbedsConfig, fetchHotelbedsSearch } from '@/lib/hotelbeds-client';
@@ -41,17 +39,7 @@ export default async function UbytovaniPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-[100rem] items-center justify-between px-4 py-3">
-          <Link href="/" aria-label="XXREALIT domů">
-            <Logo />
-          </Link>
-          <Link href="/prihlaseni" className="text-sm font-medium text-zinc-700 hover:text-orange-600">
-            Přihlásit
-          </Link>
-        </div>
-      </header>
-      <ContentTypeTabs activeTab="accommodation" />
+      <PublicHeader activeSection="accommodation" />
       {hero ? <AccommodationHero hero={hero} /> : null}
       <main className="mx-auto max-w-[100rem] px-4 py-6">
         <AccommodationListingClient

@@ -343,12 +343,20 @@ export function Navbar({
           ) : null}
 
           {portalTabs ? (
-            <div className="hidden shrink-0 md:block">
+            <div className="hidden shrink-0 items-center gap-2 md:flex">
               <PortalContentTypeTabs
                 embedded
                 tabs={portalTabs.tabs}
                 activeId={portalTabs.activeId}
               />
+              <Link
+                href="/profesionalove"
+                className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[14px] border border-zinc-200/90 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 lg:text-[14px]"
+              >
+                <span aria-hidden>👥</span>
+                <span className="hidden xl:inline">Profesionálové a firmy</span>
+                <span className="xl:hidden">Profily</span>
+              </Link>
             </div>
           ) : null}
 
@@ -483,6 +491,15 @@ export function Navbar({
       {portalTabs && !isShortsMobileCompact ? (
         <div className="mx-auto w-full max-w-[100rem] md:hidden">
           <PortalContentTypeTabs embedded tabs={portalTabs.tabs} activeId={portalTabs.activeId} />
+          <div className="px-3 pb-2">
+            <Link
+              href="/profesionalove"
+              className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-[14px] border border-zinc-200/90 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800"
+            >
+              <span aria-hidden>👥</span>
+              <span>Lidé a firmy</span>
+            </Link>
+          </div>
         </div>
       ) : null}
 
