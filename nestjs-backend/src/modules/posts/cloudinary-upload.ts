@@ -45,12 +45,17 @@ export function initCloudinary() {
   });
 }
 
-function uploadVideoBuffer(file: Express.Multer.File): Promise<{ url: string; thumbnailUrl: string }> {
+function uploadVideoBuffer(
+  file: Express.Multer.File,
+  folder: string,
+): Promise<{ url: string; thumbnailUrl: string }> {
   return new Promise((resolve, reject) => {
     const upload = cloudinary.uploader.upload_stream(
       {
         resource_type: 'video',
-        folder: 'posts',
+        folder,
+        access_mode: 'public',
+        type: 'upload',
         eager: [
           [
             { duration: '120' },
@@ -87,12 +92,14 @@ function uploadVideoBuffer(file: Express.Multer.File): Promise<{ url: string; th
   });
 }
 
-function uploadImageBuffer(file: Express.Multer.File): Promise<string> {
+function uploadImageBuffer(file: Express.Multer.File, folder: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const upload = cloudinary.uploader.upload_stream(
       {
         resource_type: 'auto',
-        folder: 'posts',
+        folder,
+        access_mode: 'public',
+        type: 'upload',
         quality: 'auto:low',
         fetch_format: 'auto',
       },
@@ -122,16 +129,18 @@ export type UploadedMedia = {
  */
 export async function uploadPostMedia(
   file: Express.Multer.File,
+  opts?: { folder?: string },
 ): Promise<UploadedMedia> {
   initCloudinary();
+  const folder = opts?.folder ?? 'posts';
 
   if (file.mimetype.startsWith('video/')) {
-    const { url, thumbnailUrl } = await uploadVideoBuffer(file);
+    const { url, thumbnailUrl } = await uploadVideoBuffer(file, folder);
     return { url, kind: 'video', thumbnailUrl };
   }
 
   if (file.mimetype.startsWith('image/')) {
-    const url = await uploadImageBuffer(file);
+    const url = await uploadImageBuffer(file, folder);
     return { url, kind: 'image' };
   }
 

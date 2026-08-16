@@ -1,8 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   CompanyContactSourceType,
@@ -86,118 +89,265 @@ export class CompanyReviewService {
     media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
   }) {
     if (!COMPANY_REVIEWS_ENABLED) {
-      throw new BadRequestException('Recenze firem jsou vypnuté.');
+      throw new BadRequestException({
+        code: 'REVIEWS_DISABLED',
+        message: 'Recenze firem jsou vypnuté.',
+      });
     }
     if (!input.confirmedExperience) {
-      throw new BadRequestException('Potvrďte, že recenze vychází ze skutečné zkušenosti.');
-    }
-    if (input.rating < 1 || input.rating > 5) {
-      throw new BadRequestException('Hodnocení musí být 1–5.');
-    }
-
-    const company = input.companyId
-      ? await this.prisma.companyDirectoryEntry.findUnique({ where: { id: input.companyId } })
-      : await this.prisma.companyDirectoryEntry.findFirst({
-          where: { slug: input.companySlug, publicProfile: true },
-        });
-    if (!company) throw new NotFoundException('Firma nenalezena.');
-
-    const email = input.authorEmail.trim().toLowerCase();
-    const authorUser = await this.resolveAuthorUser(email, input.authorDisplayName);
-
-    const duplicate = await this.prisma.companyReview.findFirst({
-      where: {
-        companyId: company.id,
-        authorUserId: authorUser.id,
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        status: {
-          in: [
-            CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
-            CompanyReviewStatus.PENDING,
-            CompanyReviewStatus.PUBLISHED,
-          ],
-        },
-      },
-    });
-    if (duplicate) {
-      throw new BadRequestException(
-        'Nedávno jste pro tuto firmu recenzi odeslali. Zkuste to později nebo upravte existující recenzi.',
-      );
+      throw new BadRequestException({
+        code: 'EXPERIENCE_NOT_CONFIRMED',
+        message: 'Potvrďte, že recenze vychází ze skutečné zkušenosti.',
+      });
     }
 
-    const token = randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const rating = Number(input.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      throw new BadRequestException({
+        code: 'INVALID_RATING',
+        message: 'Hodnocení musí být 1–5.',
+      });
+    }
+    if (!input.body?.trim()) {
+      throw new BadRequestException({
+        code: 'BODY_REQUIRED',
+        message: 'Text recenze je povinný.',
+      });
+    }
+    const email = input.authorEmail?.trim().toLowerCase();
+    if (!email) {
+      throw new BadRequestException({
+        code: 'AUTHOR_EMAIL_REQUIRED',
+        message: 'Email autora je povinný.',
+      });
+    }
 
-    const review = await this.prisma.companyReview.create({
-      data: {
-        companyId: company.id,
-        authorUserId: authorUser.id,
-        rating: input.rating,
-        sentiment: sentimentFromRating(input.rating, input.sentiment),
-        title: input.title?.trim() ?? '',
-        body: input.body.trim(),
-        authorDisplayName: input.authorDisplayName?.trim() || authorUser.name || 'Uživatel',
-        authorPhone: input.authorPhone?.trim() || null,
-        emailVerificationToken: token,
-        emailVerificationExpires: expires,
-        status: CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
-        submittedBusinessEmail: input.submittedBusinessEmail?.trim().toLowerCase() || null,
-        submittedEmailStatus: input.submittedBusinessEmail
-          ? CompanyContactStatus.REVIEW_REQUIRED
-          : null,
-        media: input.media?.length
-          ? {
-              create: input.media.map((m, idx) => ({
-                type: m.type,
-                url: m.url,
-                thumbnailUrl: m.thumbnailUrl ?? null,
-                mimeType: m.mimeType ?? null,
-                sortOrder: idx,
-              })),
-            }
-          : undefined,
-      },
-      include: { media: true },
-    });
+    this.log.log(
+      JSON.stringify({
+        event: 'REVIEW_CREATE_REQUEST',
+        companyId: input.companyId ?? null,
+        companySlug: input.companySlug ?? null,
+        authorEmail: email.replace(/(^.).+(@.*$)/, '$1***$2'),
+        hasMedia: (input.media?.length ?? 0) > 0,
+        mediaCount: input.media?.length ?? 0,
+        rating,
+        sentiment: input.sentiment ?? null,
+      }),
+    );
 
-    if (input.submittedBusinessEmail) {
-      await this.prisma.companyContact.create({
-        data: {
+    try {
+      const company = await this.resolveCompany(input.companyId, input.companySlug);
+      const authorUser = await this.resolveAuthorUser(email, input.authorDisplayName);
+
+      const duplicate = await this.prisma.companyReview.findFirst({
+        where: {
           companyId: company.id,
-          email: input.submittedBusinessEmail.trim().toLowerCase(),
-          sourceType: CompanyContactSourceType.USER_SUBMITTED,
-          status: CompanyContactStatus.REVIEW_REQUIRED,
-          confidence: 0,
+          authorUserId: authorUser.id,
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          status: {
+            in: [
+              CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
+              CompanyReviewStatus.PENDING,
+              CompanyReviewStatus.PUBLISHED,
+            ],
+          },
         },
       });
+      if (duplicate) {
+        throw new ConflictException({
+          code: 'REVIEW_DUPLICATE',
+          message:
+            'Nedávno jste pro tuto firmu recenzi odeslali. Zkuste to později nebo upravte existující recenzi.',
+        });
+      }
+
+      const token = randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const submittedBusinessEmail = input.submittedBusinessEmail?.trim().toLowerCase() || null;
+
+      const review = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.companyReview.create({
+          data: {
+            companyId: company.id,
+            authorUserId: authorUser.id,
+            rating,
+            sentiment: sentimentFromRating(rating, input.sentiment),
+            title: input.title?.trim() ?? '',
+            body: input.body.trim(),
+            authorDisplayName: input.authorDisplayName?.trim() || authorUser.name || 'Uživatel',
+            authorPhone: input.authorPhone?.trim() || null,
+            emailVerificationToken: token,
+            emailVerificationExpires: expires,
+            status: CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
+            submittedBusinessEmail,
+            submittedEmailStatus: submittedBusinessEmail
+              ? CompanyContactStatus.REVIEW_REQUIRED
+              : null,
+            media: input.media?.length
+              ? {
+                  create: input.media.map((m, idx) => ({
+                    type: m.type,
+                    url: m.url,
+                    thumbnailUrl: m.thumbnailUrl ?? null,
+                    mimeType: m.mimeType ?? null,
+                    sortOrder: idx,
+                  })),
+                }
+              : undefined,
+          },
+          include: { media: true },
+        });
+
+        if (submittedBusinessEmail) {
+          await tx.companyContact.create({
+            data: {
+              companyId: company.id,
+              email: submittedBusinessEmail,
+              sourceType: CompanyContactSourceType.USER_SUBMITTED,
+              status: CompanyContactStatus.REVIEW_REQUIRED,
+              confidence: 0,
+            },
+          });
+        }
+
+        return created;
+      });
+
+      const verifyUrl = `${resolveFrontendUrl()}/firmy/recenze/overit?token=${token}&reviewId=${review.id}&slug=${encodeURIComponent(company.slug)}`;
+      const emailSent = await this.sendReviewVerificationEmailSafe(email, verifyUrl);
+
+      if (
+        COMPANY_CONTACT_DISCOVERY_ENABLED &&
+        !company.verifiedBusinessEmail &&
+        !submittedBusinessEmail
+      ) {
+        void this.contactDiscovery.enqueueDiscover(company.id).catch((err) => {
+          this.log.warn(`Contact discovery enqueue failed for ${company.id}: ${String(err)}`);
+        });
+      }
+
+      await this.audit.log({
+        companyId: company.id,
+        action: 'REVIEW_CREATE',
+        message: `Vytvořena recenze ${review.id}, čeká na ověření emailu`,
+        meta: { reviewId: review.id, emailSent },
+        actorUserId: authorUser.id,
+      });
+
+      return {
+        reviewId: review.id,
+        status: review.status,
+        emailVerificationRequired: true,
+        emailSent,
+        message: emailSent
+          ? 'Recenze byla uložena. Na váš email jsme poslali ověřovací odkaz.'
+          : 'Recenze byla uložena. Ověřovací email se nepodařilo odeslat — kontaktujte podporu nebo zkuste znovu.',
+      };
+    } catch (err) {
+      this.logReviewCreateError(err, input);
+      throw this.mapReviewCreateError(err);
     }
+  }
 
-    const verifyUrl = `${resolveFrontendUrl()}/firmy/recenze/overit?token=${token}&reviewId=${review.id}&slug=${encodeURIComponent(company.slug)}`;
-    await this.emails.sendEmailVerificationEmail({ email, verifyUrl });
-
-    if (
-      COMPANY_CONTACT_DISCOVERY_ENABLED &&
-      !company.verifiedBusinessEmail &&
-      !input.submittedBusinessEmail
-    ) {
-      void this.contactDiscovery.enqueueDiscover(company.id).catch((err) => {
-        this.log.warn(`Contact discovery enqueue failed for ${company.id}: ${String(err)}`);
+  private async resolveCompany(companyId?: string, companySlug?: string) {
+    const company = companyId
+      ? await this.prisma.companyDirectoryEntry.findUnique({ where: { id: companyId } })
+      : companySlug
+        ? await this.prisma.companyDirectoryEntry.findFirst({
+            where: { slug: companySlug },
+          })
+        : null;
+    if (!company) {
+      throw new NotFoundException({
+        code: 'COMPANY_NOT_FOUND',
+        message: 'Firma nenalezena.',
       });
     }
+    return company;
+  }
 
-    await this.audit.log({
-      companyId: company.id,
-      action: 'REVIEW_CREATE',
-      message: `Vytvořena recenze ${review.id}, čeká na ověření emailu`,
-      meta: { reviewId: review.id },
-      actorUserId: authorUser.id,
-    });
+  private async sendReviewVerificationEmailSafe(email: string, verifyUrl: string): Promise<boolean> {
+    try {
+      await this.emails.sendEmailVerificationEmail({ email, verifyUrl });
+      return true;
+    } catch (err) {
+      this.log.warn(
+        JSON.stringify({
+          event: 'REVIEW_VERIFY_EMAIL_FAILED',
+          email: email.replace(/(^.).+(@.*$)/, '$1***$2'),
+          error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+        }),
+      );
+      return false;
+    }
+  }
 
-    return {
-      reviewId: review.id,
-      status: review.status,
-      message: 'Ověřte email – na adresu byl odeslán odkaz pro potvrzení recenze.',
+  private logReviewCreateError(
+    err: unknown,
+    input: { companyId?: string; authorEmail: string; media?: unknown[] },
+  ) {
+    const base = {
+      event: 'REVIEW_CREATE_FAILED',
+      companyId: input.companyId ?? null,
+      hasMedia: (input.media?.length ?? 0) > 0,
+      mediaCount: input.media?.length ?? 0,
     };
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      this.log.error(
+        JSON.stringify({
+          ...base,
+          prismaCode: err.code,
+          prismaMeta: err.meta,
+          message: err.message,
+        }),
+      );
+      return;
+    }
+    if (err instanceof BadRequestException || err instanceof NotFoundException || err instanceof ConflictException) {
+      return;
+    }
+    this.log.error(
+      JSON.stringify({
+        ...base,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack?.split('\n').slice(0, 5) : undefined,
+      }),
+    );
+  }
+
+  private mapReviewCreateError(err: unknown): never {
+    if (
+      err instanceof BadRequestException ||
+      err instanceof NotFoundException ||
+      err instanceof ConflictException ||
+      err instanceof ServiceUnavailableException
+    ) {
+      throw err;
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2002') {
+        throw new ConflictException({
+          code: 'REVIEW_CREATE_CONFLICT',
+          message: 'Recenzi se nepodařilo uložit kvůli duplicitě záznamu.',
+        });
+      }
+      if (err.code === 'P2003') {
+        throw new BadRequestException({
+          code: 'REVIEW_CREATE_INVALID_REFERENCE',
+          message: 'Neplatný odkaz na firmu nebo autora.',
+        });
+      }
+      if (err.code === 'P2022' || err.code === 'P2021') {
+        throw new ServiceUnavailableException({
+          code: 'REVIEW_DB_SCHEMA_OUTDATED',
+          message: 'Databáze není synchronizovaná. Kontaktujte správce.',
+        });
+      }
+    }
+    throw new InternalServerErrorException({
+      code: 'REVIEW_CREATE_FAILED',
+      message: 'Recenzi se nepodařilo uložit.',
+    });
   }
 
   async verifyReviewEmail(token: string) {
@@ -494,14 +644,22 @@ export class CompanyReviewService {
     if (existing) return existing;
 
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
-    return this.prisma.user.create({
-      data: {
-        email,
-        password: passwordHash,
-        name: displayName?.trim() || email.split('@')[0] || 'Uživatel',
-        emailVerified: false,
-      },
-    });
+    try {
+      return await this.prisma.user.create({
+        data: {
+          email,
+          password: passwordHash,
+          name: displayName?.trim() || email.split('@')[0] || 'Uživatel',
+          emailVerified: false,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const retry = await this.prisma.user.findUnique({ where: { email } });
+        if (retry) return retry;
+      }
+      throw err;
+    }
   }
 
   private async recalculateCompanyRating(companyId: string) {

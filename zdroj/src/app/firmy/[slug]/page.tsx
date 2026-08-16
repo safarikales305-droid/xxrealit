@@ -177,10 +177,17 @@ export default function FirmaDetailPage() {
       media: media.length > 0 ? media : undefined,
     });
     setSubmittingReview(false);
-    if (res?.error) {
-      setReviewMsg(res.error);
+    if (res.error) {
+      setReviewMsg(
+        res.code ? `Recenzi se nepodařilo uložit. (${res.code}: ${res.error})` : res.error,
+      );
     } else {
-      setReviewMsg(res?.message ?? 'Recenze odeslána. Zkontrolujte email pro ověření.');
+      setReviewMsg(
+        res.message ??
+          (res.emailVerificationRequired
+            ? 'Recenze byla uložena. Na váš email jsme poslali ověřovací odkaz.'
+            : 'Recenze odeslána. Zkontrolujte email pro ověření.'),
+      );
       setReviewOpen(false);
       setReviewMedia({ images: [], videos: [] });
     }

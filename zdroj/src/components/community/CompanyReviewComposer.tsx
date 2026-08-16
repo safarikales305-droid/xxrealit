@@ -200,11 +200,20 @@ export function CompanyReviewComposer({
       media: media.length ? media : undefined,
     });
     setSubmitting(false);
-    if (res?.error) {
-      setError(res.error);
+    if (res.error) {
+      setError(
+        res.code
+          ? `Recenzi se nepodařilo uložit. (${res.code}: ${res.error})`
+          : res.error,
+      );
       return;
     }
-    setSuccessMsg(res?.message ?? 'Recenze odeslána. Zkontrolujte email pro ověření.');
+    setSuccessMsg(
+      res.message ??
+        (res.emailVerificationRequired
+          ? 'Recenze byla uložena. Na váš email jsme poslali ověřovací odkaz.'
+          : 'Recenze byla uložena.'),
+    );
     setStep('done');
   };
 

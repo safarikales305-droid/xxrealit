@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
 import { CompanyDirectoryService } from './company-directory.service';
@@ -14,6 +14,8 @@ import type { Request } from 'express';
 
 @Controller('company-directory')
 export class CompanyDirectoryPublicController {
+  private readonly log = new Logger(CompanyDirectoryPublicController.name);
+
   constructor(
     private readonly directory: CompanyDirectoryService,
     private readonly claims: CompanyClaimService,
@@ -158,6 +160,7 @@ export class CompanyDirectoryPublicController {
   }
 
   @Post('public/reviews')
+  @HttpCode(201)
   createReview(
     @Body()
     body: {
@@ -178,6 +181,17 @@ export class CompanyDirectoryPublicController {
     if (!COMPANY_REVIEWS_ENABLED) {
       return { error: 'Recenze jsou vypnuté.' };
     }
+    this.log.log(
+      JSON.stringify({
+        event: 'PUBLIC_REVIEW_POST',
+        route: 'POST /company-directory/public/reviews',
+        companyId: body.companyId ?? null,
+        companySlug: body.companySlug ?? null,
+        rating: body.rating,
+        hasMedia: (body.media?.length ?? 0) > 0,
+        mediaCount: body.media?.length ?? 0,
+      }),
+    );
     return this.reviews.createReview(body);
   }
 

@@ -830,6 +830,16 @@ export async function nestImportCompanyFromAres(
   return data;
 }
 
+export type CompanyReviewSubmitResponse = {
+  reviewId?: string;
+  status?: string;
+  message?: string;
+  emailVerificationRequired?: boolean;
+  emailSent?: boolean;
+  error?: string;
+  code?: string;
+};
+
 export async function nestSubmitCompanyReview(body: {
   companyId?: string;
   companySlug?: string;
@@ -843,22 +853,46 @@ export async function nestSubmitCompanyReview(body: {
   submittedBusinessEmail?: string;
   confirmedExperience: boolean;
   media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
-}): Promise<{ reviewId?: string; message?: string; error?: string } | null> {
-  if (!API_BASE_URL) return null;
+}): Promise<CompanyReviewSubmitResponse> {
+  if (!API_BASE_URL) {
+    return { error: 'API není nakonfigurováno.', code: 'REVIEW_CREATE_FAILED' };
+  }
   const res = await fetch(`${API_BASE_URL}/company-directory/public/reviews`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  const data = (await res.json()) as { reviewId?: string; message?: string; error?: string };
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    const msg =
-      (data as { message?: string | string[] }).message ??
-      data.error ??
-      'Odeslání recenze selhalo.';
-    return { error: Array.isArray(msg) ? msg.join(', ') : String(msg) };
+    const rawMessage = data.message;
+    let message: string;
+    let code = typeof data.code === 'string' ? data.code : 'REVIEW_CREATE_FAILED';
+    if (typeof rawMessage === 'string') {
+      message = rawMessage;
+    } else if (Array.isArray(rawMessage)) {
+      message = rawMessage.map(String).join(', ');
+    } else if (rawMessage && typeof rawMessage === 'object') {
+      const nested = rawMessage as Record<string, unknown>;
+      if (typeof nested.message === 'string') message = nested.message;
+      else message = 'Odeslání recenze selhalo.';
+      if (typeof nested.code === 'string') code = nested.code;
+    } else if (typeof data.error === 'string') {
+      message = data.error;
+    } else {
+      message =
+        res.status >= 500
+          ? 'Recenzi se nepodařilo odeslat. Zkuste to prosím znovu.'
+          : 'Odeslání recenze selhalo.';
+    }
+    return { error: message, code };
   }
-  return data;
+  return {
+    reviewId: typeof data.reviewId === 'string' ? data.reviewId : undefined,
+    status: typeof data.status === 'string' ? data.status : undefined,
+    message: typeof data.message === 'string' ? data.message : undefined,
+    emailVerificationRequired: data.emailVerificationRequired === true,
+    emailSent: data.emailSent === true,
+  };
 }
 
 export async function nestVerifyCompanyReview(

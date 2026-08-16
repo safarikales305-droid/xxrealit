@@ -13,6 +13,7 @@ import { CompanyDirectoryService } from './company-directory.service';
 import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
+import { CompanyReviewMediaStorageService } from './company-review-media-storage.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementEventService } from './company-engagement-event.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
@@ -35,6 +36,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyEmailService,
     CompanyGoogleEnrichmentService,
     CompanyContactDiscoveryService,
+    CompanyReviewMediaStorageService,
     CompanyReviewService,
     CompanyEngagementEventService,
     CompanyEngagementCampaignService,

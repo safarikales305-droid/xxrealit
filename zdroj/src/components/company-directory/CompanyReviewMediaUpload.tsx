@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Video, X } from 'lucide-react';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 
 export type ReviewMediaItem = {
   id: string;
@@ -82,15 +82,19 @@ export function CompanyReviewMediaUpload({ images, videos, onChange, disabled }:
           );
 
           const uploaded = await uploadFile(file, localId);
+          if (previewUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(previewUrl);
+          }
           const item: ReviewMediaItem = {
             id: localId,
             type: uploaded.type,
-            url: uploaded.url,
-            thumbnailUrl: uploaded.thumbnailUrl,
+            url: nestAbsoluteAssetUrl(uploaded.url) || uploaded.url,
+            thumbnailUrl: uploaded.thumbnailUrl
+              ? nestAbsoluteAssetUrl(uploaded.thumbnailUrl) || uploaded.thumbnailUrl
+              : null,
             mimeType: uploaded.mimeType ?? file.type,
             fileName: file.name,
             fileSize: file.size,
-            previewUrl,
             uploadProgress: 100,
           };
 
@@ -180,7 +184,7 @@ export function CompanyReviewMediaUpload({ images, videos, onChange, disabled }:
             <div key={img.id} className="relative overflow-hidden rounded-lg border bg-white">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={img.previewUrl ?? img.url}
+                src={nestAbsoluteAssetUrl(img.url) || img.url}
                 alt=""
                 className="aspect-square w-full object-cover"
               />
@@ -197,7 +201,7 @@ export function CompanyReviewMediaUpload({ images, videos, onChange, disabled }:
           {videos.map((vid) => (
             <div key={vid.id} className="relative overflow-hidden rounded-lg border bg-white p-2">
               <video
-                src={vid.url}
+                src={nestAbsoluteAssetUrl(vid.url) || vid.url}
                 controls
                 playsInline
                 preload="metadata"
