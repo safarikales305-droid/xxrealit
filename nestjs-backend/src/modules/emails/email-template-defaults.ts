@@ -97,6 +97,62 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   ],
   company_data_review_request: ['companyName', 'companyUrl', 'message', 'portalName', 'ctaUrl'],
   company_report_response: ['companyName', 'message', 'portalName', 'ctaUrl'],
+  company_activation_step_1: [
+    'companyName',
+    'companyUrl',
+    'claimUrl',
+    'postUrl',
+    'portalName',
+    'optOutUrl',
+    'ctaUrl',
+  ],
+  company_activation_step_2: ['companyName', 'companyUrl', 'postUrl', 'portalName', 'optOutUrl', 'ctaUrl'],
+  company_activation_step_3: [
+    'companyName',
+    'companyUrl',
+    'personalizedViewsLine',
+    'profileViewsLastPeriod',
+    'portalName',
+    'optOutUrl',
+    'ctaUrl',
+  ],
+  company_activation_step_4: ['companyName', 'companyUrl', 'claimUrl', 'portalName', 'optOutUrl', 'ctaUrl'],
+  company_activation_step_5: ['companyName', 'companyUrl', 'portalName', 'optOutUrl', 'ctaUrl'],
+  company_monthly_nurture: [
+    'companyName',
+    'companyUrl',
+    'monthlyProfileViews',
+    'nurtureCta',
+    'portalName',
+    'optOutUrl',
+    'ctaUrl',
+  ],
+  company_interest_notification: [
+    'companyName',
+    'companyUrl',
+    'interestSummary',
+    'portalName',
+    'optOutUrl',
+    'ctaUrl',
+  ],
+  company_interest_digest: [
+    'companyName',
+    'companyUrl',
+    'interestSummary',
+    'portalName',
+    'optOutUrl',
+    'ctaUrl',
+  ],
+  company_new_lead: [
+    'companyName',
+    'leadName',
+    'leadEmail',
+    'leadPhone',
+    'leadMessage',
+    'leadUrl',
+    'portalName',
+    'ctaUrl',
+  ],
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
@@ -470,6 +526,98 @@ tým {{portalName}}`,
       '<p>Dobrý den,</p><p>reakce na nahlášení profilu firmy <strong>{{companyName}}</strong>:</p><p>{{message}}</p>',
     textContent: 'Reakce na nahlášení profilu {{companyName}}:\n\n{{message}}',
     variables: EMAIL_TEMPLATE_VARIABLES.company_report_response,
+  },
+  {
+    key: 'company_activation_step_1',
+    name: 'Kampaň – profil a zájem uživatelů',
+    category: 'company_directory',
+    subject: 'O vaši firmu se zajímají uživatelé XXREALIT',
+    htmlContent:
+      '<p>Dobrý den,</p><p>na portálu {{portalName}} již existuje profil vaší společnosti <strong>{{companyName}}</strong>.</p><p>Uživatelé portálu mohou váš profil zobrazovat a hledat služby ve vašem oboru.</p><p>Převzetím profilu můžete doplnit logo, fotografie, kontakty, příspěvky a reagovat na recenze.</p><p><a href="{{claimUrl}}">Převzít profil</a> · <a href="{{postUrl}}">Přidat první příspěvek</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent:
+      'Profil firmy {{companyName}} na {{portalName}}.\n\nPřevzít profil: {{claimUrl}}\nPřidat příspěvek: {{postUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_activation_step_1,
+  },
+  {
+    key: 'company_activation_step_2',
+    name: 'Kampaň – první realizace',
+    category: 'company_directory',
+    subject: 'Pochlubte se svou prací na XXREALIT',
+    htmlContent:
+      '<p>Dobrý den,</p><p>Ukažte uživatelům dokončenou realizaci, stavbu, rekonstrukci nebo referenci na profilu <strong>{{companyName}}</strong>.</p><p><a href="{{postUrl}}">Přidat příspěvek</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: 'Přidejte příspěvek pro {{companyName}}: {{postUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_activation_step_2,
+  },
+  {
+    key: 'company_activation_step_3',
+    name: 'Kampaň – zobrazení profilu',
+    category: 'company_directory',
+    subject: 'Váš profil na XXREALIT sledují uživatelé',
+    htmlContent:
+      '<p>Dobrý den,</p><p>{{personalizedViewsLine}}</p><p><a href="{{companyUrl}}">Otevřít profil firmy</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: '{{personalizedViewsLine}}\n\n{{companyUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_activation_step_3,
+  },
+  {
+    key: 'company_activation_step_4',
+    name: 'Kampaň – profil není převzatý',
+    category: 'company_directory',
+    subject: 'Váš profil na XXREALIT zatím není převzatý',
+    htmlContent:
+      '<p>Dobrý den,</p><p>Profil firmy <strong>{{companyName}}</strong> vznikl z veřejných rejstříkových údajů. Po převzetí můžete doplnit logo, popis, galerii, videa a kontakty.</p><p><a href="{{claimUrl}}">Převzít firemní profil</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: 'Převezměte profil {{companyName}}: {{claimUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_activation_step_4,
+  },
+  {
+    key: 'company_activation_step_5',
+    name: 'Kampaň – doplnění profilu',
+    category: 'company_directory',
+    subject: 'Doplňte profil firmy a oslovte nové zákazníky',
+    htmlContent:
+      '<p>Dobrý den,</p><p>Doplňte profil firmy <strong>{{companyName}}</strong> a oslovte nové zákazníky na {{portalName}}.</p><p><a href="{{companyUrl}}">Otevřít profil firmy</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: 'Otevřete profil {{companyName}}: {{companyUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_activation_step_5,
+  },
+  {
+    key: 'company_monthly_nurture',
+    name: 'Měsíční follow-up firmy',
+    category: 'company_directory',
+    subject: 'Novinky z profilu vaší firmy na XXREALIT',
+    htmlContent:
+      '<p>Dobrý den,</p><p>{{monthlyProfileViews}}</p><p>{{nurtureCta}}</p><p><a href="{{companyUrl}}">Otevřít profil</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: '{{monthlyProfileViews}}\n{{nurtureCta}}\n{{companyUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_monthly_nurture,
+  },
+  {
+    key: 'company_interest_notification',
+    name: 'Zájem o firmu',
+    category: 'company_directory',
+    subject: 'Někdo se zajímal o vaši firmu na XXREALIT',
+    htmlContent:
+      '<p>Dobrý den,</p><p>{{interestSummary}}</p><p><a href="{{companyUrl}}">Otevřít profil firmy</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: '{{interestSummary}}\n{{companyUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_interest_notification,
+  },
+  {
+    key: 'company_interest_digest',
+    name: 'Denní souhrn zájmu o firmu',
+    category: 'company_directory',
+    subject: 'Dnes se o vaši firmu zajímalo několik uživatelů',
+    htmlContent:
+      '<p>Dobrý den,</p><p>{{interestSummary}}</p><p><a href="{{companyUrl}}">Otevřít profil firmy</a></p><p><a href="{{optOutUrl}}">Nechci dostávat další podobné emaily</a></p>',
+    textContent: '{{interestSummary}}\n{{companyUrl}}\nOdhlásit: {{optOutUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_interest_digest,
+  },
+  {
+    key: 'company_new_lead',
+    name: 'Nový lead pro firmu',
+    category: 'company_directory',
+    subject: 'Nový zájemce z XXREALIT',
+    htmlContent:
+      '<p>Dobrý den,</p><p>Na {{portalName}} se objevil uživatel, který projevil zájem o vaše služby.</p><p><strong>Jméno:</strong> {{leadName}}<br/><strong>Email:</strong> {{leadEmail}}<br/><strong>Telefon:</strong> {{leadPhone}}<br/><strong>Zpráva:</strong> {{leadMessage}}</p><p><a href="{{leadUrl}}">Otevřít lead</a></p>',
+    textContent:
+      'Nový lead:\nJméno: {{leadName}}\nEmail: {{leadEmail}}\nTelefon: {{leadPhone}}\nZpráva: {{leadMessage}}\n{{leadUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_new_lead,
   },
 ];
 

@@ -571,6 +571,8 @@ model User {
   companyClaimRequests         CompanyClaimRequest[]
   companyReviewsAuthored       CompanyReview[] @relation("CompanyReviewAuthor")
   companyReviewResponses       CompanyReviewResponse[] @relation("CompanyReviewResponseAuthor")
+  companyEngagementEvents      CompanyEngagementEvent[]
+  companyLeads                 CompanyLead[]
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -6361,6 +6363,66 @@ enum CompanyEmailLogStatus {
   SENT
   FAILED
   QUEUED
+  DELIVERED
+  BOUNCED
+  OPENED
+  CLICKED
+}
+
+enum CompanyContactDiscoveryEntryState {
+  NOT_SEARCHED
+  SEARCHING
+  FOUND
+  REVIEW_REQUIRED
+  VERIFIED
+  NOT_FOUND
+}
+
+enum CompanyEngagementEventType {
+  PROFILE_VIEW
+  PROFILE_CLICK
+  PHONE_CLICK
+  EMAIL_CLICK
+  WEBSITE_CLICK
+  REVIEW_VIEW
+  REVIEW_CREATED
+  POST_VIEW
+  CLAIM_STARTED
+  CLAIM_COMPLETED
+  POST_CREATED
+  CONTACT_REQUEST
+}
+
+enum CompanyCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  STOPPED
+  OPTED_OUT
+  BOUNCED
+}
+
+enum CompanyCampaignType {
+  ACTIVATION_SEQUENCE
+  MONTHLY_NURTURE
+  INTEREST_NOTIFICATION
+}
+
+enum CompanyLeadStatus {
+  NEW
+  CONTACTED
+  CLOSED
+  SPAM
+  REJECTED
+}
+
+enum CompanyEmailQueueStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
 }
 
 enum CompanyAuditAction {
@@ -6375,6 +6437,10 @@ enum CompanyAuditAction {
   COMPANY_RESPONSE
   MODERATION
   FACEBOOK_PUBLISH
+  ENGAGEMENT_EVENT
+  CAMPAIGN_EMAIL
+  LEAD_CREATED
+  LEAD_NOTIFY
 }
 
 /// Veřejný registr firem z ARES (odděleně od User.CompanyProfile).
@@ -6441,6 +6507,17 @@ model CompanyDirectoryEntry {
   reliabilityFactors Json?
 
   logoUrl String?
+  coverImageUrl String?
+  description String? @db.Text
+
+  contactDiscoveryState CompanyContactDiscoveryEntryState @default(NOT_SEARCHED)
+  communicationOptOut   Boolean   @default(false)
+  communicationOptOutAt DateTime?
+  firstPostCreatedAt    DateTime?
+  emailBounced          Boolean   @default(false)
+  lastEngagementEmailAt DateTime?
+  engagementOptOutToken String? @unique
+  profileCompletenessScore Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -6454,8 +6531,14 @@ model CompanyDirectoryEntry {
   emailLogs              CompanyEmailLog[]
   posts                  Post[]
   googleEnrichmentItems  CompanyGoogleEnrichmentItem[]
+  engagementEvents       CompanyEngagementEvent[]
+  engagementCampaigns    CompanyEngagementCampaign[]
+  leads                  CompanyLead[]
+  emailQueueItems        CompanyEmailQueueItem[]
 
   @@index([publicProfile, profileStatus])
+  @@index([communicationOptOut])
+  @@index([contactDiscoveryState])
   @@index([region, city])
   @@index([verificationStatus])
 }
@@ -6594,6 +6677,8 @@ model CompanyContact {
   company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   email      String
+  phone      String?
+  website    String?
   sourceUrl  String?
   sourceType CompanyContactSourceType @default(OFFICIAL_WEBSITE)
   confidence Float?
@@ -6779,10 +6864,101 @@ model CompanyReviewReport {
   @@index([status])
 }
 
+model CompanyEngagementEvent {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId String?
+
+  type     CompanyEngagementEventType
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, type, createdAt])
+  @@index([createdAt])
+}
+
+model CompanyEngagementCampaign {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  campaignType CompanyCampaignType   @default(ACTIVATION_SEQUENCE)
+  status       CompanyCampaignStatus @default(DRAFT)
+  sequenceStep Int                   @default(0)
+
+  startedAt    DateTime?
+  nextSendAt     DateTime?
+  lastSentAt     DateTime?
+  completedAt    DateTime?
+  stoppedReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emailLogs CompanyEmailLog[]
+
+  @@index([companyId, status])
+  @@index([status, nextSendAt])
+}
+
+model CompanyLead {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name    String
+  email   String
+  phone   String?
+  message String? @db.Text
+  consent Boolean @default(false)
+  status  CompanyLeadStatus @default(NEW)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, createdAt])
+  @@index([status])
+}
+
+model CompanyEmailQueueItem {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  campaignId String?
+  template   String
+  recipient  String
+  subject    String
+  variables  Json?
+  status     CompanyEmailQueueStatus @default(QUEUED)
+
+  scheduledAt DateTime @default(now())
+  processedAt DateTime?
+  attempts    Int      @default(0)
+  lastError   String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([companyId, createdAt])
+}
+
 model CompanyEmailLog {
   id        String @id @default(cuid())
   companyId String
   company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  campaignId String?
+  campaign   CompanyEngagementCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   recipient String
   subject   String
@@ -6792,11 +6968,16 @@ model CompanyEmailLog {
   sentAt    DateTime?
   error     String? @db.Text
 
+  providerMessageId String?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+
   sentByAdminId String?
 
   createdAt DateTime @default(now())
 
   @@index([companyId, createdAt])
+  @@index([campaignId])
 }
 
 model CompanyAuditLog {

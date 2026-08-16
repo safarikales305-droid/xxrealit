@@ -354,6 +354,69 @@ export class CompanyDirectoryService {
       pendingReports,
     };
   }
+
+  async getEngagementDashboard() {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [
+      withEmail,
+      withoutEmail,
+      activeCampaigns,
+      emailsToday,
+      sentLogs,
+      openedLogs,
+      clickedLogs,
+      companiesWithPosts,
+      leads,
+      optOuts,
+      bounces,
+    ] = await Promise.all([
+      this.prisma.companyDirectoryEntry.count({
+        where: { verifiedBusinessEmail: { not: null } },
+      }),
+      this.prisma.companyDirectoryEntry.count({
+        where: { verifiedBusinessEmail: null },
+      }),
+      this.prisma.companyEngagementCampaign.count({
+        where: { status: 'ACTIVE' },
+      }),
+      this.prisma.companyEmailLog.count({
+        where: { createdAt: { gte: startOfDay }, status: 'SENT' },
+      }),
+      this.prisma.companyEmailLog.count({ where: { status: 'SENT' } }),
+      this.prisma.companyEmailLog.count({ where: { openedAt: { not: null } } }),
+      this.prisma.companyEmailLog.count({ where: { clickedAt: { not: null } } }),
+      this.prisma.companyDirectoryEntry.count({
+        where: { firstPostCreatedAt: { not: null } },
+      }),
+      this.prisma.companyLead.count(),
+      this.prisma.companyDirectoryEntry.count({
+        where: { communicationOptOut: true },
+      }),
+      this.prisma.companyDirectoryEntry.count({
+        where: { emailBounced: true },
+      }),
+    ]);
+
+    const claimedCount = await this.prisma.companyDirectoryEntry.count({
+      where: { profileStatus: { in: ['CLAIMED', 'VERIFIED'] } },
+    });
+
+    return {
+      firmsWithEmail: withEmail,
+      firmsWithoutEmail: withoutEmail,
+      activeCampaigns,
+      emailsToday,
+      openRate: sentLogs > 0 ? Math.round((openedLogs / sentLogs) * 100) : 0,
+      clickRate: sentLogs > 0 ? Math.round((clickedLogs / sentLogs) * 100) : 0,
+      claimConversion: withEmail > 0 ? Math.round((claimedCount / withEmail) * 100) : 0,
+      companiesWithPosts,
+      leads,
+      optOuts,
+      bounces,
+    };
+  }
 }
 
 function mapCommunityCategoryToRoles(category?: string): string | undefined {

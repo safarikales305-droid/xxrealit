@@ -13,6 +13,8 @@ import {
   nestGetCompanyReviews,
   nestSubmitCompanyClaim,
   nestSubmitCompanyReview,
+  nestSubmitCompanyLead,
+  nestTrackCompanyEvent,
   type CompanyDirectoryDetailResponse,
 } from '@/lib/company-directory-client';
 
@@ -49,6 +51,15 @@ export default function FirmaDetailPage() {
   const [loading, setLoading] = useState(true);
   const [claimOpen, setClaimOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [leadOpen, setLeadOpen] = useState(false);
+  const [leadMsg, setLeadMsg] = useState<string | null>(null);
+  const [leadForm, setLeadForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    message: '',
+    consent: false,
+  });
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
   const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   const [claimForm, setClaimForm] = useState({
@@ -93,6 +104,26 @@ export default function FirmaDetailPage() {
   const googleRating = data?.googleRating ?? company?.googleRating ?? company?.rating;
   const googleReviewCount = data?.googleReviewCount ?? company?.googleReviewCount ?? company?.ratingCount;
   const googleMapsUri = data?.googleMapsUri ?? company?.googleMapsUri;
+
+  async function submitLead(e: React.FormEvent) {
+    e.preventDefault();
+    if (!company) return;
+    const res = await nestSubmitCompanyLead({
+      companyId: company.id,
+      ...leadForm,
+    });
+    setLeadMsg(
+      res?.id
+        ? 'Váš zájem byl odeslán. Firma vás může kontaktovat, pokud má aktivní profil.'
+        : res?.error ?? 'Odeslání se nezdařilo.',
+    );
+    if (res?.id) setLeadOpen(false);
+  }
+
+  function trackClick(type: 'WEBSITE_CLICK' | 'PHONE_CLICK' | 'EMAIL_CLICK') {
+    if (!company) return;
+    void nestTrackCompanyEvent({ companyId: company.id, type });
+  }
 
   async function submitClaim(e: React.FormEvent) {
     e.preventDefault();
@@ -278,37 +309,94 @@ export default function FirmaDetailPage() {
             <section className="mt-6">
               <h2 className="text-base font-semibold text-zinc-900">Kontakty</h2>
               <ul className="mt-2 space-y-1 text-sm text-zinc-700">
-                {company.website ? <li>Web: {company.website}</li> : null}
-                {company.phone ? <li>Tel.: {company.phone}</li> : null}
-                {company.email ? <li>E-mail: {company.email}</li> : null}
+                {company.website ? (
+                  <li>
+                    Web:{' '}
+                    <a
+                      href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-orange-700 hover:underline"
+                      onClick={() => trackClick('WEBSITE_CLICK')}
+                    >
+                      {company.website}
+                    </a>
+                  </li>
+                ) : null}
+                {company.phone ? (
+                  <li>
+                    Tel.:{' '}
+                    <a
+                      href={`tel:${company.phone.replace(/\s/g, '')}`}
+                      className="text-orange-700 hover:underline"
+                      onClick={() => trackClick('PHONE_CLICK')}
+                    >
+                      {company.phone}
+                    </a>
+                  </li>
+                ) : null}
+                {company.email ? (
+                  <li>
+                    E-mail:{' '}
+                    <a
+                      href={`mailto:${company.email}`}
+                      className="text-orange-700 hover:underline"
+                      onClick={() => trackClick('EMAIL_CLICK')}
+                    >
+                      {company.email}
+                    </a>
+                  </li>
+                ) : null}
               </ul>
             </section>
           )}
 
           {company.profileStatus === 'UNCLAIMED' ? (
             <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Tento profil ještě nebyl převzat firmou.
+              Jste z této firmy?{' '}
+              <button
+                type="button"
+                onClick={() => setClaimOpen(true)}
+                className="font-semibold text-orange-800 underline"
+              >
+                Převzít profil
+              </button>
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              Profil je spravován firmou.{' '}
+              <span className="font-semibold">Spravovat profil</span> ·{' '}
+              <span className="font-semibold">Přidat příspěvek</span>
+            </p>
+          )}
 
           <div className="mt-8 flex flex-col gap-2 sm:flex-row" id="prevzit-profil">
             <button
               type="button"
-              onClick={() => setReviewOpen((v) => !v)}
+              onClick={() => setLeadOpen((v) => !v)}
               className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3 text-sm font-semibold text-white"
             >
-              Napsat recenzi
+              Mám zájem
             </button>
             <button
               type="button"
-              onClick={() => setClaimOpen((v) => !v)}
+              onClick={() => setReviewOpen((v) => !v)}
               className="rounded-full border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-800"
             >
-              Převzít profil
+              Napsat recenzi
             </button>
+            {company.profileStatus === 'UNCLAIMED' ? (
+              <button
+                type="button"
+                onClick={() => setClaimOpen((v) => !v)}
+                className="rounded-full border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-800"
+              >
+                Převzít profil
+              </button>
+            ) : null}
           </div>
 
-          {reviewMsg ? <p className="mt-3 text-sm text-emerald-700">{reviewMsg}</p> : null}
+          {leadMsg ? <p className="mt-3 text-sm text-emerald-700">{leadMsg}</p> : null}
           {claimMsg ? <p className="mt-3 text-sm text-emerald-700">{claimMsg}</p> : null}
 
           {reviewOpen ? (
@@ -437,6 +525,60 @@ export default function FirmaDetailPage() {
               />
               <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">
                 Odeslat žádost
+              </button>
+            </form>
+          ) : null}
+
+          {leadOpen ? (
+            <form
+              onSubmit={(e) => void submitLead(e)}
+              className="mt-4 space-y-3 rounded-xl border border-orange-200 bg-orange-50/40 p-4"
+              id="kontaktovat-firmu"
+            >
+              <h3 className="font-semibold text-zinc-900">Kontaktovat firmu</h3>
+              <input
+                required
+                value={leadForm.name}
+                onChange={(e) => setLeadForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Jméno"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                required
+                type="email"
+                value={leadForm.email}
+                onChange={(e) => setLeadForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="E-mail"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                value={leadForm.phone}
+                onChange={(e) => setLeadForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="Telefon (volitelné)"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <textarea
+                value={leadForm.message}
+                onChange={(e) => setLeadForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="Zpráva"
+                rows={3}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <label className="flex items-start gap-2 text-xs text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={leadForm.consent}
+                  onChange={(e) => setLeadForm((f) => ({ ...f, consent: e.target.checked }))}
+                  className="mt-0.5"
+                />
+                Souhlasím se sdílením kontaktních údajů s firmou za účelem odpovědi na můj dotaz.
+              </label>
+              <button
+                type="submit"
+                disabled={!leadForm.consent}
+                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Odeslat zájem
               </button>
             </form>
           ) : null}

@@ -49,19 +49,32 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     const company = await this.prisma.companyDirectoryEntry.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Firma nenalezena.');
 
+    await this.prisma.companyDirectoryEntry.update({
+      where: { id: companyId },
+      data: { contactDiscoveryState: 'SEARCHING' },
+    });
+
     const website = company.website?.trim();
     if (!website) {
-      return { found: false, reason: 'Firma nemá web.' };
+      await this.prisma.companyDirectoryEntry.update({
+        where: { id: companyId },
+        data: { contactDiscoveryState: 'NOT_FOUND' },
+      });
+      return { found: false, reason: 'Firma nemá web.', state: 'NOT_FOUND' };
     }
 
     const result = await this.fetchEmailsFromWebsite(website);
     if (result.emails.length === 0) {
+      await this.prisma.companyDirectoryEntry.update({
+        where: { id: companyId },
+        data: { contactDiscoveryState: 'NOT_FOUND' },
+      });
       await this.audit.log({
         companyId,
         action: 'CONTACT_DISCOVERY',
         message: 'Kontakt nenalezen na webu',
       });
-      return { found: false };
+      return { found: false, state: 'NOT_FOUND' };
     }
 
     const best = result.emails[0];
@@ -72,15 +85,25 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
           ? CompanyContactStatus.FOUND_MEDIUM_CONFIDENCE
           : CompanyContactStatus.REVIEW_REQUIRED;
 
+    const discoveryState =
+      status === CompanyContactStatus.REVIEW_REQUIRED ? 'REVIEW_REQUIRED' : 'FOUND';
+
     const contact = await this.prisma.companyContact.create({
       data: {
         companyId,
         email: best.email,
+        phone: result.phone,
+        website: result.website,
         sourceUrl: best.sourceUrl,
         sourceType: CompanyContactSourceType.OFFICIAL_WEBSITE,
         confidence: best.confidence,
         status,
       },
+    });
+
+    await this.prisma.companyDirectoryEntry.update({
+      where: { id: companyId },
+      data: { contactDiscoveryState: discoveryState },
     });
 
     await this.audit.log({
@@ -89,7 +112,49 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       message: `Nalezen email ${best.email} (${Math.round(best.confidence * 100)}%)`,
     });
 
-    return { found: true, contact };
+    return { found: true, contact, state: discoveryState };
+  }
+
+  async getContactDetail(companyId: string) {
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        website: true,
+        verifiedBusinessEmail: true,
+        contactDiscoveryState: true,
+      },
+    });
+    if (!company) throw new BadRequestException('Firma nenalezena.');
+
+    const contacts = await this.prisma.companyContact.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    const latest = contacts[0] ?? null;
+    return {
+      companyId,
+      state: company.contactDiscoveryState,
+      verifiedBusinessEmail: company.verifiedBusinessEmail,
+      latestContact: latest
+        ? {
+            id: latest.id,
+            email: latest.email,
+            phone: latest.phone,
+            website: latest.website,
+            sourceUrl: latest.sourceUrl,
+            sourceType: latest.sourceType,
+            confidence: latest.confidence,
+            status: latest.status,
+            discoveredAt: latest.discoveredAt.toISOString(),
+            verifiedAt: latest.verifiedAt?.toISOString() ?? null,
+          }
+        : null,
+      contacts,
+    };
   }
 
   async confirmContact(contactId: string, adminUserId?: string) {
@@ -103,7 +168,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
 
     await this.prisma.companyDirectoryEntry.update({
       where: { id: contact.companyId },
-      data: { verifiedBusinessEmail: contact.email },
+      data: { verifiedBusinessEmail: contact.email, contactDiscoveryState: 'VERIFIED' },
     });
 
     await this.audit.log({
@@ -241,6 +306,8 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     const base = website.startsWith('http') ? website : `https://${website}`;
     const urls = [base, `${base.replace(/\/$/, '')}/kontakt`, `${base.replace(/\/$/, '')}/contact`];
     const emails: Array<{ email: string; sourceUrl: string; confidence: number }> = [];
+    let phone: string | undefined;
+    let resolvedWebsite = base;
 
     for (const url of urls) {
       try {
@@ -251,6 +318,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
         if (!res.ok) continue;
         const html = await res.text();
         const found = extractEmails(html);
+        if (!phone) phone = extractPhone(html);
         for (const email of found) {
           emails.push({
             email,
@@ -269,7 +337,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       if (!unique.has(row.email)) unique.set(row.email, row);
     }
 
-    return { emails: [...unique.values()] };
+    return { emails: [...unique.values()], phone, website: resolvedWebsite };
   }
 }
 
@@ -284,5 +352,11 @@ function scoreEmail(email: string): number {
   const lower = email.toLowerCase();
   if (PREFERRED_PREFIXES.some((p) => lower.startsWith(p))) return 0.95;
   if (lower.startsWith('mail@')) return 0.85;
+  if (/^[a-z]+\.[a-z]+@/.test(lower)) return 0.45;
   return 0.6;
+}
+
+function extractPhone(html: string): string | undefined {
+  const match = html.match(/(?:\+420\s?)?(?:\d{3}\s?){3}/);
+  return match?.[0]?.trim();
 }

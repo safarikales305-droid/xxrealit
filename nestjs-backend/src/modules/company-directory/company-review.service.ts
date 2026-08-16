@@ -227,6 +227,11 @@ export class CompanyReviewService {
     await this.recalculateCompanyRating(review.companyId);
     const postId = await this.createPortalPostFromReview(review);
 
+    await this.prisma.companyDirectoryEntry.updateMany({
+      where: { id: review.companyId, firstPostCreatedAt: null },
+      data: { firstPostCreatedAt: publishedAt },
+    });
+
     await this.audit.log({
       companyId: review.companyId,
       action: 'REVIEW_PUBLISH',

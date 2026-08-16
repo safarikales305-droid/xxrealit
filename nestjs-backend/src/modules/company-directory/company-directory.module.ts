@@ -14,6 +14,10 @@ import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
 import { CompanyReviewService } from './company-review.service';
+import { CompanyEngagementEventService } from './company-engagement-event.service';
+import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
+import { CompanyEmailQueueService } from './company-email-queue.service';
+import { CompanyLeadService, CompanyEngagementFacadeService } from './company-lead.service';
 import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
 
@@ -30,6 +34,11 @@ import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
     CompanyGoogleEnrichmentService,
     CompanyContactDiscoveryService,
     CompanyReviewService,
+    CompanyEngagementEventService,
+    CompanyEngagementCampaignService,
+    CompanyEmailQueueService,
+    CompanyLeadService,
+    CompanyEngagementFacadeService,
     GooglePlacesReputationProvider,
     {
       provide: COMPANY_REPUTATION_PROVIDER,

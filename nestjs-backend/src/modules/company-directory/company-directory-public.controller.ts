@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
 import { CompanyDirectoryService } from './company-directory.service';
 import { CompanyClaimService } from './company-claim.service';
 import { CompanyReviewService } from './company-review.service';
+import { CompanyEngagementFacadeService, CompanyLeadService } from './company-lead.service';
+import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { COMPANY_REVIEWS_ENABLED } from './company-directory.constants';
+import { CompanyEngagementEventType } from '@prisma/client';
+import type { Request } from 'express';
 
 @Controller('company-directory')
 export class CompanyDirectoryPublicController {
@@ -12,6 +16,9 @@ export class CompanyDirectoryPublicController {
     private readonly directory: CompanyDirectoryService,
     private readonly claims: CompanyClaimService,
     private readonly reviews: CompanyReviewService,
+    private readonly engagement: CompanyEngagementFacadeService,
+    private readonly leads: CompanyLeadService,
+    private readonly campaigns: CompanyEngagementCampaignService,
   ) {}
 
   @Get('public')
@@ -28,8 +35,62 @@ export class CompanyDirectoryPublicController {
   }
 
   @Get('public/:slug')
-  detail(@Param('slug') slug: string) {
-    return this.directory.getPublicBySlug(slug);
+  async detail(@Param('slug') slug: string, @Req() req: Request) {
+    const data = await this.directory.getPublicBySlug(slug);
+    if (data?.company?.id) {
+      const sessionId =
+        typeof req.headers['x-session-id'] === 'string'
+          ? req.headers['x-session-id']
+          : undefined;
+      await this.engagement.trackPublicEvent({
+        companyId: data.company.id,
+        type: CompanyEngagementEventType.PROFILE_VIEW,
+        sessionId,
+      });
+    }
+    return data;
+  }
+
+  @Post('public/events')
+  trackEvent(
+    @Body()
+    body: {
+      companyId: string;
+      type: CompanyEngagementEventType;
+      sessionId?: string;
+      userId?: string;
+    },
+  ) {
+    return this.engagement.trackPublicEvent({
+      companyId: body.companyId,
+      type: body.type,
+      userId: body.userId,
+      sessionId: body.sessionId,
+    });
+  }
+
+  @Post('public/leads')
+  createLead(
+    @Body()
+    body: {
+      companyId: string;
+      name: string;
+      email: string;
+      phone?: string;
+      message?: string;
+      consent: boolean;
+      userId?: string;
+    },
+  ) {
+    return this.leads.createLead({
+      ...body,
+      userId: body.userId,
+    });
+  }
+
+  @Post('public/unsubscribe')
+  unsubscribe(@Body() body: { token: string }) {
+    return this.campaigns.processOptOut(body.token);
   }
 
   @Post('public/claim')

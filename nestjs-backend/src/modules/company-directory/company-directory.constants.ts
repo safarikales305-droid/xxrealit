@@ -27,6 +27,61 @@ export const COMPANY_CONTACT_DISCOVERY_ENABLED =
 export const COMPANY_OUTREACH_ENABLED =
   (process.env.COMPANY_OUTREACH_ENABLED ?? 'false').toLowerCase() === 'true';
 
+export const COMPANY_ENGAGEMENT_CAMPAIGNS_ENABLED =
+  (process.env.COMPANY_ENGAGEMENT_CAMPAIGNS_ENABLED ?? 'false').toLowerCase() === 'true';
+
+export const COMPANY_INTEREST_NOTIFICATIONS_ENABLED =
+  (process.env.COMPANY_INTEREST_NOTIFICATIONS_ENABLED ?? 'false').toLowerCase() === 'true';
+
+export const COMPANY_MONTHLY_NURTURE_ENABLED =
+  (process.env.COMPANY_MONTHLY_NURTURE_ENABLED ?? 'false').toLowerCase() === 'true';
+
+export const PUBLIC_POSTS_REQUIRE_LOGIN =
+  (process.env.PUBLIC_POSTS_REQUIRE_LOGIN ?? 'false').toLowerCase() === 'true';
+
+export const COMMENTS_REQUIRE_LOGIN =
+  (process.env.COMMENTS_REQUIRE_LOGIN ?? 'true').toLowerCase() === 'true';
+
+export const COMPANY_CAMPAIGN_TEST_MODE =
+  (process.env.COMPANY_CAMPAIGN_TEST_MODE ?? 'false').toLowerCase() === 'true';
+
+export const MAX_ENGAGEMENT_EMAILS_PER_COMPANY_PER_DAY = Math.max(
+  1,
+  Number(process.env.MAX_ENGAGEMENT_EMAILS_PER_COMPANY_PER_DAY ?? 1) || 1,
+);
+
+export const ENGAGEMENT_EMAIL_COOLDOWN_MS = Math.max(
+  3_600_000,
+  Number(process.env.ENGAGEMENT_EMAIL_COOLDOWN_MS ?? 86_400_000) || 86_400_000,
+);
+
+export const PROFILE_VIEW_THRESHOLD = Math.max(
+  1,
+  Number(process.env.PROFILE_VIEW_THRESHOLD ?? 5) || 5,
+);
+
+export const COMPANY_EMAIL_QUEUE_BATCH_SIZE = Math.max(
+  1,
+  Math.min(20, Number(process.env.COMPANY_EMAIL_QUEUE_BATCH_SIZE ?? 5) || 5),
+);
+
+export const COMPANY_EMAIL_QUEUE_DELAY_MS = Math.max(
+  200,
+  Number(process.env.COMPANY_EMAIL_QUEUE_DELAY_MS ?? 1000) || 1000,
+);
+
+export const CAMPAIGN_SEQUENCE_INTERVAL_MS = COMPANY_CAMPAIGN_TEST_MODE
+  ? 60_000
+  : 7 * 24 * 60 * 60 * 1000;
+
+export const CAMPAIGN_MONTHLY_INTERVAL_MS = COMPANY_CAMPAIGN_TEST_MODE
+  ? 5 * 60_000
+  : 30 * 24 * 60 * 60 * 1000;
+
+export const CAMPAIGN_TEST_STEP_DELAYS_MS = [60_000, 120_000, 180_000, 240_000, 300_000];
+
+export const MIN_CONTACT_CONFIDENCE_FOR_CAMPAIGN = 0.85;
+
 export const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY?.trim() ?? '';
 
 export const GOOGLE_PLACES_CACHE_TTL_MS = Math.max(

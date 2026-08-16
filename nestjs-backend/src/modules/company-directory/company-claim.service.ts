@@ -117,6 +117,15 @@ export class CompanyClaimService {
             claimedByUserId: claim.userId,
           },
         }),
+        this.prisma.companyEngagementCampaign.updateMany({
+          where: { companyId: claim.companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
+          data: {
+            status: 'STOPPED',
+            stoppedReason: 'claimed',
+            completedAt: new Date(),
+            nextSendAt: null,
+          },
+        }),
       ]);
       return { ok: true, status: 'APPROVED' };
     }

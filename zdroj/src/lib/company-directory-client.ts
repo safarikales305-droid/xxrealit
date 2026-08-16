@@ -396,6 +396,119 @@ export async function nestAdminDiscoverContact(
   });
 }
 
+export async function nestAdminGetContactDetail(
+  token: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/contact`);
+}
+
+export async function nestAdminConfirmContact(
+  token: string,
+  contactId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/contacts/${encodeURIComponent(contactId)}/confirm`, {
+    method: 'PATCH',
+  });
+}
+
+export async function nestAdminRejectContact(
+  token: string,
+  contactId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/contacts/${encodeURIComponent(contactId)}/reject`, {
+    method: 'PATCH',
+  });
+}
+
+export async function nestAdminStartCampaign(
+  token: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/campaign/start`, {
+    method: 'POST',
+  });
+}
+
+export async function nestAdminGetCampaign(
+  token: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/campaign`);
+}
+
+export async function nestAdminCampaignAction(
+  token: string,
+  companyId: string,
+  action: 'pause' | 'resume' | 'stop',
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/campaign/${action}`, {
+    method: 'POST',
+  });
+}
+
+export async function nestAdminBulkStartCampaign(
+  token: string,
+  companyIds: string[],
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, '/campaigns/bulk-start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyIds }),
+  });
+}
+
+export async function nestAdminEngagementDashboard(
+  token: string,
+): Promise<Record<string, number> | null> {
+  return adminFetch(token, '/engagement/dashboard');
+}
+
+export async function nestTrackCompanyEvent(body: {
+  companyId: string;
+  type: string;
+  sessionId?: string;
+  userId?: string;
+}): Promise<unknown> {
+  if (!API_BASE_URL) return null;
+  await fetch(`${API_BASE_URL}/company-directory/public/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestSubmitCompanyLead(body: {
+  companyId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  message?: string;
+  consent: boolean;
+  userId?: string;
+}): Promise<{ id?: string; error?: string } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/leads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { id?: string; message?: string };
+  if (!res.ok) return { error: (data as { message?: string }).message ?? 'Odeslání selhalo.' };
+  return data;
+}
+
+export async function nestCompanyUnsubscribe(token: string): Promise<{ ok?: boolean; companyName?: string } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/unsubscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as { ok?: boolean; companyName?: string };
+}
+
 export async function nestAdminSendCompanyEmail(
   token: string,
   companyId: string,

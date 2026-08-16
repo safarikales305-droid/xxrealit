@@ -20,12 +20,16 @@ import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
 import { CompanyReviewService } from './company-review.service';
+import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import {
   ARES_IMPORT_BATCH_SIZE,
   ARES_IMPORT_DELAY_MS,
   ARES_IMPORT_ENABLED,
   CZECH_REGIONS,
   COMPANY_CONTACT_DISCOVERY_ENABLED,
+  COMPANY_ENGAGEMENT_CAMPAIGNS_ENABLED,
+  COMPANY_INTEREST_NOTIFICATIONS_ENABLED,
+  COMPANY_MONTHLY_NURTURE_ENABLED,
   COMPANY_OUTREACH_ENABLED,
   COMPANY_REVIEWS_ENABLED,
   GOOGLE_COMPANY_ENRICHMENT_ENABLED,
@@ -43,6 +47,7 @@ export class CompanyDirectoryAdminController {
     private readonly contactDiscovery: CompanyContactDiscoveryService,
     private readonly email: CompanyEmailService,
     private readonly reviews: CompanyReviewService,
+    private readonly campaigns: CompanyEngagementCampaignService,
   ) {}
 
   @Get('dashboard')
@@ -60,6 +65,9 @@ export class CompanyDirectoryAdminController {
         googleEnrichment: GOOGLE_COMPANY_ENRICHMENT_ENABLED,
         contactDiscovery: COMPANY_CONTACT_DISCOVERY_ENABLED,
         outreach: COMPANY_OUTREACH_ENABLED,
+        engagementCampaigns: COMPANY_ENGAGEMENT_CAMPAIGNS_ENABLED,
+        interestNotifications: COMPANY_INTEREST_NOTIFICATIONS_ENABLED,
+        monthlyNurture: COMPANY_MONTHLY_NURTURE_ENABLED,
         reviews: COMPANY_REVIEWS_ENABLED,
       },
       defaults: {
@@ -167,6 +175,46 @@ export class CompanyDirectoryAdminController {
   @Post('companies/:id/contact/discover')
   discoverContact(@Param('id') id: string) {
     return this.contactDiscovery.discoverForCompany(id);
+  }
+
+  @Get('companies/:id/contact')
+  getContactDetail(@Param('id') id: string) {
+    return this.contactDiscovery.getContactDetail(id);
+  }
+
+  @Post('companies/:id/campaign/start')
+  startCampaign(@Param('id') id: string) {
+    return this.campaigns.startCampaign(id);
+  }
+
+  @Get('companies/:id/campaign')
+  getCampaign(@Param('id') id: string) {
+    return this.campaigns.getCampaignDetail(id);
+  }
+
+  @Post('companies/:id/campaign/pause')
+  pauseCampaign(@Param('id') id: string) {
+    return this.campaigns.pauseCampaign(id);
+  }
+
+  @Post('companies/:id/campaign/resume')
+  resumeCampaign(@Param('id') id: string) {
+    return this.campaigns.resumeCampaign(id);
+  }
+
+  @Post('companies/:id/campaign/stop')
+  stopCampaign(@Param('id') id: string) {
+    return this.campaigns.stopCampaign(id);
+  }
+
+  @Post('campaigns/bulk-start')
+  bulkStartCampaign(@Body() body: { companyIds: string[] }) {
+    return this.campaigns.startBulkCampaign(body.companyIds ?? []);
+  }
+
+  @Get('engagement/dashboard')
+  engagementDashboard() {
+    return this.directory.getEngagementDashboard();
   }
 
   @Post('contact/batches/start')

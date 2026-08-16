@@ -16,6 +16,14 @@ import {
   nestAdminCompanyImportJobs,
   nestAdminCompanyImportStart,
   nestAdminDiscoverContact,
+  nestAdminGetContactDetail,
+  nestAdminConfirmContact,
+  nestAdminRejectContact,
+  nestAdminStartCampaign,
+  nestAdminGetCampaign,
+  nestAdminCampaignAction,
+  nestAdminBulkStartCampaign,
+  nestAdminEngagementDashboard,
   nestAdminListCompanies,
   nestAdminMatchGoogle,
   nestAdminReviewCompanyClaim,
@@ -23,7 +31,32 @@ import {
   type ImportJobView,
 } from '@/lib/company-directory-client';
 
-type Tab = 'ares' | 'companies' | 'claims' | 'reviews';
+type Tab = 'ares' | 'companies' | 'claims' | 'reviews' | 'engagement';
+
+type ContactDetail = {
+  state?: string;
+  verifiedBusinessEmail?: string | null;
+  latestContact?: {
+    id: string;
+    email: string;
+    sourceUrl?: string | null;
+    confidence?: number | null;
+    status?: string;
+  } | null;
+};
+
+type CampaignDetail = {
+  company?: Record<string, unknown>;
+  stats?: Record<string, number>;
+  campaign?: {
+    status?: string;
+    sequenceStep?: number;
+    nextSendAt?: string | null;
+    sent?: number;
+    opened?: number;
+    clicked?: number;
+  } | null;
+};
 
 export default function AdminFirmyPage() {
   const router = useRouter();
@@ -41,6 +74,12 @@ export default function AdminFirmyPage() {
   const [importing, setImporting] = useState(false);
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [detailItems, setDetailItems] = useState<Array<Record<string, unknown>>>([]);
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [contactModal, setContactModal] = useState<{ companyId: string; name: string } | null>(null);
+  const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null);
+  const [campaignModal, setCampaignModal] = useState<{ companyId: string; name: string } | null>(null);
+  const [campaignDetail, setCampaignDetail] = useState<CampaignDetail | null>(null);
+  const [engagementStats, setEngagementStats] = useState<Record<string, number> | null>(null);
 
   const [companyQuery, setCompanyQuery] = useState({
     q: '',
@@ -97,6 +136,10 @@ export default function AdminFirmyPage() {
     setClaims(c ?? []);
     await refreshJobs();
     if (tab === 'companies') await refreshCompanies();
+    if (tab === 'engagement') {
+      const stats = await nestAdminEngagementDashboard(token);
+      setEngagementStats(stats);
+    }
   }, [token, tab, refreshJobs, refreshCompanies]);
 
   useEffect(() => {
@@ -115,7 +158,24 @@ export default function AdminFirmyPage() {
 
   useEffect(() => {
     if (tab === 'companies') void refreshCompanies();
-  }, [tab, refreshCompanies]);
+    if (tab === 'engagement' && token) {
+      void nestAdminEngagementDashboard(token).then((s) => setEngagementStats(s));
+    }
+  }, [tab, refreshCompanies, token]);
+
+  useEffect(() => {
+    if (!token || !contactModal) return;
+    void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+      setContactDetail((d as ContactDetail) ?? null),
+    );
+  }, [token, contactModal]);
+
+  useEffect(() => {
+    if (!token || !campaignModal) return;
+    void nestAdminGetCampaign(token, campaignModal.companyId).then((d) =>
+      setCampaignDetail((d as CampaignDetail) ?? null),
+    );
+  }, [token, campaignModal]);
 
   useEffect(() => {
     if (!token || !detailJobId) return;
@@ -171,6 +231,7 @@ export default function AdminFirmyPage() {
             ['companies', 'Importované firmy'],
             ['reviews', 'Recenze'],
             ['claims', 'Claim requests'],
+            ['engagement', 'Engagement'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -422,10 +483,26 @@ export default function AdminFirmyPage() {
             </button>
           </div>
 
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={selectedCompanyIds.length === 0}
+              onClick={() =>
+                void nestAdminBulkStartCampaign(token, selectedCompanyIds).then((r) =>
+                  setMsg(`Hromadná kampaň: ${String(r?.queued ?? 0)} firem zařazeno.`),
+                )
+              }
+              className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              Spustit aktivační kampaň ({selectedCompanyIds.length})
+            </button>
+          </div>
+
           <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs uppercase text-zinc-500">
+                  <th className="py-2 pr-2">✓</th>
                   <th className="py-2 pr-2">Firma</th>
                   <th className="py-2 pr-2">IČO</th>
                   <th className="py-2 pr-2">Město</th>
@@ -438,6 +515,20 @@ export default function AdminFirmyPage() {
               <tbody>
                 {companies.map((row) => (
                   <tr key={row.id} className="border-b align-top">
+                    <td className="py-2 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedCompanyIds.includes(row.id)}
+                        disabled={!row.verifiedBusinessEmail}
+                        onChange={(e) =>
+                          setSelectedCompanyIds((prev) =>
+                            e.target.checked
+                              ? [...prev, row.id]
+                              : prev.filter((id) => id !== row.id),
+                          )
+                        }
+                      />
+                    </td>
                     <td className="py-2 pr-2 font-medium">{row.name}</td>
                     <td className="py-2 pr-2">{row.ico}</td>
                     <td className="py-2 pr-2">{row.city ?? '—'}</td>
@@ -471,18 +562,19 @@ export default function AdminFirmyPage() {
                         <button
                           type="button"
                           className="text-left text-xs text-zinc-600 hover:underline"
-                          onClick={() =>
-                            void nestAdminDiscoverContact(token, row.id).then((r) =>
-                              setMsg(
-                                r?.found === false
-                                  ? 'Kontakt nenalezen.'
-                                  : 'Dohledání kontaktu dokončeno.',
-                              ),
-                            )
-                          }
+                          onClick={() => setContactModal({ companyId: row.id, name: row.name })}
                         >
                           Kontakt
                         </button>
+                        {row.verifiedBusinessEmail ? (
+                          <button
+                            type="button"
+                            className="text-left text-xs text-orange-700 hover:underline"
+                            onClick={() => setCampaignModal({ companyId: row.id, name: row.name })}
+                          >
+                            Spustit kampaň
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -554,6 +646,222 @@ export default function AdminFirmyPage() {
             )}
           </div>
         </section>
+      ) : null}
+
+      {tab === 'engagement' && engagementStats ? (
+        <section className="rounded-xl border bg-white p-5">
+          <h2 className="text-lg font-semibold">Engagement přehled</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(engagementStats).map(([key, value]) => (
+              <div key={key} className="rounded-lg border p-3">
+                <p className="text-xs uppercase text-zinc-500">{key}</p>
+                <p className="mt-1 text-xl font-bold">{value}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {contactModal ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold">Firemní kontakt – {contactModal.name}</h3>
+              <button type="button" onClick={() => setContactModal(null)} className="rounded border px-2 py-1 text-sm">
+                Zavřít
+              </button>
+            </div>
+            <p className="mt-3 text-sm">
+              Stav: <strong>{contactDetail?.state ?? '—'}</strong>
+            </p>
+            {contactDetail?.latestContact ? (
+              <div className="mt-4 space-y-2 rounded-lg border p-3 text-sm">
+                <p>
+                  Email:{' '}
+                  <a href={`mailto:${contactDetail.latestContact.email}`} className="text-orange-700">
+                    {contactDetail.latestContact.email}
+                  </a>
+                </p>
+                <p>
+                  Zdroj:{' '}
+                  {contactDetail.latestContact.sourceUrl ? (
+                    <a
+                      href={contactDetail.latestContact.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-orange-700 break-all"
+                    >
+                      {contactDetail.latestContact.sourceUrl}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </p>
+                <p>
+                  Confidence:{' '}
+                  {contactDetail.latestContact.confidence != null
+                    ? `${Math.round(contactDetail.latestContact.confidence * 100)} %`
+                    : '—'}
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white"
+                    onClick={() =>
+                      void nestAdminConfirmContact(token, contactDetail.latestContact!.id).then(() => {
+                        setMsg('Kontakt potvrzen.');
+                        void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+                          setContactDetail((d as ContactDetail) ?? null),
+                        );
+                      })
+                    }
+                  >
+                    Potvrdit
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded bg-red-600 px-3 py-1.5 text-xs text-white"
+                    onClick={() =>
+                      void nestAdminRejectContact(token, contactDetail.latestContact!.id).then(() => {
+                        setMsg('Kontakt odmítnut.');
+                        void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+                          setContactDetail((d as ContactDetail) ?? null),
+                        );
+                      })
+                    }
+                  >
+                    Odmítnout
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border px-3 py-1.5 text-xs"
+                    onClick={() =>
+                      void nestAdminDiscoverContact(token, contactModal.companyId).then(() => {
+                        setMsg('AI dohledávání spuštěno.');
+                        void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+                          setContactDetail((d as ContactDetail) ?? null),
+                        );
+                      })
+                    }
+                  >
+                    Vyhledat znovu
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mt-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
+                onClick={() =>
+                  void nestAdminDiscoverContact(token, contactModal.companyId).then(() => {
+                    setMsg('Dohledávání kontaktu spuštěno.');
+                    void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
+                      setContactDetail((d as ContactDetail) ?? null),
+                    );
+                  })
+                }
+              >
+                Dohledat kontakt pomocí AI
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {campaignModal ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold">Aktivace firemního profilu</h3>
+              <button type="button" onClick={() => setCampaignModal(null)} className="rounded border px-2 py-1 text-sm">
+                Zavřít
+              </button>
+            </div>
+            <p className="mt-2 text-sm font-medium">{campaignModal.name}</p>
+            {campaignDetail?.stats ? (
+              <ul className="mt-3 space-y-1 text-xs text-zinc-600">
+                <li>Zobrazení profilu: {campaignDetail.stats.profileViews ?? 0}</li>
+                <li>Kliknutí na web: {campaignDetail.stats.websiteClicks ?? 0}</li>
+                <li>Telefon: {campaignDetail.stats.phoneClicks ?? 0}</li>
+                <li>Leady: {campaignDetail.stats.leads ?? 0}</li>
+              </ul>
+            ) : null}
+            {campaignDetail?.campaign ? (
+              <div className="mt-4 rounded-lg border p-3 text-sm">
+                <p>Aktivní: {campaignDetail.campaign.status === 'ACTIVE' ? 'Ano' : 'Ne'}</p>
+                <p>
+                  Aktuální krok: {campaignDetail.campaign.sequenceStep ?? 0} / 5
+                </p>
+                <p>
+                  Další email:{' '}
+                  {campaignDetail.campaign.nextSendAt
+                    ? new Date(campaignDetail.campaign.nextSendAt).toLocaleString('cs-CZ')
+                    : '—'}
+                </p>
+                <p>
+                  Odesláno: {campaignDetail.campaign.sent ?? 0} · Otevřeno:{' '}
+                  {campaignDetail.campaign.opened ?? 0} · Kliknuto: {campaignDetail.campaign.clicked ?? 0}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() =>
+                      void nestAdminCampaignAction(token, campaignModal.companyId, 'pause').then(() =>
+                        void nestAdminGetCampaign(token, campaignModal.companyId).then((d) =>
+                          setCampaignDetail((d as CampaignDetail) ?? null),
+                        ),
+                      )
+                    }
+                  >
+                    Pozastavit
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() =>
+                      void nestAdminCampaignAction(token, campaignModal.companyId, 'resume').then(() =>
+                        void nestAdminGetCampaign(token, campaignModal.companyId).then((d) =>
+                          setCampaignDetail((d as CampaignDetail) ?? null),
+                        ),
+                      )
+                    }
+                  >
+                    Pokračovat
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() =>
+                      void nestAdminCampaignAction(token, campaignModal.companyId, 'stop').then(() =>
+                        void nestAdminGetCampaign(token, campaignModal.companyId).then((d) =>
+                          setCampaignDetail((d as CampaignDetail) ?? null),
+                        ),
+                      )
+                    }
+                  >
+                    Ukončit
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mt-4 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
+                onClick={() =>
+                  void nestAdminStartCampaign(token, campaignModal.companyId).then((r) => {
+                    setMsg(r ? 'Kampaň spuštěna.' : 'Spuštění kampaně selhalo.');
+                    void nestAdminGetCampaign(token, campaignModal.companyId).then((d) =>
+                      setCampaignDetail((d as CampaignDetail) ?? null),
+                    );
+                  })
+                }
+              >
+                Spustit
+              </button>
+            )}
+          </div>
+        </div>
       ) : null}
 
       {detailJobId ? (

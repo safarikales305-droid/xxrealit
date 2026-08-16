@@ -50,7 +50,7 @@ export function CommunityPostCard({
   post: p,
   currentUserId,
   isAuthenticated,
-  guestPreview = false,
+  guestPreview: _guestPreview = false,
   liked,
   disliked,
   likeCount,
@@ -102,18 +102,30 @@ export function CommunityPostCard({
       (p.user?.role === 'AGENT' ? `/agent/${authorId}` : `/profile/${authorId}`)
     : null;
   const isOwner = authorId === String(currentUserId ?? '');
-  const interactionsLocked = guestPreview || !isAuthenticated;
+  const interactionsLocked = !isAuthenticated;
   const [shareHint, setShareHint] = useState<string | null>(null);
+  const [guestActionHint, setGuestActionHint] = useState<string | null>(null);
 
-  function handleGuestShare() {
-    setShareHint('Pro sdílení příspěvků se přihlaste.');
+  function redirectToLogin() {
     const redirectPath =
       typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
         : '/?tab=posts';
-    window.setTimeout(() => {
-      router.push(`/prihlaseni?redirect=${encodeURIComponent(redirectPath)}`);
-    }, 400);
+    router.push(`/prihlaseni?redirect=${encodeURIComponent(redirectPath)}`);
+  }
+
+  function handleGuestInteraction(action: 'comment' | 'like') {
+    setGuestActionHint(
+      action === 'comment'
+        ? 'Pro přidání komentáře se přihlaste nebo si vytvořte účet.'
+        : 'Pro reakci se přihlaste nebo si vytvořte účet.',
+    );
+    window.setTimeout(() => redirectToLogin(), 600);
+  }
+
+  function handleGuestShare() {
+    setShareHint('Pro sdílení příspěvků se přihlaste.');
+    window.setTimeout(() => redirectToLogin(), 400);
   }
 
   const isFacebookImport = isFacebookImportPost(p);
@@ -127,8 +139,7 @@ export function CommunityPostCard({
     <div className="flex flex-wrap items-center gap-2 px-3 py-3 md:px-4">
       <button
         type="button"
-        onClick={interactionsLocked ? undefined : () => onToggleReaction('LIKE')}
-        disabled={interactionsLocked}
+        onClick={interactionsLocked ? () => handleGuestInteraction('like') : () => onToggleReaction('LIKE')}
         className={`inline-flex items-center gap-1 rounded-full border px-3 py-2 text-sm ${
           liked
             ? 'border-rose-200 bg-rose-50 text-rose-600'
@@ -140,8 +151,7 @@ export function CommunityPostCard({
       </button>
       <button
         type="button"
-        onClick={interactionsLocked ? undefined : () => onToggleReaction('DISLIKE')}
-        disabled={interactionsLocked}
+        onClick={interactionsLocked ? () => handleGuestInteraction('like') : () => onToggleReaction('DISLIKE')}
         className={`inline-flex items-center gap-1 rounded-full border px-3 py-2 text-sm ${
           disliked
             ? 'border-slate-300 bg-slate-100 text-slate-700'
@@ -153,8 +163,7 @@ export function CommunityPostCard({
       </button>
       <button
         type="button"
-        onClick={interactionsLocked ? undefined : onToggleComments}
-        disabled={interactionsLocked}
+        onClick={interactionsLocked ? () => handleGuestInteraction('comment') : onToggleComments}
         className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600"
       >
         <MessageCircle className="size-4" />
@@ -288,16 +297,14 @@ export function CommunityPostCard({
 
       {editingPostId !== id && postText ? (
         <div className="px-3 pb-2 md:px-4">
-          <p
-            className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}
-          >
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
             {postText}
           </p>
         </div>
       ) : null}
 
       {editingPostId !== id && linkPreview && !hasFeedMedia && !isFacebookImport ? (
-        <div className={`px-3 pb-2 md:px-4 ${interactionsLocked ? 'pointer-events-none blur-sm' : ''}`}>
+        <div className="px-3 pb-2 md:px-4">
           <LinkPreviewCard preview={linkPreview} compact />
         </div>
       ) : null}
@@ -310,11 +317,11 @@ export function CommunityPostCard({
             postId={id}
             feedAutoplay
             compact
-            blurred={interactionsLocked}
+            blurred={false}
             muted={hasPostSound ? true : muted}
-            showMuteToggle={showMuteForVideo && !interactionsLocked}
+            showMuteToggle={showMuteForVideo}
             onToggleMute={onToggleMute}
-            onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
+            onOpenDetail={onOpenDetail}
             edgeToEdge
             className="mt-0"
           />
@@ -323,6 +330,9 @@ export function CommunityPostCard({
       ) : null}
 
       {actionRow}
+      {guestActionHint ? (
+        <p className="px-3 pb-2 text-xs font-medium text-orange-700 md:px-4">{guestActionHint}</p>
+      ) : null}
       {shareHint ? (
         <p className="px-3 pb-2 text-xs font-medium text-orange-700 md:px-4">{shareHint}</p>
       ) : null}
