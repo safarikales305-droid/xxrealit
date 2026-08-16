@@ -3,37 +3,85 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Building2, MapPin } from 'lucide-react';
+import { Building2, MapPin, Star } from 'lucide-react';
 import {
   nestGetCompanyBySlug,
+  nestGetCompanyReviews,
   nestSubmitCompanyClaim,
+  nestSubmitCompanyReview,
   type CompanyDirectoryDetailResponse,
 } from '@/lib/company-directory-client';
+
+type ReviewItem = {
+  id: string;
+  rating: number;
+  sentiment: string;
+  title?: string;
+  body: string;
+  authorDisplayName: string;
+  publishedAt?: string | null;
+  response?: { body: string; verifiedCompanyResponse: boolean; createdAt: string } | null;
+};
+
+function Stars({ rating }: { rating: number }) {
+  return (
+    <span className="text-amber-500" aria-label={`${rating} z 5`}>
+      {'★'.repeat(rating)}
+      <span className="text-zinc-300">{'★'.repeat(5 - rating)}</span>
+    </span>
+  );
+}
 
 export default function FirmaDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? '';
   const [data, setData] = useState<CompanyDirectoryDetailResponse | null>(null);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [reviewSummary, setReviewSummary] = useState<{ average: number | null; count: number }>({
+    average: null,
+    count: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [claimOpen, setClaimOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
+  const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   const [claimForm, setClaimForm] = useState({
     contactName: '',
     contactEmail: '',
     contactPhone: '',
     ico: '',
   });
+  const [reviewForm, setReviewForm] = useState({
+    rating: 5,
+    sentiment: 'POSITIVE' as 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL',
+    title: '',
+    body: '',
+    authorEmail: '',
+    authorDisplayName: '',
+    submittedBusinessEmail: '',
+    confirmedExperience: false,
+  });
 
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
-    void nestGetCompanyBySlug(slug).then((res) => {
-      setData(res);
-      setLoading(false);
-    });
+    void Promise.all([nestGetCompanyBySlug(slug), nestGetCompanyReviews(slug)]).then(
+      ([detail, rev]) => {
+        setData(detail);
+        if (rev) {
+          setReviews(rev.items as ReviewItem[]);
+          setReviewSummary(rev.summary);
+        }
+        setLoading(false);
+      },
+    );
   }, [slug]);
 
   const company = data?.company;
+  const googleRating = data?.googleRating ?? company?.googleRating ?? company?.rating;
+  const googleReviewCount = data?.googleReviewCount ?? company?.googleReviewCount ?? company?.ratingCount;
+  const googleMapsUri = data?.googleMapsUri ?? company?.googleMapsUri;
 
   async function submitClaim(e: React.FormEvent) {
     e.preventDefault();
@@ -54,8 +102,33 @@ export default function FirmaDetailPage() {
     if (res) setClaimOpen(false);
   }
 
+  async function submitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (!company) return;
+    const res = await nestSubmitCompanyReview({
+      companySlug: company.slug,
+      companyId: company.id,
+      rating: reviewForm.rating,
+      sentiment: reviewForm.sentiment,
+      title: reviewForm.title || undefined,
+      body: reviewForm.body,
+      authorEmail: reviewForm.authorEmail,
+      authorDisplayName: reviewForm.authorDisplayName || undefined,
+      submittedBusinessEmail: reviewForm.submittedBusinessEmail || undefined,
+      confirmedExperience: reviewForm.confirmedExperience,
+    });
+    if (res?.error) {
+      setReviewMsg(res.error);
+    } else {
+      setReviewMsg(res?.message ?? 'Recenze odeslána. Zkontrolujte email pro ověření.');
+      setReviewOpen(false);
+    }
+  }
+
   if (loading) {
-    return <div className="mx-auto max-w-3xl px-4 py-10 text-sm text-zinc-500">Načítám profil firmy…</div>;
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10 text-sm text-zinc-500">Načítám profil firmy…</div>
+    );
   }
 
   if (!company) {
@@ -68,6 +141,9 @@ export default function FirmaDetailPage() {
       </div>
     );
   }
+
+  const xxAvg = reviewSummary.average ?? company.xxrealitRatingAverage;
+  const xxCount = reviewSummary.count ?? company.xxrealitReviewCount ?? 0;
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16">
@@ -83,20 +159,73 @@ export default function FirmaDetailPage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-bold text-zinc-900">{company.name}</h1>
-              <p className="mt-1 text-sm text-zinc-600">IČO: {company.ico}</p>
-              {company.companyStatus ? (
-                <p className="mt-1 text-xs text-zinc-500">Stav: {company.companyStatus}</p>
-              ) : null}
+              <p className="mt-1 text-sm text-zinc-600">
+                IČO: {company.ico}
+                {company.city ? ` · ${company.city}` : ''}
+              </p>
+              <p className="mt-1 text-sm text-zinc-500">{company.categoryLabel}</p>
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
             {company.badges.map((b) => (
-              <span key={b} className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700">
+              <span
+                key={b}
+                className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700"
+              >
                 {b}
               </span>
             ))}
           </div>
+
+          <section className="mt-6 grid gap-4 sm:grid-cols-2" id="hodnoceni">
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
+              <h2 className="text-sm font-semibold text-zinc-900">Google hodnocení</h2>
+              {googleRating != null ? (
+                <>
+                  <p className="mt-2 text-2xl font-bold text-zinc-900">
+                    {googleRating.toFixed(1)} <Star className="inline size-5 fill-amber-400 text-amber-400" />
+                  </p>
+                  <p className="text-xs text-zinc-600">
+                    {googleReviewCount ?? 0} hodnocení
+                    {googleMapsUri ? (
+                      <>
+                        {' '}
+                        ·{' '}
+                        <a
+                          href={googleMapsUri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-orange-700 hover:underline"
+                        >
+                          Google Maps
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    Vybrané recenze dostupné prostřednictvím Google
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-500">Google hodnocení zatím není dostupné.</p>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-4">
+              <h2 className="text-sm font-semibold text-zinc-900">Hodnocení uživatelů XXREALIT</h2>
+              {xxCount > 0 && xxAvg != null ? (
+                <>
+                  <p className="mt-2 text-2xl font-bold text-zinc-900">
+                    {xxAvg.toFixed(1)} / 5
+                  </p>
+                  <p className="text-xs text-zinc-600">{xxCount} ověřených recenzí</p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-500">Zatím bez recenzí na XXREALIT.</p>
+              )}
+            </div>
+          </section>
 
           <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950">
             {company.registryDisclaimer ??
@@ -104,7 +233,7 @@ export default function FirmaDetailPage() {
           </p>
 
           <section className="mt-6 space-y-3 text-sm text-zinc-700">
-            <h2 className="text-base font-semibold text-zinc-900">Údaje z veřejného registru</h2>
+            <h2 className="text-base font-semibold text-zinc-900">O firmě / ARES údaje</h2>
             {company.registeredAddress ? (
               <p className="flex items-start gap-2">
                 <MapPin className="mt-0.5 size-4 shrink-0 text-zinc-400" />
@@ -112,21 +241,13 @@ export default function FirmaDetailPage() {
               </p>
             ) : null}
             {company.categories?.length ? (
-              <p>
-                Obory:{' '}
-                {company.categories.map((c) => c.label).join(', ')}
-              </p>
-            ) : null}
-            {company.aresLastSyncAt ? (
-              <p className="text-xs text-zinc-500">
-                Poslední synchronizace ARES: {new Date(company.aresLastSyncAt).toLocaleString('cs-CZ')}
-              </p>
+              <p>Obory: {company.categories.map((c) => c.label).join(', ')}</p>
             ) : null}
           </section>
 
           {(company.website || company.phone || company.email) && (
             <section className="mt-6">
-              <h2 className="text-base font-semibold text-zinc-900">Kontakt</h2>
+              <h2 className="text-base font-semibold text-zinc-900">Kontakty</h2>
               <ul className="mt-2 space-y-1 text-sm text-zinc-700">
                 {company.website ? <li>Web: {company.website}</li> : null}
                 {company.phone ? <li>Tel.: {company.phone}</li> : null}
@@ -135,38 +256,121 @@ export default function FirmaDetailPage() {
             </section>
           )}
 
-          {company.rating != null ? (
-            <section className="mt-6">
-              <h2 className="text-base font-semibold text-zinc-900">Google hodnocení</h2>
-              <p className="mt-1 text-sm text-zinc-700">
-                {company.rating.toFixed(1)}
-                {company.ratingCount != null ? ` (${company.ratingCount} hodnocení)` : ''}
-              </p>
-            </section>
-          ) : (
-            <p className="mt-6 text-sm text-zinc-500">Zatím bez hodnocení</p>
-          )}
-
-          <div className="mt-8 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-8 flex flex-col gap-2 sm:flex-row" id="prevzit-profil">
+            <button
+              type="button"
+              onClick={() => setReviewOpen((v) => !v)}
+              className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Napsat recenzi
+            </button>
             <button
               type="button"
               onClick={() => setClaimOpen((v) => !v)}
-              className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3 text-sm font-semibold text-white"
-            >
-              Jste majitelem této firmy? Převzít profil
-            </button>
-            <button
-              type="button"
               className="rounded-full border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-800"
             >
-              Požádat o úpravu údajů
+              Převzít profil
             </button>
           </div>
 
+          {reviewMsg ? <p className="mt-3 text-sm text-emerald-700">{reviewMsg}</p> : null}
           {claimMsg ? <p className="mt-3 text-sm text-emerald-700">{claimMsg}</p> : null}
 
+          {reviewOpen ? (
+            <form
+              onSubmit={(e) => void submitReview(e)}
+              className="mt-4 space-y-3 rounded-xl border border-zinc-200 p-4"
+              id="recenze"
+            >
+              <h3 className="font-semibold text-zinc-900">Nová recenze</h3>
+              <div className="flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setReviewForm((f) => ({ ...f, rating: n }))}
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      reviewForm.rating === n ? 'border-orange-500 bg-orange-50' : ''
+                    }`}
+                  >
+                    {n} ★
+                  </button>
+                ))}
+              </div>
+              <select
+                value={reviewForm.sentiment}
+                onChange={(e) =>
+                  setReviewForm((f) => ({
+                    ...f,
+                    sentiment: e.target.value as 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL',
+                  }))
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                <option value="POSITIVE">Pozitivní zkušenost</option>
+                <option value="NEUTRAL">Neutrální</option>
+                <option value="NEGATIVE">Negativní zkušenost</option>
+              </select>
+              <input
+                value={reviewForm.title}
+                onChange={(e) => setReviewForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Nadpis (volitelně)"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <textarea
+                required
+                value={reviewForm.body}
+                onChange={(e) => setReviewForm((f) => ({ ...f, body: e.target.value }))}
+                placeholder="Text recenze"
+                rows={4}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                required
+                type="email"
+                value={reviewForm.authorEmail}
+                onChange={(e) => setReviewForm((f) => ({ ...f, authorEmail: e.target.value }))}
+                placeholder="Váš email (povinný, nebude zveřejněn)"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                value={reviewForm.authorDisplayName}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, authorDisplayName: e.target.value }))
+                }
+                placeholder="Jméno / přezdívka (veřejné)"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                value={reviewForm.submittedBusinessEmail}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, submittedBusinessEmail: e.target.value }))
+                }
+                placeholder="Znáte veřejný kontaktní email firmy? (volitelné)"
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+              <label className="flex items-start gap-2 text-xs text-zinc-600">
+                <input
+                  type="checkbox"
+                  checked={reviewForm.confirmedExperience}
+                  onChange={(e) =>
+                    setReviewForm((f) => ({ ...f, confirmedExperience: e.target.checked }))
+                  }
+                  className="mt-0.5"
+                />
+                Potvrzuji, že recenze vychází z mé skutečné zkušenosti s touto firmou.
+              </label>
+              <button
+                type="submit"
+                className="sticky bottom-2 w-full rounded-lg bg-zinc-900 px-4 py-3 text-sm font-semibold text-white sm:w-auto"
+              >
+                Odeslat recenzi
+              </button>
+            </form>
+          ) : null}
+
           {claimOpen ? (
-            <form onSubmit={(e) => void submitClaim(e)} className="mt-4 space-y-3 rounded-xl border border-zinc-200 p-4">
+            <form onSubmit={(e) => void submitClaim(e)} className="mt-4 space-y-3 rounded-xl border p-4">
               <input
                 required
                 value={claimForm.ico}
@@ -189,12 +393,6 @@ export default function FirmaDetailPage() {
                 placeholder="Pracovní e-mail"
                 className="w-full rounded-lg border px-3 py-2 text-sm"
               />
-              <input
-                value={claimForm.contactPhone}
-                onChange={(e) => setClaimForm((f) => ({ ...f, contactPhone: e.target.value }))}
-                placeholder="Telefon"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-              />
               <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">
                 Odeslat žádost
               </button>
@@ -202,13 +400,48 @@ export default function FirmaDetailPage() {
           ) : null}
         </article>
 
+        {reviews.length > 0 ? (
+          <section className="mt-8 space-y-4">
+            <h2 className="text-lg font-semibold text-zinc-900">Recenze na XXREALIT</h2>
+            {reviews.map((r) => (
+              <article key={r.id} className="rounded-xl border border-zinc-200 bg-white p-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-zinc-900">{r.authorDisplayName}</p>
+                  <Stars rating={r.rating} />
+                </div>
+                {r.title ? <p className="mt-1 font-medium">{r.title}</p> : null}
+                <p className="mt-2 text-zinc-700">{r.body}</p>
+                {r.publishedAt ? (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {new Date(r.publishedAt).toLocaleDateString('cs-CZ')}
+                  </p>
+                ) : null}
+                {r.response ? (
+                  <div className="mt-3 rounded-lg bg-zinc-50 p-3">
+                    <p className="text-xs font-semibold uppercase text-zinc-500">Reakce firmy</p>
+                    <p className="mt-1 text-zinc-700">{r.response.body}</p>
+                    {r.response.verifiedCompanyResponse ? (
+                      <span className="mt-1 inline-block rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        Ověřená reakce firmy
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </section>
+        ) : null}
+
         {data?.similar?.length ? (
           <section className="mt-8">
             <h2 className="text-lg font-semibold text-zinc-900">Podobné firmy</h2>
             <ul className="mt-3 space-y-2">
               {data.similar.map((s) => (
                 <li key={s.id}>
-                  <Link href={s.href} className="block rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:border-orange-200">
+                  <Link
+                    href={s.href}
+                    className="block rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:border-orange-200"
+                  >
                     {s.name} · {s.categoryLabel}
                   </Link>
                 </li>

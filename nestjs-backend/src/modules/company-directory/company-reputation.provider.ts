@@ -1,3 +1,5 @@
+import type { GoogleMatchInput } from './company-google-match.util';
+
 export type CompanyReputationSnapshot = {
   placeId?: string | null;
   displayName?: string | null;
@@ -11,11 +13,7 @@ export type CompanyReputationSnapshot = {
 export interface CompanyReputationProvider {
   readonly providerId: string;
   isEnabled(): boolean;
-  matchPlace(input: {
-    name: string;
-    address?: string | null;
-    city?: string | null;
-  }): Promise<CompanyReputationSnapshot | null>;
+  matchPlace(input: GoogleMatchInput): Promise<CompanyReputationSnapshot | null>;
   fetchReputation(placeId: string): Promise<CompanyReputationSnapshot | null>;
 }
 

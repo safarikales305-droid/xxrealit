@@ -91,12 +91,18 @@ export function serializeCompanyDirectoryCard(row: CompanyDirectoryEntry) {
     categoryLabel: CATEGORY_LABELS[primaryCategory],
     city: row.city,
     region: row.region,
+    googleRating: row.googleRating,
+    googleReviewCount: row.googleReviewCount,
+    xxrealitRating: row.xxrealitRatingAverage,
+    xxrealitReviewCount: row.xxrealitReviewCount,
     rating: row.googleRating,
     ratingCount: row.googleReviewCount,
     logoUrl: row.logoUrl,
     profileStatus: row.profileStatus,
     verificationStatus: row.verificationStatus,
     companyStatus: row.companyStatus,
+    googleMatchStatus: row.googleMatchStatus,
+    googleMapsUri: row.googleMapsUri,
     badges,
     href: `/firmy/${row.slug}`,
     isVerified: row.verificationStatus === 'VERIFIED' || row.profileStatus === 'VERIFIED',
@@ -124,7 +130,13 @@ export function serializeCompanyDirectoryDetail(row: CompanyDirectoryEntry) {
     aresLastSyncAt: row.aresLastSyncAt?.toISOString() ?? null,
     aresSource: row.aresSource,
     googlePlaceId: row.googlePlaceId,
+    googleMatchStatus: row.googleMatchStatus,
+    googleMatchScore: row.googleMatchScore,
     googleLastSyncAt: row.googleLastSyncAt?.toISOString() ?? null,
+    googleMapsUri: row.googleMapsUri,
+    xxrealitRatingAverage: row.xxrealitRatingAverage,
+    xxrealitReviewCount: row.xxrealitReviewCount,
+    verifiedBusinessEmail: row.verifiedBusinessEmail,
     aiSummary: row.aiSummary,
     aiPositiveSummary: row.aiPositiveSummary,
     aiNegativeSummary: row.aiNegativeSummary,
@@ -155,6 +167,68 @@ export function buildCompanyListWhere(query: {
       { name: { contains: query.q.trim(), mode: 'insensitive' } },
       { city: { contains: query.q.trim(), mode: 'insensitive' } },
       { region: { contains: query.q.trim(), mode: 'insensitive' } },
+    ];
+  }
+
+  if (query.category?.trim()) {
+    const cat = query.category.trim().toUpperCase() as CompanyDirectoryCategory;
+    if (Object.values(CompanyDirectoryCategory).includes(cat)) {
+      where.categories = { has: cat };
+    }
+  }
+
+  if (query.region?.trim()) {
+    where.region = { contains: query.region.trim(), mode: 'insensitive' };
+  }
+
+  if (query.city?.trim()) {
+    where.city = { contains: query.city.trim(), mode: 'insensitive' };
+  }
+
+  if (query.verified === 'true') {
+    where.verificationStatus = 'VERIFIED';
+  } else if (query.verified === 'false') {
+    where.verificationStatus = { not: 'VERIFIED' };
+  }
+
+  if (query.active === 'true') {
+    where.companyStatus = 'AKTIVNI';
+  } else if (query.active === 'false') {
+    where.companyStatus = { not: 'AKTIVNI' };
+  }
+
+  const minRating = Number(query.minRating);
+  if (Number.isFinite(minRating) && minRating > 0) {
+    where.googleRating = { gte: minRating };
+  }
+
+  return where;
+}
+
+export function buildAdminCompanyListWhere(query: {
+  q?: string;
+  ico?: string;
+  category?: string;
+  region?: string;
+  city?: string;
+  verified?: string;
+  active?: string;
+  minRating?: string;
+}): Prisma.CompanyDirectoryEntryWhereInput {
+  const where: Prisma.CompanyDirectoryEntryWhereInput = {};
+
+  if (query.ico?.trim()) {
+    where.ico = query.ico.replace(/\D/g, '').padStart(8, '0');
+  } else if (query.q?.trim()) {
+    const q = query.q.trim();
+    where.OR = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { city: { contains: q, mode: 'insensitive' } },
+      { region: { contains: q, mode: 'insensitive' } },
+      { email: { contains: q, mode: 'insensitive' } },
+      { phone: { contains: q, mode: 'insensitive' } },
+      { verifiedBusinessEmail: { contains: q, mode: 'insensitive' } },
+      { ico: { contains: q.replace(/\D/g, '') } },
     ];
   }
 

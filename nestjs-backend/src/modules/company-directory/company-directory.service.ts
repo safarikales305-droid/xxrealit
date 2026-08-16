@@ -9,6 +9,7 @@ import { BrokersService } from '../brokers/brokers.service';
 import { COMPANY_DIRECTORY_ENABLED } from './company-directory.constants';
 import {
   buildCompanyListWhere,
+  buildAdminCompanyListWhere,
   serializeCompanyDirectoryCard,
   serializeCompanyDirectoryDetail,
 } from './company-directory.serializer';
@@ -119,6 +120,115 @@ export class CompanyDirectoryService {
     return {
       company: serializeCompanyDirectoryDetail(row),
       similar: similar.map(serializeCompanyDirectoryCard),
+      xxrealitReviewSummary: {
+        average: row.xxrealitRatingAverage,
+        count: row.xxrealitReviewCount,
+      },
+      googleRating: row.googleRating,
+      googleReviewCount: row.googleReviewCount,
+      googleMapsUri: row.googleMapsUri,
+    };
+  }
+
+  async getPublicReviewsBySlug(slug: string) {
+    const detail = await this.getPublicBySlug(slug);
+    const companyId = (detail.company as { id: string }).id;
+    const reviews = await this.prisma.companyReview.findMany({
+      where: { companyId, status: 'PUBLISHED' },
+      orderBy: { publishedAt: 'desc' },
+      include: {
+        media: { orderBy: { sortOrder: 'asc' } },
+        response: true,
+      },
+    });
+    return {
+      summary: {
+        average: detail.xxrealitReviewSummary.average,
+        count: detail.xxrealitReviewSummary.count,
+      },
+      items: reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        sentiment: r.sentiment,
+        title: r.title,
+        body: r.body,
+        authorDisplayName: r.authorDisplayName ?? 'Uživatel',
+        publishedAt: r.publishedAt?.toISOString() ?? null,
+        media: r.media,
+        response: r.response,
+      })),
+    };
+  }
+
+  async listAdminCompanies(query: Record<string, string | undefined>) {
+    const page = Math.max(1, Number(query.page ?? 1) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 50) || 50));
+    const where = buildAdminCompanyListWhere({
+      q: query.q,
+      ico: query.ico,
+      category: query.category,
+      region: query.region,
+      city: query.city,
+      verified: query.verified,
+      active: query.active,
+      minRating: query.minRating,
+    });
+
+    if (query.hasGoogle === 'true') where.googlePlaceId = { not: null };
+    if (query.hasGoogle === 'false') where.googlePlaceId = null;
+    if (query.hasEmail === 'true') where.verifiedBusinessEmail = { not: null };
+    if (query.claimed === 'true') {
+      where.profileStatus = { in: ['CLAIMED', 'VERIFIED'] };
+    }
+    if (query.hasReviews === 'true') where.xxrealitReviewCount = { gt: 0 };
+    if (query.noReviews === 'true') where.xxrealitReviewCount = 0;
+
+    const [total, rows] = await Promise.all([
+      this.prisma.companyDirectoryEntry.count({ where }),
+      this.prisma.companyDirectoryEntry.findMany({
+        where,
+        orderBy: [{ updatedAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          _count: { select: { reviews: true, contacts: true } },
+        },
+      }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        ...serializeCompanyDirectoryCard(row),
+        companyStatus: row.companyStatus,
+        googleMatchStatus: row.googleMatchStatus,
+        verifiedBusinessEmail: row.verifiedBusinessEmail,
+        xxrealitRatingAverage: row.xxrealitRatingAverage,
+        xxrealitReviewCount: row.xxrealitReviewCount,
+        aresLastSyncAt: row.aresLastSyncAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString(),
+        contactCount: row._count.contacts,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async getAdminCompanyDetail(id: string) {
+    const row = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id },
+      include: {
+        contacts: { orderBy: { createdAt: 'desc' } },
+        emailLogs: { orderBy: { createdAt: 'desc' }, take: 20 },
+        reviews: { orderBy: { createdAt: 'desc' }, take: 20 },
+      },
+    });
+    if (!row) throw new NotFoundException('Firma nenalezena.');
+    return {
+      company: serializeCompanyDirectoryDetail(row),
+      contacts: row.contacts,
+      emailLogs: row.emailLogs,
+      reviews: row.reviews,
     };
   }
 

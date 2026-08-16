@@ -83,6 +83,20 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
     'ctaUrl',
     'portalName',
   ],
+  company_profile_created: ['companyName', 'companyUrl', 'portalName', 'ctaUrl'],
+  company_claim_profile: ['companyName', 'companyUrl', 'claimUrl', 'portalName', 'ctaUrl'],
+  company_new_review: [
+    'companyName',
+    'companyUrl',
+    'reviewRating',
+    'reviewPreview',
+    'reviewUrl',
+    'claimUrl',
+    'portalName',
+    'ctaUrl',
+  ],
+  company_data_review_request: ['companyName', 'companyUrl', 'message', 'portalName', 'ctaUrl'],
+  company_report_response: ['companyName', 'message', 'portalName', 'ctaUrl'],
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
@@ -404,6 +418,58 @@ tým {{portalName}}`,
     textContent:
       'Dobrý den {{authorName}},\n\n{{actorName}} okomentoval váš příspěvek:\n{{postPreview}}\n\nKomentář: {{commentPreview}}\n\n{{postUrl}}',
     variables: EMAIL_TEMPLATE_VARIABLES.post_comment_notification,
+  },
+  {
+    key: 'company_profile_created',
+    name: 'Profil firmy byl vytvořen',
+    category: 'company_directory',
+    subject: 'Profil firmy {{companyName}} na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den,</p><p>na portálu {{portalName}} byl vytvořen profil firmy <strong>{{companyName}}</strong> z veřejných rejstříkových údajů.</p><p><a href="{{companyUrl}}">Zobrazit profil firmy</a></p>',
+    textContent:
+      'Na portálu {{portalName}} byl vytvořen profil firmy {{companyName}}.\n\n{{companyUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_profile_created,
+  },
+  {
+    key: 'company_claim_profile',
+    name: 'Převzít profil firmy',
+    category: 'company_directory',
+    subject: 'Převezměte profil firmy {{companyName}}',
+    htmlContent:
+      '<p>Dobrý den,</p><p>profil firmy <strong>{{companyName}}</strong> na {{portalName}} zatím není převzatý.</p><p><a href="{{claimUrl}}">Převzít a ověřit profil</a></p>',
+    textContent: 'Převezměte profil firmy {{companyName}} na {{portalName}}.\n\n{{claimUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_claim_profile,
+  },
+  {
+    key: 'company_new_review',
+    name: 'Nová recenze firmy',
+    category: 'company_directory',
+    subject: 'Nová recenze na profilu {{companyName}}',
+    htmlContent:
+      '<p>Dobrý den,</p><p>na profilu vaší firmy <strong>{{companyName}}</strong> byla zveřejněna nová recenze ({{reviewRating}}/5).</p><p><em>{{reviewPreview}}</em></p><p><a href="{{reviewUrl}}">Zobrazit recenzi</a> · <a href="{{claimUrl}}">Převzít profil</a></p>',
+    textContent:
+      'Nová recenze na profilu {{companyName}} ({{reviewRating}}/5).\n\n{{reviewPreview}}\n\n{{reviewUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_new_review,
+  },
+  {
+    key: 'company_data_review_request',
+    name: 'Žádost o kontrolu údajů firmy',
+    category: 'company_directory',
+    subject: 'Žádost o kontrolu údajů – {{companyName}}',
+    htmlContent:
+      '<p>Dobrý den,</p><p>žádáme o kontrolu údajů profilu firmy <strong>{{companyName}}</strong> na {{portalName}}.</p><p>{{message}}</p><p><a href="{{companyUrl}}">Otevřít profil</a></p>',
+    textContent: 'Žádost o kontrolu údajů firmy {{companyName}}.\n\n{{message}}\n\n{{companyUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_data_review_request,
+  },
+  {
+    key: 'company_report_response',
+    name: 'Reakce na nahlášení profilu',
+    category: 'company_directory',
+    subject: 'Reakce na nahlášení – {{companyName}}',
+    htmlContent:
+      '<p>Dobrý den,</p><p>reakce na nahlášení profilu firmy <strong>{{companyName}}</strong>:</p><p>{{message}}</p>',
+    textContent: 'Reakce na nahlášení profilu {{companyName}}:\n\n{{message}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.company_report_response,
   },
 ];
 

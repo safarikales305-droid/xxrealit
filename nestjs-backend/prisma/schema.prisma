@@ -569,6 +569,8 @@ model User {
 
   claimedCompanyDirectoryEntries CompanyDirectoryEntry[] @relation("CompanyDirectoryClaimedBy")
   companyClaimRequests         CompanyClaimRequest[]
+  companyReviewsAuthored       CompanyReview[] @relation("CompanyReviewAuthor")
+  companyReviewResponses       CompanyReviewResponse[] @relation("CompanyReviewResponseAuthor")
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -1029,6 +1031,10 @@ model Post {
   /// Volitelná vazba na ubytování (tip / příspěvek k hotelu).
   accommodationId String?
   accommodation   Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: SetNull)
+  companyDirectoryId String?
+  companyDirectory   CompanyDirectoryEntry? @relation(fields: [companyDirectoryId], references: [id], onDelete: SetNull)
+  companyReviewId    String? @unique
+  companyReview      CompanyReview? @relation(fields: [companyReviewId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -6285,6 +6291,90 @@ enum CompanyContactDiscoveryStatus {
   COMPLETED
   FAILED
   SKIPPED
+  PAUSED
+}
+
+enum CompanyGoogleMatchStatus {
+  NOT_SEARCHED
+  MATCHED_HIGH
+  MATCHED_MEDIUM
+  MATCHED_LOW
+  REVIEW_REQUIRED
+  NOT_FOUND
+}
+
+enum CompanyImportItemResult {
+  CREATED
+  UPDATED
+  SKIPPED
+  FAILED
+}
+
+enum CompanyContactStatus {
+  FOUND_HIGH_CONFIDENCE
+  FOUND_MEDIUM_CONFIDENCE
+  REVIEW_REQUIRED
+  NOT_FOUND
+  INVALID
+  VERIFIED
+  REJECTED
+}
+
+enum CompanyContactSourceType {
+  OFFICIAL_WEBSITE
+  CONTACT_PAGE
+  USER_SUBMITTED
+  ADMIN_MANUAL
+  ARES
+}
+
+enum CompanyProviderJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+enum CompanyReviewStatus {
+  EMAIL_VERIFICATION_REQUIRED
+  PENDING
+  PUBLISHED
+  REJECTED
+  REPORTED
+  UNDER_REVIEW
+  HIDDEN
+}
+
+enum CompanyReviewSentiment {
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+}
+
+enum CompanyReviewMediaType {
+  IMAGE
+  VIDEO
+}
+
+enum CompanyEmailLogStatus {
+  SENT
+  FAILED
+  QUEUED
+}
+
+enum CompanyAuditAction {
+  ARES_IMPORT
+  GOOGLE_MATCH
+  GOOGLE_SYNC
+  CONTACT_DISCOVERY
+  ADMIN_EMAIL_SEND
+  REVIEW_CREATE
+  REVIEW_VERIFY
+  REVIEW_PUBLISH
+  COMPANY_RESPONSE
+  MODERATION
+  FACEBOOK_PUBLISH
 }
 
 /// Veřejný registr firem z ARES (odděleně od User.CompanyProfile).
@@ -6329,6 +6419,15 @@ model CompanyDirectoryEntry {
   googleReviewCount       Int?
   googleLastSyncAt        DateTime?
   googleMatchConfidence   CompanyGoogleMatchConfidence?
+  googleMatchStatus       CompanyGoogleMatchStatus @default(NOT_SEARCHED)
+  googleMatchScore        Float?
+  googleMapsUri           String?
+  googleReviewsCache      Json?
+  googleReviewsCacheExpiresAt DateTime?
+
+  verifiedBusinessEmail String?
+  xxrealitRatingAverage Float?
+  xxrealitReviewCount   Int @default(0)
 
   verificationStatus CompanyDirectoryVerificationStatus @default(UNVERIFIED)
 
@@ -6349,6 +6448,12 @@ model CompanyDirectoryEntry {
   claimRequests          CompanyClaimRequest[]
   reports                CompanyProfileReport[]
   contactDiscoveryJobs   CompanyContactDiscoveryJob[]
+  contacts               CompanyContact[]
+  importItems            CompanyImportItem[]
+  reviews                CompanyReview[]
+  emailLogs              CompanyEmailLog[]
+  posts                  Post[]
+  googleEnrichmentItems  CompanyGoogleEnrichmentItem[]
 
   @@index([publicProfile, profileStatus])
   @@index([region, city])
@@ -6387,8 +6492,14 @@ model CompanyImportJob {
   finishedAt DateTime?
   error      String?   @db.Text
 
+  requestsCount  Int       @default(0)
+  lastActivityAt DateTime?
+  heartbeatAt    DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  items CompanyImportItem[]
 
   @@index([status, createdAt])
 }
@@ -6437,8 +6548,11 @@ model CompanyProfileReport {
 /// Připraveno pro fázi 2 – automatické dohledání kontaktu (zatím neaktivní).
 model CompanyContactDiscoveryJob {
   id        String @id @default(cuid())
-  companyId String
-  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String?
+  company   CompanyDirectoryEntry? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  batchId String?
+  batch   CompanyContactDiscoveryBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   website         String?
   candidateEmails String[] @default([])
@@ -6451,4 +6565,251 @@ model CompanyContactDiscoveryJob {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+  @@index([batchId])
+}
+
+model CompanyImportItem {
+  id        String @id @default(cuid())
+  jobId     String
+  job       CompanyImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  companyId String?
+  company   CompanyDirectoryEntry? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  ico          String
+  name         String?
+  city         String?
+  category     CompanyDirectoryCategory?
+  result       CompanyImportItemResult
+  errorMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([companyId])
+}
+
+model CompanyContact {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  email      String
+  sourceUrl  String?
+  sourceType CompanyContactSourceType @default(OFFICIAL_WEBSITE)
+  confidence Float?
+  status     CompanyContactStatus @default(REVIEW_REQUIRED)
+
+  discoveredAt DateTime @default(now())
+  verifiedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([email])
+}
+
+model CompanyGoogleEnrichmentJob {
+  id       String @id @default(cuid())
+  category CompanyDirectoryCategory?
+  region   String?
+  city     String?
+
+  status CompanyProviderJobStatus @default(PENDING)
+
+  processed     Int @default(0)
+  matched       Int @default(0)
+  failed        Int @default(0)
+  notFound      Int @default(0)
+  needsReview   Int @default(0)
+  totalExpected Int?
+  requestsCount Int @default(0)
+
+  batchSize Int?
+  delayMs   Int?
+  lastCursor Int @default(0)
+  companyIds String[] @default([])
+
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastActivityAt DateTime?
+  error          String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items CompanyGoogleEnrichmentItem[]
+
+  @@index([status, createdAt])
+}
+
+model CompanyGoogleEnrichmentItem {
+  id        String @id @default(cuid())
+  jobId     String
+  job       CompanyGoogleEnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  matchStatus CompanyGoogleMatchStatus
+  matchScore  Float?
+  errorMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model CompanyContactDiscoveryBatch {
+  id     String @id @default(cuid())
+  status CompanyProviderJobStatus @default(PENDING)
+
+  processed     Int @default(0)
+  found         Int @default(0)
+  notFound      Int @default(0)
+  needsReview   Int @default(0)
+  failed        Int @default(0)
+  totalExpected Int?
+
+  batchSize Int?
+  delayMs   Int?
+  lastCursor Int @default(0)
+  companyIds String[] @default([])
+
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastActivityAt DateTime?
+  error          String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs CompanyContactDiscoveryJob[]
+
+  @@index([status, createdAt])
+}
+
+model CompanyReview {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  authorUserId String
+  authorUser   User @relation("CompanyReviewAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  rating    Int
+  sentiment CompanyReviewSentiment @default(NEUTRAL)
+  title     String @default("")
+  body      String @db.Text
+
+  authorDisplayName String?
+  authorPhone       String?
+
+  emailVerified           Boolean @default(false)
+  emailVerificationToken  String?
+  emailVerificationExpires DateTime?
+
+  submittedBusinessEmail String?
+  submittedEmailStatus   CompanyContactStatus?
+
+  status      CompanyReviewStatus @default(EMAIL_VERIFICATION_REQUIRED)
+  publishedAt DateTime?
+
+  moderationNote String? @db.Text
+  post           Post?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media     CompanyReviewMedia[]
+  response  CompanyReviewResponse?
+  reports   CompanyReviewReport[]
+
+  @@index([companyId, status, createdAt])
+  @@index([authorUserId])
+  @@index([status])
+}
+
+model CompanyReviewMedia {
+  id       String @id @default(cuid())
+  reviewId String
+  review   CompanyReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  type         CompanyReviewMediaType
+  url          String
+  thumbnailUrl String?
+  mimeType     String?
+  sortOrder    Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId, sortOrder])
+}
+
+model CompanyReviewResponse {
+  id        String @id @default(cuid())
+  reviewId  String @unique
+  review    CompanyReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  companyId String
+
+  authorUserId String
+  authorUser   User @relation("CompanyReviewResponseAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  body                    String @db.Text
+  verifiedCompanyResponse Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model CompanyReviewReport {
+  id       String @id @default(cuid())
+  reviewId String
+  review   CompanyReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  reporterUserId String?
+  reason         String @db.Text
+  status         CompanyReviewStatus @default(REPORTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId])
+  @@index([status])
+}
+
+model CompanyEmailLog {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  recipient String
+  subject   String
+  template  String
+  bodyPreview String? @db.Text
+  status    CompanyEmailLogStatus @default(QUEUED)
+  sentAt    DateTime?
+  error     String? @db.Text
+
+  sentByAdminId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+model CompanyAuditLog {
+  id        String @id @default(cuid())
+  companyId String?
+  action    CompanyAuditAction
+  message   String @db.Text
+  meta      Json?
+
+  actorUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([action, createdAt])
 }

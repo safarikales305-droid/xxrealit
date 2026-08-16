@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   CompanyDirectoryCategory,
+  CompanyImportItemResult,
   CompanyImportJobStatus,
   Prisma,
 } from '@prisma/client';
@@ -22,6 +23,7 @@ import {
   ARES_WORKER_TICK_MS,
 } from './company-directory.constants';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
+import { computeJobProgress } from './company-job-progress.util';
 
 type StartImportInput = {
   category?: CompanyDirectoryCategory;
@@ -86,6 +88,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         icoList: (input.icoList ?? []).map((ico) => ico.replace(/\D/g, '').padStart(8, '0')),
         searchFilter: searchFilter as Prisma.InputJsonValue,
         status: CompanyImportJobStatus.PENDING,
+        totalExpected:
+          importMode === 'ICO_LIST'
+            ? (input.icoList ?? []).length
+            : undefined,
       },
     });
   }
@@ -132,6 +138,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
   async getJob(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
     return this.serializeJob(job);
+  }
+
+  async getJobItems(jobId: string, limit = 100) {
+    return this.prisma.companyImportItem.findMany({
+      where: { jobId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
   }
 
   async listJobs(limit = 20) {
@@ -196,6 +210,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         status: CompanyImportJobStatus.RUNNING,
         startedAt: job.startedAt ?? new Date(),
         error: null,
+        lastActivityAt: new Date(),
+        heartbeatAt: new Date(),
       },
     });
 
@@ -219,15 +235,29 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           if (requests >= maxRequests) break;
           requests += 1;
           try {
-            const result = await this.upsertIco(ico, job.category);
+            const result = await this.upsertIco(ico, job.category, jobId);
             if (result.action === 'created') created += 1;
             if (result.action === 'updated') updated += 1;
-            if (result.action === 'skipped') failed += 0;
             processed += 1;
             lastIco = ico;
-          } catch {
+            await this.logImportItem({
+              jobId,
+              ico,
+              result: result.action === 'created' ? CompanyImportItemResult.CREATED : CompanyImportItemResult.UPDATED,
+              companyId: result.companyId,
+              name: result.name,
+              city: result.city,
+              category: job.category,
+            });
+          } catch (err) {
             failed += 1;
             processed += 1;
+            await this.logImportItem({
+              jobId,
+              ico,
+              result: CompanyImportItemResult.FAILED,
+              errorMessage: err instanceof Error ? err.message.slice(0, 500) : 'Chyba importu',
+            });
           }
           await this.sleep(delayMs);
         }
@@ -243,6 +273,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
             failed,
             lastCursor: nextCursor,
             lastIco,
+            requestsCount: { increment: requests },
+            lastActivityAt: new Date(),
+            heartbeatAt: new Date(),
             checkpoint: { mode: 'ICO_LIST', index: nextCursor } as Prisma.InputJsonValue,
             status: done ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
             finishedAt: done ? new Date() : null,
@@ -273,14 +306,29 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       for (const subject of subjects) {
         try {
-          const result = await this.upsertFromSubject(subject, job.category);
+          const result = await this.upsertFromSubject(subject, job.category, jobId);
           if (result.action === 'created') created += 1;
           if (result.action === 'updated') updated += 1;
           processed += 1;
           lastIco = subject.ico;
-        } catch {
+          await this.logImportItem({
+            jobId,
+            ico: subject.ico,
+            result: result.action === 'created' ? CompanyImportItemResult.CREATED : CompanyImportItemResult.UPDATED,
+            companyId: result.companyId,
+            name: result.name,
+            city: result.city,
+            category: job.category,
+          });
+        } catch (err) {
           failed += 1;
           processed += 1;
+          await this.logImportItem({
+            jobId,
+            ico: subject.ico,
+            result: CompanyImportItemResult.FAILED,
+            errorMessage: err instanceof Error ? err.message.slice(0, 500) : 'Chyba importu',
+          });
         }
         await this.sleep(Math.min(300, delayMs));
       }
@@ -301,6 +349,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           lastCursor: nextCursor,
           lastIco,
           totalExpected,
+          requestsCount: { increment: requests },
+          lastActivityAt: new Date(),
+          heartbeatAt: new Date(),
           checkpoint: { mode: 'SEARCH', start: nextCursor } as Prisma.InputJsonValue,
           status: noMore ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
           finishedAt: noMore ? new Date() : null,
@@ -325,15 +376,25 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async upsertIco(ico: string, hintCategory: CompanyDirectoryCategory | null) {
+  private async upsertIco(
+    ico: string,
+    hintCategory: CompanyDirectoryCategory | null,
+    jobId?: string,
+  ) {
     const subject = await this.ares.getCompanyByIco(ico);
-    return this.upsertFromSubject(subject, hintCategory);
+    return this.upsertFromSubject(subject, hintCategory, jobId);
   }
 
   private async upsertFromSubject(
     subject: AresEconomicSubject,
     hintCategory: CompanyDirectoryCategory | null,
-  ): Promise<{ action: 'created' | 'updated' | 'skipped' }> {
+    _jobId?: string,
+  ): Promise<{
+    action: 'created' | 'updated' | 'skipped';
+    companyId?: string;
+    name?: string;
+    city?: string | null;
+  }> {
     const full =
       subject.obchodniJmeno && subject.sidlo
         ? subject
@@ -368,20 +429,54 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     };
 
     if (existing) {
-      await this.prisma.companyDirectoryEntry.update({
+      const row = await this.prisma.companyDirectoryEntry.update({
         where: { id: existing.id },
         data,
       });
-      return { action: 'updated' };
+      return {
+        action: 'updated',
+        companyId: row.id,
+        name: row.name,
+        city: row.city,
+      };
     }
 
-    await this.prisma.companyDirectoryEntry.create({
+    const row = await this.prisma.companyDirectoryEntry.create({
       data: {
         ico: normalized.ico,
         ...data,
       },
     });
-    return { action: 'created' };
+    return {
+      action: 'created',
+      companyId: row.id,
+      name: row.name,
+      city: row.city,
+    };
+  }
+
+  private async logImportItem(input: {
+    jobId: string;
+    ico: string;
+    result: CompanyImportItemResult;
+    companyId?: string;
+    name?: string;
+    city?: string | null;
+    category?: CompanyDirectoryCategory | null;
+    errorMessage?: string;
+  }) {
+    await this.prisma.companyImportItem.create({
+      data: {
+        jobId: input.jobId,
+        ico: input.ico.replace(/\D/g, '').padStart(8, '0'),
+        companyId: input.companyId ?? null,
+        name: input.name ?? null,
+        city: input.city ?? null,
+        category: input.category ?? null,
+        result: input.result,
+        errorMessage: input.errorMessage ?? null,
+      },
+    });
   }
 
   private buildSearchFilter(input: {
@@ -457,7 +552,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     error: string | null;
     createdAt: Date;
     updatedAt: Date;
+    requestsCount?: number;
+    lastActivityAt?: Date | null;
+    heartbeatAt?: Date | null;
+    searchFilter?: Prisma.JsonValue;
   }) {
+    const progress = computeJobProgress(job.processed, job.totalExpected, job.startedAt);
     return {
       id: job.id,
       source: job.source,
@@ -474,10 +574,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       lastCursor: job.lastCursor,
       lastIco: job.lastIco,
       totalExpected: job.totalExpected,
-      progress:
-        job.totalExpected && job.totalExpected > 0
-          ? `${job.processed} / ${job.totalExpected}`
-          : `${job.processed}`,
+      progress,
+      progressLabel: progress.label,
+      progressPercent: progress.percentage,
+      etaSeconds: progress.etaSeconds,
+      requestsCount: job.requestsCount ?? 0,
+      lastActivityAt: job.lastActivityAt?.toISOString() ?? null,
+      heartbeatAt: job.heartbeatAt?.toISOString() ?? null,
+      searchFilter: job.searchFilter ?? null,
       batchSize: job.batchSize,
       delayMs: job.delayMs,
       importMode: job.importMode,
