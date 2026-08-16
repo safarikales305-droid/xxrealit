@@ -43,6 +43,19 @@ type ContactDetail = {
   state?: string;
   verifiedBusinessEmail?: string | null;
   activeItemId?: string | null;
+  latestJobNotFoundReason?: string | null;
+  latestJobDiagnostics?: {
+    searchQueries?: string[];
+    searchResultCount?: number;
+    candidateWebsites?: Array<{ url: string; score: number; title?: string }>;
+    selectedWebsite?: string | null;
+    websiteConfidence?: number | null;
+    contactPagesFound?: string[];
+    emailsFound?: string[];
+    notFoundReasonLabel?: string | null;
+    searchProviderUsed?: string | null;
+    logs?: string[];
+  } | null;
   latestContact?: {
     id: string;
     email: string;
@@ -397,6 +410,29 @@ export default function AdminFirmyPage() {
               </strong>
             </p>
             <p>
+              Contact Search Provider:{' '}
+              <strong>
+                {String((metrics.contactDiscovery as { provider?: string }).provider ?? '—')}
+              </strong>
+              {(metrics.contactDiscovery as { searchProviderName?: string }).searchProviderName
+                ? ` (${String((metrics.contactDiscovery as { searchProviderName?: string }).searchProviderName)})`
+                : ''}
+            </p>
+            <p>
+              Web Fetch:{' '}
+              <strong>{String((metrics.contactDiscovery as { webFetch?: string }).webFetch ?? '—')}</strong>
+            </p>
+            <p>
+              AI Analysis:{' '}
+              <strong>
+                {(() => {
+                  const v = String((metrics.contactDiscovery as { aiAnalysis?: string }).aiAnalysis ?? '—');
+                  if (v === 'NotRequired') return 'Nepoužíváno';
+                  return v;
+                })()}
+              </strong>
+            </p>
+            <p>
               Worker:{' '}
               <strong>{String((metrics.contactDiscovery as { worker?: string }).worker ?? '—')}</strong>
             </p>
@@ -417,13 +453,30 @@ export default function AdminFirmyPage() {
                 )}
               </strong>
             </p>
-            <p>
-              Provider:{' '}
-              <strong>
-                {String((metrics.contactDiscovery as { provider?: string }).provider ?? '—')}
-              </strong>
-            </p>
           </div>
+          {(metrics.contactDiscovery as { metrics?: Record<string, number> }).metrics ? (
+            <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2 lg:grid-cols-6">
+              {(
+                [
+                  ['processed', 'Zpracováno'],
+                  ['websiteFound', 'Web nalezen'],
+                  ['emailFound', 'Email nalezen'],
+                  ['reviewRequired', 'Ke kontrole'],
+                  ['noEmail', 'Bez emailu'],
+                  ['failed', 'Chyba'],
+                ] as const
+              ).map(([key, label]) => (
+                <p key={key}>
+                  {label}:{' '}
+                  <strong>
+                    {String(
+                      (metrics.contactDiscovery as { metrics?: Record<string, number> }).metrics?.[key] ?? 0,
+                    )}
+                  </strong>
+                </p>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1158,6 +1211,54 @@ export default function AdminFirmyPage() {
                     ? 'Hledám kontakt na webu firmy…'
                     : 'Kontakt čeká ve frontě…'}
                 </span>
+              </div>
+            ) : contactDetail?.state === 'NOT_FOUND' || contactDetail?.state === 'FAILED' ? (
+              <div className="mt-4 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p>
+                  {contactDetail.latestJobDiagnostics?.notFoundReasonLabel ??
+                    contactDetail.latestJobNotFoundReason ??
+                    'Kontakt nebyl nalezen.'}
+                </p>
+                {contactDetail.latestJobDiagnostics ? (
+                  <details className="text-xs text-zinc-700">
+                    <summary className="cursor-pointer font-semibold">Zobrazit diagnostiku hledání</summary>
+                    <ul className="mt-2 space-y-1">
+                      <li>
+                        Search provider: {contactDetail.latestJobDiagnostics.searchProviderUsed ?? '—'}
+                      </li>
+                      <li>
+                        Dotazy: {contactDetail.latestJobDiagnostics.searchQueries?.length ?? 0} · Výsledky:{' '}
+                        {contactDetail.latestJobDiagnostics.searchResultCount ?? 0}
+                      </li>
+                      <li>
+                        Kandidáti webů: {contactDetail.latestJobDiagnostics.candidateWebsites?.length ?? 0}
+                      </li>
+                      {contactDetail.latestJobDiagnostics.selectedWebsite ? (
+                        <li>
+                          Vybraný web: {contactDetail.latestJobDiagnostics.selectedWebsite} (
+                          {contactDetail.latestJobDiagnostics.websiteConfidence != null
+                            ? `${Math.round(contactDetail.latestJobDiagnostics.websiteConfidence * 100)} %`
+                            : '—'}
+                          )
+                        </li>
+                      ) : null}
+                      <li>
+                        Kontaktní stránky: {contactDetail.latestJobDiagnostics.contactPagesFound?.length ?? 0}
+                      </li>
+                      <li>
+                        Emaily: {contactDetail.latestJobDiagnostics.emailsFound?.join(', ') || '—'}
+                      </li>
+                    </ul>
+                  </details>
+                ) : null}
+                <button
+                  type="button"
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  disabled={discoveringContact}
+                  onClick={() => void handleDiscoverContact(true)}
+                >
+                  {discoveringContact ? 'Zařazuji…' : 'Vyhledat znovu'}
+                </button>
               </div>
             ) : (
               <button

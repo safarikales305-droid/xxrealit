@@ -60,7 +60,14 @@ import { WebSearchProvider } from './providers/web-search.provider';
     InternalDatabaseSearchProvider,
     WebSearchProvider,
   ],
-  exports: [AiSalesProspectService, AiSalesMessageService, PartnerSearchService],
+  exports: [
+    AiSalesProspectService,
+    AiSalesMessageService,
+    PartnerSearchService,
+    WebSearchProvider,
+    SearchProvidersEnvService,
+    CompanyWebsiteCrawlerService,
+  ],
 })
 export class AiSalesModule implements OnModuleInit {
   constructor(private readonly seed: AiSalesSeedService) {}

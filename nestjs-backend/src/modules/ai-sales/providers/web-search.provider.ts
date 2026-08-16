@@ -49,6 +49,57 @@ export class WebSearchProvider implements PartnerSearchProvider {
     return this.searchBing(query, input);
   }
 
+  /** Raw web search pro contact discovery a další moduly. */
+  async searchRaw(
+    query: string,
+    limit = 10,
+  ): Promise<Array<{ title: string; url: string; snippet: string; provider: string }>> {
+    if (!this.isConfigured()) return [];
+    if (this.env.isSerpApiConfigured()) {
+      const key = this.env.getSerpApiKey();
+      if (!key) return [];
+      const url = buildSerpApiSearchUrl(query, limit, key);
+      const res = await fetch(url);
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`SerpAPI search failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 120)}` : ''}`);
+      }
+      const data = (await res.json()) as {
+        organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
+        error?: string;
+      };
+      if (data.error) throw new Error(`SerpAPI error: ${data.error}`);
+      return (data.organic_results ?? [])
+        .filter((r) => r.link)
+        .map((r) => ({
+          title: r.title ?? '',
+          url: r.link!,
+          snippet: r.snippet ?? '',
+          provider: 'SerpAPI',
+        }));
+    }
+
+    const key = this.env.getBingSearchApiKey();
+    if (!key) return [];
+    const bingUrl = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=${Math.min(limit, 30)}&mkt=cs-CZ`;
+    const res = await fetch(bingUrl, { headers: { 'Ocp-Apim-Subscription-Key': key } });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Bing search failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 120)}` : ''}`);
+    }
+    const data = (await res.json()) as {
+      webPages?: { value?: Array<{ name?: string; url?: string; snippet?: string }> };
+    };
+    return (data.webPages?.value ?? [])
+      .filter((r) => r.url)
+      .map((r) => ({
+        title: r.name ?? '',
+        url: r.url!,
+        snippet: r.snippet ?? '',
+        provider: 'Bing Web Search',
+      }));
+  }
+
   private buildQuery(input: PartnerSearchInput): string {
     const typeLabel = input.partnerType?.replace(/_/g, ' ') ?? 'firma';
     const loc = [input.city, input.district, input.region].filter(Boolean).join(' ');

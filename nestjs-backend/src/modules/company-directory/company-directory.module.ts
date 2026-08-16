@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { BrokersModule } from '../brokers/brokers.module';
 import { EmailsModule } from '../emails/emails.module';
 import { SocialModule } from '../social/social.module';
+import { AiSalesModule } from '../ai-sales/ai-sales.module';
 import { AresService } from './ares.service';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyClaimService } from './company-claim.service';
 import { CompanyContactDiscoveryService } from './company-contact-discovery.service';
+import { CompanyContactDiscoveryPipelineService } from './company-contact-discovery-pipeline.service';
 import { CompanyDirectoryAdminController } from './company-directory-admin.controller';
 import { CompanyDirectoryPublicController } from './company-directory-public.controller';
 import { CompanyReviewMediaController } from './company-review-media.controller';
@@ -25,7 +27,7 @@ import { GooglePlacesReputationProvider } from './google-places-reputation.provi
 import { AresQueryPartitionService } from './ares-query-partition.service';
 
 @Module({
-  imports: [BrokersModule, EmailsModule, SocialModule],
+  imports: [BrokersModule, EmailsModule, SocialModule, AiSalesModule],
   controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController, CompanyReviewMediaController],
   providers: [
     AresService,
@@ -36,6 +38,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyEmailService,
     CompanyGoogleEnrichmentService,
     CompanyContactDiscoveryService,
+    CompanyContactDiscoveryPipelineService,
     CompanyReviewMediaStorageService,
     CompanyReviewService,
     CompanyEngagementEventService,

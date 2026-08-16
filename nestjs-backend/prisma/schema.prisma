@@ -6654,6 +6654,8 @@ model CompanyContactDiscoveryJob {
   sourceUrls      String[] @default([])
   confidence      Float?
   error           String? @db.Text
+  notFoundReason  String?
+  diagnosticsJson Json?
   attempts        Int @default(0)
 
   status CompanyContactDiscoveryStatus @default(PENDING)

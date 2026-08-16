@@ -26,8 +26,8 @@ import {
   ARES_WORKER_TICK_MS,
 } from './company-directory.constants';
 import { computeJobProgress } from './company-job-progress.util';
-import { extractEmails, extractPhone, scoreEmail } from './company-contact-discovery.helpers';
 import { buildAdminCompanyExtendedWhere } from './company-directory.serializer';
+import { CompanyContactDiscoveryPipelineService } from './company-contact-discovery-pipeline.service';
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
   'QUEUED',
   'SEARCHING',
@@ -62,6 +62,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: CompanyAuditService,
+    private readonly pipeline: CompanyContactDiscoveryPipelineService,
   ) {}
 
   onModuleInit(): void {
@@ -320,6 +321,11 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       orderBy: { createdAt: 'desc' },
     });
 
+    const latestJob = await this.prisma.companyContactDiscoveryJob.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+    });
+
     return {
       companyId,
       state: company.contactDiscoveryState,
@@ -327,6 +333,8 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       activeJobId: activeJob?.id ?? null,
       activeItemId: activeJob?.id ?? null,
       jobStatus: activeJob?.status ?? null,
+      latestJobDiagnostics: latestJob?.diagnosticsJson ?? null,
+      latestJobNotFoundReason: latestJob?.notFoundReason ?? null,
       latestContact: latest
         ? {
             id: latest.id,
@@ -514,7 +522,8 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   }
 
   async getDiagnostics() {
-    const [waiting, running, activeBatches] = await Promise.all([
+    const [waiting, running, activeBatches, completedJobs, foundJobs, notFoundJobs, failedJobs, reviewJobs, websiteFoundJobs] =
+      await Promise.all([
       this.prisma.companyContactDiscoveryJob.count({
         where: { status: CompanyContactDiscoveryStatus.PENDING },
       }),
@@ -526,17 +535,51 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
           status: { in: [CompanyProviderJobStatus.PENDING, CompanyProviderJobStatus.RUNNING] },
         },
       }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.COMPLETED },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.COMPLETED, email: { not: null } },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.COMPLETED, email: null, notFoundReason: { not: null } },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.FAILED },
+      }),
+      this.prisma.companyDirectoryEntry.count({
+        where: { contactDiscoveryState: 'REVIEW_REQUIRED' },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: {
+          status: CompanyContactDiscoveryStatus.COMPLETED,
+          website: { not: null },
+        },
+      }),
     ]);
+
+    const provider = this.pipeline.getProviderDiagnostics();
 
     return {
       configured: COMPANY_CONTACT_DISCOVERY_ENABLED,
       worker: this.timer && COMPANY_CONTACT_DISCOVERY_ENABLED ? 'Running' : 'Stopped',
-      provider: COMPANY_CONTACT_DISCOVERY_ENABLED ? 'Configured' : 'Missing',
+      provider: provider.contactSearchProvider,
+      webFetch: provider.webFetch,
+      aiAnalysis: provider.aiAnalysis,
+      searchProviderName: provider.searchProviderName,
       processing: this.processing,
       queue: { waiting, active: running },
       activeBatches,
       concurrency: CONTACT_DISCOVERY_CONCURRENCY,
       delayMs: CONTACT_DISCOVERY_DELAY_MS,
+      metrics: {
+        processed: completedJobs + failedJobs,
+        websiteFound: websiteFoundJobs,
+        emailFound: foundJobs,
+        reviewRequired: reviewJobs,
+        noEmail: Math.max(0, notFoundJobs),
+        failed: failedJobs,
+      },
     };
   }
 
@@ -686,21 +729,34 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       );
 
       try {
-        const result = await this.runDiscoveryForCompany(company.id, company.website);
+        const result = await this.runDiscoveryForCompany(company);
         processed += 1;
         if (result.found) {
           if (result.status === CompanyContactStatus.REVIEW_REQUIRED) needsReview += 1;
           else found += 1;
+        } else if (result.discoveryState === 'FAILED') {
+          failed += 1;
         } else {
           notFound += 1;
         }
         await this.prisma.companyContactDiscoveryJob.update({
           where: { id: job.id },
           data: {
-            status: CompanyContactDiscoveryStatus.COMPLETED,
+            status:
+              result.discoveryState === 'FAILED'
+                ? CompanyContactDiscoveryStatus.FAILED
+                : CompanyContactDiscoveryStatus.COMPLETED,
             email: result.email ?? null,
             sourceUrl: result.sourceUrl ?? null,
             confidence: result.confidence ?? null,
+            website: result.website ?? company.website,
+            candidateEmails: result.diagnostics?.emailsFound ?? [],
+            sourceUrls: result.diagnostics?.contactPagesFound ?? [],
+            notFoundReason: result.notFoundReason ?? null,
+            diagnosticsJson: result.diagnostics as Prisma.InputJsonValue,
+            error: result.notFoundReason
+              ? (result.diagnostics?.notFoundReasonLabel ?? result.notFoundReason)
+              : null,
             finishedAt: new Date(),
           },
         });
@@ -713,6 +769,9 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
             email: result.email ?? null,
             sourceUrl: result.sourceUrl ?? null,
             confidence: result.confidence ?? null,
+            notFoundReason: result.notFoundReason ?? null,
+            searchQueries: result.diagnostics?.searchQueries?.length ?? 0,
+            candidateWebsites: result.diagnostics?.candidateWebsites?.length ?? 0,
             timestamp: new Date().toISOString(),
           }),
         );
@@ -757,71 +816,68 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     });
   }
 
-  private async runDiscoveryForCompany(companyId: string, website: string | null | undefined) {
-    if (!website?.trim()) {
+  private async runDiscoveryForCompany(company: {
+    id: string;
+    name: string;
+    ico: string;
+    city: string | null;
+    region: string | null;
+    website: string | null;
+    phone: string | null;
+    verifiedBusinessEmail: string | null;
+    street?: string | null;
+    registeredAddress?: string | null;
+  }) {
+    const result = await this.pipeline.discoverCompanyContact(company as import('@prisma/client').CompanyDirectoryEntry);
+
+    if (!result.found) {
       await this.prisma.companyDirectoryEntry.update({
-        where: { id: companyId },
-        data: { contactDiscoveryState: 'NOT_FOUND' },
+        where: { id: company.id },
+        data: {
+          contactDiscoveryState: result.discoveryState,
+          ...(result.website && !company.website ? { website: result.website } : {}),
+        },
       });
-      return { found: false, status: null, email: null, sourceUrl: null, confidence: null };
+      if (result.notFoundReason && result.discoveryState === 'NOT_FOUND') {
+        await this.audit.log({
+          companyId: company.id,
+          action: 'CONTACT_DISCOVERY',
+          message: `Kontakt nenalezen: ${result.diagnostics.notFoundReasonLabel ?? result.notFoundReason}`,
+          meta: { notFoundReason: result.notFoundReason },
+        });
+      }
+      return result;
     }
-
-    const result = await this.fetchEmailsFromWebsite(website);
-    if (result.emails.length === 0) {
-      await this.prisma.companyDirectoryEntry.update({
-        where: { id: companyId },
-        data: { contactDiscoveryState: 'NOT_FOUND' },
-      });
-      await this.audit.log({
-        companyId,
-        action: 'CONTACT_DISCOVERY',
-        message: 'Kontakt nenalezen na webu',
-      });
-      return { found: false, status: null, email: null, sourceUrl: null, confidence: null };
-    }
-
-    const best = result.emails[0];
-    const status =
-      best.confidence >= 0.9
-        ? CompanyContactStatus.FOUND_HIGH_CONFIDENCE
-        : best.confidence >= 0.7
-          ? CompanyContactStatus.FOUND_MEDIUM_CONFIDENCE
-          : CompanyContactStatus.REVIEW_REQUIRED;
-
-    const discoveryState: CompanyContactDiscoveryEntryState =
-      status === CompanyContactStatus.REVIEW_REQUIRED ? 'REVIEW_REQUIRED' : 'FOUND';
 
     await this.prisma.companyContact.create({
       data: {
-        companyId,
-        email: best.email,
+        companyId: company.id,
+        email: result.email!,
         phone: result.phone,
         website: result.website,
-        sourceUrl: best.sourceUrl,
+        sourceUrl: result.sourceUrl,
         sourceType: CompanyContactSourceType.OFFICIAL_WEBSITE,
-        confidence: best.confidence,
-        status,
+        confidence: result.confidence,
+        status: result.status!,
       },
     });
 
     await this.prisma.companyDirectoryEntry.update({
-      where: { id: companyId },
-      data: { contactDiscoveryState: discoveryState },
+      where: { id: company.id },
+      data: {
+        contactDiscoveryState: result.discoveryState,
+        ...(result.website ? { website: result.website } : {}),
+      },
     });
 
     await this.audit.log({
-      companyId,
+      companyId: company.id,
       action: 'CONTACT_DISCOVERY',
-      message: `Nalezen email ${best.email} (${Math.round(best.confidence * 100)}%)`,
+      message: `Nalezen email ${result.email} (${Math.round((result.confidence ?? 0) * 100)}%)`,
+      meta: { sourceUrl: result.sourceUrl, website: result.website },
     });
 
-    return {
-      found: true,
-      status,
-      email: best.email,
-      sourceUrl: best.sourceUrl,
-      confidence: best.confidence,
-    };
+    return result;
   }
 
   private serializeBatch(
@@ -899,43 +955,5 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
         });
       }
     }
-  }
-
-  private async fetchEmailsFromWebsite(website: string) {
-    const base = website.startsWith('http') ? website : `https://${website}`;
-    const urls = [base, `${base.replace(/\/$/, '')}/kontakt`, `${base.replace(/\/$/, '')}/contact`];
-    const emails: Array<{ email: string; sourceUrl: string; confidence: number }> = [];
-    let phone: string | undefined;
-    const resolvedWebsite = base;
-
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, {
-          headers: { 'User-Agent': 'XXREALIT-ContactDiscovery/1.0' },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!res.ok) continue;
-        const html = await res.text();
-        const found = extractEmails(html);
-        if (!phone) phone = extractPhone(html);
-        for (const email of found) {
-          emails.push({
-            email,
-            sourceUrl: url,
-            confidence: scoreEmail(email, resolvedWebsite),
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    emails.sort((a, b) => b.confidence - a.confidence);
-    const unique = new Map<string, (typeof emails)[number]>();
-    for (const row of emails) {
-      if (!unique.has(row.email)) unique.set(row.email, row);
-    }
-
-    return { emails: [...unique.values()], phone, website: resolvedWebsite };
   }
 }
