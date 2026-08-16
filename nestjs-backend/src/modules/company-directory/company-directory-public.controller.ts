@@ -7,6 +7,7 @@ import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementFacadeService, CompanyLeadService } from './company-lead.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
+import { CompanyImportService } from './company-import.service';
 import { COMPANY_REVIEWS_ENABLED } from './company-directory.constants';
 import { CompanyEngagementEventType } from '@prisma/client';
 import type { Request } from 'express';
@@ -21,6 +22,7 @@ export class CompanyDirectoryPublicController {
     private readonly leads: CompanyLeadService,
     private readonly campaigns: CompanyEngagementCampaignService,
     private readonly profileDirectory: PublicProfileDirectoryService,
+    private readonly importService: CompanyImportService,
   ) {}
 
   @Get('public/directory')
@@ -44,6 +46,24 @@ export class CompanyDirectoryPublicController {
       category,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('public/companies/search')
+  searchCompaniesForReview(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.directory.searchForReview(q ?? '', limit ? Number(limit) : 10);
+  }
+
+  @Post('public/companies/ares-search')
+  searchAresCompanies(@Body() body: { q: string; limit?: number }) {
+    return this.directory.searchAresForReview(body.q ?? '', body.limit ?? 15);
+  }
+
+  @Post('public/companies/from-ares')
+  importCompanyFromAres(@Body() body: { ico: string; category?: string }) {
+    return this.importService.upsertPublicFromAres(
+      body.ico,
+      body.category as import('@prisma/client').CompanyDirectoryCategory | undefined,
+    );
   }
 
   @Get('public/:slug')

@@ -737,6 +737,49 @@ export async function nestGetCompanyReviews(
   };
 }
 
+export async function nestSearchCompaniesForReview(
+  query: string,
+): Promise<{ items: Array<Record<string, unknown>> } | null> {
+  if (!API_BASE_URL || query.trim().length < 2) return { items: [] };
+  const res = await fetch(
+    `${API_BASE_URL}/company-directory/public/companies/search?q=${encodeURIComponent(query)}`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as { items: Array<Record<string, unknown>> };
+}
+
+export async function nestSearchAresCompaniesForReview(
+  query: string,
+): Promise<{ items: Array<Record<string, unknown>>; total?: number } | null> {
+  if (!API_BASE_URL || query.trim().length < 3) return { items: [] };
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/companies/ares-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ q: query }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as { items: Array<Record<string, unknown>>; total?: number };
+}
+
+export async function nestImportCompanyFromAres(
+  ico: string,
+): Promise<{ company?: Record<string, unknown>; message?: string; error?: string } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/public/companies/from-ares`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ ico }),
+  });
+  const data = (await res.json()) as {
+    company?: Record<string, unknown>;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) return { error: (data as { message?: string }).message ?? 'Import z ARES selhal.' };
+  return data;
+}
+
 export async function nestSubmitCompanyReview(body: {
   companyId?: string;
   companySlug?: string;
@@ -758,20 +801,26 @@ export async function nestSubmitCompanyReview(body: {
     body: JSON.stringify(body),
   });
   const data = (await res.json()) as { reviewId?: string; message?: string; error?: string };
-  if (!res.ok) return { error: data.error ?? 'Odeslání recenze selhalo.' };
+  if (!res.ok) {
+    const msg =
+      (data as { message?: string | string[] }).message ??
+      data.error ??
+      'Odeslání recenze selhalo.';
+    return { error: Array.isArray(msg) ? msg.join(', ') : String(msg) };
+  }
   return data;
 }
 
 export async function nestVerifyCompanyReview(
   token: string,
-): Promise<{ ok?: boolean; reviewId?: string; error?: string } | null> {
+): Promise<{ ok?: boolean; reviewId?: string; slug?: string | null; error?: string } | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(`${API_BASE_URL}/company-directory/public/reviews/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ token }),
   });
-  const data = (await res.json()) as { ok?: boolean; reviewId?: string; message?: string };
+  const data = (await res.json()) as { ok?: boolean; reviewId?: string; slug?: string | null; message?: string };
   if (!res.ok) return { error: (data as { message?: string }).message ?? 'Ověření selhalo.' };
   return data;
 }
@@ -782,6 +831,18 @@ export async function nestAdminListReviews(
 ): Promise<Array<Record<string, unknown>> | null> {
   const qs = status ? `?status=${encodeURIComponent(status)}` : '';
   return adminFetch(token, `/reviews${qs}`);
+}
+
+export async function nestAdminModerateReview(
+  token: string,
+  reviewId: string,
+  action: 'approve' | 'reject' | 'hide',
+  note?: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/reviews/${encodeURIComponent(reviewId)}/moderate`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, note }),
+  });
 }
 
 export async function nestAdminDeleteReviewMedia(

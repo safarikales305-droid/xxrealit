@@ -590,7 +590,7 @@ export default function FirmaDetailPage() {
           <section className="mt-8 space-y-4">
             <h2 className="text-lg font-semibold text-zinc-900">Recenze na XXREALIT</h2>
             {reviews.map((r) => (
-              <article key={r.id} className="rounded-xl border border-zinc-200 bg-white p-4 text-sm">
+              <article key={r.id} id={`review-${r.id}`} className="rounded-xl border border-zinc-200 bg-white p-4 text-sm scroll-mt-24">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold text-zinc-900">{r.authorDisplayName}</p>
                   <Stars rating={r.rating} />

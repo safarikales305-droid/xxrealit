@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Send, Video } from 'lucide-react';
+import { Image as ImageIcon, Send, Star, Video } from 'lucide-react';
 import Link from 'next/link';
 import { API_BASE_URL } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
@@ -23,6 +23,7 @@ import {
 import { invalidatePublicProfileAndPostsCache } from '@/lib/public-profile-session';
 import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
+import { CompanyReviewComposer } from '@/components/community/CompanyReviewComposer';
 import { captureFileVideoPoster } from '@/lib/video-poster';
 import type { CommunityCategoryKey } from '@/lib/community-category-roles';
 
@@ -37,6 +38,9 @@ type Props = {
   latitude?: number;
   longitude?: number;
   onPublished: () => void | Promise<void>;
+  defaultAuthorEmail?: string;
+  defaultAuthorName?: string;
+  showReviewForGuests?: boolean;
 };
 
 const PREVIEW_MAX_WAIT_MS = 8_000;
@@ -47,6 +51,9 @@ export function CreateCommunityPostCard({
   latitude,
   longitude,
   onPublished,
+  defaultAuthorEmail,
+  defaultAuthorName,
+  showReviewForGuests = false,
 }: Props) {
   const { user, refresh } = useAuth();
   const [description, setDescription] = useState('');
@@ -65,6 +72,7 @@ export function CreateCommunityPostCard({
   const [selectedSoundId, setSelectedSoundId] = useState('');
   const [soundsLoading, setSoundsLoading] = useState(false);
   const [publishAllowed, setPublishAllowed] = useState<boolean | null>(null);
+  const [reviewComposerOpen, setReviewComposerOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -437,7 +445,8 @@ export function CreateCommunityPostCard({
       (description.trim() || imageFile || videoFile || detectedUrl),
   );
 
-  const formDisabled = publishAllowed === false;
+  const formDisabled = publishAllowed === false && !showReviewForGuests;
+  const showComposerFields = publishAllowed !== false || showReviewForGuests;
 
   const showLinkCard =
     Boolean(linkPreview) && !imageFile && !videoFile && !linkPreviewDismissed;
@@ -448,7 +457,7 @@ export function CreateCommunityPostCard({
       onSubmit={(e) => void handleSubmit(e)}
       className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
     >
-      {formDisabled ? (
+      {formDisabled && !showReviewForGuests ? (
         <p
           className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
           role="status"
@@ -459,6 +468,7 @@ export function CreateCommunityPostCard({
           </Link>
         </p>
       ) : null}
+      {showComposerFields ? (
       <textarea
         ref={textareaRef}
         rows={1}
@@ -475,7 +485,14 @@ export function CreateCommunityPostCard({
         placeholder="Co máte nového?"
         className="min-h-[44px] w-full resize-none overflow-hidden rounded-2xl border border-slate-200 bg-zinc-50/80 p-3 text-sm outline-none transition focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-500/15"
       />
+      ) : (
+        <p className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+          Sdílejte zkušenost s firmou — recenze je dostupná i bez přihlášení.
+        </p>
+      )}
 
+      {showComposerFields ? (
+      <>
       <input
         ref={imageInputRef}
         type="file"
@@ -584,6 +601,15 @@ export function CreateCommunityPostCard({
           >
             <Video className="size-5" />
           </button>
+          <button
+            type="button"
+            onClick={() => setReviewComposerOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+          >
+            <Star className="size-4 fill-amber-500 text-amber-500" />
+            <span className="hidden sm:inline">Recenze firmy</span>
+            <span className="sm:hidden">Recenze</span>
+          </button>
         </div>
         <button
           type="submit"
@@ -594,7 +620,26 @@ export function CreateCommunityPostCard({
           {loading ? 'Publikuji…' : 'Publikovat'}
         </button>
       </div>
+      </>
+      ) : (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setReviewComposerOpen(true)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+          >
+            <Star className="size-4 fill-amber-500 text-amber-500" />
+            Recenze / zkušenost s firmou
+          </button>
+        </div>
+      )}
     </form>
+    <CompanyReviewComposer
+      open={reviewComposerOpen}
+      onClose={() => setReviewComposerOpen(false)}
+      defaultAuthorEmail={defaultAuthorEmail ?? user?.email ?? ''}
+      defaultAuthorName={defaultAuthorName ?? user?.name ?? ''}
+    />
     <PostUploadProgress />
     </>
   );

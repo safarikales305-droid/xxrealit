@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { CompanyEmailLogStatus } from '@prisma/client';
+import { CompanyEmailLogStatus, CompanyReviewCompanyNotificationStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
@@ -105,24 +105,59 @@ export class CompanyEmailService {
     if (!company || !review) return;
 
     const recipient = company.verifiedBusinessEmail?.trim();
-    if (!recipient) return;
+    if (!recipient) {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.NO_COMPANY_EMAIL },
+      });
+      return;
+    }
 
-    if (!COMPANY_OUTREACH_ENABLED) return;
+    if (!COMPANY_OUTREACH_ENABLED) {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.NOT_SENT },
+      });
+      return;
+    }
 
-    await this.sendAdminEmail({
-      companyId,
-      recipient,
-      subject: `Nová recenze na profilu ${company.name}`,
-      template: 'newReview',
-      body: `Na profilu vaší firmy byla zveřejněna nová recenze (${review.rating}/5).`,
-      variables: {
-        reviewRating: String(review.rating),
-        reviewPreview: review.body.slice(0, 160),
-        reviewUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#recenze`,
-        claimUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#prevzit-profil`,
-        mediaSummary: await this.reviewMediaSummary(reviewId),
-      },
+    await this.prisma.companyReview.update({
+      where: { id: reviewId },
+      data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.QUEUED },
     });
+
+    try {
+      await this.sendAdminEmail({
+        companyId,
+        recipient,
+        subject: `Na XXREALIT byla zveřejněna nová zkušenost s vaší firmou`,
+        template: 'newReview',
+        body: `Na profilu vaší firmy ${company.name} byla zveřejněna nová recenze (${review.rating}/5).`,
+        variables: {
+          reviewRating: String(review.rating),
+          reviewPreview: review.body.slice(0, 160),
+          reviewUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#review-${reviewId}`,
+          claimUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#prevzit-profil`,
+          mediaSummary: await this.reviewMediaSummary(reviewId),
+        },
+      });
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.SENT },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.FAILED },
+      });
+      this.audit.log({
+        companyId,
+        action: 'ADMIN_EMAIL_SEND',
+        message: `Upozornění firmě o recenzi selhalo: ${message}`,
+        meta: { reviewId },
+      });
+    }
   }
 
   private async reviewMediaSummary(reviewId: string): Promise<string> {

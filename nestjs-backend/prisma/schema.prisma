@@ -6354,6 +6354,14 @@ enum CompanyReviewSentiment {
   NEUTRAL
 }
 
+enum CompanyReviewCompanyNotificationStatus {
+  NOT_SENT
+  QUEUED
+  SENT
+  FAILED
+  NO_COMPANY_EMAIL
+}
+
 enum CompanyReviewMediaType {
   IMAGE
   VIDEO
@@ -6811,6 +6819,8 @@ model CompanyReview {
 
   status      CompanyReviewStatus @default(EMAIL_VERIFICATION_REQUIRED)
   publishedAt DateTime?
+
+  companyNotificationStatus CompanyReviewCompanyNotificationStatus @default(NOT_SENT)
 
   moderationNote String? @db.Text
   post           Post?

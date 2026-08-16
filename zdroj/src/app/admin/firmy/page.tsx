@@ -30,6 +30,8 @@ import {
   nestAdminListCompanies,
   nestAdminMatchGoogle,
   nestAdminReviewCompanyClaim,
+  nestAdminListReviews,
+  nestAdminModerateReview,
   type AdminCompanyRow,
   type ImportJobView,
 } from '@/lib/company-directory-client';
@@ -85,6 +87,8 @@ export default function AdminFirmyPage() {
   const [campaignDetail, setCampaignDetail] = useState<CampaignDetail | null>(null);
   const [engagementStats, setEngagementStats] = useState<Record<string, number> | null>(null);
   const [contactBatches, setContactBatches] = useState<Array<Record<string, unknown>>>([]);
+  const [adminReviews, setAdminReviews] = useState<Array<Record<string, unknown>>>([]);
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('ALL');
   const [discoveringContact, setDiscoveringContact] = useState(false);
   const [contactError, setContactError] = useState<{ status: number; message: string } | null>(null);
 
@@ -142,11 +146,15 @@ export default function AdminFirmyPage() {
     setClaims(c ?? []);
     await refreshJobs();
     if (tab === 'companies') await refreshCompanies();
+    if (tab === 'reviews') {
+      const rows = await nestAdminListReviews(token, reviewStatusFilter === 'ALL' ? undefined : reviewStatusFilter);
+      setAdminReviews(rows ?? []);
+    }
     if (tab === 'engagement') {
       const stats = await nestAdminEngagementDashboard(token);
       setEngagementStats(stats);
     }
-  }, [token, tab, refreshJobs, refreshCompanies]);
+  }, [token, tab, refreshJobs, refreshCompanies, reviewStatusFilter]);
 
   useEffect(() => {
     if (!isLoading && (!token || user?.role !== 'ADMIN')) router.replace('/');
@@ -784,6 +792,103 @@ export default function AdminFirmyPage() {
               </div>
             )}
           </section>
+        </section>
+      ) : null}
+
+      {tab === 'reviews' ? (
+        <section className="rounded-xl border bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Company Reviews</h2>
+            <select
+              value={reviewStatusFilter}
+              onChange={(e) => {
+                setReviewStatusFilter(e.target.value);
+                void nestAdminListReviews(
+                  token,
+                  e.target.value === 'ALL' ? undefined : e.target.value,
+                ).then((rows) => setAdminReviews(rows ?? []));
+              }}
+              className="rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="ALL">Vše</option>
+              <option value="EMAIL_VERIFICATION_REQUIRED">Čeká na email</option>
+              <option value="PENDING">Ke schválení</option>
+              <option value="PUBLISHED">Publikováno</option>
+              <option value="REJECTED">Zamítnuto</option>
+              <option value="HIDDEN">Skryto</option>
+            </select>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead>
+                <tr className="border-b text-xs uppercase text-zinc-500">
+                  <th className="py-2 pr-2">Firma</th>
+                  <th className="py-2 pr-2">Autor</th>
+                  <th className="py-2 pr-2">Rating</th>
+                  <th className="py-2 pr-2">Média</th>
+                  <th className="py-2 pr-2">Stav</th>
+                  <th className="py-2 pr-2">Email firmě</th>
+                  <th className="py-2">Akce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminReviews.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-zinc-500">
+                      Žádné recenze.
+                    </td>
+                  </tr>
+                ) : (
+                  adminReviews.map((row) => (
+                    <tr key={String(row.id)} className="border-b align-top">
+                      <td className="py-3 pr-2">
+                        <p className="font-medium">{String((row.company as { name?: string })?.name ?? '—')}</p>
+                        <p className="text-xs text-zinc-500">{String(row.bodyPreview ?? '')}</p>
+                      </td>
+                      <td className="py-3 pr-2">
+                        <p>{String(row.authorName ?? '—')}</p>
+                        <p className="text-xs text-zinc-500">{String(row.authorEmail ?? '')}</p>
+                      </td>
+                      <td className="py-3 pr-2">
+                        {String(row.rating)} ★ · {String(row.sentiment)}
+                      </td>
+                      <td className="py-3 pr-2 text-xs">
+                        📷 {String(row.imageCount ?? 0)} · 🎥 {String(row.videoCount ?? 0)}
+                      </td>
+                      <td className="py-3 pr-2">{String(row.status)}</td>
+                      <td className="py-3 pr-2 text-xs">{String(row.companyNotificationStatus ?? '—')}</td>
+                      <td className="py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {row.status !== 'PUBLISHED' ? (
+                            <button
+                              type="button"
+                              className="rounded bg-emerald-600 px-2 py-1 text-xs text-white"
+                              onClick={() =>
+                                void nestAdminModerateReview(token, String(row.id), 'approve').then(() =>
+                                  refresh(),
+                                )
+                              }
+                            >
+                              Schválit
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={() =>
+                              void nestAdminModerateReview(token, String(row.id), 'hide').then(() => refresh())
+                            }
+                          >
+                            Skrýt
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
 

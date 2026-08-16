@@ -76,12 +76,16 @@ export function communityPostAuthorUserWhere(): Prisma.UserWhereInput {
 }
 
 export function buildCommunityPostsWhere(authorRole?: import('@prisma/client').UserRole): Prisma.PostWhereInput {
-  return {
-    type: { not: 'short' },
+  const professionalAuthor: Prisma.PostWhereInput = {
     user: {
       ...communityPostAuthorUserWhere(),
       ...(authorRole ? { role: authorRole } : {}),
     },
+  };
+
+  return {
+    type: { not: 'short' },
+    OR: [{ type: 'COMPANY_REVIEW' }, professionalAuthor],
   };
 }
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CompanyDirectoryCategory,
   CompanyDirectoryProfileStatus,
@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BrokersService } from '../brokers/brokers.service';
+import { AresService } from './ares.service';
 import { COMPANY_DIRECTORY_ENABLED } from './company-directory.constants';
 import {
   buildCompanyListWhere,
@@ -38,6 +39,7 @@ export class CompanyDirectoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly brokersService: BrokersService,
+    private readonly ares: AresService,
   ) {}
 
   isEnabled(): boolean {
@@ -438,6 +440,82 @@ export class CompanyDirectoryService {
       leads,
       optOuts,
       bounces,
+    };
+  }
+
+  async searchForReview(query: string, limit = 10) {
+    const q = query.trim();
+    if (q.length < 2) {
+      return { items: [] as ReturnType<typeof serializeCompanyDirectoryCard>[] };
+    }
+
+    const icoDigits = q.replace(/\D/g, '');
+    if (icoDigits.length >= 6) {
+      const normalizedIco = icoDigits.padStart(8, '0').slice(-8);
+      const byIco = await this.prisma.companyDirectoryEntry.findUnique({
+        where: { ico: normalizedIco },
+      });
+      if (byIco) {
+        return { items: [serializeCompanyDirectoryCard(byIco)] };
+      }
+    }
+
+    const rows = await this.prisma.companyDirectoryEntry.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          ...(icoDigits.length >= 3 ? [{ ico: { contains: icoDigits } }] : []),
+        ],
+      },
+      orderBy: [{ verificationStatus: 'desc' }, { name: 'asc' }],
+      take: Math.min(20, Math.max(1, limit)),
+    });
+
+    return { items: rows.map(serializeCompanyDirectoryCard) };
+  }
+
+  async searchAresForReview(query: string, limit = 15) {
+    const q = query.trim();
+    if (q.length < 3) {
+      throw new BadRequestException('Zadejte alespoň 3 znaky pro vyhledání v ARES.');
+    }
+
+    const icoDigits = q.replace(/\D/g, '');
+    let response;
+    if (icoDigits.length === 8) {
+      const subject = await this.ares.getCompanyByIco(icoDigits);
+      response = { pocetCelkem: 1, ekonomickeSubjekty: [subject] };
+    } else {
+      response = await this.ares.searchCompanies({
+        obchodniJmeno: q,
+        start: 0,
+        pocet: Math.min(20, Math.max(1, limit)),
+      });
+    }
+
+    const subjects = response.ekonomickeSubjekty ?? [];
+    const icos = subjects.map((s) => s.ico.replace(/\D/g, '').padStart(8, '0'));
+    const existing = await this.prisma.companyDirectoryEntry.findMany({
+      where: { ico: { in: icos } },
+      select: { ico: true, id: true, slug: true },
+    });
+    const existingByIco = new Map(existing.map((row) => [row.ico, row]));
+
+    return {
+      total: response.pocetCelkem ?? subjects.length,
+      items: subjects.map((s) => {
+        const ico = s.ico.replace(/\D/g, '').padStart(8, '0');
+        const db = existingByIco.get(ico);
+        return {
+          ico,
+          name: s.obchodniJmeno,
+          city: s.sidlo?.nazevObce ?? null,
+          address: s.sidlo?.textovaAdresa ?? null,
+          inDatabase: Boolean(db),
+          companyId: db?.id ?? null,
+          slug: db?.slug ?? null,
+        };
+      }),
     };
   }
 }

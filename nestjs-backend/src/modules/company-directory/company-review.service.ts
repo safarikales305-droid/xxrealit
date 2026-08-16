@@ -8,6 +8,7 @@ import {
   CompanyContactSourceType,
   CompanyContactStatus,
   CompanyDirectoryCategory,
+  CompanyReviewCompanyNotificationStatus,
   CompanyReviewSentiment,
   CompanyReviewStatus,
   PostCategory,
@@ -23,7 +24,9 @@ import { CompanyEmailService } from './company-email.service';
 import {
   COMPANY_REVIEWS_ENABLED,
   COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED,
+  COMPANY_CONTACT_DISCOVERY_ENABLED,
 } from './company-directory.constants';
+import { CompanyContactDiscoveryService } from './company-contact-discovery.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -65,6 +68,7 @@ export class CompanyReviewService {
     private readonly audit: CompanyAuditService,
     private readonly companyEmail: CompanyEmailService,
     private readonly socialEnqueue: SocialPublishEnqueueService,
+    private readonly contactDiscovery: CompanyContactDiscoveryService,
   ) {}
 
   async createReview(input: {
@@ -100,6 +104,26 @@ export class CompanyReviewService {
 
     const email = input.authorEmail.trim().toLowerCase();
     const authorUser = await this.resolveAuthorUser(email, input.authorDisplayName);
+
+    const duplicate = await this.prisma.companyReview.findFirst({
+      where: {
+        companyId: company.id,
+        authorUserId: authorUser.id,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        status: {
+          in: [
+            CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
+            CompanyReviewStatus.PENDING,
+            CompanyReviewStatus.PUBLISHED,
+          ],
+        },
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(
+        'Nedávno jste pro tuto firmu recenzi odeslali. Zkuste to později nebo upravte existující recenzi.',
+      );
+    }
 
     const token = randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -148,8 +172,18 @@ export class CompanyReviewService {
       });
     }
 
-    const verifyUrl = `${resolveFrontendUrl()}/firmy/recenze/overit?token=${token}`;
+    const verifyUrl = `${resolveFrontendUrl()}/firmy/recenze/overit?token=${token}&reviewId=${review.id}&slug=${encodeURIComponent(company.slug)}`;
     await this.emails.sendEmailVerificationEmail({ email, verifyUrl });
+
+    if (
+      COMPANY_CONTACT_DISCOVERY_ENABLED &&
+      !company.verifiedBusinessEmail &&
+      !input.submittedBusinessEmail
+    ) {
+      void this.contactDiscovery.enqueueDiscover(company.id).catch((err) => {
+        this.log.warn(`Contact discovery enqueue failed for ${company.id}: ${String(err)}`);
+      });
+    }
 
     await this.audit.log({
       companyId: company.id,
@@ -202,7 +236,12 @@ export class CompanyReviewService {
 
     await this.publishReview(review.id, { autoModerate: true });
 
-    return { ok: true, reviewId: review.id };
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: review.companyId },
+      select: { slug: true },
+    });
+
+    return { ok: true, reviewId: review.id, slug: company?.slug ?? null };
   }
 
   async publishReview(reviewId: string, opts?: { autoModerate?: boolean; adminUserId?: string }) {
@@ -428,6 +467,7 @@ export class CompanyReviewService {
       videoCount: r.media.filter((m) => m.type === 'VIDEO').length,
       status: r.status,
       emailVerified: r.emailVerified,
+      companyNotificationStatus: r.companyNotificationStatus,
       createdAt: r.createdAt.toISOString(),
       publishedAt: r.publishedAt?.toISOString() ?? null,
       reportCount: r._count.reports,
@@ -519,6 +559,16 @@ export class CompanyReviewService {
         companyDirectoryId: company.id,
         companyReviewId: review.id,
         publishedAt: new Date(),
+        media:
+          review.media.length > 0
+            ? {
+                create: review.media.map((m, idx) => ({
+                  url: m.url,
+                  type: m.type === 'VIDEO' ? 'video' : 'image',
+                  order: idx,
+                })),
+              }
+            : undefined,
       },
     });
 

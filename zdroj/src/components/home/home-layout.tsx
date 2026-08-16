@@ -1314,20 +1314,21 @@ export function HomeLayout({
                           </p>
                         </div>
 
-                        {isAuthenticated ? (
-                          <div className="mt-2 w-full md:mt-4">
-                            <CreateCommunityPostCard
+                        <div className="mt-2 w-full md:mt-4">
+                          <CreateCommunityPostCard
                               apiAccessToken={apiAccessToken}
                               activeCategory={createPostCategory}
                               latitude={userCoords?.lat}
                               longitude={userCoords?.lng}
+                              showReviewForGuests={!isAuthenticated}
+                              defaultAuthorEmail={user?.email ?? undefined}
+                              defaultAuthorName={user?.name ?? undefined}
                               onPublished={async () => {
                                 onChangeViewMode('posts');
                                 await refreshPostsFeed();
                               }}
                             />
                           </div>
-                        ) : null}
 
                         {storiesLoading || storyCards.length > 0 ? (
                           <div className="mt-4 w-full">

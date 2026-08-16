@@ -255,6 +255,46 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     return results;
   }
 
+  /** Veřejný upsert firmy z ARES podle IČO (pro recenze). */
+  async upsertPublicFromAres(ico: string, category?: CompanyDirectoryCategory | null) {
+    if (!ARES_IMPORT_ENABLED) {
+      throw new BadRequestException('ARES import není aktivní.');
+    }
+    const normalized = ico.replace(/\D/g, '').padStart(8, '0').slice(-8);
+    if (!/^\d{8}$/.test(normalized)) {
+      throw new BadRequestException('Neplatné IČO.');
+    }
+    const result = await this.upsertIco(normalized, category ?? null);
+    if (!result.companyId) {
+      throw new BadRequestException('Nepodařilo se vytvořit profil firmy z ARES.');
+    }
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: result.companyId },
+    });
+    if (!company) {
+      throw new NotFoundException('Firma nenalezena po importu z ARES.');
+    }
+    return {
+      action: result.action,
+      company: {
+        id: company.id,
+        ico: company.ico,
+        name: company.name,
+        slug: company.slug,
+        city: company.city,
+        region: company.region,
+        aresSource: company.aresSource,
+        profileStatus: company.profileStatus,
+        verificationStatus: company.verificationStatus,
+        publicProfile: company.publicProfile,
+      },
+      message:
+        result.action === 'created'
+          ? 'Profil vytvořen z veřejných rejstříkových údajů.'
+          : 'Použit existující profil firmy.',
+    };
+  }
+
   private async tick() {
     if (this.processing || !ARES_IMPORT_ENABLED) return;
     const job = await this.prisma.companyImportJob.findFirst({
