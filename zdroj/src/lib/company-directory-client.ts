@@ -397,6 +397,45 @@ export async function nestAdminReviewCompanyClaim(
   return (await res.json()) as Record<string, unknown>;
 }
 
+export type AdminFetchResult<T> =
+  | { ok: true; data: T; status: number }
+  | { ok: false; status: number; message: string; code?: string };
+
+async function adminFetchResult<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<AdminFetchResult<T>> {
+  if (!API_BASE_URL) {
+    return { ok: false, status: 0, message: 'API není nakonfigurováno.' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/company-directory${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    cache: 'no-store',
+  });
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = (await res.json()) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+  if (!res.ok) {
+    const message =
+      (typeof payload?.message === 'string' && payload.message) ||
+      (typeof payload?.error === 'string' && payload.error) ||
+      `HTTP ${res.status}`;
+    const code = typeof payload?.code === 'string' ? payload.code : undefined;
+    return { ok: false, status: res.status, message, code };
+  }
+  return { ok: true, data: (payload ?? {}) as T, status: res.status };
+}
+
 async function adminFetch<T>(
   token: string,
   path: string,
@@ -463,13 +502,36 @@ export async function nestAdminMatchGoogle(
   });
 }
 
+export type ContactDiscoveryEnqueueResponse = {
+  jobId: string | null;
+  itemId: string | null;
+  companyId: string;
+  status: string;
+  email?: string | null;
+  sourceUrl?: string | null;
+  confidence?: number | null;
+};
+
 export async function nestAdminDiscoverContact(
   token: string,
   companyId: string,
-): Promise<Record<string, unknown> | null> {
-  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/contact/discover`, {
-    method: 'POST',
-  });
+  options?: { force?: boolean },
+): Promise<AdminFetchResult<ContactDiscoveryEnqueueResponse>> {
+  return adminFetchResult<ContactDiscoveryEnqueueResponse>(
+    token,
+    `/companies/${encodeURIComponent(companyId)}/contact/discover`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force: options?.force ?? false }),
+    },
+  );
+}
+
+export async function nestAdminGetContactDiscoveryItem(
+  token: string,
+  itemId: string,
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult(token, `/contact/discovery/${encodeURIComponent(itemId)}`);
 }
 
 export async function nestAdminGetContactDetail(

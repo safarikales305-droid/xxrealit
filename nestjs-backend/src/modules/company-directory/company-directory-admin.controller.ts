@@ -178,8 +178,13 @@ export class CompanyDirectoryAdminController {
   }
 
   @Post('companies/:id/contact/discover')
-  discoverContact(@Param('id') id: string) {
-    return this.contactDiscovery.discoverForCompany(id);
+  discoverContact(@Param('id') id: string, @Body() body?: { force?: boolean }) {
+    return this.contactDiscovery.discoverForCompany(id, { force: body?.force });
+  }
+
+  @Get('contact/discovery/:itemId')
+  getContactDiscoveryItem(@Param('itemId') itemId: string) {
+    return this.contactDiscovery.getDiscoveryItem(itemId);
   }
 
   @Get('companies/:id/contact')

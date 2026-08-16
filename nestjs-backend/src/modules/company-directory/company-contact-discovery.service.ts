@@ -5,6 +5,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   CompanyContactDiscoveryEntryState,
@@ -25,8 +26,7 @@ import {
   ARES_WORKER_TICK_MS,
 } from './company-directory.constants';
 import { computeJobProgress } from './company-job-progress.util';
-
-const PREFERRED_PREFIXES = ['info@', 'kontakt@', 'office@', 'obchod@', 'recepce@'];
+import { extractEmails, extractPhone, scoreEmail } from './company-contact-discovery.helpers';
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
   'QUEUED',
   'SEARCHING',
@@ -34,6 +34,23 @@ const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
   'REVIEW_REQUIRED',
   'VERIFIED',
 ];
+
+const TERMINAL_CONTACT_STATUSES: CompanyContactStatus[] = [
+  CompanyContactStatus.FOUND_HIGH_CONFIDENCE,
+  CompanyContactStatus.FOUND_MEDIUM_CONFIDENCE,
+  CompanyContactStatus.REVIEW_REQUIRED,
+  CompanyContactStatus.VERIFIED,
+];
+
+export type ContactDiscoveryEnqueueResult = {
+  jobId: string | null;
+  itemId: string | null;
+  companyId: string;
+  status: CompanyContactDiscoveryEntryState | 'VERIFIED';
+  email?: string | null;
+  sourceUrl?: string | null;
+  confidence?: number | null;
+};
 
 @Injectable()
 export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDestroy {
@@ -55,20 +72,121 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** HTTP: zařadí firmu do fronty, neprovádí research synchronně. */
-  async enqueueDiscover(companyId: string, options?: { force?: boolean }) {
+  private assertDiscoveryEnabled(): void {
     if (!COMPANY_CONTACT_DISCOVERY_ENABLED) {
-      throw new BadRequestException('Contact discovery je vypnuté.');
+      throw new ServiceUnavailableException({
+        code: 'CONTACT_DISCOVERY_PROVIDER_NOT_CONFIGURED',
+        message: 'Provider pro dohledání kontaktů není nakonfigurován.',
+      });
+    }
+  }
+
+  /** HTTP: zařadí firmu do fronty, neprovádí research synchronně. */
+  async enqueueDiscover(
+    companyId: string,
+    options?: { force?: boolean },
+  ): Promise<ContactDiscoveryEnqueueResult> {
+    this.assertDiscoveryEnabled();
+
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        ico: true,
+        website: true,
+        verifiedBusinessEmail: true,
+        contactDiscoveryState: true,
+      },
+    });
+    if (!company) {
+      this.log.warn(
+        JSON.stringify({
+          event: 'CONTACT_DISCOVERY_REQUEST_REJECTED',
+          route: 'POST /admin/company-directory/companies/:id/contact/discover',
+          companyId,
+          reason: 'COMPANY_NOT_FOUND',
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      throw new NotFoundException({
+        code: 'COMPANY_NOT_FOUND',
+        message: 'Firma nenalezena.',
+      });
     }
 
-    const company = await this.prisma.companyDirectoryEntry.findUnique({ where: { id: companyId } });
-    if (!company) throw new BadRequestException('Firma nenalezena.');
+    this.log.log(
+      JSON.stringify({
+        event: 'CONTACT_DISCOVERY_REQUEST',
+        companyId: company.id,
+        companyIco: company.ico,
+        companyName: company.name,
+        force: options?.force ?? false,
+        timestamp: new Date().toISOString(),
+      }),
+    );
 
+    if (company.verifiedBusinessEmail && !options?.force) {
+      return {
+        jobId: null,
+        itemId: null,
+        companyId: company.id,
+        status: 'VERIFIED',
+        email: company.verifiedBusinessEmail,
+      };
+    }
+
+    const latestContact = await this.prisma.companyContact.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+    });
     if (
       !options?.force &&
-      BLOCKED_REQUEUE.includes(company.contactDiscoveryState)
+      latestContact &&
+      TERMINAL_CONTACT_STATUSES.includes(latestContact.status) &&
+      latestContact.status !== CompanyContactStatus.VERIFIED
     ) {
-      return { queued: false, state: company.contactDiscoveryState, reason: 'already_active_or_found' };
+      return {
+        jobId: null,
+        itemId: null,
+        companyId: company.id,
+        status:
+          latestContact.status === CompanyContactStatus.REVIEW_REQUIRED
+            ? 'REVIEW_REQUIRED'
+            : 'FOUND',
+        email: latestContact.email,
+        sourceUrl: latestContact.sourceUrl,
+        confidence: latestContact.confidence,
+      };
+    }
+
+    const activeJob = await this.prisma.companyContactDiscoveryJob.findFirst({
+      where: {
+        companyId,
+        status: {
+          in: [CompanyContactDiscoveryStatus.PENDING, CompanyContactDiscoveryStatus.RUNNING],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!options?.force && activeJob) {
+      const status: CompanyContactDiscoveryEntryState =
+        activeJob.status === CompanyContactDiscoveryStatus.RUNNING ? 'SEARCHING' : 'QUEUED';
+      return {
+        jobId: activeJob.batchId,
+        itemId: activeJob.id,
+        companyId: company.id,
+        status,
+      };
+    }
+
+    if (!options?.force && BLOCKED_REQUEUE.includes(company.contactDiscoveryState)) {
+      return {
+        jobId: null,
+        itemId: null,
+        companyId: company.id,
+        status: company.contactDiscoveryState,
+      };
     }
 
     const batch = await this.prisma.companyContactDiscoveryBatch.create({
@@ -83,7 +201,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       },
     });
 
-    await this.prisma.companyContactDiscoveryJob.create({
+    const item = await this.prisma.companyContactDiscoveryJob.create({
       data: {
         companyId,
         batchId: batch.id,
@@ -97,11 +215,75 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       data: { contactDiscoveryState: 'QUEUED' },
     });
 
-    return { queued: true, state: 'QUEUED' as const, batchId: batch.id };
+    this.log.log(
+      JSON.stringify({
+        event: 'CONTACT_DISCOVERY_QUEUED',
+        companyId: company.id,
+        companyIco: company.ico,
+        jobId: batch.id,
+        itemId: item.id,
+        status: 'QUEUED',
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    return {
+      jobId: batch.id,
+      itemId: item.id,
+      companyId: company.id,
+      status: 'QUEUED',
+    };
   }
 
-  async discoverForCompany(companyId: string) {
-    return this.enqueueDiscover(companyId);
+  async discoverForCompany(companyId: string, options?: { force?: boolean }) {
+    return this.enqueueDiscover(companyId, options);
+  }
+
+  async getDiscoveryItem(itemId: string) {
+    const item = await this.prisma.companyContactDiscoveryJob.findUnique({
+      where: { id: itemId },
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+            ico: true,
+            contactDiscoveryState: true,
+            verifiedBusinessEmail: true,
+          },
+        },
+      },
+    });
+    if (!item) {
+      throw new NotFoundException({
+        code: 'CONTACT_DISCOVERY_ITEM_NOT_FOUND',
+        message: 'Položka dohledávání nenalezena.',
+      });
+    }
+
+    const companyState = item.company?.contactDiscoveryState ?? 'NOT_SEARCHED';
+    const status =
+      item.status === CompanyContactDiscoveryStatus.RUNNING
+        ? 'SEARCHING'
+        : item.status === CompanyContactDiscoveryStatus.PENDING
+          ? 'QUEUED'
+          : item.status === CompanyContactDiscoveryStatus.FAILED
+            ? 'FAILED'
+            : companyState;
+
+    return {
+      itemId: item.id,
+      jobId: item.batchId,
+      companyId: item.companyId,
+      status,
+      email: item.email,
+      sourceUrl: item.sourceUrl,
+      confidence: item.confidence,
+      error: item.error,
+      startedAt: item.startedAt?.toISOString() ?? null,
+      finishedAt: item.finishedAt?.toISOString() ?? null,
+      company: item.company,
+    };
   }
 
   async getContactDetail(companyId: string) {
@@ -115,7 +297,12 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
         contactDiscoveryState: true,
       },
     });
-    if (!company) throw new BadRequestException('Firma nenalezena.');
+    if (!company) {
+      throw new NotFoundException({
+        code: 'COMPANY_NOT_FOUND',
+        message: 'Firma nenalezena.',
+      });
+    }
 
     const contacts = await this.prisma.companyContact.findMany({
       where: { companyId },
@@ -137,6 +324,8 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       state: company.contactDiscoveryState,
       verifiedBusinessEmail: company.verifiedBusinessEmail,
       activeJobId: activeJob?.id ?? null,
+      activeItemId: activeJob?.id ?? null,
+      jobStatus: activeJob?.status ?? null,
       latestContact: latest
         ? {
             id: latest.id,
@@ -210,7 +399,10 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     force?: boolean;
   }) {
     if (!COMPANY_CONTACT_DISCOVERY_ENABLED) {
-      throw new BadRequestException('Contact discovery je vypnuté.');
+      throw new ServiceUnavailableException({
+        code: 'CONTACT_DISCOVERY_PROVIDER_NOT_CONFIGURED',
+        message: 'Provider pro dohledání kontaktů není nakonfigurován.',
+      });
     }
 
     let companyIds = input.companyIds ?? [];
@@ -404,6 +596,17 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       });
       queued = Math.max(0, queued - 1);
 
+      this.log.log(
+        JSON.stringify({
+          event: 'CONTACT_DISCOVERY_STARTED',
+          companyId: company.id,
+          companyIco: company.ico,
+          itemId: job.id,
+          jobId: batchId,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+
       try {
         const result = await this.runDiscoveryForCompany(company.id, company.website);
         processed += 1;
@@ -423,6 +626,18 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
             finishedAt: new Date(),
           },
         });
+        this.log.log(
+          JSON.stringify({
+            event: result.found ? 'CONTACT_DISCOVERY_COMPLETED' : 'CONTACT_DISCOVERY_NOT_FOUND',
+            companyId: company.id,
+            companyIco: company.ico,
+            itemId: job.id,
+            email: result.email ?? null,
+            sourceUrl: result.sourceUrl ?? null,
+            confidence: result.confidence ?? null,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       } catch (err) {
         failed += 1;
         processed += 1;
@@ -636,37 +851,4 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
 
     return { emails: [...unique.values()], phone, website: resolvedWebsite };
   }
-}
-
-function extractEmails(html: string): string[] {
-  const matches = html.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) ?? [];
-  return [...new Set(matches.map((e) => e.toLowerCase()))].filter(
-    (e) => !e.endsWith('.png') && !e.endsWith('.jpg') && !e.includes('example.com'),
-  );
-}
-
-function scoreEmail(email: string, website: string): number {
-  const lower = email.toLowerCase();
-  let score = 0.6;
-  if (PREFERRED_PREFIXES.some((p) => lower.startsWith(p))) score = 0.95;
-  else if (lower.startsWith('mail@')) score = 0.85;
-  else if (/^[a-z]+\.[a-z]+@/.test(lower)) score = 0.45;
-
-  try {
-    const domain = new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '');
-    const emailDomain = lower.split('@')[1];
-    if (emailDomain && (emailDomain === domain || emailDomain.endsWith(`.${domain}`))) {
-      score = Math.min(1, score + 0.05);
-    } else {
-      score = Math.max(0.3, score - 0.2);
-    }
-  } catch {
-    /* ignore */
-  }
-  return score;
-}
-
-function extractPhone(html: string): string | undefined {
-  const match = html.match(/(?:\+420\s?)?(?:\d{3}\s?){3}/);
-  return match?.[0]?.trim();
 }

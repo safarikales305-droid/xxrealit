@@ -22,7 +22,7 @@ export const AI_REVIEW_ANALYSIS_ENABLED =
   (process.env.AI_REVIEW_ANALYSIS_ENABLED ?? 'false').toLowerCase() === 'true';
 
 export const COMPANY_CONTACT_DISCOVERY_ENABLED =
-  (process.env.COMPANY_CONTACT_DISCOVERY_ENABLED ?? 'false').toLowerCase() === 'true';
+  (process.env.COMPANY_CONTACT_DISCOVERY_ENABLED ?? 'true').toLowerCase() === 'true';
 
 export const COMPANY_OUTREACH_ENABLED =
   (process.env.COMPANY_OUTREACH_ENABLED ?? 'false').toLowerCase() === 'true';

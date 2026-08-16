@@ -39,6 +39,7 @@ type Tab = 'ares' | 'companies' | 'claims' | 'reviews' | 'engagement';
 type ContactDetail = {
   state?: string;
   verifiedBusinessEmail?: string | null;
+  activeItemId?: string | null;
   latestContact?: {
     id: string;
     email: string;
@@ -85,6 +86,7 @@ export default function AdminFirmyPage() {
   const [engagementStats, setEngagementStats] = useState<Record<string, number> | null>(null);
   const [contactBatches, setContactBatches] = useState<Array<Record<string, unknown>>>([]);
   const [discoveringContact, setDiscoveringContact] = useState(false);
+  const [contactError, setContactError] = useState<{ status: number; message: string } | null>(null);
 
   const [companyQuery, setCompanyQuery] = useState({
     q: '',
@@ -182,14 +184,61 @@ export default function AdminFirmyPage() {
 
   useEffect(() => {
     if (!token || !contactModal) return;
+    setContactError(null);
     const load = () =>
-      void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
-        setContactDetail((d as ContactDetail) ?? null),
-      );
+      void nestAdminGetContactDetail(token, contactModal.companyId).then((d) => {
+        if (!d) return;
+        setContactDetail((d as ContactDetail) ?? null);
+        setCompanies((rows) =>
+          rows.map((row) =>
+            row.id === contactModal.companyId
+              ? { ...row, contactDiscoveryState: String((d as ContactDetail).state ?? row.contactDiscoveryState) }
+              : row,
+          ),
+        );
+      });
     load();
     const id = setInterval(load, 2500);
     return () => clearInterval(id);
   }, [token, contactModal]);
+
+  const handleDiscoverContact = useCallback(
+    async (force = false) => {
+      if (!token || !contactModal || discoveringContact) return;
+      setDiscoveringContact(true);
+      setContactError(null);
+      const res = await nestAdminDiscoverContact(token, contactModal.companyId, { force });
+      setDiscoveringContact(false);
+      if (!res.ok) {
+        setContactError({ status: res.status, message: res.message });
+        setMsg(`Dohledání kontaktu se nepodařilo spustit: ${res.message}`);
+        return;
+      }
+      const nextState = res.data.status ?? 'QUEUED';
+      setContactDetail((prev) => ({
+        ...(prev ?? {}),
+        state: nextState,
+        verifiedBusinessEmail: res.data.email ?? prev?.verifiedBusinessEmail ?? null,
+        activeItemId: res.data.itemId ?? prev?.activeItemId ?? null,
+      }));
+      setCompanies((rows) =>
+        rows.map((row) =>
+          row.id === contactModal.companyId ? { ...row, contactDiscoveryState: nextState } : row,
+        ),
+      );
+      setMsg(
+        nextState === 'VERIFIED'
+          ? 'Firma má již ověřený email.'
+          : nextState === 'QUEUED'
+            ? 'Kontakt zařazen do fronty.'
+            : 'Dohledávání kontaktu spuštěno.',
+      );
+      void nestAdminGetContactDetail(token, contactModal.companyId).then((d) => {
+        if (d) setContactDetail((d as ContactDetail) ?? null);
+      });
+    },
+    [token, contactModal, discoveringContact],
+  );
 
   useEffect(() => {
     if (!token || !campaignModal) return;
@@ -809,6 +858,31 @@ export default function AdminFirmyPage() {
             <p className="mt-3 text-sm">
               Stav: <strong>{contactDiscoveryStateLabel(contactDetail?.state)}</strong>
             </p>
+            {contactError ? (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-semibold">Dohledání kontaktu se nepodařilo spustit.</p>
+                <p className="mt-1 text-xs">
+                  HTTP {contactError.status}: {contactError.message}
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded border border-red-300 bg-white px-3 py-1 text-xs"
+                  onClick={() => void handleDiscoverContact(true)}
+                >
+                  Zkusit znovu
+                </button>
+              </div>
+            ) : null}
+            {contactDetail?.verifiedBusinessEmail ? (
+              <div className="mt-4 rounded-lg border p-3 text-sm">
+                <p>
+                  Ověřený email:{' '}
+                  <a href={`mailto:${contactDetail.verifiedBusinessEmail}`} className="text-orange-700">
+                    {contactDetail.verifiedBusinessEmail}
+                  </a>
+                </p>
+              </div>
+            ) : null}
             {contactDetail?.latestContact ? (
               <div className="mt-4 space-y-2 rounded-lg border p-3 text-sm">
                 <p>
@@ -870,33 +944,30 @@ export default function AdminFirmyPage() {
                   <button
                     type="button"
                     className="rounded border px-3 py-1.5 text-xs"
-                    onClick={() =>
-                      void nestAdminDiscoverContact(token, contactModal.companyId).then(() => {
-                        setMsg('AI dohledávání spuštěno.');
-                        void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
-                          setContactDetail((d as ContactDetail) ?? null),
-                        );
-                      })
-                    }
+                    disabled={discoveringContact}
+                    onClick={() => void handleDiscoverContact(true)}
                   >
                     Vyhledat znovu
                   </button>
                 </div>
               </div>
+            ) : contactDetail?.state === 'QUEUED' || contactDetail?.state === 'SEARCHING' ? (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border bg-amber-50 p-3 text-sm text-amber-900">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  {contactDetail.state === 'SEARCHING'
+                    ? 'Hledám kontakt na webu firmy…'
+                    : 'Kontakt čeká ve frontě…'}
+                </span>
+              </div>
             ) : (
               <button
                 type="button"
-                className="mt-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-                onClick={() =>
-                  void nestAdminDiscoverContact(token, contactModal.companyId).then(() => {
-                    setMsg('Dohledávání kontaktu spuštěno.');
-                    void nestAdminGetContactDetail(token, contactModal.companyId).then((d) =>
-                      setContactDetail((d as ContactDetail) ?? null),
-                    );
-                  })
-                }
+                className="mt-4 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={discoveringContact}
+                onClick={() => void handleDiscoverContact(false)}
               >
-                Dohledat kontakt pomocí AI
+                {discoveringContact ? 'Zařazuji…' : 'Dohledat kontakt pomocí AI'}
               </button>
             )}
           </div>
