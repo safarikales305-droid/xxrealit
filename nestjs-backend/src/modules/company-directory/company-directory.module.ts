@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BrokersModule } from '../brokers/brokers.module';
 import { EmailsModule } from '../emails/emails.module';
 import { SocialModule } from '../social/social.module';
 import { AiSalesModule } from '../ai-sales/ai-sales.module';
+import { AuthModule } from '../auth/auth.module';
 import { AresService } from './ares.service';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyClaimService } from './company-claim.service';
@@ -27,7 +28,7 @@ import { GooglePlacesReputationProvider } from './google-places-reputation.provi
 import { AresQueryPartitionService } from './ares-query-partition.service';
 
 @Module({
-  imports: [BrokersModule, EmailsModule, SocialModule, AiSalesModule],
+  imports: [BrokersModule, EmailsModule, SocialModule, AiSalesModule, forwardRef(() => AuthModule)],
   controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController, CompanyReviewMediaController],
   providers: [
     AresService,

@@ -26,6 +26,7 @@ import { MarketingBonusActionType } from '@prisma/client';
 import type { RequestClientMeta } from '../../common/request-client-meta';
 import { PortalTermsService } from '../portal-terms/portal-terms.service';
 import { SupportTicketsService } from '../support-tickets/support-tickets.service';
+import { CompanyReviewService } from '../company-directory/company-review.service';
 type TokenUserShape = {
   id: string;
   email: string;
@@ -250,6 +251,8 @@ export class AuthService {
     private readonly portalTerms: PortalTermsService,
     @Inject(forwardRef(() => SupportTicketsService))
     private readonly supportTickets: SupportTicketsService,
+    @Inject(forwardRef(() => CompanyReviewService))
+    private readonly companyReviews: CompanyReviewService,
   ) {}
 
   private resendFromAddress(): string {
@@ -840,6 +843,9 @@ export class AuthService {
     }
 
     await this.users.confirmEmailVerification(user.id);
+    void this.companyReviews.linkReviewsToVerifiedUser(user.id).catch((err) => {
+      this.logger.warn(`linkReviewsToVerifiedUser failed: ${String(err)}`);
+    });
     this.logger.log(`[email-verify] confirmed userId=${user.id}`);
     return { success: true, message: 'E-mail byl úspěšně ověřen.' };
   }

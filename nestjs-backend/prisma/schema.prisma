@@ -6346,6 +6346,7 @@ enum CompanyReviewStatus {
   REPORTED
   UNDER_REVIEW
   HIDDEN
+  REMOVED
 }
 
 enum CompanyReviewSentiment {
@@ -6822,6 +6823,27 @@ model CompanyReview {
   status      CompanyReviewStatus @default(EMAIL_VERIFICATION_REQUIRED)
   publishedAt DateTime?
 
+  approvedAt        DateTime?
+  approvedByAdminId String?
+  rejectedAt        DateTime?
+  rejectedByAdminId String?
+  hiddenAt          DateTime?
+  hiddenByAdminId   String?
+  removedAt         DateTime?
+  removedByAdminId  String?
+  removalReason     String? @db.Text
+
+  editedAt              DateTime?
+  editedByAuthor        Boolean @default(false)
+  editedByAdminId       String?
+  reviewNeedsModeration Boolean @default(false)
+
+  lastApprovedRating    Int?
+  lastApprovedSentiment CompanyReviewSentiment?
+  lastApprovedTitle     String?
+  lastApprovedBody      String? @db.Text
+  lastApprovedMediaJson Json?
+
   companyNotificationStatus CompanyReviewCompanyNotificationStatus @default(NOT_SENT)
 
   moderationNote String? @db.Text
@@ -6833,10 +6855,31 @@ model CompanyReview {
   media     CompanyReviewMedia[]
   response  CompanyReviewResponse?
   reports   CompanyReviewReport[]
+  revisions CompanyReviewRevision[]
 
   @@index([companyId, status, createdAt])
   @@index([authorUserId])
   @@index([status])
+}
+
+model CompanyReviewRevision {
+  id       String @id @default(cuid())
+  reviewId String
+  review   CompanyReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  rating    Int
+  sentiment CompanyReviewSentiment
+  title     String @default("")
+  body      String @db.Text
+  mediaSnapshot Json?
+
+  statusAtRevision CompanyReviewStatus
+
+  createdByUserId  String?
+  createdByAdminId String?
+  createdAt        DateTime @default(now())
+
+  @@index([reviewId, createdAt])
 }
 
 model CompanyReviewMedia {
@@ -6849,6 +6892,10 @@ model CompanyReviewMedia {
   thumbnailUrl String?
   mimeType     String?
   sortOrder    Int @default(0)
+
+  removedByAdminId String?
+  removedAt        DateTime?
+  removalReason    String?
 
   createdAt DateTime @default(now())
 

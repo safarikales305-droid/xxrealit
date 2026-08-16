@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -86,6 +87,7 @@ export class CompanyReviewService {
     authorPhone?: string;
     submittedBusinessEmail?: string;
     confirmedExperience: boolean;
+    loggedInUserId?: string;
     media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
   }) {
     if (!COMPANY_REVIEWS_ENABLED) {
@@ -137,7 +139,9 @@ export class CompanyReviewService {
 
     try {
       const company = await this.resolveCompany(input.companyId, input.companySlug);
-      const authorUser = await this.resolveAuthorUser(email, input.authorDisplayName);
+      const authorUser = input.loggedInUserId
+        ? await this.prisma.user.findUniqueOrThrow({ where: { id: input.loggedInUserId } })
+        : await this.resolveAuthorUser(email, input.authorDisplayName);
 
       const duplicate = await this.prisma.companyReview.findFirst({
         where: {
@@ -380,41 +384,74 @@ export class CompanyReviewService {
     await this.audit.log({
       companyId: review.companyId,
       action: 'REVIEW_VERIFY',
-      message: `Email recenze ${review.id} ověřen`,
+      message: `Email recenze ${review.id} ověřen — čeká na schválení`,
       meta: { reviewId: review.id },
     });
 
-    await this.publishReview(review.id, { autoModerate: true });
+    void this.sendAuthorReviewPendingEmail(review.id);
 
     const company = await this.prisma.companyDirectoryEntry.findUnique({
       where: { id: review.companyId },
       select: { slug: true },
     });
 
-    return { ok: true, reviewId: review.id, slug: company?.slug ?? null };
+    return {
+      ok: true,
+      reviewId: review.id,
+      slug: company?.slug ?? null,
+      status: CompanyReviewStatus.PENDING,
+      message: 'Email byl ověřen. Recenze čeká na schválení administrátorem.',
+    };
   }
 
-  async publishReview(reviewId: string, opts?: { autoModerate?: boolean; adminUserId?: string }) {
+  async publishReview(reviewId: string, opts?: { adminUserId?: string }) {
     const review = await this.prisma.companyReview.findUnique({
       where: { id: reviewId },
       include: { company: true, media: true, authorUser: true },
     });
     if (!review) throw new NotFoundException('Recenze nenalezena.');
-    if (!review.emailVerified) {
+    if (review.status === CompanyReviewStatus.REMOVED) {
+      throw new BadRequestException('Odstraněnou recenzi nelze publikovat.');
+    }
+    if (!review.emailVerified && !opts?.adminUserId) {
       throw new BadRequestException('Email autora není ověřen.');
     }
 
-    const publishedAt = new Date();
+    const wasPublished = review.status === CompanyReviewStatus.PUBLISHED;
+    const publishedAt = review.publishedAt ?? new Date();
+    const now = new Date();
+
+    if (!review.emailVerified && opts?.adminUserId) {
+      await this.prisma.user.update({
+        where: { id: review.authorUserId },
+        data: { emailVerified: true, emailVerifiedAt: now },
+      });
+    }
+
     await this.prisma.companyReview.update({
       where: { id: reviewId },
       data: {
         status: CompanyReviewStatus.PUBLISHED,
         publishedAt,
+        emailVerified: true,
+        approvedAt: now,
+        approvedByAdminId: opts?.adminUserId ?? review.approvedByAdminId,
+        rejectedAt: null,
+        rejectedByAdminId: null,
+        hiddenAt: null,
+        hiddenByAdminId: null,
+        reviewNeedsModeration: false,
+        lastApprovedRating: null,
+        lastApprovedSentiment: null,
+        lastApprovedTitle: null,
+        lastApprovedBody: null,
+        lastApprovedMediaJson: Prisma.JsonNull,
+        moderationNote: null,
       },
     });
 
     await this.recalculateCompanyRating(review.companyId);
-    const postId = await this.createPortalPostFromReview(review);
+    const postId = await this.syncPortalPostFromReview(reviewId, true);
 
     await this.prisma.companyDirectoryEntry.updateMany({
       where: { id: review.companyId, firstPostCreatedAt: null },
@@ -426,12 +463,21 @@ export class CompanyReviewService {
       action: 'REVIEW_PUBLISH',
       message: `Recenze ${reviewId} publikována`,
       actorUserId: opts?.adminUserId ?? review.authorUserId,
-      meta: { postId },
+      meta: { postId, adminApproved: Boolean(opts?.adminUserId) },
     });
 
-    void this.companyEmail.notifyCompanyNewReview(review.companyId, reviewId);
+    if (
+      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.SENT &&
+      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.QUEUED
+    ) {
+      void this.companyEmail.notifyCompanyNewReview(review.companyId, reviewId);
+    }
 
-    if (COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED && postId) {
+    if (!wasPublished || review.reviewNeedsModeration) {
+      void this.sendAuthorReviewPublishedEmail(reviewId);
+    }
+
+    if (COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED && postId && !wasPublished) {
       this.socialEnqueue.firePostCreated(postId);
       await this.audit.log({
         companyId: review.companyId,
@@ -441,28 +487,55 @@ export class CompanyReviewService {
       });
     }
 
-    return { ok: true, postId };
+    return { ok: true, status: CompanyReviewStatus.PUBLISHED, postId };
   }
 
   async listPublicReviews(companyId: string) {
     const rows = await this.prisma.companyReview.findMany({
-      where: { companyId, status: CompanyReviewStatus.PUBLISHED },
+      where: {
+        companyId,
+        OR: [
+          { status: CompanyReviewStatus.PUBLISHED },
+          {
+            status: CompanyReviewStatus.PENDING,
+            lastApprovedBody: { not: null },
+          },
+        ],
+      },
       orderBy: { publishedAt: 'desc' },
       include: {
-        media: { orderBy: { sortOrder: 'asc' } },
+        media: { orderBy: { sortOrder: 'asc' }, where: { removedAt: null } },
         response: true,
       },
     });
 
-    return rows.map((r) => ({
+    return rows.map((r) => this.serializePublicReview(r));
+  }
+
+  private serializePublicReview(
+    r: Prisma.CompanyReviewGetPayload<{
+      include: { media: true; response: true };
+    }>,
+  ) {
+    const useSnapshot =
+      r.status === CompanyReviewStatus.PENDING && r.lastApprovedBody && r.reviewNeedsModeration;
+    const rating = useSnapshot ? (r.lastApprovedRating ?? r.rating) : r.rating;
+    const sentiment = useSnapshot ? (r.lastApprovedSentiment ?? r.sentiment) : r.sentiment;
+    const title = useSnapshot ? (r.lastApprovedTitle ?? r.title) : r.title;
+    const body = useSnapshot ? (r.lastApprovedBody ?? r.body) : r.body;
+    const media = useSnapshot
+      ? this.mediaFromSnapshot(r.lastApprovedMediaJson, r.media)
+      : r.media.filter((m) => !m.removedAt);
+
+    return {
       id: r.id,
-      rating: r.rating,
-      sentiment: r.sentiment,
-      title: r.title,
-      body: r.body,
+      rating,
+      sentiment,
+      title,
+      body,
       authorDisplayName: r.authorDisplayName ?? 'Uživatel',
       publishedAt: r.publishedAt?.toISOString() ?? null,
-      media: r.media.map((m) => ({
+      media: media.map((m) => ({
         type: m.type,
         url: m.url,
         thumbnailUrl: m.thumbnailUrl,
@@ -474,7 +547,23 @@ export class CompanyReviewService {
             createdAt: r.response.createdAt.toISOString(),
           }
         : null,
-    }));
+    };
+  }
+
+  private mediaFromSnapshot(
+    snapshot: Prisma.JsonValue | null,
+    fallback: Array<{ type: string; url: string; thumbnailUrl: string | null }>,
+  ) {
+    if (!snapshot || !Array.isArray(snapshot)) {
+      return fallback.filter((m) => true);
+    }
+    return (snapshot as Array<{ type: string; url: string; thumbnailUrl?: string | null }>).map(
+      (m) => ({
+        type: m.type,
+        url: m.url,
+        thumbnailUrl: m.thumbnailUrl ?? null,
+      }),
+    );
   }
 
   async getReviewSummary(companyId: string) {
@@ -558,34 +647,73 @@ export class CompanyReviewService {
 
   async moderateReview(
     reviewId: string,
-    action: 'approve' | 'reject' | 'hide',
+    action: 'approve' | 'reject' | 'hide' | 'remove' | 'reject_changes',
     adminUserId?: string,
     note?: string,
+    removalReason?: string,
   ) {
-    const status =
-      action === 'approve'
-        ? CompanyReviewStatus.PUBLISHED
-        : action === 'hide'
-          ? CompanyReviewStatus.HIDDEN
-          : CompanyReviewStatus.REJECTED;
+    const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
 
     if (action === 'approve') {
       return this.publishReview(reviewId, { adminUserId });
     }
 
-    await this.prisma.companyReview.update({
-      where: { id: reviewId },
-      data: { status, moderationNote: note ?? null },
-    });
+    if (action === 'reject_changes') {
+      return this.rejectAuthorChanges(reviewId, adminUserId, note);
+    }
+
+    const now = new Date();
+
+    if (action === 'reject') {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: {
+          status: CompanyReviewStatus.REJECTED,
+          moderationNote: note ?? null,
+          rejectedAt: now,
+          rejectedByAdminId: adminUserId ?? null,
+          reviewNeedsModeration: false,
+        },
+      });
+      await this.recalculateCompanyRating(review.companyId);
+      await this.syncPortalPostFromReview(reviewId, false);
+      void this.sendAuthorReviewRejectedEmail(reviewId, note);
+    } else if (action === 'hide') {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: {
+          status: CompanyReviewStatus.HIDDEN,
+          moderationNote: note ?? null,
+          hiddenAt: now,
+          hiddenByAdminId: adminUserId ?? null,
+        },
+      });
+      await this.recalculateCompanyRating(review.companyId);
+      await this.syncPortalPostFromReview(reviewId, false);
+    } else if (action === 'remove') {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: {
+          status: CompanyReviewStatus.REMOVED,
+          moderationNote: note ?? null,
+          removedAt: now,
+          removedByAdminId: adminUserId ?? null,
+          removalReason: removalReason ?? note ?? null,
+        },
+      });
+      await this.recalculateCompanyRating(review.companyId);
+      await this.syncPortalPostFromReview(reviewId, false);
+    }
 
     await this.audit.log({
       action: 'MODERATION',
-      message: `Recenze ${reviewId} → ${status}`,
+      message: `Recenze ${reviewId} → ${action}`,
       actorUserId: adminUserId,
-      meta: { reviewId, note },
+      meta: { reviewId, note, removalReason },
     });
 
-    return { ok: true, status };
+    return { ok: true, status: action };
   }
 
   async listAdminReviews(status?: string) {
@@ -608,33 +736,456 @@ export class CompanyReviewService {
       id: r.id,
       company: r.company,
       authorEmail: r.authorUser.email,
+      authorUserId: r.authorUser.id,
       authorName: r.authorDisplayName ?? r.authorUser.name,
       rating: r.rating,
       sentiment: r.sentiment,
       title: r.title,
+      body: r.body,
       bodyPreview: r.body.slice(0, 160),
-      imageCount: r.media.filter((m) => m.type === 'IMAGE').length,
-      videoCount: r.media.filter((m) => m.type === 'VIDEO').length,
+      imageCount: r.media.filter((m) => m.type === 'IMAGE' && !m.removedAt).length,
+      videoCount: r.media.filter((m) => m.type === 'VIDEO' && !m.removedAt).length,
       status: r.status,
       emailVerified: r.emailVerified,
+      reviewNeedsModeration: r.reviewNeedsModeration,
+      editedByAuthor: r.editedByAuthor,
+      editedAt: r.editedAt?.toISOString() ?? null,
+      approvedAt: r.approvedAt?.toISOString() ?? null,
       companyNotificationStatus: r.companyNotificationStatus,
       createdAt: r.createdAt.toISOString(),
       publishedAt: r.publishedAt?.toISOString() ?? null,
       reportCount: r._count.reports,
-      media: r.media,
+      media: r.media.filter((m) => !m.removedAt),
     }));
   }
 
-  async deleteReviewMedia(mediaId: string) {
+  async getAdminReviewDetail(reviewId: string) {
+    const r = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        company: { select: { id: true, name: true, slug: true, ico: true } },
+        authorUser: { select: { id: true, email: true, name: true, emailVerified: true } },
+        media: { orderBy: { sortOrder: 'asc' } },
+        post: { select: { id: true, publishedAt: true, type: true } },
+        revisions: { orderBy: { createdAt: 'desc' }, take: 20 },
+        _count: { select: { reports: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Recenze nenalezena.');
+    return {
+      id: r.id,
+      company: r.company,
+      author: r.authorUser,
+      authorDisplayName: r.authorDisplayName,
+      rating: r.rating,
+      sentiment: r.sentiment,
+      title: r.title,
+      body: r.body,
+      status: r.status,
+      emailVerified: r.emailVerified,
+      reviewNeedsModeration: r.reviewNeedsModeration,
+      editedByAuthor: r.editedByAuthor,
+      editedAt: r.editedAt?.toISOString() ?? null,
+      approvedAt: r.approvedAt?.toISOString() ?? null,
+      approvedByAdminId: r.approvedByAdminId,
+      rejectedAt: r.rejectedAt?.toISOString() ?? null,
+      hiddenAt: r.hiddenAt?.toISOString() ?? null,
+      removedAt: r.removedAt?.toISOString() ?? null,
+      removalReason: r.removalReason,
+      moderationNote: r.moderationNote,
+      companyNotificationStatus: r.companyNotificationStatus,
+      createdAt: r.createdAt.toISOString(),
+      publishedAt: r.publishedAt?.toISOString() ?? null,
+      media: r.media,
+      portalPost: r.post,
+      revisions: r.revisions,
+      reportCount: r._count.reports,
+      lastApproved: r.lastApprovedBody
+        ? {
+            rating: r.lastApprovedRating,
+            sentiment: r.lastApprovedSentiment,
+            title: r.lastApprovedTitle,
+            body: r.lastApprovedBody,
+          }
+        : null,
+    };
+  }
+
+  async updateReviewAsAdmin(
+    reviewId: string,
+    adminUserId: string,
+    input: {
+      rating?: number;
+      sentiment?: string;
+      title?: string;
+      body?: string;
+      keepPublished?: boolean;
+    },
+  ) {
+    const review = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: { media: true },
+    });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
+
+    await this.saveRevision(review, { createdByAdminId: adminUserId });
+
+    const rating = input.rating ?? review.rating;
+    const sentiment = input.sentiment
+      ? sentimentFromRating(rating, input.sentiment)
+      : review.sentiment;
+    const nextStatus =
+      review.status === CompanyReviewStatus.PUBLISHED && input.keepPublished
+        ? CompanyReviewStatus.PUBLISHED
+        : CompanyReviewStatus.PENDING;
+
+    await this.prisma.companyReview.update({
+      where: { id: reviewId },
+      data: {
+        rating,
+        sentiment,
+        title: input.title?.trim() ?? review.title,
+        body: input.body?.trim() ?? review.body,
+        status: nextStatus,
+        editedAt: new Date(),
+        editedByAdminId: adminUserId,
+        reviewNeedsModeration: nextStatus === CompanyReviewStatus.PENDING,
+      },
+    });
+
+    if (nextStatus === CompanyReviewStatus.PUBLISHED) {
+      await this.recalculateCompanyRating(review.companyId);
+      await this.syncPortalPostFromReview(reviewId, true);
+    }
+
+    await this.audit.log({
+      companyId: review.companyId,
+      action: 'MODERATION',
+      message: `Admin upravil recenzi ${reviewId}`,
+      actorUserId: adminUserId,
+    });
+
+    return { ok: true, status: nextStatus };
+  }
+
+  async listMyReviews(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.emailVerified) {
+      throw new ForbiddenException('Pro zobrazení recenzí je nutné ověřený email účtu.');
+    }
+
+    await this.linkReviewsToVerifiedUser(userId);
+
+    const rows = await this.prisma.companyReview.findMany({
+      where: { authorUserId: userId, status: { not: CompanyReviewStatus.REMOVED } },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        company: { select: { id: true, name: true, slug: true } },
+        media: { where: { removedAt: null }, orderBy: { sortOrder: 'asc' } },
+      },
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      company: r.company,
+      rating: r.rating,
+      sentiment: r.sentiment,
+      title: r.title,
+      body: r.body,
+      bodyPreview: r.body.slice(0, 200),
+      status: r.status,
+      statusLabel: this.userStatusLabel(r),
+      reviewNeedsModeration: r.reviewNeedsModeration,
+      editedByAuthor: r.editedByAuthor,
+      editedAt: r.editedAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+      publishedAt: r.publishedAt?.toISOString() ?? null,
+      mediaCount: r.media.length,
+      canEdit:
+        r.status !== CompanyReviewStatus.REMOVED &&
+        r.status !== CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED,
+    }));
+  }
+
+  async updateReviewAsAuthor(
+    userId: string,
+    reviewId: string,
+    input: {
+      rating?: number;
+      sentiment?: string;
+      title?: string;
+      body?: string;
+      media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
+      removeMediaIds?: string[];
+    },
+  ) {
+    const review = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: { media: true, company: true },
+    });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
+    if (review.authorUserId !== userId) {
+      throw new ForbiddenException('Tuto recenzi můžete upravovat pouze jako její autor.');
+    }
+    if (review.status === CompanyReviewStatus.REMOVED) {
+      throw new BadRequestException('Odstraněnou recenzi nelze upravit.');
+    }
+
+    const rating = input.rating ?? review.rating;
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      throw new BadRequestException('Hodnocení musí být 1–5.');
+    }
+    const body = input.body?.trim() ?? review.body;
+    if (!body) throw new BadRequestException('Text recenze je povinný.');
+
+    const wasPublished = review.status === CompanyReviewStatus.PUBLISHED;
+    await this.saveRevision(review, { createdByUserId: userId });
+
+    const mediaSnapshot = review.media
+      .filter((m) => !m.removedAt)
+      .map((m) => ({
+        type: m.type,
+        url: m.url,
+        thumbnailUrl: m.thumbnailUrl,
+      }));
+
+    await this.prisma.$transaction(async (tx) => {
+      if (wasPublished) {
+        await tx.companyReview.update({
+          where: { id: reviewId },
+          data: {
+            lastApprovedRating: review.rating,
+            lastApprovedSentiment: review.sentiment,
+            lastApprovedTitle: review.title,
+            lastApprovedBody: review.body,
+            lastApprovedMediaJson: mediaSnapshot as Prisma.InputJsonValue,
+          },
+        });
+      }
+
+      await tx.companyReview.update({
+        where: { id: reviewId },
+        data: {
+          rating,
+          sentiment: sentimentFromRating(rating, input.sentiment ?? review.sentiment),
+          title: input.title?.trim() ?? review.title,
+          body,
+          status: CompanyReviewStatus.PENDING,
+          reviewNeedsModeration: true,
+          editedAt: new Date(),
+          editedByAuthor: true,
+        },
+      });
+
+      if (input.removeMediaIds?.length) {
+        await tx.companyReviewMedia.updateMany({
+          where: { reviewId, id: { in: input.removeMediaIds } },
+          data: { removedAt: new Date(), removalReason: 'author_edit' },
+        });
+      }
+
+      if (input.media?.length) {
+        const maxOrder = review.media.reduce((max, m) => Math.max(max, m.sortOrder), -1);
+        await tx.companyReviewMedia.createMany({
+          data: input.media.map((m, idx) => ({
+            reviewId,
+            type: m.type,
+            url: m.url,
+            thumbnailUrl: m.thumbnailUrl ?? null,
+            mimeType: m.mimeType ?? null,
+            sortOrder: maxOrder + 1 + idx,
+          })),
+        });
+      }
+    });
+
+    if (wasPublished) {
+      await this.recalculateCompanyRating(review.companyId);
+    }
+
+    void this.sendAuthorReviewEditedPendingEmail(reviewId);
+
+    await this.audit.log({
+      companyId: review.companyId,
+      action: 'REVIEW_CREATE',
+      message: `Autor upravil recenzi ${reviewId} — čeká na schválení`,
+      actorUserId: userId,
+    });
+
+    return { ok: true, status: CompanyReviewStatus.PENDING, reviewNeedsModeration: true };
+  }
+
+  async requestAuthorRemoval(userId: string, reviewId: string, reason?: string) {
+    const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
+    if (review.authorUserId !== userId) {
+      throw new ForbiddenException('Tuto recenzi můžete odstranit pouze jako její autor.');
+    }
+
+    await this.prisma.companyReview.update({
+      where: { id: reviewId },
+      data: {
+        status: CompanyReviewStatus.REMOVED,
+        removedAt: new Date(),
+        removalReason: reason?.trim() || 'Na žádost autora',
+      },
+    });
+
+    await this.recalculateCompanyRating(review.companyId);
+    await this.syncPortalPostFromReview(reviewId, false);
+
+    return { ok: true };
+  }
+
+  async linkReviewsToVerifiedUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, emailVerified: true },
+    });
+    if (!user?.emailVerified) return { linked: 0 };
+
+    const email = user.email.trim().toLowerCase();
+    const shadowUsers = await this.prisma.user.findMany({
+      where: {
+        email,
+        id: { not: userId },
+        emailVerified: false,
+      },
+      select: { id: true },
+    });
+
+    let linked = 0;
+    for (const shadow of shadowUsers) {
+      const result = await this.prisma.companyReview.updateMany({
+        where: { authorUserId: shadow.id },
+        data: { authorUserId: userId },
+      });
+      linked += result.count;
+    }
+
+    return { linked };
+  }
+
+  async backfillReviewAuthors() {
+    const unlinked = await this.prisma.companyReview.findMany({
+      where: { authorUser: { emailVerified: true } },
+      select: { id: true, authorUserId: true, authorUser: { select: { email: true } } },
+      take: 500,
+    });
+    return { checked: unlinked.length };
+  }
+
+  private async rejectAuthorChanges(reviewId: string, adminUserId?: string, note?: string) {
+    const review = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: { media: true },
+    });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
+    if (!review.lastApprovedBody) {
+      throw new BadRequestException('Recenze nemá uloženou schválenou verzi.');
+    }
+
+    await this.saveRevision(review, { createdByAdminId: adminUserId });
+
+    await this.prisma.companyReview.update({
+      where: { id: reviewId },
+      data: {
+        rating: review.lastApprovedRating ?? review.rating,
+        sentiment: review.lastApprovedSentiment ?? review.sentiment,
+        title: review.lastApprovedTitle ?? review.title,
+        body: review.lastApprovedBody,
+        status: CompanyReviewStatus.PUBLISHED,
+        reviewNeedsModeration: false,
+        editedByAuthor: false,
+        moderationNote: note ?? null,
+        lastApprovedRating: null,
+        lastApprovedSentiment: null,
+        lastApprovedTitle: null,
+        lastApprovedBody: null,
+        lastApprovedMediaJson: Prisma.JsonNull,
+      },
+    });
+
+    await this.recalculateCompanyRating(review.companyId);
+    await this.syncPortalPostFromReview(reviewId, true);
+
+    await this.audit.log({
+      companyId: review.companyId,
+      action: 'MODERATION',
+      message: `Zamítnuta nová verze recenze ${reviewId}, obnovena poslední schválená`,
+      actorUserId: adminUserId,
+    });
+
+    return { ok: true, status: CompanyReviewStatus.PUBLISHED };
+  }
+
+  private userStatusLabel(review: {
+    status: CompanyReviewStatus;
+    reviewNeedsModeration: boolean;
+    editedByAuthor: boolean;
+  }) {
+    if (review.reviewNeedsModeration && review.editedByAuthor) {
+      return 'Upraveno – čeká na nové schválení';
+    }
+    switch (review.status) {
+      case CompanyReviewStatus.PUBLISHED:
+        return 'Publikováno';
+      case CompanyReviewStatus.PENDING:
+        return 'Čeká na schválení';
+      case CompanyReviewStatus.REJECTED:
+        return 'Zamítnuto';
+      case CompanyReviewStatus.HIDDEN:
+        return 'Skryto';
+      case CompanyReviewStatus.EMAIL_VERIFICATION_REQUIRED:
+        return 'Čeká na ověření emailu';
+      default:
+        return review.status;
+    }
+  }
+
+  private async saveRevision(
+    review: Prisma.CompanyReviewGetPayload<{ include: { media: true } }>,
+    opts: { createdByUserId?: string; createdByAdminId?: string },
+  ) {
+    await this.prisma.companyReviewRevision.create({
+      data: {
+        reviewId: review.id,
+        rating: review.rating,
+        sentiment: review.sentiment,
+        title: review.title,
+        body: review.body,
+        mediaSnapshot: review.media
+          .filter((m) => !m.removedAt)
+          .map((m) => ({
+            type: m.type,
+            url: m.url,
+            thumbnailUrl: m.thumbnailUrl,
+          })) as Prisma.InputJsonValue,
+        statusAtRevision: review.status,
+        createdByUserId: opts.createdByUserId ?? null,
+        createdByAdminId: opts.createdByAdminId ?? null,
+      },
+    });
+  }
+
+  async deleteReviewMedia(mediaId: string, adminUserId?: string, reason?: string) {
     const media = await this.prisma.companyReviewMedia.findUnique({
       where: { id: mediaId },
     });
     if (!media) throw new NotFoundException('Médium nenalezeno.');
-    await this.prisma.companyReviewMedia.delete({ where: { id: mediaId } });
+    await this.prisma.companyReviewMedia.update({
+      where: { id: mediaId },
+      data: {
+        removedAt: new Date(),
+        removedByAdminId: adminUserId ?? null,
+        removalReason: reason ?? 'admin_remove',
+      },
+    });
     await this.audit.log({
       action: 'MODERATION',
       message: `Odstraněno médium ${mediaId} z recenze ${media.reviewId}`,
-      meta: { mediaId, reviewId: media.reviewId },
+      actorUserId: adminUserId,
+      meta: { mediaId, reviewId: media.reviewId, reason },
     });
     return { ok: true };
   }
@@ -677,18 +1228,73 @@ export class CompanyReviewService {
     });
   }
 
-  private async createPortalPostFromReview(
+  private async syncPortalPostFromReview(reviewId: string, visible: boolean): Promise<string | null> {
+    const review = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: { company: true, media: true, authorUser: true },
+    });
+    if (!review) return null;
+
+    const existing = await this.prisma.post.findFirst({
+      where: { companyReviewId: review.id },
+      include: { media: true },
+    });
+
+    if (!visible) {
+      if (existing) {
+        await this.prisma.post.update({
+          where: { id: existing.id },
+          data: { publishedAt: null },
+        });
+      }
+      return existing?.id ?? null;
+    }
+
+    const payload = this.buildPortalPostPayload(review);
+    if (existing) {
+      await this.prisma.post.update({
+        where: { id: existing.id },
+        data: {
+          ...payload,
+          publishedAt: review.publishedAt ?? new Date(),
+        },
+      });
+      return existing.id;
+    }
+
+    const post = await this.prisma.post.create({
+      data: {
+        userId: review.authorUserId,
+        ...payload,
+        type: 'COMPANY_REVIEW',
+        category: mapCompanyCategoryToPostCategory(review.company.categories[0]),
+        companyDirectoryId: review.company.id,
+        companyReviewId: review.id,
+        publishedAt: review.publishedAt ?? new Date(),
+        media:
+          review.media.filter((m) => !m.removedAt).length > 0
+            ? {
+                create: review.media
+                  .filter((m) => !m.removedAt)
+                  .map((m, idx) => ({
+                    url: m.url,
+                    type: m.type === 'VIDEO' ? 'video' : 'image',
+                    order: idx,
+                  })),
+              }
+            : undefined,
+      },
+    });
+
+    return post.id;
+  }
+
+  private buildPortalPostPayload(
     review: Prisma.CompanyReviewGetPayload<{
       include: { company: true; media: true; authorUser: true };
     }>,
-  ): Promise<string | null> {
-    const existing = await this.prisma.post.findFirst({
-      where: { companyReviewId: review.id },
-    });
-    if (existing) return existing.id;
-
+  ) {
     const company = review.company;
-    const primaryCategory = company.categories[0];
     const stars = '★'.repeat(review.rating) + '☆'.repeat(5 - review.rating);
     const sentimentLabel =
       review.sentiment === CompanyReviewSentiment.POSITIVE
@@ -698,38 +1304,74 @@ export class CompanyReviewService {
           : 'Neutrální zkušenost';
 
     const authorName = review.authorDisplayName ?? review.authorUser.name ?? 'Uživatel';
-    const title = `${authorName} ohodnotil firmu ${company.name}`;
-    const description = `${stars}\n\n${sentimentLabel}\n\n${review.body.slice(0, 280)}`;
-    const imageUrl = review.media.find((m) => m.type === 'IMAGE')?.url ?? null;
-    const videoUrl = review.media.find((m) => m.type === 'VIDEO')?.url ?? null;
+    const activeMedia = review.media.filter((m) => !m.removedAt);
+    return {
+      title: `${authorName} ohodnotil firmu ${company.name}`,
+      description: `${stars}\n\n${sentimentLabel}\n\n${review.body.slice(0, 280)}`,
+      content: review.body,
+      imageUrl: activeMedia.find((m) => m.type === 'IMAGE')?.url ?? null,
+      videoUrl: activeMedia.find((m) => m.type === 'VIDEO')?.url ?? null,
+      city: company.city ?? '',
+    };
+  }
 
-    const post = await this.prisma.post.create({
-      data: {
-        userId: review.authorUserId,
-        title,
-        description,
-        content: review.body,
-        imageUrl,
-        videoUrl,
-        city: company.city ?? '',
-        type: 'COMPANY_REVIEW',
-        category: mapCompanyCategoryToPostCategory(primaryCategory),
-        companyDirectoryId: company.id,
-        companyReviewId: review.id,
-        publishedAt: new Date(),
-        media:
-          review.media.length > 0
-            ? {
-                create: review.media.map((m, idx) => ({
-                  url: m.url,
-                  type: m.type === 'VIDEO' ? 'video' : 'image',
-                  order: idx,
-                })),
-              }
-            : undefined,
-      },
-    });
+  private async sendAuthorReviewPendingEmail(reviewId: string) {
+    await this.sendAuthorEmailSafe(reviewId, 'pending');
+  }
 
-    return post.id;
+  private async sendAuthorReviewPublishedEmail(reviewId: string) {
+    await this.sendAuthorEmailSafe(reviewId, 'published');
+  }
+
+  private async sendAuthorReviewRejectedEmail(reviewId: string, note?: string) {
+    await this.sendAuthorEmailSafe(reviewId, 'rejected', note);
+  }
+
+  private async sendAuthorReviewEditedPendingEmail(reviewId: string) {
+    await this.sendAuthorEmailSafe(reviewId, 'edited_pending');
+  }
+
+  private async sendAuthorEmailSafe(
+    reviewId: string,
+    kind: 'pending' | 'published' | 'rejected' | 'edited_pending',
+    note?: string,
+  ) {
+    try {
+      const review = await this.prisma.companyReview.findUnique({
+        where: { id: reviewId },
+        include: { authorUser: true, company: true },
+      });
+      if (!review?.authorUser?.email) return;
+
+      const reviewUrl = `${resolveFrontendUrl()}/firmy/${review.company.slug}#review-${review.id}`;
+      const editUrl = `${resolveFrontendUrl()}/profil/recenze`;
+      const subjects: Record<typeof kind, string> = {
+        pending: 'Vaše recenze čeká na schválení',
+        published: 'Vaše recenze byla zveřejněna',
+        rejected: 'Vaše recenze zatím nebyla zveřejněna',
+        edited_pending: 'Vaše upravená recenze čeká na kontrolu',
+      };
+      const bodies: Record<typeof kind, string> = {
+        pending: `Dobrý den,\n\nvaše recenze firmy ${review.company.name} byla ověřena a čeká na schválení administrátorem.\n\n${reviewUrl}`,
+        published: `Dobrý den,\n\nvaše recenze firmy ${review.company.name} byla zveřejněna.\n\nZobrazit recenzi: ${reviewUrl}`,
+        rejected: `Dobrý den,\n\nvaše recenze firmy ${review.company.name} zatím nebyla zveřejněna.${note ? `\n\nDůvod: ${note}` : ''}\n\nUpravit recenzi: ${editUrl}`,
+        edited_pending: `Dobrý den,\n\nvaše upravená recenze firmy ${review.company.name} čeká na kontrolu administrátorem.\n\n${editUrl}`,
+      };
+
+      await this.emails.sendTemplatedEmail({
+        type: `company_review_${kind}`,
+        templateKey: 'custom_message',
+        to: review.authorUser.email,
+        variables: {
+          subject: subjects[kind],
+          bodyHtml: bodies[kind].replace(/\n/g, '<br/>'),
+          bodyText: bodies[kind],
+        },
+      });
+    } catch (err) {
+      this.log.warn(
+        `Author review email (${kind}) failed for ${reviewId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }

@@ -294,6 +294,11 @@ export default function ProfileDashboardPage() {
           {tab === 'settings' ? (
             <div className="space-y-5">
               <h1 className="text-xl font-bold text-zinc-900">Nastavení profilu</h1>
+              <p className="text-sm">
+                <Link href="/profil/recenze" className="font-semibold text-orange-700 hover:underline">
+                  Moje recenze firem →
+                </Link>
+              </p>
               {loadingMe ? <p className="text-sm text-zinc-600">Načítám…</p> : null}
 
               <ProfileRequirementsCard

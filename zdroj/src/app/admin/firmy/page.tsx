@@ -32,7 +32,9 @@ import {
   nestAdminMatchGoogle,
   nestAdminReviewCompanyClaim,
   nestAdminListReviews,
-  nestAdminModerateReview,
+  nestAdminModerateReviewResult,
+  nestAdminUpdateReview,
+  nestAdminGetReviewDetail,
   type AdminCompanyRow,
   type ImportJobView,
 } from '@/lib/company-directory-client';
@@ -104,6 +106,12 @@ export default function AdminFirmyPage() {
   const [contactBatches, setContactBatches] = useState<Array<Record<string, unknown>>>([]);
   const [adminReviews, setAdminReviews] = useState<Array<Record<string, unknown>>>([]);
   const [reviewStatusFilter, setReviewStatusFilter] = useState('ALL');
+  const [reviewDetail, setReviewDetail] = useState<Record<string, unknown> | null>(null);
+  const [reviewEditId, setReviewEditId] = useState<string | null>(null);
+  const [reviewEditBody, setReviewEditBody] = useState('');
+  const [reviewRemoveId, setReviewRemoveId] = useState<string | null>(null);
+  const [reviewRemoveReason, setReviewRemoveReason] = useState('Porušení pravidel');
+  const [reviewActionBusy, setReviewActionBusy] = useState(false);
   const [discoveringContact, setDiscoveringContact] = useState(false);
   const [contactError, setContactError] = useState<{ status: number; message: string } | null>(null);
 
@@ -170,6 +178,71 @@ export default function AdminFirmyPage() {
       setEngagementStats(stats);
     }
   }, [token, tab, refreshJobs, refreshCompanies, reviewStatusFilter]);
+
+  const reloadReviews = useCallback(async () => {
+    if (!token) return;
+    const rows = await nestAdminListReviews(token, reviewStatusFilter === 'ALL' ? undefined : reviewStatusFilter);
+    setAdminReviews(rows ?? []);
+  }, [token, reviewStatusFilter]);
+
+  const handleModerateReview = useCallback(
+    async (
+      reviewId: string,
+      action: 'approve' | 'reject' | 'hide' | 'remove' | 'reject_changes',
+      note?: string,
+      removalReason?: string,
+    ) => {
+      if (!token) return;
+      setReviewActionBusy(true);
+      setErrMsg(null);
+      const result = await nestAdminModerateReviewResult(token, reviewId, action, note, removalReason);
+      setReviewActionBusy(false);
+      if (!result.ok) {
+        setErrMsg(
+          result.message ??
+            (action === 'approve'
+              ? 'Recenzi se nepodařilo schválit.'
+              : 'Akci s recenzí se nepodařilo provést.'),
+        );
+        return;
+      }
+      setMsg(
+        action === 'approve'
+          ? 'Recenze byla schválena.'
+          : action === 'reject'
+            ? 'Recenze byla zamítnuta.'
+            : action === 'reject_changes'
+              ? 'Změny autora byly zamítnuty, obnovena poslední schválená verze.'
+              : 'Akce dokončena.',
+      );
+      setReviewRemoveId(null);
+      await reloadReviews();
+    },
+    [token, reloadReviews],
+  );
+
+  const openReviewDetail = useCallback(
+    async (reviewId: string) => {
+      if (!token) return;
+      const detail = await nestAdminGetReviewDetail(token, reviewId);
+      setReviewDetail(detail);
+    },
+    [token],
+  );
+
+  const saveReviewEdit = useCallback(async () => {
+    if (!token || !reviewEditId) return;
+    setReviewActionBusy(true);
+    const result = await nestAdminUpdateReview(token, reviewEditId, { body: reviewEditBody });
+    setReviewActionBusy(false);
+    if (!result.ok) {
+      setErrMsg(result.message ?? 'Uložení recenze selhalo.');
+      return;
+    }
+    setMsg('Recenze byla upravena.');
+    setReviewEditId(null);
+    await reloadReviews();
+  }, [token, reviewEditId, reviewEditBody, reloadReviews]);
 
   useEffect(() => {
     if (!isLoading && (!token || user?.role !== 'ADMIN')) router.replace('/');
@@ -945,13 +1018,13 @@ export default function AdminFirmyPage() {
       {tab === 'reviews' ? (
         <section className="rounded-xl border bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Company Reviews</h2>
+            <h2 className="text-lg font-semibold">Recenze firem</h2>
             <select
               value={reviewStatusFilter}
               onChange={(e) => {
                 setReviewStatusFilter(e.target.value);
                 void nestAdminListReviews(
-                  token,
+                  token!,
                   e.target.value === 'ALL' ? undefined : e.target.value,
                 ).then((rows) => setAdminReviews(rows ?? []));
               }}
@@ -963,10 +1036,11 @@ export default function AdminFirmyPage() {
               <option value="PUBLISHED">Publikováno</option>
               <option value="REJECTED">Zamítnuto</option>
               <option value="HIDDEN">Skryto</option>
+              <option value="REMOVED">Odstraněno</option>
             </select>
           </div>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[1000px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs uppercase text-zinc-500">
                   <th className="py-2 pr-2">Firma</th>
@@ -974,6 +1048,7 @@ export default function AdminFirmyPage() {
                   <th className="py-2 pr-2">Rating</th>
                   <th className="py-2 pr-2">Média</th>
                   <th className="py-2 pr-2">Stav</th>
+                  <th className="py-2 pr-2">Editováno</th>
                   <th className="py-2 pr-2">Email firmě</th>
                   <th className="py-2">Akce</th>
                 </tr>
@@ -981,7 +1056,7 @@ export default function AdminFirmyPage() {
               <tbody>
                 {adminReviews.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-6 text-center text-zinc-500">
+                    <td colSpan={8} className="py-6 text-center text-zinc-500">
                       Žádné recenze.
                     </td>
                   </tr>
@@ -1002,32 +1077,99 @@ export default function AdminFirmyPage() {
                       <td className="py-3 pr-2 text-xs">
                         📷 {String(row.imageCount ?? 0)} · 🎥 {String(row.videoCount ?? 0)}
                       </td>
-                      <td className="py-3 pr-2">{String(row.status)}</td>
+                      <td className="py-3 pr-2">
+                        <p>{String(row.status)}</p>
+                        {row.reviewNeedsModeration ? (
+                          <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
+                            UPRAVENO AUTOREM
+                          </span>
+                        ) : null}
+                        {!row.emailVerified ? (
+                          <span className="mt-1 block text-[10px] text-zinc-500">Email neověřen</span>
+                        ) : null}
+                      </td>
+                      <td className="py-3 pr-2 text-xs">
+                        {row.editedAt ? String(row.editedAt).slice(0, 10) : '—'}
+                      </td>
                       <td className="py-3 pr-2 text-xs">{String(row.companyNotificationStatus ?? '—')}</td>
                       <td className="py-3">
                         <div className="flex flex-wrap gap-1">
                           {row.status !== 'PUBLISHED' ? (
                             <button
                               type="button"
-                              className="rounded bg-emerald-600 px-2 py-1 text-xs text-white"
-                              onClick={() =>
-                                void nestAdminModerateReview(token, String(row.id), 'approve').then(() =>
-                                  refresh(),
-                                )
-                              }
+                              disabled={reviewActionBusy}
+                              className="rounded bg-emerald-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                              onClick={() => void handleModerateReview(String(row.id), 'approve')}
                             >
                               Schválit
+                            </button>
+                          ) : null}
+                          {row.reviewNeedsModeration ? (
+                            <button
+                              type="button"
+                              disabled={reviewActionBusy}
+                              className="rounded bg-emerald-700 px-2 py-1 text-xs text-white disabled:opacity-50"
+                              onClick={() => void handleModerateReview(String(row.id), 'approve')}
+                            >
+                              Schválit změny
+                            </button>
+                          ) : null}
+                          {row.reviewNeedsModeration ? (
+                            <button
+                              type="button"
+                              disabled={reviewActionBusy}
+                              className="rounded bg-amber-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                              onClick={() => void handleModerateReview(String(row.id), 'reject_changes')}
+                            >
+                              Zamítnout změny
+                            </button>
+                          ) : null}
+                          {row.status !== 'REJECTED' && row.status !== 'REMOVED' ? (
+                            <button
+                              type="button"
+                              disabled={reviewActionBusy}
+                              className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                              onClick={() => void handleModerateReview(String(row.id), 'reject')}
+                            >
+                              Zamítnout
+                            </button>
+                          ) : null}
+                          {row.status === 'PUBLISHED' ? (
+                            <button
+                              type="button"
+                              disabled={reviewActionBusy}
+                              className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                              onClick={() => void handleModerateReview(String(row.id), 'hide')}
+                            >
+                              Skrýt
                             </button>
                           ) : null}
                           <button
                             type="button"
                             className="rounded border px-2 py-1 text-xs"
-                            onClick={() =>
-                              void nestAdminModerateReview(token, String(row.id), 'hide').then(() => refresh())
-                            }
+                            onClick={() => {
+                              setReviewEditId(String(row.id));
+                              setReviewEditBody(String(row.body ?? row.bodyPreview ?? ''));
+                            }}
                           >
-                            Skrýt
+                            Upravit
                           </button>
+                          <button
+                            type="button"
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={() => void openReviewDetail(String(row.id))}
+                          >
+                            Detail
+                          </button>
+                          {row.status !== 'REMOVED' ? (
+                            <button
+                              type="button"
+                              className="rounded bg-red-600 px-2 py-1 text-xs text-white"
+                              onClick={() => setReviewRemoveId(String(row.id))}
+                            >
+                              Odstranit
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -1036,6 +1178,83 @@ export default function AdminFirmyPage() {
               </tbody>
             </table>
           </div>
+
+          {reviewDetail ? (
+            <div className="mt-4 rounded-lg border bg-zinc-50 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-semibold">Detail recenze</h3>
+                <button type="button" className="text-xs underline" onClick={() => setReviewDetail(null)}>
+                  Zavřít
+                </button>
+              </div>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">
+                {JSON.stringify(reviewDetail, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+
+          {reviewEditId ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+                <h3 className="font-semibold">Upravit recenzi</h3>
+                <textarea
+                  value={reviewEditBody}
+                  onChange={(e) => setReviewEditBody(e.target.value)}
+                  rows={8}
+                  className="mt-3 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="rounded border px-3 py-2 text-sm" onClick={() => setReviewEditId(null)}>
+                    Zrušit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reviewActionBusy}
+                    className="rounded bg-orange-600 px-3 py-2 text-sm text-white"
+                    onClick={() => void saveReviewEdit()}
+                  >
+                    Uložit
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {reviewRemoveId ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+                <h3 className="font-semibold">Odstranit recenzi?</h3>
+                <p className="mt-2 text-sm text-zinc-600">Recenze bude označena jako REMOVED (soft delete).</p>
+                <select
+                  value={reviewRemoveReason}
+                  onChange={(e) => setReviewRemoveReason(e.target.value)}
+                  className="mt-3 w-full rounded-lg border px-3 py-2 text-sm"
+                >
+                  <option>Spam</option>
+                  <option>Duplicitní</option>
+                  <option>Osobní údaje</option>
+                  <option>Porušení pravidel</option>
+                  <option>Na žádost autora</option>
+                  <option>Jiné</option>
+                </select>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="rounded border px-3 py-2 text-sm" onClick={() => setReviewRemoveId(null)}>
+                    Zrušit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reviewActionBusy}
+                    className="rounded bg-red-600 px-3 py-2 text-sm text-white"
+                    onClick={() =>
+                      void handleModerateReview(reviewRemoveId, 'remove', undefined, reviewRemoveReason)
+                    }
+                  >
+                    Odstranit
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

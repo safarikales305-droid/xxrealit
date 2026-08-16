@@ -14,6 +14,7 @@ import {
 import { CompanyDirectoryCategory } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
+import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
 import { AresService } from './ares.service';
 import { CompanyClaimService } from './company-claim.service';
 import { CompanyContactDiscoveryService } from './company-contact-discovery.service';
@@ -361,9 +362,36 @@ export class CompanyDirectoryAdminController {
   @Patch('reviews/:id/moderate')
   moderateReview(
     @Param('id') id: string,
-    @Body() body: { action: 'approve' | 'reject' | 'hide'; note?: string },
+    @CurrentUser() admin: AuthUser,
+    @Body()
+    body: {
+      action: 'approve' | 'reject' | 'hide' | 'remove' | 'reject_changes';
+      note?: string;
+      removalReason?: string;
+    },
   ) {
-    return this.reviews.moderateReview(id, body.action, undefined, body.note);
+    return this.reviews.moderateReview(id, body.action, admin.id, body.note, body.removalReason);
+  }
+
+  @Get('reviews/:id')
+  getReviewDetail(@Param('id') id: string) {
+    return this.reviews.getAdminReviewDetail(id);
+  }
+
+  @Patch('reviews/:id')
+  updateReview(
+    @Param('id') id: string,
+    @CurrentUser() admin: AuthUser,
+    @Body()
+    body: {
+      rating?: number;
+      sentiment?: string;
+      title?: string;
+      body?: string;
+      keepPublished?: boolean;
+    },
+  ) {
+    return this.reviews.updateReviewAsAdmin(id, admin.id, body);
   }
 
   @Get('reviews')
@@ -372,7 +400,16 @@ export class CompanyDirectoryAdminController {
   }
 
   @Delete('reviews/media/:mediaId')
-  deleteReviewMedia(@Param('mediaId') mediaId: string) {
-    return this.reviews.deleteReviewMedia(mediaId);
+  deleteReviewMedia(
+    @Param('mediaId') mediaId: string,
+    @CurrentUser() admin: AuthUser,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.reviews.deleteReviewMedia(mediaId, admin.id, body?.reason);
+  }
+
+  @Post('reviews/backfill-authors')
+  backfillAuthors() {
+    return this.reviews.backfillReviewAuthors();
   }
 }

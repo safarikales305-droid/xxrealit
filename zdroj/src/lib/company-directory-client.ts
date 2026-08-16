@@ -917,15 +917,53 @@ export async function nestAdminListReviews(
   return adminFetch(token, `/reviews${qs}`);
 }
 
+export async function nestAdminGetReviewDetail(
+  token: string,
+  reviewId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/reviews/${encodeURIComponent(reviewId)}`);
+}
+
 export async function nestAdminModerateReview(
   token: string,
   reviewId: string,
-  action: 'approve' | 'reject' | 'hide',
+  action: 'approve' | 'reject' | 'hide' | 'remove' | 'reject_changes',
   note?: string,
+  removalReason?: string,
 ): Promise<Record<string, unknown> | null> {
   return adminFetch(token, `/reviews/${encodeURIComponent(reviewId)}/moderate`, {
     method: 'PATCH',
-    body: JSON.stringify({ action, note }),
+    body: JSON.stringify({ action, note, removalReason }),
+  });
+}
+
+export async function nestAdminModerateReviewResult(
+  token: string,
+  reviewId: string,
+  action: 'approve' | 'reject' | 'hide' | 'remove' | 'reject_changes',
+  note?: string,
+  removalReason?: string,
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult(token, `/reviews/${encodeURIComponent(reviewId)}/moderate`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, note, removalReason }),
+  });
+}
+
+export async function nestAdminUpdateReview(
+  token: string,
+  reviewId: string,
+  body: {
+    rating?: number;
+    sentiment?: string;
+    title?: string;
+    body?: string;
+    keepPublished?: boolean;
+  },
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult(token, `/reviews/${encodeURIComponent(reviewId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   });
 }
 
@@ -934,4 +972,81 @@ export async function nestAdminDeleteReviewMedia(
   mediaId: string,
 ): Promise<Record<string, unknown> | null> {
   return adminFetch(token, `/reviews/media/${encodeURIComponent(mediaId)}`, { method: 'DELETE' });
+}
+
+export type MyCompanyReviewRow = {
+  id: string;
+  company: { id: string; name: string; slug: string };
+  rating: number;
+  sentiment: string;
+  title: string;
+  body: string;
+  bodyPreview: string;
+  status: string;
+  statusLabel: string;
+  reviewNeedsModeration: boolean;
+  editedByAuthor: boolean;
+  editedAt: string | null;
+  createdAt: string;
+  publishedAt: string | null;
+  mediaCount: number;
+  canEdit: boolean;
+};
+
+export async function nestListMyCompanyReviews(
+  token: string,
+): Promise<MyCompanyReviewRow[] | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/my/reviews`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as MyCompanyReviewRow[];
+}
+
+export async function nestUpdateMyCompanyReview(
+  token: string,
+  reviewId: string,
+  body: {
+    rating?: number;
+    sentiment?: string;
+    title?: string;
+    body?: string;
+    removeMediaIds?: string[];
+  },
+): Promise<{ ok?: boolean; error?: string } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/my/reviews/${encodeURIComponent(reviewId)}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { ok?: boolean; message?: string };
+  if (!res.ok) return { error: data.message ?? 'Uložení selhalo.' };
+  return data;
+}
+
+export async function nestRemoveMyCompanyReview(
+  token: string,
+  reviewId: string,
+  reason?: string,
+): Promise<{ ok?: boolean; error?: string } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/company-directory/my/reviews/${encodeURIComponent(reviewId)}/remove`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ reason }),
+  });
+  const data = (await res.json()) as { ok?: boolean; message?: string };
+  if (!res.ok) return { error: data.message ?? 'Odstranění selhalo.' };
+  return data;
 }

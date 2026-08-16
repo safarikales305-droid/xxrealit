@@ -1,5 +1,6 @@
-import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
 import { CompanyDirectoryService } from './company-directory.service';
 import { CompanyClaimService } from './company-claim.service';
@@ -161,6 +162,7 @@ export class CompanyDirectoryPublicController {
 
   @Post('public/reviews')
   @HttpCode(201)
+  @UseGuards(OptionalJwtAuthGuard)
   createReview(
     @Body()
     body: {
@@ -177,6 +179,7 @@ export class CompanyDirectoryPublicController {
       confirmedExperience: boolean;
       media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
     },
+    @CurrentUser() user?: AuthUser,
   ) {
     if (!COMPANY_REVIEWS_ENABLED) {
       return { error: 'Recenze jsou vypnuté.' };
@@ -192,7 +195,44 @@ export class CompanyDirectoryPublicController {
         mediaCount: body.media?.length ?? 0,
       }),
     );
-    return this.reviews.createReview(body);
+    return this.reviews.createReview({
+      ...body,
+      loggedInUserId: user?.id,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('my/reviews')
+  listMyReviews(@CurrentUser() user: AuthUser) {
+    return this.reviews.listMyReviews(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('my/reviews/:id')
+  updateMyReview(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body()
+    body: {
+      rating?: number;
+      sentiment?: string;
+      title?: string;
+      body?: string;
+      media?: Array<{ type: 'IMAGE' | 'VIDEO'; url: string; thumbnailUrl?: string; mimeType?: string }>;
+      removeMediaIds?: string[];
+    },
+  ) {
+    return this.reviews.updateReviewAsAuthor(user.id, id, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('my/reviews/:id/remove')
+  removeMyReview(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.reviews.requestAuthorRemoval(user.id, id, body?.reason);
   }
 
   @Post('public/reviews/verify')
