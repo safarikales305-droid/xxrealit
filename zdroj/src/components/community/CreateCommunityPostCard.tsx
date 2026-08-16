@@ -24,13 +24,12 @@ import { invalidatePublicProfileAndPostsCache } from '@/lib/public-profile-sessi
 import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { captureFileVideoPoster } from '@/lib/video-poster';
+import type { CommunityCategoryKey } from '@/lib/community-category-roles';
 
-type Category =
-  | 'MAKLERI'
-  | 'STAVEBNI_FIRMY'
-  | 'REALITNI_KANCELARE'
-  | 'FINANCNI_PORADCI'
-  | 'INVESTORI';
+type Category = Exclude<
+  CommunityCategoryKey,
+  'VSE' | 'PRACOVNICI_PORTALU' | 'DALSI_PROFESIONALOVE'
+>;
 
 type Props = {
   apiAccessToken: string | null;

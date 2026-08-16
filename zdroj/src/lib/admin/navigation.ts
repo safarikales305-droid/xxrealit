@@ -58,6 +58,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'tipster-payouts', label: 'Výplaty tipařů', href: '/admin/tipar/vyplaty', icon: '💸', tone: 'green' },
       { id: 'promo', label: 'Promo profily', href: '/admin/promo-profily', icon: '⭐' },
       { id: 'brokers-db', label: 'Databáze makléřů', href: '/admin/databaze-makleiru', icon: '📇' },
+      { id: 'company-directory', label: 'Registr firem', href: '/admin/firmy', icon: '🏢', tone: 'orange' },
     ],
   },
   {

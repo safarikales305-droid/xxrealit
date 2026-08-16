@@ -24,6 +24,7 @@
     "test:ai-chat": "tsx --test src/modules/ai-chat/*.test.ts",
     "test:meta-compare": "tsx --test src/modules/meta-center/meta-ads-manager-compare.util.test.ts",
     "test:hotelbeds": "tsx --test src/modules/integrations/hotelbeds/hotelbeds-fallback.test.ts",
+    "test:company-directory": "tsx --test src/modules/company-directory/company-directory.util.test.ts",
     "seed:seo-locations": "tsx prisma/seed-seo-locations.ts",
     "sreality-prefill:save-storage": "tsx src/modules/properties/sreality-prefill.save-storage.ts",
     "start": "node dist/main.js",

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp, Users } from 'lucide-react';
+import { Briefcase, Building2, Globe, Hammer, Home, Landmark, PenTool, Ruler, TrendingUp, Users, HardHat } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { fetchListingLocations, type ListingLocationOption } from '@/lib/listing-locations';
@@ -109,7 +109,7 @@ const brandBtn =
   'rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-10 py-3.5 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_12px_36px_-6px_rgba(255,80,0,0.5)] active:scale-[0.98]';
 
 const COMMUNITY_CATEGORIES = [
-  { key: 'VSE', label: 'Zobrazit vše', icon: Globe, queryValue: 'all' },
+  { key: 'VSE', label: 'Vše', icon: Globe, queryValue: 'all' },
   { key: 'MAKLERI', label: 'Makléři', icon: Briefcase, queryValue: 'agents' },
   { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2, queryValue: 'companies' },
   { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home, queryValue: 'agencies' },
@@ -120,6 +120,11 @@ const COMMUNITY_CATEGORIES = [
     queryValue: 'financial-advisors',
   },
   { key: 'INVESTORI', label: 'Investoři', icon: TrendingUp, queryValue: 'investors' },
+  { key: 'DEVELOPERI', label: 'Developeři', icon: HardHat, queryValue: 'developers' },
+  { key: 'PROJEKTANTI', label: 'Projektanti', icon: Ruler, queryValue: 'designers' },
+  { key: 'ARCHITEKTI', label: 'Architekti', icon: PenTool, queryValue: 'architects' },
+  { key: 'REMESLNIKI', label: 'Řemeslníci', icon: Hammer, queryValue: 'craftsmen' },
+  { key: 'DALSI_PROFESIONALOVE', label: 'Další profesionálové', icon: Users, queryValue: 'other-professionals' },
   { key: 'PRACOVNICI_PORTALU', label: 'Pracovníci portálu', icon: Users, queryValue: 'portal-workers' },
 ] as const;
 const RADIUS_OPTIONS_KM = [10, 20, 30, 50, 100] as const;
@@ -137,6 +142,16 @@ function parseCategoryFromQuery(raw: string | null): CommunityCategory {
       return 'FINANCNI_PORADCI';
     case 'investors':
       return 'INVESTORI';
+    case 'developers':
+      return 'DEVELOPERI';
+    case 'designers':
+      return 'PROJEKTANTI';
+    case 'architects':
+      return 'ARCHITEKTI';
+    case 'craftsmen':
+      return 'REMESLNIKI';
+    case 'other-professionals':
+      return 'DALSI_PROFESIONALOVE';
     case 'portal-workers':
       return 'PRACOVNICI_PORTALU';
     case 'agents':
@@ -346,7 +361,9 @@ export function HomeLayout({
   const activeCategoryLabel =
     COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Zobrazit vše';
   const createPostCategory =
-    activeCategory === 'VSE' || activeCategory === 'PRACOVNICI_PORTALU'
+    activeCategory === 'VSE' ||
+    activeCategory === 'PRACOVNICI_PORTALU' ||
+    activeCategory === 'DALSI_PROFESIONALOVE'
       ? 'MAKLERI'
       : activeCategory;
 

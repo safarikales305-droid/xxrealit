@@ -10069,6 +10069,11 @@ export type CommunityPostsCategory =
   | 'REALITNI_KANCELARE'
   | 'FINANCNI_PORADCI'
   | 'INVESTORI'
+  | 'DEVELOPERI'
+  | 'PROJEKTANTI'
+  | 'ARCHITEKTI'
+  | 'REMESLNIKI'
+  | 'DALSI_PROFESIONALOVE'
   | 'PRACOVNICI_PORTALU';
 
 export async function nestFetchCommunityPosts(

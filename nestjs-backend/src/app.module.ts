@@ -63,6 +63,7 @@ import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
 import { AccommodationModule } from './modules/accommodation/accommodation.module';
 import { HotelbedsModule } from './modules/integrations/hotelbeds/hotelbeds.module';
+import { CompanyDirectoryModule } from './modules/company-directory/company-directory.module';
 
 @Module({
   imports: [
@@ -132,6 +133,7 @@ import { HotelbedsModule } from './modules/integrations/hotelbeds/hotelbeds.modu
     AiSalesModule,
     AccommodationModule,
     HotelbedsModule,
+    CompanyDirectoryModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

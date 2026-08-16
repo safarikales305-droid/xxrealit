@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, Star, UserRound } from 'lucide-react';
+import { Building2, ShieldCheck, Star, UserRound } from 'lucide-react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestListPublicProfessionals, type NestPublicBrokerCard } from '@/lib/nest-client';
 import {
+  companyCategoryLabel,
   professionalRoleLabel,
-  professionalSidebarRolesQuery,
-} from '@/lib/professional-sidebar-roles';
+} from '@/lib/community-category-roles';
+import { nestListFeaturedProfiles, type FeaturedProfileCard } from '@/lib/company-directory-client';
 
 type Props = {
   className?: string;
@@ -17,68 +17,43 @@ type Props = {
 const lightCard =
   'border border-zinc-200/90 bg-white shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08),0_8px_24px_-12px_rgba(0,0,0,0.06)]';
 
-function profileHref(p: NestPublicBrokerCard) {
-  return p.slug ? `/makler/${p.slug}` : `/profile/${p.id}`;
-}
-
-function cityLabel(p: NestPublicBrokerCard) {
-  return p.city?.trim() || p.regionLabel?.trim() || p.officeName?.trim() || '';
-}
-
-function avatarSrc(p: NestPublicBrokerCard) {
-  if (!p.avatarUrl?.trim()) return null;
-  return /^https?:\/\//i.test(p.avatarUrl)
-    ? p.avatarUrl
-    : nestAbsoluteAssetUrl(p.avatarUrl) || p.avatarUrl;
-}
-
 export function RightSidebar({ className = '' }: Props) {
-  const [professionals, setProfessionals] = useState<NestPublicBrokerCard[]>([]);
-  const [loadingProfessionals, setLoadingProfessionals] = useState(true);
+  const [profiles, setProfiles] = useState<FeaturedProfileCard[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    setLoadingProfessionals(true);
-    void nestListPublicProfessionals({ roles: professionalSidebarRolesQuery() })
+    setLoading(true);
+    void nestListFeaturedProfiles({ limit: 9 })
       .then((rows) => {
         if (!active) return;
-        const list = Array.isArray(rows) ? rows.filter((row) => row.isVerified) : [];
-        const ranked = [...list].sort((a, b) => {
-          const aScore =
-            (a.ratingCount ?? 0) * 10 +
-            (a.avatarUrl ? 5 : 0) +
-            (cityLabel(a).length > 0 ? 1 : 0);
-          const bScore =
-            (b.ratingCount ?? 0) * 10 +
-            (b.avatarUrl ? 5 : 0) +
-            (cityLabel(b).length > 0 ? 1 : 0);
-          return bScore - aScore;
-        });
-        setProfessionals(ranked);
+        setProfiles(Array.isArray(rows) ? rows : []);
       })
       .catch(() => {
         if (!active) return;
-        setProfessionals([]);
+        setProfiles([]);
       })
       .finally(() => {
-        if (active) setLoadingProfessionals(false);
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
   }, []);
 
-  const preview = useMemo(() => professionals.slice(0, 3), [professionals]);
+  const preview = useMemo(() => profiles.slice(0, 3), [profiles]);
 
   return (
     <aside className={`flex flex-col gap-6 rounded-2xl p-6 ${lightCard} ${className}`}>
       <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-5">
-        <h2 className="text-[15px] font-semibold tracking-tight text-zinc-900">Profesionálové</h2>
+        <h2 className="text-[15px] font-semibold tracking-tight text-zinc-900">
+          Doporučené firmy a profesionálové
+        </h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
-          Ověření profesionálové s veřejným profilem.
+          Mix ověřených profesionálů a firem z registru ARES.
         </p>
         <div className="mt-4 space-y-2.5">
-          {loadingProfessionals
+          {loading
             ? Array.from({ length: 3 }).map((_, idx) => (
                 <div
                   key={`loading-${idx}`}
@@ -92,12 +67,22 @@ export function RightSidebar({ className = '' }: Props) {
                 </div>
               ))
             : null}
-          {!loadingProfessionals
+          {!loading
             ? preview.map((p) => {
-                const img = avatarSrc(p);
+                const isCompany = p.type === 'company';
+                const img = isCompany
+                  ? p.logoUrl
+                    ? nestAbsoluteAssetUrl(p.logoUrl)
+                    : null
+                  : p.avatarUrl
+                    ? nestAbsoluteAssetUrl(p.avatarUrl)
+                    : null;
+                const label = isCompany
+                  ? p.categoryLabel ?? companyCategoryLabel(p.category)
+                  : professionalRoleLabel(p.role ?? '');
                 return (
                   <article
-                    key={p.id}
+                    key={`${p.type}-${p.id}`}
                     className="rounded-xl border border-zinc-200 bg-white p-2.5"
                   >
                     <div className="flex items-start gap-3">
@@ -105,9 +90,11 @@ export function RightSidebar({ className = '' }: Props) {
                         {img ? (
                           <img
                             src={img}
-                            alt={p.name ?? 'Profilová fotka'}
+                            alt={p.name ?? 'Profil'}
                             className="h-full w-full object-cover"
                           />
+                        ) : isCompany ? (
+                          <Building2 className="h-5 w-5 text-orange-500" aria-hidden />
                         ) : (
                           <UserRound className="h-5 w-5 text-zinc-400" aria-hidden />
                         )}
@@ -115,7 +102,7 @@ export function RightSidebar({ className = '' }: Props) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <p className="truncate text-[13px] font-semibold text-zinc-900">
-                            {p.name ?? 'Profesionální profil'}
+                            {p.name}
                           </p>
                           {p.isVerified ? (
                             <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
@@ -124,25 +111,23 @@ export function RightSidebar({ className = '' }: Props) {
                             </span>
                           ) : null}
                         </div>
-                        <p className="truncate text-[12px] text-zinc-500">
-                          {professionalRoleLabel(p.role)}
-                        </p>
-                        {cityLabel(p) ? (
-                          <p className="truncate text-[11px] text-zinc-500">{cityLabel(p)}</p>
+                        <p className="truncate text-[12px] text-zinc-500">{label}</p>
+                        {p.city ? (
+                          <p className="truncate text-[11px] text-zinc-500">{p.city}</p>
                         ) : null}
-                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-500">
-                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                          <span>
-                            {typeof p.ratingAverage === 'number'
-                              ? p.ratingAverage.toFixed(1)
-                              : '0.0'}
-                          </span>
-                          <span>({p.ratingCount ?? 0})</span>
-                        </div>
+                        {p.rating != null ? (
+                          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-500">
+                            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                            <span>{p.rating.toFixed(1)}</span>
+                            <span>({p.ratingCount ?? 0})</span>
+                          </div>
+                        ) : (
+                          <p className="mt-0.5 text-[11px] text-zinc-400">Zatím bez hodnocení</p>
+                        )}
                       </div>
                     </div>
                     <Link
-                      href={profileHref(p)}
+                      href={p.href}
                       prefetch={false}
                       className="mt-2.5 inline-flex w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
                     >
@@ -152,18 +137,26 @@ export function RightSidebar({ className = '' }: Props) {
                 );
               })
             : null}
-          {!loadingProfessionals && preview.length === 0 ? (
+          {!loading && preview.length === 0 ? (
             <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
-              Zatím nejsou dostupné veřejné profesionální profily.
+              Zatím nejsou dostupné veřejné profily.
             </div>
           ) : null}
         </div>
-        <Link
-          href="/makleri"
-          className="mt-3 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-semibold text-white"
-        >
-          Zobrazit více profesionálů
-        </Link>
+        <div className="mt-3 flex flex-col gap-2">
+          <Link
+            href="/makleri"
+            className="inline-flex justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-semibold text-white"
+          >
+            Profesionálové
+          </Link>
+          <Link
+            href="/firmy"
+            className="inline-flex justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:border-orange-300"
+          >
+            Registr firem
+          </Link>
+        </div>
       </div>
     </aside>
   );

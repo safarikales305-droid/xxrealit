@@ -2,35 +2,48 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { Building2 } from 'lucide-react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
-  communityCategoryToAuthorRolesCsv,
+  communityCategoryToCompanyCategory,
+  companyCategoryLabel,
   professionalRoleLabel,
   type CommunityCategoryKey,
 } from '@/lib/community-category-roles';
-import { nestListPublicProfessionals, type NestPublicBrokerCard } from '@/lib/nest-client';
+import { nestListFeaturedProfiles, type FeaturedProfileCard } from '@/lib/company-directory-client';
 import { ProfileCarouselSkeleton } from '@/components/ui/page-loading';
 
 type Props = {
   category: CommunityCategoryKey;
 };
 
-function PortalAvatar({ profile }: { profile: NestPublicBrokerCard }) {
-  const src = profile.avatarUrl ? nestAbsoluteAssetUrl(profile.avatarUrl) : null;
-  const roleLabel = professionalRoleLabel(profile.role);
+function ProfileCard({ profile }: { profile: FeaturedProfileCard }) {
+  const isCompany = profile.type === 'company';
+  const label = isCompany
+    ? profile.categoryLabel ?? companyCategoryLabel(profile.category)
+    : professionalRoleLabel(profile.role ?? '');
+
+  const img = isCompany
+    ? profile.logoUrl
+      ? nestAbsoluteAssetUrl(profile.logoUrl)
+      : null
+    : profile.avatarUrl
+      ? nestAbsoluteAssetUrl(profile.avatarUrl)
+      : null;
+
   return (
     <Link
-      href={
-        profile.slug
-          ? `/makler/${encodeURIComponent(profile.slug)}`
-          : `/profile/${encodeURIComponent(profile.id)}`
-      }
+      href={profile.href}
       className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 sm:w-[6.25rem]"
     >
       <div className="relative size-[4.5rem] overflow-hidden rounded-full border-2 border-orange-200 bg-zinc-100 shadow-sm ring-2 ring-white transition group-hover:border-orange-400 sm:size-[5rem]">
-        {src ? (
+        {img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="" className="size-full object-cover" />
+          <img src={img} alt="" className="size-full object-cover" />
+        ) : isCompany ? (
+          <div className="flex size-full items-center justify-center bg-orange-50 text-orange-600">
+            <Building2 className="size-6" />
+          </div>
         ) : (
           <div className="flex size-full items-center justify-center bg-gradient-to-br from-orange-100 to-zinc-200 text-lg font-bold text-orange-600">
             {(profile.name ?? '?').slice(0, 1)}
@@ -38,12 +51,16 @@ function PortalAvatar({ profile }: { profile: NestPublicBrokerCard }) {
         )}
       </div>
       <p className="line-clamp-2 text-center text-[11px] font-semibold leading-tight text-zinc-700 sm:text-xs">
-        {profile.name ?? roleLabel}
+        {profile.name ?? label}
       </p>
-      <p className="line-clamp-1 text-center text-[10px] text-zinc-500">{roleLabel}</p>
-      {profile.isVerified ? (
+      <p className="line-clamp-1 text-center text-[10px] text-zinc-500">{label}</p>
+      {profile.badges.includes('OVĚŘENO') ? (
         <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold leading-tight text-emerald-800">
           Ověřeno
+        </span>
+      ) : profile.badges.includes('NEPŘEVZATÝ PROFIL') ? (
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[9px] font-semibold leading-tight text-zinc-600">
+          ARES
         </span>
       ) : null}
     </Link>
@@ -51,22 +68,20 @@ function PortalAvatar({ profile }: { profile: NestPublicBrokerCard }) {
 }
 
 export function PortalProfilesCarousel({ category }: Props) {
-  const [profiles, setProfiles] = useState<NestPublicBrokerCard[]>([]);
+  const [profiles, setProfiles] = useState<FeaturedProfileCard[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const roles = communityCategoryToAuthorRolesCsv(category);
-    void nestListPublicProfessionals(roles ? { roles } : undefined).then((rows) => {
+    const companyCategory = communityCategoryToCompanyCategory(category);
+    void nestListFeaturedProfiles({
+      category: companyCategory ?? (category === 'VSE' ? undefined : category),
+      limit: 16,
+    }).then((rows) => {
       if (cancelled) return;
       setProfiles(rows ?? []);
       setLoading(false);
-      // eslint-disable-next-line no-console
-      console.debug('[posts] profiles loaded', {
-        category,
-        count: rows?.length ?? 0,
-      });
     });
     return () => {
       cancelled = true;
@@ -84,7 +99,7 @@ export function PortalProfilesCarousel({ category }: Props) {
         <div className="mt-3 -mx-1 overflow-x-auto pb-1">
           <div className="flex gap-3 px-1 sm:gap-4">
             {profiles.map((profile) => (
-              <PortalAvatar key={profile.id} profile={profile} />
+              <ProfileCard key={`${profile.type}-${profile.id}`} profile={profile} />
             ))}
           </div>
         </div>

@@ -567,6 +567,9 @@ model User {
   aiSalesSearchesCreated       AiSalesSearch[] @relation("AiSalesSearchCreator")
   aiSalesContactsVerified      AiSalesPublicContact[] @relation("AiSalesContactVerifier")
 
+  claimedCompanyDirectoryEntries CompanyDirectoryEntry[] @relation("CompanyDirectoryClaimedBy")
+  companyClaimRequests         CompanyClaimRequest[]
+
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
 
@@ -6215,4 +6218,237 @@ model AccommodationHeroCategory {
   updatedAt DateTime @updatedAt
 
   @@index([active, sortOrder])
+}
+
+enum CompanyDirectoryCategory {
+  STAVEBNICTVI
+  REALITY
+  FINANCE
+  PROJEKTOVANI
+  ARCHITEKTURA
+  SPRAVA_NEMOVITOSTI
+  REMESLA
+  DEVELOPMENT
+  ENERGETIKA
+  HYPOTEKA
+  OSTATNI
+}
+
+enum CompanyDirectoryProfileStatus {
+  UNCLAIMED
+  CLAIMED
+  VERIFIED
+}
+
+enum CompanyDirectoryVerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+}
+
+enum CompanyImportJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+enum CompanyImportJobSource {
+  ARES
+}
+
+enum CompanyClaimRequestStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum CompanyProfileReportStatus {
+  REQUESTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  HIDDEN
+}
+
+enum CompanyGoogleMatchConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum CompanyContactDiscoveryStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+/// Veřejný registr firem z ARES (odděleně od User.CompanyProfile).
+model CompanyDirectoryEntry {
+  id        String @id @default(cuid())
+  ico       String @unique
+  dic       String?
+  name      String
+  slug      String @unique
+
+  legalForm     String?
+  companyStatus String?
+
+  street            String?
+  city              String?
+  postalCode        String?
+  district          String?
+  region            String?
+  country           String  @default("CZ")
+  registeredAddress String?
+
+  aresSource       Boolean   @default(true)
+  aresLastSyncAt   DateTime?
+  aresRawUpdatedAt DateTime?
+
+  categories         CompanyDirectoryCategory[] @default([])
+  businessActivities String[]                   @default([])
+
+  publicProfile Boolean                       @default(true)
+  profileStatus CompanyDirectoryProfileStatus @default(UNCLAIMED)
+
+  claimedAt       DateTime?
+  claimedByUserId String?
+  claimedByUser   User?     @relation("CompanyDirectoryClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+
+  website String?
+  email   String?
+  phone   String?
+
+  googlePlaceId           String?
+  googleRating            Float?
+  googleReviewCount       Int?
+  googleLastSyncAt        DateTime?
+  googleMatchConfidence   CompanyGoogleMatchConfidence?
+
+  verificationStatus CompanyDirectoryVerificationStatus @default(UNVERIFIED)
+
+  aiSummary         String? @db.Text
+  aiPositiveSummary Json?
+  aiNegativeSummary Json?
+  aiNeutralTopics   Json?
+  sentimentScore    Float?
+
+  reliabilityScore   Float?
+  reliabilityFactors Json?
+
+  logoUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimRequests          CompanyClaimRequest[]
+  reports                CompanyProfileReport[]
+  contactDiscoveryJobs   CompanyContactDiscoveryJob[]
+
+  @@index([publicProfile, profileStatus])
+  @@index([region, city])
+  @@index([verificationStatus])
+}
+
+model CompanyImportJob {
+  id       String                   @id @default(cuid())
+  source   CompanyImportJobSource   @default(ARES)
+  category CompanyDirectoryCategory?
+  region   String?
+  district String?
+  city     String?
+
+  status CompanyImportJobStatus @default(PENDING)
+
+  processed Int @default(0)
+  created   Int @default(0)
+  updated   Int @default(0)
+  failed    Int @default(0)
+  skipped   Int @default(0)
+
+  lastCursor    Int     @default(0)
+  lastIco       String?
+  totalExpected Int?
+
+  batchSize Int?
+  delayMs   Int?
+
+  importMode   String   @default("SEARCH")
+  icoList      String[] @default([])
+  searchFilter Json?
+  checkpoint   Json?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  error      String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model CompanyClaimRequest {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  contactName  String
+  contactEmail String
+  contactPhone String?
+  ico          String
+
+  status    CompanyClaimRequestStatus @default(PENDING)
+  adminNote String?                   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([companyId])
+}
+
+model CompanyProfileReport {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  reporterUserId String?
+  reason         String @db.Text
+
+  status    CompanyProfileReportStatus @default(REQUESTED)
+  adminNote String?                    @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([companyId])
+}
+
+/// Připraveno pro fázi 2 – automatické dohledání kontaktu (zatím neaktivní).
+model CompanyContactDiscoveryJob {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  website         String?
+  candidateEmails String[] @default([])
+  sourceUrls      String[] @default([])
+  confidence      Float?
+
+  status CompanyContactDiscoveryStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
 }
