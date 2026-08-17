@@ -36,6 +36,91 @@ export type CompanyDirectoryCard = {
   badges: string[];
   href: string;
   isVerified: boolean;
+  googleMapsUri?: string | null;
+};
+
+export type CompanySourcedField<T = string> = {
+  value: T;
+  sourceUrl?: string | null;
+  sourceType?: string | null;
+  confidence?: number | null;
+  lastVerifiedAt?: string | null;
+};
+
+/** JSON payload from AI enrichment (`CompanyDirectoryEntry.enrichmentData`). */
+export type CompanyEnrichmentData = {
+  services?: CompanySourcedField[];
+  specializations?: CompanySourcedField[];
+  products?: CompanySourcedField[];
+  serviceAreas?: CompanySourcedField[];
+  certifications?: CompanySourcedField[];
+  brands?: CompanySourcedField[];
+  keywords?: CompanySourcedField[];
+  socialLinks?: CompanySourcedField[];
+  yearsOnMarket?: CompanySourcedField<number>;
+  targetCustomers?: CompanySourcedField[];
+  phone?: CompanySourcedField | null;
+  website?: CompanySourcedField | null;
+  email?: CompanySourcedField | null;
+};
+
+export type CompanyDirectorySeoMeta = {
+  title: string;
+  description: string;
+  canonical: string;
+  robots: string;
+  keywords: string[];
+  seoQualityScore: number | null;
+  seoStatus: string;
+  indexStatus: string;
+  jsonLd: Record<string, unknown> | null;
+};
+
+/** Public company detail — matches `serializeCompanyDirectoryDetail()` output. */
+export type CompanyDirectoryDetail = CompanyDirectoryCard & {
+  dic?: string | null;
+  legalForm?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  district?: string | null;
+  registeredAddress?: string | null;
+  categories: Array<{ key: string; label: string }>;
+  businessActivities: string[];
+  website?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  aresLastSyncAt?: string | null;
+  aresSource?: boolean;
+  registryDisclaimer?: string;
+  googlePlaceId?: string | null;
+  googleMatchStatus?: string | null;
+  googleMatchScore?: number | null;
+  googleLastSyncAt?: string | null;
+  xxrealitRatingAverage?: number | null;
+  xxrealitReviewCount?: number | null;
+  verifiedBusinessEmail?: string | null;
+  discoveredEmail?: string | null;
+  emailSourceUrl?: string | null;
+  emailConfidence?: number | null;
+  websiteSource?: string | null;
+  websiteConfidence?: number | null;
+  websiteVerifiedAt?: string | null;
+  shortDescription?: string | null;
+  description?: string | null;
+  enrichmentStatus?: string | null;
+  enrichmentData?: CompanyEnrichmentData | null;
+  contentEnrichedAt?: string | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  seoKeywords?: string[];
+  seoQualityScore?: number | null;
+  seoStatus?: string | null;
+  indexStatus?: string | null;
+  socialIntroPublishedAt?: string | null;
+  aiSummary?: string | null;
+  aiPositiveSummary?: string | null;
+  aiNegativeSummary?: string | null;
+  claimedAt?: string | null;
 };
 
 export type FeaturedProfileCard = {
@@ -132,31 +217,8 @@ export async function nestPublicProfileDirectoryStats(): Promise<
 }
 
 export type CompanyDirectoryDetailResponse = {
-  company: CompanyDirectoryCard & {
-    dic?: string | null;
-    legalForm?: string | null;
-    street?: string | null;
-    postalCode?: string | null;
-    district?: string | null;
-    registeredAddress?: string | null;
-    categories: Array<{ key: string; label: string }>;
-    businessActivities: string[];
-    website?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    aresLastSyncAt?: string | null;
-    aresSource?: boolean;
-    registryDisclaimer?: string;
-    googlePlaceId?: string | null;
-    googleMatchStatus?: string | null;
-    googleMapsUri?: string | null;
-    googleLastSyncAt?: string | null;
-    xxrealitRatingAverage?: number | null;
-    xxrealitReviewCount?: number | null;
-    shortDescription?: string | null;
-    description?: string | null;
-    enrichmentData?: { services?: Array<{ value: string }> } | null;
-  };
+  company: CompanyDirectoryDetail;
+  seo?: CompanyDirectorySeoMeta;
   similar: CompanyDirectoryCard[];
   xxrealitReviewSummary?: { average: number | null; count: number };
   googleRating?: number | null;

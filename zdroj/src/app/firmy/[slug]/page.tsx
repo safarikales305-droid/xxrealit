@@ -16,6 +16,7 @@ import {
   nestSubmitCompanyReview,
   nestSubmitCompanyLead,
   nestTrackCompanyEvent,
+  type CompanyDirectoryDetail,
   type CompanyDirectoryDetailResponse,
 } from '@/lib/company-directory-client';
 
@@ -114,7 +115,7 @@ export default function FirmaDetailPage() {
     }
   }, [loading, reviews]);
 
-  const company = data?.company;
+  const company: CompanyDirectoryDetail | undefined = data?.company;
   const googleRating = data?.googleRating ?? company?.googleRating ?? company?.rating;
   const googleReviewCount = data?.googleReviewCount ?? company?.googleReviewCount ?? company?.ratingCount;
   const googleMapsUri = data?.googleMapsUri ?? company?.googleMapsUri;
@@ -225,6 +226,8 @@ export default function FirmaDetailPage() {
 
   const xxAvg = reviewSummary.average ?? company.xxrealitRatingAverage;
   const xxCount = reviewSummary.count ?? company.xxrealitReviewCount ?? 0;
+  const enrichmentServices =
+    company.enrichmentData?.services?.filter((s) => s.value?.trim()) ?? [];
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16">
@@ -330,12 +333,11 @@ export default function FirmaDetailPage() {
             </section>
           ) : null}
 
-          {Array.isArray((company.enrichmentData as { services?: Array<{ value: string }> } | null)?.services) &&
-          (company.enrichmentData as { services: Array<{ value: string }> }).services.length > 0 ? (
+          {enrichmentServices.length > 0 ? (
             <section className="mt-6">
               <h2 className="text-base font-semibold text-zinc-900">Služby společnosti</h2>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-700">
-                {(company.enrichmentData as { services: Array<{ value: string }> }).services.map((s) => (
+                {enrichmentServices.map((s) => (
                   <li key={s.value}>{s.value}</li>
                 ))}
               </ul>
