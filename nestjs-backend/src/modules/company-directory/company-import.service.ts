@@ -5,6 +5,8 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   CompanyDirectoryCategory,
@@ -34,6 +36,7 @@ import {
 import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { getAresImportSkipReason } from './ares-company-importability.util';
+import { CompanyEventsService } from './company-events.service';
 import { computeJobProgress } from './company-job-progress.util';
 
 type StartImportInput = {
@@ -59,6 +62,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly ares: AresService,
     private readonly partitionService: AresQueryPartitionService,
+    @Inject(forwardRef(() => CompanyEventsService))
+    private readonly events: CompanyEventsService,
   ) {}
 
   onModuleInit(): void {
@@ -737,12 +742,17 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       where: { ico: normalized.ico },
     });
 
+    const inLiquidation = /\bv\s+likvidaci\b/i.test(normalized.name);
+    const inactive = normalized.companyStatus !== 'AKTIVNI';
     const data = {
       dic: normalized.dic,
       name: normalized.name,
       slug: existing?.slug ?? normalized.slug,
       legalForm: normalized.legalForm,
       companyStatus: normalized.companyStatus,
+      inLiquidation,
+      inactive,
+      dissolved: inactive && /ZANIK|VYMAZ/i.test(normalized.companyStatus ?? ''),
       street: normalized.street,
       city: normalized.city,
       postalCode: normalized.postalCode,
@@ -777,6 +787,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         ...data,
       },
     });
+    await this.events.emitCompanyCreated(row.id);
     return {
       action: 'created',
       companyId: row.id,

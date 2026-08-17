@@ -28,6 +28,7 @@ import {
 import { computeJobProgress } from './company-job-progress.util';
 import { buildAdminCompanyExtendedWhere } from './company-directory.serializer';
 import { CompanyContactDiscoveryPipelineService } from './company-contact-discovery-pipeline.service';
+import { CompanyContactPersistenceService } from './company-contact-persistence.service';
 
 const STALE_SEARCHING_MS = 15 * 60 * 1000;
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
@@ -67,6 +68,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     private readonly prisma: PrismaService,
     private readonly audit: CompanyAuditService,
     private readonly pipeline: CompanyContactDiscoveryPipelineService,
+    private readonly contactPersistence: CompanyContactPersistenceService,
   ) {}
 
   onModuleInit(): void {
@@ -390,9 +392,15 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       },
     });
 
+    await this.contactPersistence.confirmVerifiedEmail(
+      contact.companyId,
+      contact.email,
+      contact.sourceUrl,
+    );
+
     await this.prisma.companyDirectoryEntry.update({
       where: { id: contact.companyId },
-      data: { verifiedBusinessEmail: contact.email, contactDiscoveryState: 'VERIFIED' },
+      data: { contactDiscoveryState: 'VERIFIED' },
     });
 
     await this.audit.log({
@@ -930,11 +938,15 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     const result = await this.pipeline.discoverCompanyContact(company as import('@prisma/client').CompanyDirectoryEntry);
 
     if (!result.found) {
+      await this.contactPersistence.persistDiscoveredContact({
+        companyId: company.id,
+        website: result.website,
+        websiteConfidence: result.confidence,
+      });
       await this.prisma.companyDirectoryEntry.update({
         where: { id: company.id },
         data: {
           contactDiscoveryState: result.discoveryState,
-          ...(result.website && !company.website ? { website: result.website } : {}),
         },
       });
       if (result.notFoundReason && result.discoveryState === 'NOT_FOUND') {
@@ -947,6 +959,17 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       }
       return result;
     }
+
+    await this.contactPersistence.persistDiscoveredContact({
+      companyId: company.id,
+      website: result.website,
+      websiteConfidence: result.confidence,
+      email: result.email,
+      emailSourceUrl: result.sourceUrl,
+      emailConfidence: result.confidence,
+      phone: result.phone,
+      phoneSourceUrl: result.sourceUrl,
+    });
 
     await this.prisma.companyContact.create({
       data: {
@@ -965,7 +988,6 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       where: { id: company.id },
       data: {
         contactDiscoveryState: result.discoveryState,
-        ...(result.website ? { website: result.website } : {}),
       },
     });
 

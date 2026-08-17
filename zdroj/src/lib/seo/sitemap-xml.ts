@@ -70,6 +70,7 @@ export const SITEMAP_KINDS = [
   'videa',
   'profily',
   'clanky',
+  'firmy',
 ] as const;
 
 /** Aliasové názvy sitemap podle SEO specifikace. */
@@ -79,6 +80,7 @@ export const SITEMAP_ALIASES: Record<string, (typeof SITEMAP_KINDS)[number]> = {
   profiles: 'profily',
   videos: 'videa',
   'seo-pages': 'mesta',
+  companies: 'firmy',
 };
 
 export function sitemapRoutePath(kind: (typeof SITEMAP_KINDS)[number]): string {

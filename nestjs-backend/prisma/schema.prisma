@@ -6436,11 +6436,59 @@ enum CompanyEmailQueueStatus {
   CANCELLED
 }
 
+enum CompanyEnrichmentStatus {
+  DISCOVERY_PENDING
+  PARTIALLY_ENRICHED
+  ENRICHED
+  VERIFIED
+}
+
+enum CompanyWebsiteSource {
+  MANUAL_ADMIN
+  VERIFIED
+  DISCOVERED_HIGH
+  DISCOVERED_MEDIUM
+  IMPORTED
+  ARES
+}
+
+enum CompanySeoStatus {
+  SEO_NOT_READY
+  SEO_READY
+}
+
+enum CompanyIndexStatus {
+  SEO_READY
+  INDEXABLE
+  INDEXED
+  NOT_INDEXED
+  UNKNOWN
+}
+
+enum CompanySocialPublishQueueStatus {
+  WAITING
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  SKIPPED
+}
+
+enum CompanyContentEnrichmentJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
 enum CompanyAuditAction {
   ARES_IMPORT
   GOOGLE_MATCH
   GOOGLE_SYNC
   CONTACT_DISCOVERY
+  CONTENT_ENRICHMENT
+  SEO_UPDATE
   ADMIN_EMAIL_SEND
   REVIEW_CREATE
   REVIEW_VERIFY
@@ -6530,6 +6578,40 @@ model CompanyDirectoryEntry {
   engagementOptOutToken String? @unique
   profileCompletenessScore Int @default(0)
 
+  websiteSource         CompanyWebsiteSource?
+  websiteConfidence     Float?
+  websiteVerifiedAt     DateTime?
+  websiteManualOverride Boolean @default(false)
+
+  discoveredEmail    String?
+  emailSourceUrl     String?
+  emailConfidence    Float?
+  emailDiscoveredAt  DateTime?
+
+  enrichmentStatus      CompanyEnrichmentStatus @default(DISCOVERY_PENDING)
+  shortDescription      String? @db.Text
+  enrichmentData        Json?
+  contentEnrichedAt     DateTime?
+  contentRefreshDueAt   DateTime?
+  contentEnrichmentError String? @db.Text
+
+  seoTitle                    String?
+  seoDescription              String? @db.Text
+  seoKeywords                 String[] @default([])
+  seoQualityScore             Int @default(0)
+  seoStatus                   CompanySeoStatus @default(SEO_NOT_READY)
+  indexStatus                 CompanyIndexStatus @default(UNKNOWN)
+  seoLastSignificantChangeAt  DateTime?
+  previousSlugs               String[] @default([])
+
+  socialIntroPublishedAt DateTime?
+  socialIntroPostId      String?
+
+  hidden      Boolean @default(false)
+  inLiquidation Boolean @default(false)
+  inactive    Boolean @default(false)
+  dissolved   Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -6546,12 +6628,17 @@ model CompanyDirectoryEntry {
   engagementCampaigns    CompanyEngagementCampaign[]
   leads                  CompanyLead[]
   emailQueueItems        CompanyEmailQueueItem[]
+  contentEnrichmentJobs  CompanyContentEnrichmentJob[]
+  socialPublishQueueItems CompanySocialPublishQueueItem[]
 
   @@index([publicProfile, profileStatus])
   @@index([communicationOptOut])
   @@index([contactDiscoveryState])
   @@index([region, city])
   @@index([verificationStatus])
+  @@index([seoStatus, seoQualityScore])
+  @@index([enrichmentStatus])
+  @@index([hidden, inLiquidation, inactive, dissolved])
 }
 
 model CompanyImportJob {
@@ -7050,6 +7137,47 @@ model CompanyEmailLog {
 
   @@index([companyId, createdAt])
   @@index([campaignId])
+}
+
+model CompanyContentEnrichmentJob {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  status     CompanyContentEnrichmentJobStatus @default(PENDING)
+  websiteUrl String?
+  error      String? @db.Text
+  attempts   Int @default(0)
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([companyId, createdAt])
+}
+
+model CompanySocialPublishQueueItem {
+  id        String @id @default(cuid())
+  companyId String
+  company   CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  status          CompanySocialPublishQueueStatus @default(WAITING)
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  facebookPostId  String?
+  templateVariant String?
+  postText        String? @db.Text
+  error           String? @db.Text
+  attempts        Int @default(0)
+  skippedReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId])
+  @@index([status, scheduledAt])
 }
 
 model CompanyAuditLog {

@@ -301,8 +301,36 @@ export default function FirmaDetailPage() {
               'Profil vytvořen z veřejných rejstříkových údajů. Není automaticky partnerem XXREALIT.'}
           </p>
 
+          {company.shortDescription ? (
+            <section className="mt-6">
+              <h2 className="text-base font-semibold text-zinc-900">O společnosti</h2>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">{company.shortDescription}</p>
+            </section>
+          ) : null}
+
+          {company.description ? (
+            <section className="mt-6">
+              <h2 className="text-base font-semibold text-zinc-900">S čím firma pomáhá</h2>
+              <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                {company.description}
+              </div>
+            </section>
+          ) : null}
+
+          {Array.isArray((company.enrichmentData as { services?: Array<{ value: string }> } | null)?.services) &&
+          (company.enrichmentData as { services: Array<{ value: string }> }).services.length > 0 ? (
+            <section className="mt-6">
+              <h2 className="text-base font-semibold text-zinc-900">Služby společnosti</h2>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-700">
+                {(company.enrichmentData as { services: Array<{ value: string }> }).services.map((s) => (
+                  <li key={s.value}>{s.value}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           <section className="mt-6 space-y-3 text-sm text-zinc-700">
-            <h2 className="text-base font-semibold text-zinc-900">O firmě / ARES údaje</h2>
+            <h2 className="text-base font-semibold text-zinc-900">ARES údaje</h2>
             {company.registeredAddress ? (
               <p className="flex items-start gap-2">
                 <MapPin className="mt-0.5 size-4 shrink-0 text-zinc-400" />

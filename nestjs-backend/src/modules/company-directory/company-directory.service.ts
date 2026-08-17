@@ -8,6 +8,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { BrokersService } from '../brokers/brokers.service';
 import { AresService } from './ares.service';
 import { COMPANY_DIRECTORY_ENABLED } from './company-directory.constants';
+import { CompanySeoService } from './company-seo.service';
 import {
   buildCompanyListWhere,
   buildAdminCompanyExtendedWhere,
@@ -40,6 +41,7 @@ export class CompanyDirectoryService {
     private readonly prisma: PrismaService,
     private readonly brokersService: BrokersService,
     private readonly ares: AresService,
+    private readonly seo: CompanySeoService,
   ) {}
 
   isEnabled(): boolean {
@@ -121,6 +123,7 @@ export class CompanyDirectoryService {
 
     return {
       company: serializeCompanyDirectoryDetail(row),
+      seo: this.seo.buildPublicSeoMeta(row),
       similar: similar.map(serializeCompanyDirectoryCard),
       xxrealitReviewSummary: {
         average: row.xxrealitRatingAverage,
@@ -224,11 +227,40 @@ export class CompanyDirectoryService {
       },
     });
     if (!row) throw new NotFoundException('Firma nenalezena.');
+    const [socialQueue, enrichmentJob] = await Promise.all([
+      this.prisma.companySocialPublishQueueItem.findUnique({ where: { companyId: id } }),
+      this.prisma.companyContentEnrichmentJob.findFirst({
+        where: { companyId: id },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
     return {
       company: serializeCompanyDirectoryDetail(row),
       contacts: row.contacts,
       emailLogs: row.emailLogs,
       reviews: row.reviews,
+      automation: {
+        enrichmentStatus: row.enrichmentStatus,
+        seoQualityScore: row.seoQualityScore,
+        seoStatus: row.seoStatus,
+        indexStatus: row.indexStatus,
+        websiteStatus: row.websiteManualOverride
+          ? 'Manual'
+          : row.websiteVerifiedAt
+            ? 'Verified'
+            : row.websiteSource
+              ? 'Discovered'
+              : 'None',
+        emailStatus: row.verifiedBusinessEmail
+          ? 'Verified'
+          : row.discoveredEmail
+            ? 'Discovered'
+            : 'None',
+        facebookIntro: row.socialIntroPublishedAt
+          ? 'Published'
+          : socialQueue?.status ?? 'Not eligible',
+        enrichmentJobStatus: enrichmentJob?.status ?? null,
+      },
     };
   }
 

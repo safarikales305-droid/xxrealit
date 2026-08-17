@@ -17,6 +17,7 @@ import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyEmailQueueService } from './company-email-queue.service';
 import { CompanyEngagementEventService } from './company-engagement-event.service';
+import { canAutoEnrollEmailCampaign } from './company-eligibility.util';
 import {
   ARES_WORKER_TICK_MS,
   CAMPAIGN_MONTHLY_INTERVAL_MS,
@@ -217,6 +218,79 @@ export class CompanyEngagementCampaignService implements OnModuleInit, OnModuleD
         nextSendAt: null,
       },
     });
+  }
+
+  async stopActiveCampaigns(companyId: string, reason: string) {
+    await this.prisma.companyEngagementCampaign.updateMany({
+      where: { companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
+      data: {
+        status: CompanyCampaignStatus.STOPPED,
+        stoppedReason: reason,
+        completedAt: new Date(),
+        nextSendAt: null,
+      },
+    });
+  }
+
+  async tryAutoEnroll(companyId: string) {
+    if (!COMPANY_ENGAGEMENT_CAMPAIGNS_ENABLED || !COMPANY_OUTREACH_ENABLED) return null;
+
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+      include: { contacts: { orderBy: { discoveredAt: 'desc' }, take: 3 } },
+    });
+    if (!company || !canAutoEnrollEmailCampaign(company)) return null;
+
+    const active = await this.prisma.companyEngagementCampaign.findFirst({
+      where: { companyId, status: { in: ['ACTIVE', 'PAUSED', 'COMPLETED'] } },
+    });
+    if (active) return active;
+
+    const recipient =
+      company.verifiedBusinessEmail?.trim() ||
+      company.discoveredEmail?.trim() ||
+      company.email?.trim();
+    if (!recipient) return null;
+
+    if (!company.verifiedBusinessEmail && (company.emailConfidence ?? 0) < MIN_CONTACT_CONFIDENCE_FOR_CAMPAIGN) {
+      return null;
+    }
+
+    const token = company.engagementOptOutToken ?? randomBytes(24).toString('hex');
+    if (!company.engagementOptOutToken) {
+      await this.prisma.companyDirectoryEntry.update({
+        where: { id: companyId },
+        data: { engagementOptOutToken: token },
+      });
+    }
+
+    const now = new Date();
+    const campaign = await this.prisma.companyEngagementCampaign.create({
+      data: {
+        companyId,
+        status: CompanyCampaignStatus.ACTIVE,
+        campaignType: CompanyCampaignType.ACTIVATION_SEQUENCE,
+        sequenceStep: 0,
+        startedAt: now,
+        nextSendAt: now,
+      },
+    });
+
+    if (!company.verifiedBusinessEmail && recipient) {
+      await this.prisma.companyDirectoryEntry.update({
+        where: { id: companyId },
+        data: { email: recipient },
+      });
+    }
+
+    await this.audit.log({
+      companyId,
+      action: 'CAMPAIGN_EMAIL',
+      message: 'Automaticky spuštěna engagement kampaň po nalezení kontaktu',
+    });
+
+    await this.sendActivationStep(campaign.id, 1);
+    return campaign;
   }
 
   async handleSignificantEvent(companyId: string, type: CompanyEngagementEventType) {

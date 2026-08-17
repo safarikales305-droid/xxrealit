@@ -24,6 +24,14 @@ import { CompanyGoogleEnrichmentService } from './company-google-enrichment.serv
 import { CompanyImportService } from './company-import.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
+import { CompanyDirectorySettingsService } from './company-directory-settings.service';
+import { CompanyContentEnrichmentService } from './company-content-enrichment.service';
+import { CompanySeoService } from './company-seo.service';
+import { CompanySocialPublishService } from './company-social-publish.service';
+import {
+  FACEBOOK_POSTS_PER_DAY_MAX,
+  FACEBOOK_POSTS_PER_DAY_MIN,
+} from './company-directory-settings.types';
 import {
   ARES_IMPORT_BATCH_SIZE,
   ARES_IMPORT_DELAY_MS,
@@ -53,6 +61,10 @@ export class CompanyDirectoryAdminController {
     private readonly email: CompanyEmailService,
     private readonly reviews: CompanyReviewService,
     private readonly campaigns: CompanyEngagementCampaignService,
+    private readonly automationSettings: CompanyDirectorySettingsService,
+    private readonly enrichment: CompanyContentEnrichmentService,
+    private readonly seo: CompanySeoService,
+    private readonly socialPublish: CompanySocialPublishService,
   ) {}
 
   @Get('dashboard')
@@ -411,5 +423,113 @@ export class CompanyDirectoryAdminController {
   @Post('reviews/backfill-authors')
   backfillAuthors() {
     return this.reviews.backfillReviewAuthors();
+  }
+
+  @Get('settings/automation')
+  getAutomationSettings() {
+    return this.automationSettings.getSettings();
+  }
+
+  @Patch('settings/automation')
+  updateAutomationSettings(
+    @Body()
+    body: {
+      seo?: Record<string, unknown>;
+      facebook?: Record<string, unknown>;
+      email?: Record<string, unknown>;
+    },
+  ) {
+    if (body.facebook?.postsPerDay != null) {
+      const n = Number(body.facebook.postsPerDay);
+      if (!Number.isFinite(n) || n < FACEBOOK_POSTS_PER_DAY_MIN || n > FACEBOOK_POSTS_PER_DAY_MAX) {
+        throw new HttpException(
+          `Počet příspěvků denně musí být ${FACEBOOK_POSTS_PER_DAY_MIN}–${FACEBOOK_POSTS_PER_DAY_MAX}.`,
+          400,
+        );
+      }
+    }
+    return this.automationSettings.updateSettings(
+      body as Partial<import('./company-directory-settings.types').CompanyDirectoryAutomationSettings>,
+    );
+  }
+
+  @Get('settings/seo/stats')
+  seoStats() {
+    return this.automationSettings.getSeoStats();
+  }
+
+  @Get('settings/facebook/stats')
+  facebookStats() {
+    return this.automationSettings.getFacebookStats();
+  }
+
+  @Get('social/queue')
+  socialQueue(@Query() query: Record<string, string | undefined>) {
+    return this.socialPublish.listQueue({
+      status: query.status,
+      page: Number(query.page ?? 1) || 1,
+      pageSize: Number(query.pageSize ?? 50) || 50,
+    });
+  }
+
+  @Post('social/queue/:id/publish')
+  publishSocialNow(@Param('id') id: string) {
+    return this.socialPublish.publishItem(id);
+  }
+
+  @Post('social/queue/:id/skip')
+  skipSocial(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.socialPublish.skipQueueItem(id, body?.reason ?? 'admin_skip');
+  }
+
+  @Delete('companies/:id/social-queue')
+  removeSocialQueue(@Param('id') companyId: string) {
+    return this.socialPublish.removeFromQueue(companyId);
+  }
+
+  @Post('companies/:id/social-queue')
+  addSocialQueue(@Param('id') companyId: string) {
+    return this.socialPublish.enqueueManual(companyId);
+  }
+
+  @Get('companies/:id/social-preview')
+  socialPreview(@Param('id') companyId: string) {
+    return this.socialPublish.previewForCompany(companyId);
+  }
+
+  @Get('companies/:id/email-preview')
+  async emailPreview(@Param('id') companyId: string, @Query('template') template?: string) {
+    const detail = await this.directory.getAdminCompanyDetail(companyId);
+    const company = detail.company as Record<string, unknown>;
+    const base = process.env.FRONTEND_URL ?? 'https://www.xxrealit.cz';
+    return {
+      template: template ?? 'company_activation_step_1',
+      placeholders: {
+        companyName: company.name,
+        city: company.city ?? '',
+        profileUrl: `${base}/firmy/${company.slug}`,
+        claimUrl: `${base}/firmy/${company.slug}#prevzit-profil`,
+        reviewCount: String(company.xxrealitReviewCount ?? 0),
+        rating: String(company.xxrealitRatingAverage ?? ''),
+        website: company.website ?? '',
+        shortDescription: company.shortDescription ?? '',
+      },
+    };
+  }
+
+  @Post('companies/:id/enrichment/run')
+  runEnrichment(@Param('id') companyId: string) {
+    return this.enrichment.manualEnrich(companyId);
+  }
+
+  @Post('companies/:id/seo/evaluate')
+  evaluateSeo(@Param('id') companyId: string) {
+    return this.seo.evaluateCompany(companyId);
+  }
+
+  @Post('social/automation/resume')
+  resumeSocialAutomation() {
+    this.socialPublish.resumeAutomation();
+    return { ok: true };
   }
 }

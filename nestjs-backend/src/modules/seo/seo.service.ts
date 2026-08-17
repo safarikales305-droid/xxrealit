@@ -40,7 +40,8 @@ export type SitemapKind =
   | 'profily'
   | 'clanky'
   | 'programmatic'
-  | 'static';
+  | 'static'
+  | 'firmy';
 
 @Injectable()
 export class SeoService {
@@ -236,9 +237,32 @@ export class SeoService {
         return this.programmaticSeo.getRegionSitemapEntries(base);
       case 'obce':
         return this.programmaticSeo.getCitySitemapEntries(base);
+      case 'firmy':
+        return this.getCompanySitemapEntries(base);
       default:
         return [];
     }
+  }
+
+  private async getCompanySitemapEntries(base: string, page = 1): Promise<SitemapEntry[]> {
+    const pageSize = 5000;
+    const rows = await this.prisma.companyDirectoryEntry.findMany({
+      where: {
+        publicProfile: true,
+        hidden: false,
+        seoStatus: 'SEO_READY',
+      },
+      select: { slug: true, seoLastSignificantChangeAt: true, updatedAt: true },
+      orderBy: { seoLastSignificantChangeAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    return rows.map((r) => ({
+      loc: `${base}/firmy/${r.slug}`,
+      lastmod: (r.seoLastSignificantChangeAt ?? r.updatedAt).toISOString(),
+      changefreq: 'weekly' as const,
+      priority: 0.55,
+    }));
   }
 
   private async getPropertySitemapEntries(base: string): Promise<SitemapEntry[]> {

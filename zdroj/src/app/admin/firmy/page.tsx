@@ -35,11 +35,16 @@ import {
   nestAdminModerateReviewResult,
   nestAdminUpdateReview,
   nestAdminGetReviewDetail,
+  nestAdminGetAutomationSettings,
+  nestAdminUpdateAutomationSettings,
+  nestAdminSeoStats,
+  nestAdminFacebookStats,
+  type CompanyAutomationSettings,
   type AdminCompanyRow,
   type ImportJobView,
 } from '@/lib/company-directory-client';
 
-type Tab = 'ares' | 'companies' | 'claims' | 'reviews' | 'engagement';
+type Tab = 'ares' | 'companies' | 'claims' | 'reviews' | 'engagement' | 'settings';
 
 type ContactDetail = {
   state?: string;
@@ -103,6 +108,10 @@ export default function AdminFirmyPage() {
   const [campaignModal, setCampaignModal] = useState<{ companyId: string; name: string } | null>(null);
   const [campaignDetail, setCampaignDetail] = useState<CampaignDetail | null>(null);
   const [engagementStats, setEngagementStats] = useState<Record<string, number> | null>(null);
+  const [automationSettings, setAutomationSettings] = useState<CompanyAutomationSettings | null>(null);
+  const [seoStats, setSeoStats] = useState<Record<string, number> | null>(null);
+  const [facebookStats, setFacebookStats] = useState<Record<string, number | string | boolean | null> | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [contactBatches, setContactBatches] = useState<Array<Record<string, unknown>>>([]);
   const [adminReviews, setAdminReviews] = useState<Array<Record<string, unknown>>>([]);
   const [reviewStatusFilter, setReviewStatusFilter] = useState('ALL');
@@ -176,6 +185,16 @@ export default function AdminFirmyPage() {
     if (tab === 'engagement') {
       const stats = await nestAdminEngagementDashboard(token);
       setEngagementStats(stats);
+    }
+    if (tab === 'settings') {
+      const [settings, seo, fb] = await Promise.all([
+        nestAdminGetAutomationSettings(token),
+        nestAdminSeoStats(token),
+        nestAdminFacebookStats(token),
+      ]);
+      setAutomationSettings(settings);
+      setSeoStats(seo);
+      setFacebookStats(fb);
     }
   }, [token, tab, refreshJobs, refreshCompanies, reviewStatusFilter]);
 
@@ -452,6 +471,7 @@ export default function AdminFirmyPage() {
             ['reviews', 'Recenze'],
             ['claims', 'Claim requests'],
             ['engagement', 'Engagement'],
+            ['settings', 'Nastavení'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -1326,6 +1346,100 @@ export default function AdminFirmyPage() {
               </div>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {tab === 'settings' && automationSettings ? (
+        <section className="space-y-6">
+          <div className="rounded-xl border bg-white p-5">
+            <h2 className="text-lg font-semibold">SEO</h2>
+            {seoStats ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-3 text-sm">
+                <p>Firem celkem: <strong>{seoStats.total}</strong></p>
+                <p>SEO_READY: <strong>{seoStats.seoReady}</strong></p>
+                <p>Průměrný score: <strong>{seoStats.averageSeoScore}</strong></p>
+              </div>
+            ) : null}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={automationSettings.seo.aiEnrichmentEnabled}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      seo: { ...automationSettings.seo, aiEnrichmentEnabled: e.target.checked },
+                    })
+                  }
+                />
+                AI obohacení profilů
+              </label>
+              <label className="text-sm">
+                Minimum score pro indexaci
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.seo.minScoreForIndex}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      seo: {
+                        ...automationSettings.seo,
+                        minScoreForIndex: Number(e.target.value) || 60,
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-5">
+            <h2 className="text-lg font-semibold">Facebook</h2>
+            {facebookStats ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Dnes: <strong>{facebookStats.publishedToday}</strong> / {facebookStats.dailyLimit}
+              </p>
+            ) : null}
+            <label className="mt-3 block text-sm">
+              Příspěvků denně (2–20)
+              <input
+                type="number"
+                min={2}
+                max={20}
+                className="mt-1 w-full rounded border px-2 py-1"
+                value={automationSettings.facebook.postsPerDay}
+                onChange={(e) =>
+                  setAutomationSettings({
+                    ...automationSettings,
+                    facebook: {
+                      ...automationSettings.facebook,
+                      postsPerDay: Math.min(20, Math.max(2, Number(e.target.value) || 5)),
+                    },
+                  })
+                }
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={settingsSaving || !token}
+            onClick={() => {
+              if (!token || !automationSettings) return;
+              setSettingsSaving(true);
+              void nestAdminUpdateAutomationSettings(token, automationSettings)
+                .then((saved) => {
+                  if (saved) setAutomationSettings(saved);
+                  setMsg('Nastavení uloženo.');
+                })
+                .catch(() => setErrMsg('Uložení nastavení selhalo.'))
+                .finally(() => setSettingsSaving(false));
+            }}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {settingsSaving ? 'Ukládám…' : 'Uložit nastavení'}
+          </button>
         </section>
       ) : null}
 

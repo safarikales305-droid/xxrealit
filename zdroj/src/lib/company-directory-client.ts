@@ -1050,3 +1050,88 @@ export async function nestRemoveMyCompanyReview(
   if (!res.ok) return { error: data.message ?? 'Odstranění selhalo.' };
   return data;
 }
+
+export type CompanyAutomationSettings = {
+  seo: {
+    aiEnrichmentEnabled: boolean;
+    enrichAfterWebsiteFound: boolean;
+    minScoreForIndex: number;
+    refreshDays: number;
+    addSeoReadyToSitemap: boolean;
+    noindexWeakProfiles: boolean;
+    generateJsonLd: boolean;
+  };
+  facebook: {
+    autoPublishNewCompanies: boolean;
+    postsPerDay: number;
+    publishFromHour: number;
+    publishToHour: number;
+    onlyEnrichedCompanies: boolean;
+    useProfileAsCta: boolean;
+    headlineTemplate: string;
+    textTemplate: string;
+    ctaLabel: string;
+  };
+  email: {
+    enrollOnContactFound: boolean;
+    notifyOnNewReview: boolean;
+    notifyReviewAuthor: boolean;
+    notifyOnProfileInterest: boolean;
+    profileViewThrottleDays: number;
+    sequenceDelaysDays: number[];
+    monthlyAfterSequence: boolean;
+  };
+};
+
+export async function nestAdminGetAutomationSettings(
+  token: string,
+): Promise<CompanyAutomationSettings | null> {
+  return adminFetch(token, '/settings/automation');
+}
+
+export async function nestAdminUpdateAutomationSettings(
+  token: string,
+  body: Partial<CompanyAutomationSettings>,
+): Promise<CompanyAutomationSettings | null> {
+  return adminFetch(token, '/settings/automation', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminSeoStats(token: string): Promise<Record<string, number> | null> {
+  return adminFetch(token, '/settings/seo/stats');
+}
+
+export async function nestAdminFacebookStats(
+  token: string,
+): Promise<Record<string, number | string | boolean | null> | null> {
+  return adminFetch(token, '/settings/facebook/stats');
+}
+
+export async function nestAdminSocialQueue(
+  token: string,
+  query?: { status?: string; page?: number },
+): Promise<{ items: unknown[]; total: number } | null> {
+  const qs = new URLSearchParams();
+  if (query?.status) qs.set('status', query.status);
+  if (query?.page) qs.set('page', String(query.page));
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return adminFetch(token, `/social/queue${suffix}`);
+}
+
+export async function nestAdminRunCompanyEnrichment(
+  token: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/enrichment/run`, {
+    method: 'POST',
+  });
+}
+
+export async function nestAdminSocialPreview(
+  token: string,
+  companyId: string,
+): Promise<Record<string, unknown> | null> {
+  return adminFetch(token, `/companies/${encodeURIComponent(companyId)}/social-preview`);
+}
