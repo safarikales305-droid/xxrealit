@@ -216,9 +216,23 @@ export async function nestPublicProfileDirectoryStats(): Promise<
   return (await res.json()) as PublicProfileDirectoryResponse['stats'];
 }
 
+export type CompanySeoPagePublic = {
+  id: string;
+  status: string;
+  indexable: boolean;
+  seoScore: number;
+  title: string;
+  metaDescription: string;
+  shortDescription?: string | null;
+  longDescription?: string | null;
+  content?: unknown;
+  updatedAt: string;
+};
+
 export type CompanyDirectoryDetailResponse = {
   company: CompanyDirectoryDetail;
   seo?: CompanyDirectorySeoMeta;
+  companySeoPage?: CompanySeoPagePublic | null;
   similar: CompanyDirectoryCard[];
   xxrealitReviewSummary?: { average: number | null; count: number };
   googleRating?: number | null;

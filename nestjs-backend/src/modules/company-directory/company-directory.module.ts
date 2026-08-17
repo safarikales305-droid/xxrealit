@@ -29,6 +29,10 @@ import { CompanyEmailQueueService } from './company-email-queue.service';
 import { CompanyLeadService, CompanyEngagementFacadeService } from './company-lead.service';
 import { CompanySeoService } from './company-seo.service';
 import { CompanySocialPublishService } from './company-social-publish.service';
+import { CompanySeoAdminController } from './company-seo-admin.controller';
+import { CompanySeoPageService } from './company-seo-page.service';
+import { CompanySeoGenerationJobService } from './company-seo-generation-job.service';
+import { CompanyPortalFeedService } from './company-portal-feed.service';
 import { CompanyApprovedEmailService } from './company-approved-email.service';
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
@@ -44,7 +48,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     OpenAiModule,
     forwardRef(() => AuthModule),
   ],
-  controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController, CompanyReviewMediaController],
+  controllers: [CompanyDirectoryPublicController, CompanyDirectoryAdminController, CompanyReviewMediaController, CompanySeoAdminController],
   providers: [
     AresService,
     CompanyDirectoryService,
@@ -60,6 +64,9 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyContentEnrichmentService,
     CompanyEventsService,
     CompanySeoService,
+    CompanySeoPageService,
+    CompanySeoGenerationJobService,
+    CompanyPortalFeedService,
     CompanySocialPublishService,
     CompanyApprovedEmailService,
     CompanyReviewMediaStorageService,

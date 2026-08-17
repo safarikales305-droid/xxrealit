@@ -6484,6 +6484,42 @@ enum CompanyContentEnrichmentJobStatus {
   SKIPPED
 }
 
+enum CompanySeoPageStatus {
+  PENDING
+  WAITING_FOR_ENRICHMENT
+  GENERATING
+  DRAFT
+  READY
+  DUPLICATE_CONTENT_REVIEW
+  SEO_OUTDATED
+  ERROR
+}
+
+enum CompanySeoGenerationJobStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum CompanySeoGenerationItemStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  SKIPPED
+  FAILED
+  WAITING_FOR_ENRICHMENT
+}
+
+enum CompanySeoGenerationJobType {
+  TEST
+  BATCH_10
+  BATCH_100
+  FILTER
+}
+
 enum CompanyAuditAction {
   ARES_IMPORT
   GOOGLE_MATCH
@@ -6507,6 +6543,8 @@ enum CompanyAuditAction {
   COMPANY_EMAIL_ATTACHED
   COMPANY_REVIEW_NOTIFICATION_QUEUED
   COMPANY_REVIEW_NOTIFICATION_SENT
+  COMPANY_SEO_PAGE_GENERATED
+  COMPANY_SEO_PAGE_UPDATED
   COMPANY_REVIEW_NOTIFICATION_FAILED
 }
 
@@ -6638,6 +6676,7 @@ model CompanyDirectoryEntry {
   emailQueueItems        CompanyEmailQueueItem[]
   contentEnrichmentJobs  CompanyContentEnrichmentJob[]
   socialPublishQueueItems CompanySocialPublishQueueItem[]
+  seoPage                CompanySeoPage?
 
   @@index([publicProfile, profileStatus])
   @@index([communicationOptOut])
@@ -6647,6 +6686,83 @@ model CompanyDirectoryEntry {
   @@index([seoStatus, seoQualityScore])
   @@index([enrichmentStatus])
   @@index([hidden, inLiquidation, inactive, dissolved])
+}
+
+model CompanySeoPage {
+  id               String              @id @default(cuid())
+  companyId        String              @unique
+  company          CompanyDirectoryEntry @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  slug             String
+  title            String
+  metaDescription  String              @db.Text
+  shortDescription String?             @db.Text
+  longDescription  String?             @db.Text
+  content          Json?
+  seoScore         Int                 @default(0)
+  status           CompanySeoPageStatus @default(PENDING)
+  indexable        Boolean             @default(false)
+  contentHash      String?
+  similarityScore  Float?
+  qualityNotes     String?             @db.Text
+  errorMessage     String?             @db.Text
+  version          Int                 @default(1)
+  generatedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  generationItems CompanySeoGenerationItem[]
+
+  @@index([slug])
+  @@index([status, indexable])
+  @@index([seoScore])
+  @@index([updatedAt(sort: Desc)])
+}
+
+model CompanySeoGenerationJob {
+  id             String                       @id @default(cuid())
+  type           CompanySeoGenerationJobType
+  status         CompanySeoGenerationJobStatus @default(PENDING)
+  requestedCount Int                          @default(1)
+  processedCount Int                          @default(0)
+  createdCount   Int                          @default(0)
+  updatedCount   Int                          @default(0)
+  skippedCount   Int                          @default(0)
+  failedCount    Int                          @default(0)
+  filtersJson    Json?
+  currentItem    String?
+  lastError      String?                      @db.Text
+  pauseReason    String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  pausedAt       DateTime?
+  createdById    String?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  items CompanySeoGenerationItem[]
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model CompanySeoGenerationItem {
+  id           String                         @id @default(cuid())
+  jobId        String
+  job          CompanySeoGenerationJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  companyId    String
+  seoPageId    String?
+  seoPage      CompanySeoPage?                  @relation(fields: [seoPageId], references: [id], onDelete: SetNull)
+  status       CompanySeoGenerationItemStatus   @default(PENDING)
+  attempt      Int                            @default(0)
+  phase        String?
+  qualityScore Int?
+  errorCode    String?
+  errorMessage String?                        @db.Text
+  createdAt    DateTime                       @default(now())
+  updatedAt    DateTime                       @updatedAt
+
+  @@index([jobId, status])
+  @@index([companyId])
 }
 
 model CompanyImportJob {

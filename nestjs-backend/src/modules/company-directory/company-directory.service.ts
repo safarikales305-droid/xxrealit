@@ -101,6 +101,7 @@ export class CompanyDirectoryService {
         publicProfile: true,
         OR: [{ slug }, ...(icoFromSlug ? [{ ico: icoFromSlug }] : [])],
       },
+      include: { seoPage: true },
     });
     if (!row) {
       throw new NotFoundException('Firemní profil nebyl nalezen.');
@@ -124,6 +125,20 @@ export class CompanyDirectoryService {
     return {
       company: serializeCompanyDirectoryDetail(row),
       seo: this.seo.buildPublicSeoMeta(row),
+      companySeoPage: row.seoPage
+        ? {
+            id: row.seoPage.id,
+            status: row.seoPage.status,
+            indexable: row.seoPage.indexable,
+            seoScore: row.seoPage.seoScore,
+            title: row.seoPage.title,
+            metaDescription: row.seoPage.metaDescription,
+            shortDescription: row.seoPage.shortDescription,
+            longDescription: row.seoPage.longDescription,
+            content: row.seoPage.content,
+            updatedAt: row.seoPage.updatedAt.toISOString(),
+          }
+        : null,
       similar: similar.map(serializeCompanyDirectoryCard),
       xxrealitReviewSummary: {
         average: row.xxrealitRatingAverage,
@@ -132,6 +147,40 @@ export class CompanyDirectoryService {
       googleRating: row.googleRating,
       googleReviewCount: row.googleReviewCount,
       googleMapsUri: row.googleMapsUri,
+    };
+  }
+
+  async getCompanyPortalPosts(slug: string, limit = 5) {
+    if (!this.isEnabled()) {
+      throw new NotFoundException('Registr firem není aktivní.');
+    }
+    const icoFromSlug = parseIcoFromCompanySlug(slug);
+    const row = await this.prisma.companyDirectoryEntry.findFirst({
+      where: {
+        publicProfile: true,
+        OR: [{ slug }, ...(icoFromSlug ? [{ ico: icoFromSlug }] : [])],
+      },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Firemní profil nebyl nalezen.');
+    const posts = await this.prisma.post.findMany({
+      where: { companyDirectoryId: row.id, publishedAt: { not: null } },
+      orderBy: { publishedAt: 'desc' },
+      take: Math.min(10, Math.max(1, limit)),
+      include: {
+        media: { orderBy: { order: 'asc' }, take: 1 },
+      },
+    });
+    return {
+      items: posts.map((p) => ({
+        id: p.id,
+        slug: p.slug ?? p.id,
+        category: p.category,
+        excerpt: (p.content ?? p.description ?? '').trim().slice(0, 180),
+        thumbnailUrl: p.media[0]?.url ?? p.previewImage ?? p.imageUrl ?? null,
+        publishedAt: p.publishedAt?.toISOString() ?? null,
+        href: `/prispevek/${p.slug ?? p.id}`,
+      })),
     };
   }
 
@@ -224,6 +273,7 @@ export class CompanyDirectoryService {
         contacts: { orderBy: { createdAt: 'desc' } },
         emailLogs: { orderBy: { createdAt: 'desc' }, take: 20 },
         reviews: { orderBy: { createdAt: 'desc' }, take: 20 },
+        seoPage: true,
       },
     });
     if (!row) throw new NotFoundException('Firma nenalezena.');
@@ -260,6 +310,18 @@ export class CompanyDirectoryService {
           ? 'Published'
           : socialQueue?.status ?? 'Not eligible',
         enrichmentJobStatus: enrichmentJob?.status ?? null,
+        seoPage: row.seoPage
+          ? {
+              id: row.seoPage.id,
+              status: row.seoPage.status,
+              indexable: row.seoPage.indexable,
+              seoScore: row.seoPage.seoScore,
+              updatedAt: row.seoPage.updatedAt.toISOString(),
+              adminUrl: `/admin/seo/firmy?id=${row.seoPage.id}`,
+              previewUrl: `/admin/seo/firmy/${row.seoPage.id}/preview`,
+              publicUrl: `/firmy/${row.slug}`,
+            }
+          : null,
       },
     };
   }

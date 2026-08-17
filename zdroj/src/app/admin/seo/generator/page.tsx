@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { SeoAiGeneratorPanel } from '@/components/admin/seo/SeoAiGeneratorPanel';
+import { SeoCompanyGeneratorPanel } from '@/components/admin/seo/SeoCompanyGeneratorPanel';
 import {
   nestAdminSeoGenerateAll,
   nestAdminSeoGenerateBatch,
@@ -176,6 +177,8 @@ export default function AdminSeoGeneratorPage() {
       </p>
 
       <SeoAiGeneratorPanel token={token} onRefresh={() => void refresh()} />
+
+      <SeoCompanyGeneratorPanel token={token} />
 
       {stats ? (
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

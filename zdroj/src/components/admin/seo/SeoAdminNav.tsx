@@ -13,6 +13,7 @@ const NAV: SeoNavItem[] = [
   { href: '/admin/seo', label: 'Dashboard', exact: true },
   { href: '/admin/seo/stranky', label: 'SEO stránky' },
   { href: '/admin/seo/generator', label: 'Generátor obsahu' },
+  { href: '/admin/seo/firmy', label: 'SEO firmy' },
   { href: '/admin/seo/lokality', label: 'Lokality ČR' },
   { href: '/admin/seo/sitemap', label: 'Sitemap' },
   { href: '/admin/seo/search-console', label: 'Search Console' },

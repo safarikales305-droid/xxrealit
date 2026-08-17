@@ -9,6 +9,7 @@ import { CompanyEngagementFacadeService, CompanyLeadService } from './company-le
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { CompanyImportService } from './company-import.service';
+import { CompanyPortalFeedService } from './company-portal-feed.service';
 import { COMPANY_REVIEWS_ENABLED } from './company-directory.constants';
 import { CompanyEngagementEventType } from '@prisma/client';
 import type { Request } from 'express';
@@ -26,6 +27,7 @@ export class CompanyDirectoryPublicController {
     private readonly campaigns: CompanyEngagementCampaignService,
     private readonly profileDirectory: PublicProfileDirectoryService,
     private readonly importService: CompanyImportService,
+    private readonly portalFeed: CompanyPortalFeedService,
   ) {}
 
   @Get('public/directory')
@@ -67,6 +69,16 @@ export class CompanyDirectoryPublicController {
       body.ico,
       body.category as import('@prisma/client').CompanyDirectoryCategory | undefined,
     );
+  }
+
+  @Get('public/portal-posts/latest')
+  latestPortalPosts(@Query('limit') limit?: string) {
+    return this.portalFeed.getLatestPublicPosts(limit ? Number(limit) : 5);
+  }
+
+  @Get('public/:slug/portal-posts')
+  companyPortalPosts(@Param('slug') slug: string, @Query('limit') limit?: string) {
+    return this.directory.getCompanyPortalPosts(slug, limit ? Number(limit) : 5);
   }
 
   @Get('public/:slug')
