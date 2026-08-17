@@ -1297,21 +1297,40 @@ export default function AdminFirmyPage() {
             {claims.length === 0 ? (
               <p className="text-sm text-zinc-500">Žádné žádosti.</p>
             ) : (
-              claims.map((claim) => (
+              claims.map((claim) => {
+                const status = String(claim.status ?? '');
+                const canModerate = status === 'PENDING' || status === 'UNDER_REVIEW';
+                return (
                 <div key={String(claim.id)} className="rounded-lg border p-3 text-sm">
                   <p>
                     {String(claim.contactName)} · {String(claim.contactEmail)} · IČO{' '}
                     {String(claim.ico)}
                   </p>
-                  <p className="text-xs text-zinc-500">Status: {String(claim.status)}</p>
+                  <p className="text-xs text-zinc-500">
+                    Status: {status}
+                    {claim.linkedReviewId ? ` · Recenze: ${String(claim.linkedReviewId)}` : ''}
+                    {claim.companyEmailAttached ? ' · Email uložen' : ''}
+                  </p>
+                  {canModerate ? (
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        void nestAdminReviewCompanyClaim(token, String(claim.id), 'approve').then(
-                          () => refresh(),
-                        )
-                      }
+                      onClick={() => {
+                        void nestAdminReviewCompanyClaim(token, String(claim.id), 'approve')
+                          .then((result) => {
+                            const parts = ['✓ Claim schválen'];
+                            if (result?.companyEmailUpdated) parts.push('✓ Email firmy uložen');
+                            if (result?.notificationQueued) parts.push('✓ Upozornění firmě zařazeno');
+                            else if (result?.notificationStatus === 'WAITING_FOR_REVIEW_APPROVAL') {
+                              parts.push('Notifikace po schválení recenze');
+                            } else if (result?.alreadyApproved) {
+                              parts.push('(již dříve schváleno)');
+                            }
+                            setMsg(parts.join(' · '));
+                            return refresh();
+                          })
+                          .catch((err: Error) => setErrMsg(err.message));
+                      }}
                       className="rounded bg-emerald-600 px-2 py-1 text-xs text-white"
                     >
                       Schválit
@@ -1319,17 +1338,19 @@ export default function AdminFirmyPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        void nestAdminReviewCompanyClaim(token, String(claim.id), 'reject').then(
-                          () => refresh(),
-                        )
+                        void nestAdminReviewCompanyClaim(token, String(claim.id), 'reject')
+                          .then(() => refresh())
+                          .catch((err: Error) => setErrMsg(err.message))
                       }
                       className="rounded bg-red-600 px-2 py-1 text-xs text-white"
                     >
                       Zamítnout
                     </button>
                   </div>
+                  ) : null}
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         </section>

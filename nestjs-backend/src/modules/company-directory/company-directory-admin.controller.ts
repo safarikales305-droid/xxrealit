@@ -366,9 +366,12 @@ export class CompanyDirectoryAdminController {
   @Patch('claims/:id')
   reviewClaim(
     @Param('id') id: string,
-    @Body() body: { action: 'approve' | 'reject'; adminNote?: string },
+    @CurrentUser() admin: AuthUser,
+    @Body() body: { action: 'approve' | 'reject'; adminNote?: string; forcePrimaryEmail?: boolean },
   ) {
-    return this.claims.reviewClaim(id, body.action, body.adminNote);
+    return this.claims.reviewClaim(id, body.action, body.adminNote, admin.id, {
+      forcePrimaryEmail: body.forcePrimaryEmail,
+    });
   }
 
   @Patch('reviews/:id/moderate')

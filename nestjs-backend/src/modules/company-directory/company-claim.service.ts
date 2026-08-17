@@ -9,10 +9,29 @@ import {
   CompanyDirectoryVerificationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { CompanyApprovedEmailService } from './company-approved-email.service';
+import { CompanyAuditService } from './company-audit.service';
+
+export type ClaimApproveResult = {
+  ok: true;
+  status: 'APPROVED' | 'REJECTED';
+  alreadyApproved?: boolean;
+  companyEmailUpdated?: boolean;
+  verifiedEmailSet?: boolean;
+  notificationQueued?: boolean;
+  notificationStatus?: string;
+  reviewId?: string | null;
+  linkedReviewId?: string | null;
+  message?: string;
+};
 
 @Injectable()
 export class CompanyClaimService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly approvedEmail: CompanyApprovedEmailService,
+    private readonly audit: CompanyAuditService,
+  ) {}
 
   async submitClaim(input: {
     companyId?: string;
@@ -80,7 +99,7 @@ export class CompanyClaimService {
         ? { status: status as CompanyClaimRequestStatus }
         : undefined,
       include: {
-        company: { select: { id: true, name: true, slug: true, ico: true } },
+        company: { select: { id: true, name: true, slug: true, ico: true, verifiedBusinessEmail: true, email: true } },
         user: { select: { id: true, email: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -92,43 +111,154 @@ export class CompanyClaimService {
     claimId: string,
     action: 'approve' | 'reject',
     adminNote?: string,
-  ) {
+    adminUserId?: string,
+    options?: { forcePrimaryEmail?: boolean },
+  ): Promise<ClaimApproveResult> {
+    if (action === 'approve') {
+      return this.approveCompanyClaimRequest(claimId, adminUserId, adminNote, options);
+    }
+    return this.rejectCompanyClaimRequest(claimId, adminNote, adminUserId);
+  }
+
+  async approveCompanyClaimRequest(
+    claimId: string,
+    adminUserId?: string,
+    adminNote?: string,
+    options?: { forcePrimaryEmail?: boolean },
+  ): Promise<ClaimApproveResult> {
     const claim = await this.prisma.companyClaimRequest.findUnique({
       where: { id: claimId },
       include: { company: true },
     });
     if (!claim) throw new NotFoundException('Žádost nenalezena.');
 
-    if (action === 'approve') {
-      await this.prisma.$transaction([
-        this.prisma.companyClaimRequest.update({
-          where: { id: claimId },
-          data: {
-            status: CompanyClaimRequestStatus.APPROVED,
-            adminNote: adminNote ?? null,
-          },
-        }),
-        this.prisma.companyDirectoryEntry.update({
-          where: { id: claim.companyId },
-          data: {
-            profileStatus: CompanyDirectoryProfileStatus.CLAIMED,
-            verificationStatus: CompanyDirectoryVerificationStatus.PENDING,
-            claimedAt: new Date(),
-            claimedByUserId: claim.userId,
-          },
-        }),
-        this.prisma.companyEngagementCampaign.updateMany({
-          where: { companyId: claim.companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
-          data: {
-            status: 'STOPPED',
-            stoppedReason: 'claimed',
-            completedAt: new Date(),
-            nextSendAt: null,
-          },
-        }),
-      ]);
-      return { ok: true, status: 'APPROVED' };
+    if (claim.status === CompanyClaimRequestStatus.APPROVED) {
+      const reviewId = claim.linkedReviewId;
+      return {
+        ok: true,
+        status: 'APPROVED',
+        alreadyApproved: true,
+        companyEmailUpdated: claim.companyEmailAttached,
+        notificationQueued: false,
+        notificationStatus: 'ALREADY_SENT',
+        reviewId,
+        linkedReviewId: reviewId,
+        message: 'Žádost již byla dříve schválena.',
+      };
     }
+
+    if (claim.status === CompanyClaimRequestStatus.REJECTED) {
+      throw new BadRequestException('Zamítnutou žádost nelze schválit.');
+    }
+
+    const normalizedEmail = this.approvedEmail.validateBusinessEmail(claim.contactEmail);
+    const linkedReview = await this.approvedEmail.findLinkedReview(
+      claim.companyId,
+      normalizedEmail,
+      claim.userId,
+    );
+
+    let attachResult: Awaited<ReturnType<CompanyApprovedEmailService['attachAdminApprovedEmail']>>;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyClaimRequest.update({
+        where: { id: claimId },
+        data: {
+          status: CompanyClaimRequestStatus.APPROVED,
+          adminNote: adminNote ?? null,
+          approvedAt: new Date(),
+          approvedByAdminId: adminUserId ?? null,
+          linkedReviewId: linkedReview?.id ?? null,
+        },
+      });
+
+      await tx.companyDirectoryEntry.update({
+        where: { id: claim.companyId },
+        data: {
+          profileStatus: CompanyDirectoryProfileStatus.CLAIMED,
+          verificationStatus: CompanyDirectoryVerificationStatus.PENDING,
+          claimedAt: new Date(),
+          claimedByUserId: claim.userId,
+        },
+      });
+
+      await tx.companyEngagementCampaign.updateMany({
+        where: { companyId: claim.companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
+        data: {
+          status: 'STOPPED',
+          stoppedReason: 'claimed',
+          completedAt: new Date(),
+          nextSendAt: null,
+        },
+      });
+
+      attachResult = await this.approvedEmail.attachAdminApprovedEmail(
+        {
+          companyId: claim.companyId,
+          email: normalizedEmail,
+          adminUserId,
+          claimRequestId: claimId,
+          reviewId: linkedReview?.id ?? null,
+          forcePrimary: options?.forcePrimaryEmail,
+        },
+        tx,
+      );
+
+      await tx.companyClaimRequest.update({
+        where: { id: claimId },
+        data: { companyEmailAttached: attachResult.companyEmailUpdated || attachResult.verifiedEmailSet },
+      });
+    });
+
+    await this.audit.log({
+      companyId: claim.companyId,
+      action: 'CLAIM_REQUEST_APPROVED',
+      message: `Claim request ${claimId} schválen, email ${normalizedEmail}`,
+      actorUserId: adminUserId,
+      meta: {
+        claimRequestId: claimId,
+        reviewId: linkedReview?.id ?? null,
+        email: normalizedEmail,
+      },
+    });
+
+    let notificationResult: Awaited<
+      ReturnType<CompanyApprovedEmailService['enqueueReviewNotificationIfEligible']>
+    > | null = null;
+
+    if (linkedReview?.id) {
+      notificationResult = await this.approvedEmail.enqueueReviewNotificationIfEligible(
+        claim.companyId,
+        linkedReview.id,
+        { claimRequestId: claimId, adminUserId },
+      );
+    }
+
+    return {
+      ok: true,
+      status: 'APPROVED',
+      companyEmailUpdated: attachResult!.companyEmailUpdated || attachResult!.verifiedEmailSet,
+      verifiedEmailSet: attachResult!.verifiedEmailSet,
+      notificationQueued: notificationResult?.notificationQueued ?? false,
+      notificationStatus: notificationResult?.notificationStatus ?? 'NOT_SENT',
+      reviewId: linkedReview?.id ?? null,
+      linkedReviewId: linkedReview?.id ?? null,
+      message: linkedReview?.id
+        ? notificationResult?.notificationQueued
+          ? 'Claim schválen, email uložen, upozornění firmě zařazeno.'
+          : linkedReview.status === 'PUBLISHED'
+            ? 'Claim schválen a email uložen.'
+            : 'Claim schválen a email uložen. Notifikace odejde po schválení recenze.'
+        : 'Claim schválen a email uložen. Navázaná recenze nebyla nalezena.',
+    };
+  }
+
+  private async rejectCompanyClaimRequest(
+    claimId: string,
+    adminNote?: string,
+    adminUserId?: string,
+  ): Promise<ClaimApproveResult> {
+    const claim = await this.prisma.companyClaimRequest.findUnique({ where: { id: claimId } });
+    if (!claim) throw new NotFoundException('Žádost nenalezena.');
 
     await this.prisma.companyClaimRequest.update({
       where: { id: claimId },
@@ -137,6 +267,14 @@ export class CompanyClaimService {
         adminNote: adminNote ?? null,
       },
     });
+
+    await this.audit.log({
+      companyId: claim.companyId,
+      action: 'MODERATION',
+      message: `Claim request ${claimId} zamítnut`,
+      actorUserId: adminUserId,
+    });
+
     return { ok: true, status: 'REJECTED' };
   }
 }

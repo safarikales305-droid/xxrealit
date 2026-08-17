@@ -3,6 +3,7 @@ import {
   CompanyContactStatus,
   CompanyEmailLogStatus,
   CompanyReviewCompanyNotificationStatus,
+  CompanyReviewSentiment,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
@@ -17,6 +18,12 @@ const TEMPLATE_KEYS = {
   dataReviewRequest: 'company_data_review_request',
   reportResponse: 'company_report_response',
 } as const;
+
+const SENTIMENT_LABELS: Record<CompanyReviewSentiment, string> = {
+  POSITIVE: 'Pozitivní zkušenost',
+  NEGATIVE: 'Negativní zkušenost',
+  NEUTRAL: 'Neutrální zkušenost',
+};
 
 @Injectable()
 export class CompanyEmailService {
@@ -101,30 +108,75 @@ export class CompanyEmailService {
     }
   }
 
-  async notifyCompanyNewReview(companyId: string, reviewId: string) {
+  async resolveCompanyNotificationEmail(companyId: string, reviewId?: string): Promise<string | null> {
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) return null;
+
+    const verified = company.verifiedBusinessEmail?.trim().toLowerCase();
+    if (verified) return verified;
+
+    if (reviewId) {
+      const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
+      const submitted = review?.submittedBusinessEmail?.trim().toLowerCase();
+      if (
+        submitted &&
+        review?.submittedEmailStatus === CompanyContactStatus.VERIFIED
+      ) {
+        return submitted;
+      }
+    }
+
+    const approvedContact = await this.prisma.companyContact.findFirst({
+      where: {
+        companyId,
+        status: CompanyContactStatus.VERIFIED,
+        sourceType: 'USER_SUBMITTED',
+      },
+      orderBy: { verifiedAt: 'desc' },
+    });
+    if (approvedContact?.email) return approvedContact.email.trim().toLowerCase();
+
+    const discovered = await this.prisma.companyContact.findFirst({
+      where: {
+        companyId,
+        status: {
+          in: [
+            CompanyContactStatus.FOUND_HIGH_CONFIDENCE,
+            CompanyContactStatus.VERIFIED,
+          ],
+        },
+      },
+      orderBy: [{ confidence: 'desc' }, { discoveredAt: 'desc' }],
+    });
+    if (discovered?.email) return discovered.email.trim().toLowerCase();
+
+    if (company.discoveredEmail?.trim()) return company.discoveredEmail.trim().toLowerCase();
+    if (company.email?.trim()) return company.email.trim().toLowerCase();
+
+    return null;
+  }
+
+  async notifyCompanyNewReview(
+    companyId: string,
+    reviewId: string,
+    opts?: { idempotencyKey?: string; adminUserId?: string },
+  ) {
     const company = await this.prisma.companyDirectoryEntry.findUnique({
       where: { id: companyId },
     });
     const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
     if (!company || !review) return;
 
-    let recipient = company.verifiedBusinessEmail?.trim() || review.submittedBusinessEmail?.trim() || '';
-    if (!recipient) {
-      const discovered = await this.prisma.companyContact.findFirst({
-        where: {
-          companyId,
-          status: {
-            in: [
-              CompanyContactStatus.FOUND_HIGH_CONFIDENCE,
-              CompanyContactStatus.FOUND_MEDIUM_CONFIDENCE,
-              CompanyContactStatus.VERIFIED,
-            ],
-          },
-        },
-        orderBy: { confidence: 'desc' },
-      });
-      recipient = discovered?.email?.trim() ?? '';
+    if (
+      review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.SENT ||
+      review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.ALREADY_SENT
+    ) {
+      return;
     }
+
+    const recipient = await this.resolveCompanyNotificationEmail(companyId, reviewId);
     if (!recipient) {
       await this.prisma.companyReview.update({
         where: { id: reviewId },
@@ -146,18 +198,47 @@ export class CompanyEmailService {
       data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.QUEUED },
     });
 
+    const base = resolveFrontendUrl().replace(/\/+$/, '');
+    const companyProfileUrl = `${base}/firmy/${company.slug}`;
+    const reviewUrl = `${companyProfileUrl}#review-${reviewId}`;
+    const reviewExcerpt = review.body.trim().slice(0, 200);
+    const sentimentLabel = SENTIMENT_LABELS[review.sentiment] ?? 'Zkušenost';
+
+    const bodyText = [
+      'Dobrý den,',
+      '',
+      'na portálu XXREALIT byla zveřejněna recenze vztahující se k vaší firmě.',
+      '',
+      `Firma: ${company.name}`,
+      `Hodnocení: ${review.rating} / 5`,
+      `Typ zkušenosti: ${sentimentLabel}`,
+      '',
+      `Krátký úryvek: ${reviewExcerpt}`,
+      '',
+      `Recenzi si můžete zobrazit zde: ${reviewUrl}`,
+      `Profil firmy: ${companyProfileUrl}`,
+      '',
+      'Pokud jste oprávněným zástupcem firmy, můžete si profil převzít a reagovat na recenzi.',
+      '',
+      `Převzít profil: ${companyProfileUrl}#prevzit-profil`,
+    ].join('\n');
+
     try {
       await this.sendAdminEmail({
         companyId,
         recipient,
-        subject: `Na XXREALIT byla zveřejněna nová zkušenost s vaší firmou`,
+        subject: 'Na XXREALIT byla zveřejněna recenze vaší firmy',
         template: 'newReview',
-        body: `Na profilu vaší firmy ${company.name} byla zveřejněna nová recenze (${review.rating}/5).`,
+        body: bodyText,
+        adminUserId: opts?.adminUserId,
         variables: {
           reviewRating: String(review.rating),
-          reviewPreview: review.body.slice(0, 160),
-          reviewUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#review-${reviewId}`,
-          claimUrl: `${resolveFrontendUrl()}/firmy/${company.slug}#prevzit-profil`,
+          reviewPreview: reviewExcerpt,
+          reviewExcerpt,
+          reviewUrl,
+          companyProfileUrl,
+          claimUrl: `${companyProfileUrl}#prevzit-profil`,
+          sentiment: sentimentLabel,
           mediaSummary: await this.reviewMediaSummary(reviewId),
         },
       });
@@ -165,15 +246,24 @@ export class CompanyEmailService {
         where: { id: reviewId },
         data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.SENT },
       });
+      await this.audit.log({
+        companyId,
+        action: 'COMPANY_REVIEW_NOTIFICATION_SENT',
+        message: opts?.idempotencyKey
+          ? `${opts.idempotencyKey} → ${recipient}`
+          : `Upozornění o recenzi ${reviewId} odesláno na ${recipient}`,
+        actorUserId: opts?.adminUserId,
+        meta: { reviewId, recipient },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.prisma.companyReview.update({
         where: { id: reviewId },
         data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.FAILED },
       });
-      this.audit.log({
+      await this.audit.log({
         companyId,
-        action: 'ADMIN_EMAIL_SEND',
+        action: 'COMPANY_REVIEW_NOTIFICATION_FAILED',
         message: `Upozornění firmě o recenzi selhalo: ${message}`,
         meta: { reviewId },
       });

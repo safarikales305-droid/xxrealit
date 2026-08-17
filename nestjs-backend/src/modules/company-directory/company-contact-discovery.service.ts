@@ -14,6 +14,7 @@ import {
   CompanyDirectoryCategory,
   CompanyContactDiscoveryStatus,
   CompanyProviderJobStatus,
+  CompanyReviewCompanyNotificationStatus,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -29,6 +30,7 @@ import { computeJobProgress } from './company-job-progress.util';
 import { buildAdminCompanyExtendedWhere } from './company-directory.serializer';
 import { CompanyContactDiscoveryPipelineService } from './company-contact-discovery-pipeline.service';
 import { CompanyContactPersistenceService } from './company-contact-persistence.service';
+import { CompanyApprovedEmailService } from './company-approved-email.service';
 
 const STALE_SEARCHING_MS = 15 * 60 * 1000;
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
@@ -69,6 +71,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     private readonly audit: CompanyAuditService,
     private readonly pipeline: CompanyContactDiscoveryPipelineService,
     private readonly contactPersistence: CompanyContactPersistenceService,
+    private readonly approvedEmail: CompanyApprovedEmailService,
   ) {}
 
   onModuleInit(): void {
@@ -384,7 +387,12 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   }
 
   async confirmContact(contactId: string, adminUserId?: string) {
-    const contact = await this.prisma.companyContact.update({
+    const contact = await this.prisma.companyContact.findUnique({
+      where: { id: contactId },
+    });
+    if (!contact) throw new NotFoundException('Kontakt nenalezen.');
+
+    const updatedContact = await this.prisma.companyContact.update({
       where: { id: contactId },
       data: {
         status: CompanyContactStatus.VERIFIED,
@@ -392,16 +400,56 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       },
     });
 
-    await this.contactPersistence.confirmVerifiedEmail(
-      contact.companyId,
-      contact.email,
-      contact.sourceUrl,
-    );
+    const attach = await this.approvedEmail.attachAdminApprovedEmail({
+      companyId: contact.companyId,
+      email: contact.email,
+      adminUserId,
+      reviewId: null,
+    });
 
     await this.prisma.companyDirectoryEntry.update({
       where: { id: contact.companyId },
       data: { contactDiscoveryState: 'VERIFIED' },
     });
+
+    const publishedReviews = await this.prisma.companyReview.findMany({
+      where: {
+        companyId: contact.companyId,
+        status: 'PUBLISHED',
+        submittedBusinessEmail: contact.email.trim().toLowerCase(),
+        companyNotificationStatus: {
+          in: [
+            CompanyReviewCompanyNotificationStatus.NOT_SENT,
+            CompanyReviewCompanyNotificationStatus.NO_COMPANY_EMAIL,
+            CompanyReviewCompanyNotificationStatus.WAITING_FOR_REVIEW_APPROVAL,
+            CompanyReviewCompanyNotificationStatus.FAILED,
+          ],
+        },
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: 5,
+    });
+
+    if (attach.reviewId) {
+      const linked = await this.prisma.companyReview.findUnique({
+        where: { id: attach.reviewId },
+      });
+      if (
+        linked &&
+        linked.status === 'PUBLISHED' &&
+        !publishedReviews.some((r) => r.id === linked.id)
+      ) {
+        publishedReviews.unshift(linked);
+      }
+    }
+
+    for (const review of publishedReviews) {
+      await this.approvedEmail.enqueueReviewNotificationIfEligible(
+        contact.companyId,
+        review.id,
+        { adminUserId },
+      );
+    }
 
     await this.audit.log({
       companyId: contact.companyId,
@@ -410,7 +458,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       actorUserId: adminUserId,
     });
 
-    return contact;
+    return updatedContact;
   }
 
   async rejectContact(contactId: string, adminUserId?: string) {

@@ -25,6 +25,7 @@ import { SocialPublishEnqueueService } from '../social/autopost/social-publish-e
 import { resolveFrontendUrl, buildPasswordResetUrl } from '../../common/resolve-frontend-url';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyEmailService } from './company-email.service';
+import { CompanyApprovedEmailService } from './company-approved-email.service';
 import {
   COMPANY_REVIEWS_ENABLED,
   COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED,
@@ -71,6 +72,7 @@ export class CompanyReviewService {
     private readonly emails: EmailsService,
     private readonly audit: CompanyAuditService,
     private readonly companyEmail: CompanyEmailService,
+    private readonly approvedEmail: CompanyApprovedEmailService,
     private readonly socialEnqueue: SocialPublishEnqueueService,
     private readonly contactDiscovery: CompanyContactDiscoveryService,
   ) {}
@@ -477,9 +479,28 @@ export class CompanyReviewService {
 
     if (
       review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.SENT &&
-      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.QUEUED
+      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.QUEUED &&
+      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.ALREADY_SENT
     ) {
-      void this.companyEmail.notifyCompanyNewReview(review.companyId, reviewId);
+      const recipient = await this.companyEmail.resolveCompanyNotificationEmail(
+        review.companyId,
+        reviewId,
+      );
+      if (!recipient) {
+        await this.prisma.companyReview.update({
+          where: { id: reviewId },
+          data: {
+            companyNotificationStatus:
+              CompanyReviewCompanyNotificationStatus.WAITING_FOR_REVIEW_APPROVAL,
+          },
+        });
+      } else {
+        void this.approvedEmail.enqueueReviewNotificationIfEligible(
+          review.companyId,
+          reviewId,
+          { adminUserId: opts?.adminUserId },
+        );
+      }
     }
 
     if (!wasPublished || review.reviewNeedsModeration) {

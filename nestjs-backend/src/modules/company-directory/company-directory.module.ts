@@ -29,6 +29,7 @@ import { CompanyEmailQueueService } from './company-email-queue.service';
 import { CompanyLeadService, CompanyEngagementFacadeService } from './company-lead.service';
 import { CompanySeoService } from './company-seo.service';
 import { CompanySocialPublishService } from './company-social-publish.service';
+import { CompanyApprovedEmailService } from './company-approved-email.service';
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
 import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
@@ -60,6 +61,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyEventsService,
     CompanySeoService,
     CompanySocialPublishService,
+    CompanyApprovedEmailService,
     CompanyReviewMediaStorageService,
     CompanyReviewService,
     CompanyEngagementEventService,

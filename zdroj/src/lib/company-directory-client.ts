@@ -153,6 +153,9 @@ export type CompanyDirectoryDetailResponse = {
     googleLastSyncAt?: string | null;
     xxrealitRatingAverage?: number | null;
     xxrealitReviewCount?: number | null;
+    shortDescription?: string | null;
+    description?: string | null;
+    enrichmentData?: { services?: Array<{ value: string }> } | null;
   };
   similar: CompanyDirectoryCard[];
   xxrealitReviewSummary?: { average: number | null; count: number };
@@ -379,6 +382,7 @@ export async function nestAdminReviewCompanyClaim(
   claimId: string,
   action: 'approve' | 'reject',
   adminNote?: string,
+  options?: { forcePrimaryEmail?: boolean },
 ): Promise<Record<string, unknown> | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(
@@ -390,11 +394,14 @@ export async function nestAdminReviewCompanyClaim(
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify({ action, adminNote }),
+      body: JSON.stringify({ action, adminNote, forcePrimaryEmail: options?.forcePrimaryEmail }),
     },
   );
-  if (!res.ok) return null;
-  return (await res.json()) as Record<string, unknown>;
+  const data = (await res.json()) as Record<string, unknown> & { message?: string };
+  if (!res.ok) {
+    throw new Error(typeof data.message === 'string' ? data.message : `Schválení selhalo (${res.status})`);
+  }
+  return data;
 }
 
 export type AdminFetchResult<T> =

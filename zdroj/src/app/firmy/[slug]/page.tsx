@@ -101,6 +101,19 @@ export default function FirmaDetailPage() {
     );
   }, [slug]);
 
+  useEffect(() => {
+    if (loading || reviews.length === 0) return;
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    if (!hash.startsWith('#review-')) return;
+    const el = document.querySelector(hash);
+    if (el) {
+      window.setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('ring-2', 'ring-orange-400');
+      }, 100);
+    }
+  }, [loading, reviews]);
+
   const company = data?.company;
   const googleRating = data?.googleRating ?? company?.googleRating ?? company?.rating;
   const googleReviewCount = data?.googleReviewCount ?? company?.googleReviewCount ?? company?.ratingCount;

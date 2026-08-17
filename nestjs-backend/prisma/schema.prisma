@@ -6361,6 +6361,8 @@ enum CompanyReviewCompanyNotificationStatus {
   SENT
   FAILED
   NO_COMPANY_EMAIL
+  WAITING_FOR_REVIEW_APPROVAL
+  ALREADY_SENT
 }
 
 enum CompanyReviewMediaType {
@@ -6500,6 +6502,12 @@ enum CompanyAuditAction {
   CAMPAIGN_EMAIL
   LEAD_CREATED
   LEAD_NOTIFY
+  CLAIM_REQUEST_APPROVED
+  COMPANY_EMAIL_APPROVED
+  COMPANY_EMAIL_ATTACHED
+  COMPANY_REVIEW_NOTIFICATION_QUEUED
+  COMPANY_REVIEW_NOTIFICATION_SENT
+  COMPANY_REVIEW_NOTIFICATION_FAILED
 }
 
 /// Veřejný registr firem z ARES (odděleně od User.CompanyProfile).
@@ -6700,6 +6708,11 @@ model CompanyClaimRequest {
 
   status    CompanyClaimRequestStatus @default(PENDING)
   adminNote String?                   @db.Text
+
+  approvedByAdminId String?
+  approvedAt        DateTime?
+  linkedReviewId    String?
+  companyEmailAttached Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
