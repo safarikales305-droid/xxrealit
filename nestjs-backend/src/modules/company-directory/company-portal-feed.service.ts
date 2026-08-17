@@ -49,6 +49,7 @@ export class CompanyPortalFeedService {
       return {
         id: row.id,
         slug: postSlug,
+        postType: row.type,
         authorName,
         authorAvatarUrl: avatarUrl,
         category: row.category,
@@ -81,6 +82,7 @@ export class CompanyPortalFeedService {
     return rows.map((row) => ({
       id: row.id,
       slug: row.slug ?? row.id,
+      postType: row.type,
       category: row.category,
       excerpt: (row.content ?? row.description ?? '').trim().slice(0, 180),
       thumbnailUrl: row.media[0]?.url ?? row.previewImage ?? row.imageUrl ?? null,

@@ -18,6 +18,7 @@ import {
   buildPostDetailUrl,
   resolvePostShareImage,
   resolvePostShareVideo,
+  resolvePostSocialText,
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
@@ -326,7 +327,7 @@ export class SocialPublishEnqueueService {
     });
     if (!post) return { ok: false, error: 'Příspěvek nenalezen' };
 
-    const text = (post.content ?? post.description ?? post.title ?? '').trim();
+    const text = resolvePostSocialText(post);
     const imageUrl = resolvePostShareImage(post);
     const videoUrl = resolvePostShareVideo(post);
 

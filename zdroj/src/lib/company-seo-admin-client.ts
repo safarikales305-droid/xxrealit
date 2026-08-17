@@ -155,6 +155,7 @@ export async function nestAdminCompanySeoGenerateOne(
 export type PortalPostFeedItem = {
   id: string;
   slug: string;
+  postType?: string | null;
   authorName?: string;
   authorAvatarUrl?: string | null;
   category?: string | null;

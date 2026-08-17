@@ -147,10 +147,16 @@ export function facebookPostPermalink(pageId: string, postId: string): string {
 
 /** První fotografie z příspěvku (galerie / náhled / OG). */
 export function resolvePostShareImage(post: {
+  type?: string | null;
   imageUrl?: string | null;
   previewImage?: string | null;
   media?: Array<{ url?: string | null; type?: string | null }>;
 }): string | null {
+  if (post.type === 'COMPANY_REVIEW') {
+    const card =
+      toAbsoluteMediaUrl(post.previewImage) ?? toAbsoluteMediaUrl(post.imageUrl);
+    if (card) return card;
+  }
   for (const m of post.media ?? []) {
     const type = String(m.type ?? '').toLowerCase();
     if (type === 'video') continue;
@@ -178,4 +184,17 @@ export function resolvePostShareVideo(post: {
     if (url) return url;
   }
   return null;
+}
+
+/** Text pro social publish – u recenzí firmy preferuje popis (Facebook copy). */
+export function resolvePostSocialText(post: {
+  type?: string | null;
+  title?: string | null;
+  description?: string | null;
+  content?: string | null;
+}): string {
+  if (post.type === 'COMPANY_REVIEW') {
+    return (post.description ?? post.content ?? post.title ?? '').trim();
+  }
+  return (post.content ?? post.description ?? post.title ?? '').trim();
 }

@@ -393,6 +393,11 @@ export class CompanyDirectoryAdminController {
     return this.reviews.getAdminReviewDetail(id);
   }
 
+  @Post('reviews/:id/resend-company-notification')
+  resendCompanyNotification(@Param('id') id: string, @CurrentUser() admin: AuthUser) {
+    return this.reviews.resendCompanyNotification(id, admin.id);
+  }
+
   @Patch('reviews/:id')
   updateReview(
     @Param('id') id: string,

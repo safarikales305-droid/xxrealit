@@ -6365,6 +6365,13 @@ enum CompanyReviewCompanyNotificationStatus {
   ALREADY_SENT
 }
 
+enum CompanyReviewAuthorNotificationStatus {
+  NOT_SENT
+  QUEUED
+  SENT
+  FAILED
+}
+
 enum CompanyReviewMediaType {
   IMAGE
   VIDEO
@@ -7061,6 +7068,16 @@ model CompanyReview {
   lastApprovedMediaJson Json?
 
   companyNotificationStatus CompanyReviewCompanyNotificationStatus @default(NOT_SENT)
+  companyNotificationSentAt DateTime?
+  companyNotificationError String? @db.Text
+  companyNotificationMessageId String?
+  companyNotificationEmailUsed String?
+
+  authorNotificationStatus CompanyReviewAuthorNotificationStatus @default(NOT_SENT)
+  authorNotificationSentAt DateTime?
+  authorNotificationError String? @db.Text
+
+  facebookIntroPublished Boolean @default(false)
 
   moderationNote String? @db.Text
   post           Post?

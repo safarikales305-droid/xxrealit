@@ -35,6 +35,7 @@ import {
   nestAdminModerateReviewResult,
   nestAdminUpdateReview,
   nestAdminGetReviewDetail,
+  nestAdminResendCompanyReviewNotification,
   nestAdminGetAutomationSettings,
   nestAdminUpdateAutomationSettings,
   nestAdminSeoStats,
@@ -248,6 +249,20 @@ export default function AdminFirmyPage() {
     },
     [token],
   );
+
+  const resendCompanyNotification = useCallback(async () => {
+    if (!token || !reviewDetail?.id) return;
+    setReviewActionBusy(true);
+    const result = await nestAdminResendCompanyReviewNotification(token, String(reviewDetail.id));
+    setReviewActionBusy(false);
+    if (!result.ok) {
+      setErrMsg(result.message ?? 'Odeslání upozornění selhalo.');
+      return;
+    }
+    setMsg('Upozornění firmě bylo znovu zařazeno.');
+    await openReviewDetail(String(reviewDetail.id));
+    await reloadReviews();
+  }, [token, reviewDetail, openReviewDetail, reloadReviews]);
 
   const saveReviewEdit = useCallback(async () => {
     if (!token || !reviewEditId) return;
@@ -1219,9 +1234,62 @@ export default function AdminFirmyPage() {
                   Zavřít
                 </button>
               </div>
-              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">
-                {JSON.stringify(reviewDetail, null, 2)}
-              </pre>
+              <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                <div>
+                  <dt className="text-zinc-500">Stav recenze</dt>
+                  <dd className="font-medium">{String(reviewDetail.status ?? '—')}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Email firmy</dt>
+                  <dd className="font-medium">
+                    {String(reviewDetail.companyNotificationEmailUsed ?? reviewDetail.companyNotificationEmail ?? '—')}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Notifikace firmy</dt>
+                  <dd className="font-medium">{String(reviewDetail.companyNotificationStatus ?? '—')}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Datum odeslání</dt>
+                  <dd className="font-medium">
+                    {reviewDetail.companyNotificationSentAt
+                      ? new Date(String(reviewDetail.companyNotificationSentAt)).toLocaleString('cs-CZ')
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Notifikace autora</dt>
+                  <dd className="font-medium">{String(reviewDetail.authorNotificationStatus ?? '—')}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Portal post</dt>
+                  <dd className="font-medium">
+                    {reviewDetail.portalPost && typeof reviewDetail.portalPost === 'object'
+                      ? String((reviewDetail.portalPost as { status?: string }).status ?? '—')
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Facebook</dt>
+                  <dd className="font-medium">{String(reviewDetail.facebookPublishStatus ?? '—')}</dd>
+                </div>
+                {reviewDetail.companyNotificationError ? (
+                  <div className="sm:col-span-2">
+                    <dt className="text-zinc-500">Chyba notifikace</dt>
+                    <dd className="font-medium text-red-700">{String(reviewDetail.companyNotificationError)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={reviewActionBusy}
+                  className="rounded border bg-white px-3 py-1.5 text-xs font-semibold"
+                  onClick={() => void resendCompanyNotification()}
+                >
+                  Odeslat upozornění znovu
+                </button>
+              </div>
             </div>
           ) : null}
 

@@ -1007,6 +1007,15 @@ export async function nestAdminGetReviewDetail(
   return adminFetch(token, `/reviews/${encodeURIComponent(reviewId)}`);
 }
 
+export async function nestAdminResendCompanyReviewNotification(
+  token: string,
+  reviewId: string,
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult(token, `/reviews/${encodeURIComponent(reviewId)}/resend-company-notification`, {
+    method: 'POST',
+  });
+}
+
 export async function nestAdminModerateReview(
   token: string,
   reviewId: string,

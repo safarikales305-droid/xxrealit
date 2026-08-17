@@ -198,7 +198,7 @@ export class CompanyApprovedEmailService {
   async enqueueReviewNotificationIfEligible(
     companyId: string,
     reviewId: string,
-    meta?: { claimRequestId?: string; adminUserId?: string },
+    meta?: { claimRequestId?: string; adminUserId?: string; force?: boolean },
   ): Promise<ReviewNotificationResult> {
     const review = await this.prisma.companyReview.findUnique({
       where: { id: reviewId },
@@ -232,35 +232,37 @@ export class CompanyApprovedEmailService {
     }
 
     if (
-      review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.SENT ||
-      review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.ALREADY_SENT ||
-      review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.QUEUED
+      !meta?.force &&
+      (review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.SENT ||
+        review.companyNotificationStatus === CompanyReviewCompanyNotificationStatus.ALREADY_SENT)
     ) {
       return {
         notificationQueued: false,
-        notificationStatus: CompanyReviewCompanyNotificationStatus.ALREADY_SENT,
+        notificationStatus: review.companyNotificationStatus,
         reviewId,
       };
     }
 
-    const idempotencyKey = `COMPANY_REVIEW_NOTIFICATION:${reviewId}:${companyId}`;
-    const existingLog = await this.prisma.companyAuditLog.findFirst({
-      where: {
-        companyId,
-        action: 'COMPANY_REVIEW_NOTIFICATION_SENT',
-        message: { contains: idempotencyKey },
-      },
-    });
-    if (existingLog) {
-      await this.prisma.companyReview.update({
-        where: { id: reviewId },
-        data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.ALREADY_SENT },
+    const idempotencyKey = `COMPANY_REVIEW_NOTIFICATION:${companyId}:${reviewId}`;
+    if (!meta?.force) {
+      const existingLog = await this.prisma.companyAuditLog.findFirst({
+        where: {
+          companyId,
+          action: 'COMPANY_REVIEW_NOTIFICATION_SENT',
+          message: { contains: idempotencyKey },
+        },
       });
-      return {
-        notificationQueued: false,
-        notificationStatus: CompanyReviewCompanyNotificationStatus.ALREADY_SENT,
-        reviewId,
-      };
+      if (existingLog) {
+        await this.prisma.companyReview.update({
+          where: { id: reviewId },
+          data: { companyNotificationStatus: CompanyReviewCompanyNotificationStatus.ALREADY_SENT },
+        });
+        return {
+          notificationQueued: false,
+          notificationStatus: CompanyReviewCompanyNotificationStatus.ALREADY_SENT,
+          reviewId,
+        };
+      }
     }
 
     await this.audit.log({
@@ -268,13 +270,14 @@ export class CompanyApprovedEmailService {
       action: 'COMPANY_REVIEW_NOTIFICATION_QUEUED',
       message: `Zařazeno upozornění firmě o recenzi ${reviewId}`,
       actorUserId: meta?.adminUserId,
-      meta: { reviewId, claimRequestId: meta?.claimRequestId, idempotencyKey },
+      meta: { reviewId, claimRequestId: meta?.claimRequestId, idempotencyKey, forced: Boolean(meta?.force) },
     });
 
     void this.companyEmail
       .notifyCompanyNewReview(companyId, reviewId, {
-        idempotencyKey,
+        idempotencyKey: meta?.force ? undefined : idempotencyKey,
         adminUserId: meta?.adminUserId,
+        force: meta?.force,
       })
       .catch(() => undefined);
 

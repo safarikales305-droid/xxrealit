@@ -34,6 +34,7 @@ import { CompanySeoPageService } from './company-seo-page.service';
 import { CompanySeoGenerationJobService } from './company-seo-generation-job.service';
 import { CompanyPortalFeedService } from './company-portal-feed.service';
 import { CompanyApprovedEmailService } from './company-approved-email.service';
+import { CompanyReviewSocialCardService } from './company-review-social-card.service';
 import { PublicProfileDirectoryService } from './public-profile-directory.service';
 import { COMPANY_REPUTATION_PROVIDER } from './company-reputation.provider';
 import { GooglePlacesReputationProvider } from './google-places-reputation.provider';
@@ -69,6 +70,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyPortalFeedService,
     CompanySocialPublishService,
     CompanyApprovedEmailService,
+    CompanyReviewSocialCardService,
     CompanyReviewMediaStorageService,
     CompanyReviewService,
     CompanyEngagementEventService,

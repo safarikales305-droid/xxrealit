@@ -36,6 +36,7 @@ import {
   getPublicPortalUrl,
   resolvePostShareImage,
   resolvePostShareVideo,
+  resolvePostSocialText,
 } from './social-publish-format.util';
 
 export type FacebookPublishPayload = {
@@ -996,7 +997,7 @@ export class SocialPublisherService {
 
     const videoUrl = resolvePostShareVideo(post);
     const imageUrl = resolvePostShareImage(post);
-    const text = (post.content ?? post.description ?? post.title ?? '').trim();
+    const text = resolvePostSocialText(post);
     const publicUrl = buildPostDetailUrl(post.id, post);
     const publishType = videoUrl ? PostSocialPublishType.REEL : PostSocialPublishType.POST;
 

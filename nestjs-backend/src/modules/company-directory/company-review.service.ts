@@ -12,6 +12,7 @@ import {
   CompanyContactSourceType,
   CompanyContactStatus,
   CompanyDirectoryCategory,
+  CompanyReviewAuthorNotificationStatus,
   CompanyReviewCompanyNotificationStatus,
   CompanyReviewSentiment,
   CompanyReviewStatus,
@@ -32,6 +33,12 @@ import {
   COMPANY_CONTACT_DISCOVERY_ENABLED,
 } from './company-directory.constants';
 import { CompanyContactDiscoveryService } from './company-contact-discovery.service';
+import { CompanyReviewSocialCardService } from './company-review-social-card.service';
+import {
+  buildCompanyReviewFacebookMessage,
+  buildCompanyReviewPortalContent,
+  categoryReviewHashtag,
+} from './company-review-social.util';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -75,6 +82,7 @@ export class CompanyReviewService {
     private readonly approvedEmail: CompanyApprovedEmailService,
     private readonly socialEnqueue: SocialPublishEnqueueService,
     private readonly contactDiscovery: CompanyContactDiscoveryService,
+    private readonly reviewSocialCard: CompanyReviewSocialCardService,
   ) {}
 
   async createReview(input: {
@@ -479,36 +487,28 @@ export class CompanyReviewService {
 
     if (
       review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.SENT &&
-      review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.QUEUED &&
       review.companyNotificationStatus !== CompanyReviewCompanyNotificationStatus.ALREADY_SENT
     ) {
-      const recipient = await this.companyEmail.resolveCompanyNotificationEmail(
-        review.companyId,
-        reviewId,
-      );
-      if (!recipient) {
-        await this.prisma.companyReview.update({
-          where: { id: reviewId },
-          data: {
-            companyNotificationStatus:
-              CompanyReviewCompanyNotificationStatus.WAITING_FOR_REVIEW_APPROVAL,
-          },
-        });
-      } else {
-        void this.approvedEmail.enqueueReviewNotificationIfEligible(
-          review.companyId,
-          reviewId,
-          { adminUserId: opts?.adminUserId },
-        );
-      }
+      void this.approvedEmail.enqueueReviewNotificationIfEligible(review.companyId, reviewId, {
+        adminUserId: opts?.adminUserId,
+      });
     }
 
     if (!wasPublished || review.reviewNeedsModeration) {
       void this.sendAuthorReviewPublishedEmail(reviewId);
     }
 
-    if (COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED && postId && !wasPublished) {
+    if (
+      COMPANY_REVIEW_SOCIAL_PUBLISHING_ENABLED &&
+      postId &&
+      !wasPublished &&
+      !review.facebookIntroPublished
+    ) {
       this.socialEnqueue.firePostCreated(postId);
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { facebookIntroPublished: true },
+      });
       await this.audit.log({
         companyId: review.companyId,
         action: 'FACEBOOK_PUBLISH',
@@ -796,12 +796,27 @@ export class CompanyReviewService {
         company: { select: { id: true, name: true, slug: true, ico: true } },
         authorUser: { select: { id: true, email: true, name: true, emailVerified: true } },
         media: { orderBy: { sortOrder: 'asc' } },
-        post: { select: { id: true, publishedAt: true, type: true } },
+        post: {
+          select: {
+            id: true,
+            publishedAt: true,
+            type: true,
+            postSocialPublishes: {
+              where: { platform: 'FACEBOOK' },
+              select: { status: true, externalUrl: true, errorMessage: true, publishedAt: true },
+            },
+          },
+        },
         revisions: { orderBy: { createdAt: 'desc' }, take: 20 },
         _count: { select: { reports: true } },
       },
     });
     if (!r) throw new NotFoundException('Recenze nenalezena.');
+    const companyNotificationEmail = await this.companyEmail.resolveCompanyNotificationEmail(
+      r.company.id,
+      r.id,
+    );
+    const facebookPublish = r.post?.postSocialPublishes?.[0] ?? null;
     return {
       id: r.id,
       company: r.company,
@@ -824,10 +839,29 @@ export class CompanyReviewService {
       removalReason: r.removalReason,
       moderationNote: r.moderationNote,
       companyNotificationStatus: r.companyNotificationStatus,
+      companyNotificationSentAt: r.companyNotificationSentAt?.toISOString() ?? null,
+      companyNotificationError: r.companyNotificationError,
+      companyNotificationMessageId: r.companyNotificationMessageId,
+      companyNotificationEmailUsed: r.companyNotificationEmailUsed,
+      companyNotificationEmail,
+      authorNotificationStatus: r.authorNotificationStatus,
+      authorNotificationSentAt: r.authorNotificationSentAt?.toISOString() ?? null,
+      authorNotificationError: r.authorNotificationError,
+      facebookIntroPublished: r.facebookIntroPublished,
+      facebookPublishStatus: facebookPublish?.status ?? null,
+      facebookPublishUrl: facebookPublish?.externalUrl ?? null,
+      facebookPublishError: facebookPublish?.errorMessage ?? null,
       createdAt: r.createdAt.toISOString(),
       publishedAt: r.publishedAt?.toISOString() ?? null,
       media: r.media,
-      portalPost: r.post,
+      portalPost: r.post
+        ? {
+            id: r.post.id,
+            publishedAt: r.post.publishedAt?.toISOString() ?? null,
+            type: r.post.type,
+            status: r.post.publishedAt ? 'PUBLISHED' : 'DRAFT',
+          }
+        : null,
       revisions: r.revisions,
       reportCount: r._count.reports,
       lastApproved: r.lastApprovedBody
@@ -838,6 +872,26 @@ export class CompanyReviewService {
             body: r.lastApprovedBody,
           }
         : null,
+    };
+  }
+
+  async resendCompanyNotification(reviewId: string, adminUserId: string) {
+    const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Recenze nenalezena.');
+    if (review.status !== CompanyReviewStatus.PUBLISHED) {
+      throw new BadRequestException('Upozornění lze odeslat pouze u publikované recenze.');
+    }
+
+    const result = await this.approvedEmail.enqueueReviewNotificationIfEligible(
+      review.companyId,
+      reviewId,
+      { adminUserId, force: true },
+    );
+
+    return {
+      ok: result.notificationQueued,
+      notificationStatus: result.notificationStatus,
+      reviewId,
     };
   }
 
@@ -1308,7 +1362,8 @@ export class CompanyReviewService {
       return existing?.id ?? null;
     }
 
-    const payload = this.buildPortalPostPayload(review);
+    const socialPayload = await this.buildReviewSocialPayload(review);
+    const payload = this.buildPortalPostPayload(socialPayload);
     if (existing) {
       await this.prisma.post.update({
         where: { id: existing.id },
@@ -1330,15 +1385,13 @@ export class CompanyReviewService {
         companyReviewId: review.id,
         publishedAt: review.publishedAt ?? new Date(),
         media:
-          review.media.filter((m) => !m.removedAt).length > 0
+          socialPayload.activeMedia.length > 0
             ? {
-                create: review.media
-                  .filter((m) => !m.removedAt)
-                  .map((m, idx) => ({
-                    url: m.url,
-                    type: m.type === 'VIDEO' ? 'video' : 'image',
-                    order: idx,
-                  })),
+                create: socialPayload.activeMedia.map((m, idx) => ({
+                  url: m.url,
+                  type: m.type === 'VIDEO' ? 'video' : 'image',
+                  order: idx,
+                })),
               }
             : undefined,
       },
@@ -1347,29 +1400,78 @@ export class CompanyReviewService {
     return post.id;
   }
 
-  private buildPortalPostPayload(
+  private async buildReviewSocialPayload(
     review: Prisma.CompanyReviewGetPayload<{
       include: { company: true; media: true; authorUser: true };
     }>,
   ) {
     const company = review.company;
-    const stars = '★'.repeat(review.rating) + '☆'.repeat(5 - review.rating);
-    const sentimentLabel =
-      review.sentiment === CompanyReviewSentiment.POSITIVE
-        ? 'Pozitivní zkušenost'
-        : review.sentiment === CompanyReviewSentiment.NEGATIVE
-          ? 'Negativní zkušenost'
-          : 'Neutrální zkušenost';
+    const summary = await this.getReviewSummary(company.id);
+    const base = resolveFrontendUrl().replace(/\/+$/, '');
+    const companyProfileUrl = `${base}/firmy/${company.slug}`;
+    const reviewExcerpt = review.body.trim();
+    const socialCardUrl = await this.reviewSocialCard.generateReviewCard({
+      companyName: company.name,
+      reviewExcerpt,
+      averageRating: summary.average,
+      reviewCount: summary.count,
+      singleReviewRating: review.rating,
+      reviewId: review.id,
+    });
 
-    const authorName = review.authorDisplayName ?? review.authorUser.name ?? 'Uživatel';
+    const facebookText = buildCompanyReviewFacebookMessage({
+      companyName: company.name,
+      companyProfileUrl,
+      reviewExcerpt,
+      averageRating: summary.average,
+      reviewCount: summary.count,
+      singleReviewRating: review.rating,
+      sentiment: review.sentiment,
+      categoryHashtag: categoryReviewHashtag(company.categories[0]),
+      variantSeed: review.id,
+    });
+
+    const portal = buildCompanyReviewPortalContent({
+      companyName: company.name,
+      companyProfileUrl,
+      reviewExcerpt,
+      averageRating: summary.average,
+      reviewCount: summary.count,
+      singleReviewRating: review.rating,
+      positiveCount: summary.positive,
+      negativeCount: summary.negative,
+    });
+
     const activeMedia = review.media.filter((m) => !m.removedAt);
     return {
-      title: `${authorName} ohodnotil firmu ${company.name}`,
-      description: `${stars}\n\n${sentimentLabel}\n\n${review.body.slice(0, 280)}`,
-      content: review.body,
-      imageUrl: activeMedia.find((m) => m.type === 'IMAGE')?.url ?? null,
+      title: portal.title,
+      description: facebookText,
+      content: portal.content,
+      imageUrl: socialCardUrl ?? activeMedia.find((m) => m.type === 'IMAGE')?.url ?? null,
+      previewImage: socialCardUrl,
       videoUrl: activeMedia.find((m) => m.type === 'VIDEO')?.url ?? null,
       city: company.city ?? '',
+      activeMedia,
+    };
+  }
+
+  private buildPortalPostPayload(payload: {
+    title: string;
+    description: string;
+    content: string;
+    imageUrl: string | null;
+    previewImage: string | null;
+    videoUrl: string | null;
+    city: string;
+  }) {
+    return {
+      title: payload.title,
+      description: payload.description,
+      content: payload.content,
+      imageUrl: payload.imageUrl,
+      previewImage: payload.previewImage,
+      videoUrl: payload.videoUrl,
+      city: payload.city,
     };
   }
 
@@ -1394,13 +1496,20 @@ export class CompanyReviewService {
     kind: 'pending' | 'published' | 'rejected' | 'edited_pending',
     note?: string,
   ) {
-    try {
-      const review = await this.prisma.companyReview.findUnique({
-        where: { id: reviewId },
-        include: { authorUser: true, company: true },
-      });
-      if (!review?.authorUser?.email) return;
+    const review = await this.prisma.companyReview.findUnique({
+      where: { id: reviewId },
+      include: { authorUser: true, company: true },
+    });
+    if (!review?.authorUser?.email) return;
 
+    if (kind === 'published') {
+      await this.prisma.companyReview.update({
+        where: { id: reviewId },
+        data: { authorNotificationStatus: CompanyReviewAuthorNotificationStatus.QUEUED },
+      });
+    }
+
+    try {
       const reviewUrl = `${resolveFrontendUrl()}/firmy/${review.company.slug}#review-${review.id}`;
       const editUrl = `${resolveFrontendUrl()}/profil/recenze`;
       const subjects: Record<typeof kind, string> = {
@@ -1416,7 +1525,7 @@ export class CompanyReviewService {
         edited_pending: `Dobrý den,\n\nvaše upravená recenze firmy ${review.company.name} čeká na kontrolu administrátorem.\n\n${editUrl}`,
       };
 
-      await this.emails.sendTemplatedEmail({
+      const sendResult = await this.emails.sendTemplatedEmail({
         type: `company_review_${kind}`,
         templateKey: 'custom_message',
         to: review.authorUser.email,
@@ -1424,11 +1533,34 @@ export class CompanyReviewService {
           subject: subjects[kind],
           bodyHtml: bodies[kind].replace(/\n/g, '<br/>'),
           bodyText: bodies[kind],
+          ctaUrl: kind === 'published' ? reviewUrl : editUrl,
         },
       });
+
+      if (kind === 'published') {
+        await this.prisma.companyReview.update({
+          where: { id: reviewId },
+          data: {
+            authorNotificationStatus: CompanyReviewAuthorNotificationStatus.SENT,
+            authorNotificationSentAt: new Date(),
+            authorNotificationError: null,
+          },
+        });
+      }
+      void sendResult;
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (kind === 'published') {
+        await this.prisma.companyReview.update({
+          where: { id: reviewId },
+          data: {
+            authorNotificationStatus: CompanyReviewAuthorNotificationStatus.FAILED,
+            authorNotificationError: message.slice(0, 2000),
+          },
+        });
+      }
       this.log.warn(
-        `Author review email (${kind}) failed for ${reviewId}: ${err instanceof Error ? err.message : String(err)}`,
+        `Author review email (${kind}) failed for ${reviewId}: ${message}`,
       );
     }
   }

@@ -53,14 +53,17 @@ export function FirmaDetailClient({
   slug: string;
   initialData?: CompanyDirectoryDetailResponse | null;
   initialReviews?: ReviewItem[];
-  initialReviewSummary?: { average: number | null; count: number };
+  initialReviewSummary?: { average: number | null; count: number; positive?: number; negative?: number };
   initialPortalPosts?: PortalPostFeedItem[];
 }) {
   const [data, setData] = useState<CompanyDirectoryDetailResponse | null>(initialData);
   const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews);
-  const [reviewSummary, setReviewSummary] = useState<{ average: number | null; count: number }>(
-    initialReviewSummary,
-  );
+  const [reviewSummary, setReviewSummary] = useState<{
+    average: number | null;
+    count: number;
+    positive?: number;
+    negative?: number;
+  }>(initialReviewSummary);
   const [loading, setLoading] = useState(!initialData);
   const [claimOpen, setClaimOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -240,6 +243,14 @@ export function FirmaDetailClient({
 
   const xxAvg = reviewSummary.average ?? company.xxrealitRatingAverage;
   const xxCount = reviewSummary.count ?? company.xxrealitReviewCount ?? 0;
+  const xxPositive = reviewSummary.positive ?? 0;
+  const xxNegative = reviewSummary.negative ?? 0;
+  const xxStars =
+    xxAvg != null
+      ? '★'.repeat(Math.round(xxAvg)) + '☆'.repeat(5 - Math.round(xxAvg))
+      : null;
+  const reviewCountLabel =
+    xxCount === 1 ? '1 recenze' : xxCount >= 2 && xxCount <= 4 ? `${xxCount} recenze` : `${xxCount} recenzí`;
   const enrichmentServices =
     company.enrichmentData?.services?.filter((s) => s.value?.trim()) ?? [];
 
@@ -312,13 +323,15 @@ export function FirmaDetailClient({
             </div>
 
             <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-4">
-              <h2 className="text-sm font-semibold text-zinc-900">Hodnocení uživatelů XXREALIT</h2>
+              <h2 className="text-sm font-semibold text-zinc-900">Hodnocení XXREALIT</h2>
               {xxCount > 0 && xxAvg != null ? (
                 <>
-                  <p className="mt-2 text-2xl font-bold text-zinc-900">
-                    {xxAvg.toFixed(1)} / 5
+                  <p className="mt-2 text-2xl text-amber-500">{xxStars}</p>
+                  <p className="mt-1 text-2xl font-bold text-zinc-900">{xxAvg.toFixed(1)} / 5</p>
+                  <p className="text-xs text-zinc-600">{reviewCountLabel}</p>
+                  <p className="mt-2 text-xs text-zinc-600">
+                    Pozitivní: {xxPositive} · Negativní: {xxNegative}
                   </p>
-                  <p className="text-xs text-zinc-600">{xxCount} ověřených recenzí</p>
                 </>
               ) : (
                 <p className="mt-2 text-sm text-zinc-500">Zatím bez recenzí na XXREALIT.</p>

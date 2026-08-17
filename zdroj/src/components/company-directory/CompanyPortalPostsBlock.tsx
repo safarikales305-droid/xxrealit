@@ -38,7 +38,9 @@ export function CompanyPortalPostsBlock({ title = 'Co je nového na XXREALIT', i
         </Link>
       </div>
       <ul className="mt-4 space-y-3">
-        {items.map((post) => (
+        {items.map((post) => {
+          const isCompanyReview = post.postType === 'COMPANY_REVIEW';
+          return (
           <li key={post.id} className="flex gap-3 rounded-xl border border-zinc-100 p-3">
             {post.thumbnailUrl ? (
               <div className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
@@ -51,19 +53,20 @@ export function CompanyPortalPostsBlock({ title = 'Co je nového na XXREALIT', i
             )}
             <div className="min-w-0 flex-1">
               <p className="text-xs text-zinc-500">
-                {post.authorName ?? 'Uživatel'}
+                {isCompanyReview ? '⭐ Nová recenze firmy' : (post.authorName ?? 'Uživatel')}
                 {post.category ? ` · ${post.category}` : ''}
                 {post.publishedAt
                   ? ` · ${new Date(post.publishedAt).toLocaleDateString('cs-CZ')}`
                   : ''}
               </p>
-              <p className="mt-1 line-clamp-2 text-sm text-zinc-700">{post.excerpt}</p>
+              <p className="mt-1 line-clamp-3 whitespace-pre-line text-sm text-zinc-700">{post.excerpt}</p>
               <Link href={post.href} className="mt-1 inline-block text-xs font-semibold text-orange-700 hover:underline">
-                Zobrazit příspěvek
+                {isCompanyReview ? 'Zobrazit příspěvek' : 'Zobrazit příspěvek'}
               </Link>
             </div>
           </li>
-        ))}
+        );
+        })}
       </ul>
     </section>
   );
