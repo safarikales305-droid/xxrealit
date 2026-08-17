@@ -28,6 +28,8 @@ import {
 import { computeJobProgress } from './company-job-progress.util';
 import { buildAdminCompanyExtendedWhere } from './company-directory.serializer';
 import { CompanyContactDiscoveryPipelineService } from './company-contact-discovery-pipeline.service';
+
+const STALE_SEARCHING_MS = 15 * 60 * 1000;
 const BLOCKED_REQUEUE: CompanyContactDiscoveryEntryState[] = [
   'QUEUED',
   'SEARCHING',
@@ -58,6 +60,8 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   private readonly log = new Logger(CompanyContactDiscoveryService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private processing = false;
+  private lastHeartbeatAt: Date | null = null;
+  private readonly workerInstanceId = `contact-discovery-${process.pid}`;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -66,8 +70,32 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   ) {}
 
   onModuleInit(): void {
+    void this.bootstrapWorker();
     this.timer = setInterval(() => void this.tick(), ARES_WORKER_TICK_MS);
-    void this.recoverStaleJobs();
+  }
+
+  private async bootstrapWorker() {
+    await this.recoverStaleJobs();
+    const [waiting, active] = await Promise.all([
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.PENDING },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { status: CompanyContactDiscoveryStatus.RUNNING },
+      }),
+    ]);
+    this.log.log(
+      JSON.stringify({
+        event: 'CONTACT_DISCOVERY_WORKER_STARTED',
+        mode: 'DB_QUEUE',
+        pollIntervalMs: ARES_WORKER_TICK_MS,
+        concurrency: CONTACT_DISCOVERY_CONCURRENCY,
+        enabled: COMPANY_CONTACT_DISCOVERY_ENABLED,
+        waitingCount: waiting,
+        activeCount: active,
+        workerInstanceId: this.workerInstanceId,
+      }),
+    );
   }
 
   onModuleDestroy(): void {
@@ -568,6 +596,10 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       aiAnalysis: provider.aiAnalysis,
       searchProviderName: provider.searchProviderName,
       processing: this.processing,
+      lastHeartbeatAt: this.lastHeartbeatAt?.toISOString() ?? null,
+      lastHeartbeatSecondsAgo: this.lastHeartbeatAt
+        ? Math.round((Date.now() - this.lastHeartbeatAt.getTime()) / 1000)
+        : null,
       queue: { waiting, active: running },
       activeBatches,
       concurrency: CONTACT_DISCOVERY_CONCURRENCY,
@@ -633,13 +665,27 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
 
   private async tick() {
     if (this.processing || !COMPANY_CONTACT_DISCOVERY_ENABLED) return;
+    this.lastHeartbeatAt = new Date();
+    await this.recoverStaleJobs();
+
     const batch = await this.prisma.companyContactDiscoveryBatch.findFirst({
       where: {
         status: { in: [CompanyProviderJobStatus.PENDING, CompanyProviderJobStatus.RUNNING] },
+        jobs: { some: { status: CompanyContactDiscoveryStatus.PENDING } },
       },
       orderBy: { createdAt: 'asc' },
     });
-    if (!batch) return;
+    if (!batch) {
+      const orphanBatch = await this.reopenBatchWithPendingJobs();
+      if (!orphanBatch?.batchId) return;
+      this.processing = true;
+      try {
+        await this.processBatchSlice(orphanBatch.batchId);
+      } finally {
+        this.processing = false;
+      }
+      return;
+    }
 
     this.processing = true;
     try {
@@ -647,6 +693,23 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     } finally {
       this.processing = false;
     }
+  }
+
+  private async reopenBatchWithPendingJobs() {
+    const pendingJob = await this.prisma.companyContactDiscoveryJob.findFirst({
+      where: { status: CompanyContactDiscoveryStatus.PENDING },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!pendingJob?.batchId) return null;
+    await this.prisma.companyContactDiscoveryBatch.update({
+      where: { id: pendingJob.batchId },
+      data: {
+        status: CompanyProviderJobStatus.PENDING,
+        finishedAt: null,
+        error: null,
+      },
+    });
+    return pendingJob;
   }
 
   private async processBatchSlice(batchId: string) {
@@ -663,10 +726,15 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     });
 
     if (pendingJobs.length === 0) {
-      const remaining = await this.prisma.companyContactDiscoveryJob.count({
-        where: { batchId, status: CompanyContactDiscoveryStatus.RUNNING },
-      });
-      if (remaining === 0) {
+      const [remainingRunning, remainingPending] = await Promise.all([
+        this.prisma.companyContactDiscoveryJob.count({
+          where: { batchId, status: CompanyContactDiscoveryStatus.RUNNING },
+        }),
+        this.prisma.companyContactDiscoveryJob.count({
+          where: { batchId, status: CompanyContactDiscoveryStatus.PENDING },
+        }),
+      ]);
+      if (remainingRunning === 0 && remainingPending === 0) {
         await this.prisma.companyContactDiscoveryBatch.update({
           where: { id: batchId },
           data: { status: CompanyProviderJobStatus.COMPLETED, finishedAt: new Date() },
@@ -692,14 +760,38 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
     let queued = batch.queued;
 
     for (const job of pendingJobs) {
-      if (!job.companyId) continue;
+      if (!job.companyId) {
+        await this.prisma.companyContactDiscoveryJob.update({
+          where: { id: job.id },
+          data: {
+            status: CompanyContactDiscoveryStatus.FAILED,
+            error: 'Chybí vazba na firmu',
+            finishedAt: new Date(),
+          },
+        });
+        failed += 1;
+        processed += 1;
+        continue;
+      }
       const company = await this.prisma.companyDirectoryEntry.findUnique({
         where: { id: job.companyId },
       });
-      if (!company) continue;
+      if (!company) {
+        await this.prisma.companyContactDiscoveryJob.update({
+          where: { id: job.id },
+          data: {
+            status: CompanyContactDiscoveryStatus.FAILED,
+            error: 'Firma nenalezena',
+            finishedAt: new Date(),
+          },
+        });
+        failed += 1;
+        processed += 1;
+        continue;
+      }
 
-      await this.prisma.companyContactDiscoveryJob.update({
-        where: { id: job.id },
+      const claimed = await this.prisma.companyContactDiscoveryJob.updateMany({
+        where: { id: job.id, status: CompanyContactDiscoveryStatus.PENDING },
         data: {
           status: CompanyContactDiscoveryStatus.RUNNING,
           attempts: { increment: 1 },
@@ -707,6 +799,7 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
           website: company.website,
         },
       });
+      if (claimed.count === 0) continue;
       await this.prisma.companyDirectoryEntry.update({
         where: { id: company.id },
         data: { contactDiscoveryState: 'SEARCHING' },
@@ -796,9 +889,15 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
       await new Promise((r) => setTimeout(r, batch.delayMs ?? CONTACT_DISCOVERY_DELAY_MS));
     }
 
-    const done =
-      processed >= (batch.totalExpected ?? batch.companyIds.length) &&
-      pendingJobs.length < CONTACT_DISCOVERY_CONCURRENCY;
+    const [remainingPending, remainingRunning] = await Promise.all([
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { batchId, status: CompanyContactDiscoveryStatus.PENDING },
+      }),
+      this.prisma.companyContactDiscoveryJob.count({
+        where: { batchId, status: CompanyContactDiscoveryStatus.RUNNING },
+      }),
+    ]);
+    const done = remainingPending === 0 && remainingRunning === 0;
 
     await this.prisma.companyContactDiscoveryBatch.update({
       where: { id: batchId },
@@ -808,9 +907,9 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
         notFound,
         needsReview,
         failed,
-        queued,
+        queued: Math.max(0, remainingPending),
         lastActivityAt: new Date(),
-        status: done ? CompanyProviderJobStatus.COMPLETED : CompanyProviderJobStatus.PENDING,
+        status: done ? CompanyProviderJobStatus.COMPLETED : CompanyProviderJobStatus.RUNNING,
         finishedAt: done ? new Date() : null,
       },
     });
@@ -940,18 +1039,33 @@ export class CompanyContactDiscoveryService implements OnModuleInit, OnModuleDes
   }
 
   private async recoverStaleJobs() {
+    const cutoff = new Date(Date.now() - STALE_SEARCHING_MS);
     const stale = await this.prisma.companyContactDiscoveryJob.findMany({
-      where: { status: CompanyContactDiscoveryStatus.RUNNING },
+      where: {
+        status: CompanyContactDiscoveryStatus.RUNNING,
+        OR: [{ startedAt: { lt: cutoff } }, { startedAt: null }],
+      },
+      take: 50,
     });
     for (const job of stale) {
+      const attempts = job.attempts ?? 0;
+      const nextStatus =
+        attempts >= 3 ? CompanyContactDiscoveryStatus.FAILED : CompanyContactDiscoveryStatus.PENDING;
       await this.prisma.companyContactDiscoveryJob.update({
         where: { id: job.id },
-        data: { status: CompanyContactDiscoveryStatus.PENDING },
+        data: {
+          status: nextStatus,
+          error: nextStatus === CompanyContactDiscoveryStatus.FAILED ? 'Timeout při dohledávání' : null,
+          finishedAt: nextStatus === CompanyContactDiscoveryStatus.FAILED ? new Date() : null,
+        },
       });
       if (job.companyId) {
         await this.prisma.companyDirectoryEntry.update({
           where: { id: job.companyId },
-          data: { contactDiscoveryState: 'QUEUED' },
+          data: {
+            contactDiscoveryState:
+              nextStatus === CompanyContactDiscoveryStatus.FAILED ? 'FAILED' : 'QUEUED',
+          },
         });
       }
     }

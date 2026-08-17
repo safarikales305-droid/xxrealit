@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { CompanyEmailLogStatus, CompanyReviewCompanyNotificationStatus } from '@prisma/client';
+import {
+  CompanyContactStatus,
+  CompanyEmailLogStatus,
+  CompanyReviewCompanyNotificationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
@@ -104,7 +108,23 @@ export class CompanyEmailService {
     const review = await this.prisma.companyReview.findUnique({ where: { id: reviewId } });
     if (!company || !review) return;
 
-    const recipient = company.verifiedBusinessEmail?.trim();
+    let recipient = company.verifiedBusinessEmail?.trim() || review.submittedBusinessEmail?.trim() || '';
+    if (!recipient) {
+      const discovered = await this.prisma.companyContact.findFirst({
+        where: {
+          companyId,
+          status: {
+            in: [
+              CompanyContactStatus.FOUND_HIGH_CONFIDENCE,
+              CompanyContactStatus.FOUND_MEDIUM_CONFIDENCE,
+              CompanyContactStatus.VERIFIED,
+            ],
+          },
+        },
+        orderBy: { confidence: 'desc' },
+      });
+      recipient = discovered?.email?.trim() ?? '';
+    }
     if (!recipient) {
       await this.prisma.companyReview.update({
         where: { id: reviewId },

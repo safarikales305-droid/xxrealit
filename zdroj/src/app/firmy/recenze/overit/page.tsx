@@ -23,7 +23,7 @@ function VerifyReviewContent() {
     void nestVerifyCompanyReview(token).then((res) => {
       if (res?.ok) {
         setStatus('ok');
-        setMessage('Email byl ověřen. Recenze byla zveřejněna.');
+        setMessage('Email byl ověřen. Recenze čeká na schválení administrátorem.');
         if (res.slug) setRedirectSlug(res.slug);
       } else {
         setStatus('error');

@@ -318,7 +318,7 @@ export function buildAresSearchFilter(input: {
   const sidlo: NonNullable<AresSearchFilter['sidlo']> = {};
 
   if (input.district?.trim()) {
-    sidlo.nazevObce = input.district.trim();
+    sidlo.nazevOkresu = input.district.trim();
   } else if (input.city?.trim() && !isPragueLocation(input.city, input.region)) {
     sidlo.nazevObce = input.city.trim();
   } else if (input.city?.trim() && isPragueLocation(input.city, input.region)) {

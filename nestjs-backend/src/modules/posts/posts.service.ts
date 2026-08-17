@@ -656,7 +656,7 @@ export class PostsService {
       orderedIds
         .map((id) => rowById.get(id))
         .filter((row): row is NonNullable<typeof row> => Boolean(row))
-        .filter((row) => isCommunityPostAuthorVisibleUser(row.user))
+        .filter((row) => row.type === 'COMPANY_REVIEW' || isCommunityPostAuthorVisibleUser(row.user))
         .map((row) => ({
           ...row,
           media: row.media.filter((m) => isPublicMediaUrl(m.url)),
@@ -739,11 +739,17 @@ export class PostsService {
       SELECT p.id
       FROM "Post" p
       INNER JOIN "User" u ON u.id = p."userId"
-      WHERE u."accountLimited" = false
-        AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
-        AND u."publicProfile" = true
-        AND u.role IN (${roleInClause})
-        AND p.type <> 'short'
+      WHERE p.type <> 'short'
+        AND p."publishedAt" IS NOT NULL
+        AND (
+          (p.type = 'COMPANY_REVIEW')
+          OR (
+            u."accountLimited" = false
+            AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
+            AND u."publicProfile" = true
+            AND u.role IN (${roleInClause})
+          )
+        )
         ${authorRoleClause}
         ${followedOnlyClause}
         ${excludeClause}

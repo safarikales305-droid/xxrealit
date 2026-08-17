@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
-import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
+import { resolveFrontendUrl, buildPasswordResetUrl } from '../../common/resolve-frontend-url';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyEmailService } from './company-email.service';
 import {
@@ -139,9 +139,14 @@ export class CompanyReviewService {
 
     try {
       const company = await this.resolveCompany(input.companyId, input.companySlug);
+      let authorCreated = false;
       const authorUser = input.loggedInUserId
         ? await this.prisma.user.findUniqueOrThrow({ where: { id: input.loggedInUserId } })
-        : await this.resolveAuthorUser(email, input.authorDisplayName);
+        : await (async () => {
+            const resolved = await this.resolveAuthorUser(email, input.authorDisplayName);
+            authorCreated = resolved.created;
+            return resolved.user;
+          })();
 
       const duplicate = await this.prisma.companyReview.findFirst({
         where: {
@@ -219,6 +224,10 @@ export class CompanyReviewService {
 
       const verifyUrl = `${resolveFrontendUrl()}/firmy/recenze/overit?token=${token}&reviewId=${review.id}&slug=${encodeURIComponent(company.slug)}`;
       const emailSent = await this.sendReviewVerificationEmailSafe(email, verifyUrl);
+
+      if (authorCreated) {
+        void this.sendReviewAuthorOnboardingEmail(authorUser.id, email, company.name);
+      }
 
       if (
         COMPANY_CONTACT_DISCOVERY_ENABLED &&
@@ -1000,6 +1009,7 @@ export class CompanyReviewService {
     });
 
     if (wasPublished) {
+      await this.syncPortalPostFromReview(reviewId, false);
       await this.recalculateCompanyRating(review.companyId);
     }
 
@@ -1192,11 +1202,11 @@ export class CompanyReviewService {
 
   private async resolveAuthorUser(email: string, displayName?: string) {
     const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) return existing;
+    if (existing) return { user: existing, created: false };
 
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
     try {
-      return await this.prisma.user.create({
+      const user = await this.prisma.user.create({
         data: {
           email,
           password: passwordHash,
@@ -1204,12 +1214,39 @@ export class CompanyReviewService {
           emailVerified: false,
         },
       });
+      return { user, created: true };
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const retry = await this.prisma.user.findUnique({ where: { email } });
-        if (retry) return retry;
+        if (retry) return { user: retry, created: false };
       }
       throw err;
+    }
+  }
+
+  private async sendReviewAuthorOnboardingEmail(userId: string, email: string, companyName: string) {
+    try {
+      const token = randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { resetToken: token, resetExpires: expires },
+      });
+      const activateUrl = buildPasswordResetUrl(token);
+      await this.emails.sendTemplatedEmail({
+        type: 'company_review_author_onboarding',
+        templateKey: 'custom_message',
+        to: email,
+        variables: {
+          subject: 'Dokončete svůj účet na XXREALIT',
+          bodyHtml: `Dobrý den,<br/><br/>na XXREALIT jste přidali recenzi firmy <strong>${companyName}</strong>.<br/>Pro váš email jsme vytvořili účet, ke kterému je recenze přiřazena.<br/><br/><a href="${activateUrl}">Aktivovat účet</a><br/><br/>Po aktivaci uvidíte recenzi v sekci Moje recenze.`,
+          bodyText: `Dobrý den,\n\nna XXREALIT jste přidali recenzi firmy ${companyName}.\nPro váš email jsme vytvořili účet.\n\nAktivovat účet: ${activateUrl}`,
+        },
+      });
+    } catch (err) {
+      this.log.warn(
+        `Review author onboarding email failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

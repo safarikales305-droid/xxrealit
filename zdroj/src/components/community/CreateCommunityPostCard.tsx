@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Send, Star, Video } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import { extractFirstUrl } from '@/lib/extract-first-url';
@@ -55,7 +56,9 @@ export function CreateCommunityPostCard({
   defaultAuthorName,
   showReviewForGuests = false,
 }: Props) {
+  const router = useRouter();
   const { user, refresh } = useAuth();
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -446,7 +449,17 @@ export function CreateCommunityPostCard({
   );
 
   const formDisabled = publishAllowed === false && !showReviewForGuests;
-  const showComposerFields = publishAllowed !== false || showReviewForGuests;
+  const showComposerFields = Boolean(apiAccessToken) && (publishAllowed !== false || showReviewForGuests);
+  const isGuest = !apiAccessToken;
+
+  const openLoginPrompt = useCallback(() => {
+    setLoginPromptOpen(true);
+  }, []);
+
+  const goToLogin = useCallback(() => {
+    const redirect = encodeURIComponent('/?tab=posts');
+    router.push(`/prihlaseni?redirect=${redirect}`);
+  }, [router]);
 
   const showLinkCard =
     Boolean(linkPreview) && !imageFile && !videoFile && !linkPreviewDismissed;
@@ -622,7 +635,32 @@ export function CreateCommunityPostCard({
       </div>
       </>
       ) : (
-        <div className="mt-3">
+        <div className="mt-3 space-y-3">
+          <button
+            type="button"
+            onClick={openLoginPrompt}
+            className="w-full rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-left text-sm text-zinc-600 transition hover:border-orange-300 hover:bg-orange-50/40"
+          >
+            Co máte nového?
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={openLoginPrompt}
+              className="inline-flex h-10 items-center gap-2 rounded-2xl border border-zinc-200 px-3 text-sm text-zinc-700"
+            >
+              <ImageIcon className="size-4" />
+              Přidat fotografii
+            </button>
+            <button
+              type="button"
+              onClick={openLoginPrompt}
+              className="inline-flex h-10 items-center gap-2 rounded-2xl border border-zinc-200 px-3 text-sm text-zinc-700"
+            >
+              <Video className="size-4" />
+              Přidat video
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setReviewComposerOpen(true)}
@@ -641,6 +679,38 @@ export function CreateCommunityPostCard({
       defaultAuthorName={defaultAuthorName ?? user?.name ?? ''}
     />
     <PostUploadProgress />
+    {loginPromptOpen ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-zinc-900">Přihlášení je potřeba</h3>
+          <p className="mt-2 text-sm text-zinc-600">
+            Pro zveřejnění příspěvku se musíte přihlásit. Recenze firmy je dostupná i bez účtu.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={goToLogin}
+              className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-semibold text-white"
+            >
+              Přihlásit
+            </button>
+            <Link
+              href={`/registrace?redirect=${encodeURIComponent('/?tab=posts')}`}
+              className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-semibold text-zinc-800"
+            >
+              Registrovat
+            </Link>
+            <button
+              type="button"
+              onClick={() => setLoginPromptOpen(false)}
+              className="rounded-full px-3 py-2 text-sm text-zinc-500"
+            >
+              Zavřít
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
     </>
   );
 }

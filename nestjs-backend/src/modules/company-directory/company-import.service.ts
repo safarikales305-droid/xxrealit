@@ -33,6 +33,7 @@ import {
 } from './ares-import-split.util';
 import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
+import { getAresImportSkipReason } from './ares-company-importability.util';
 import { computeJobProgress } from './company-job-progress.util';
 
 type StartImportInput = {
@@ -523,6 +524,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
           return;
         }
+        checkpoint.needsResplit = true;
+        checkpoint.phase = 'DISCOVERING';
+        await this.persistCheckpoint(jobId, job, checkpoint);
+        throw new Error(
+          `Partition ${partitionLabel} vrací ${subTotal} výsledků (>1000) a nelze ji dále rozdělit.`,
+        );
       }
 
       if (subTotal != null) {
@@ -592,6 +599,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
             name: result.name,
             city: result.city,
             category: job.category,
+            errorMessage: result.skipReason,
           });
         } catch (err) {
           failed += 1;
@@ -705,7 +713,18 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     companyId?: string;
     name?: string;
     city?: string | null;
+    skipReason?: string;
   }> {
+    const skipReason = getAresImportSkipReason(subject);
+    if (skipReason) {
+      return {
+        action: 'skipped',
+        name: subject.obchodniJmeno ?? undefined,
+        city: subject.sidlo?.nazevObce ?? null,
+        skipReason,
+      };
+    }
+
     const full =
       subject.obchodniJmeno && subject.sidlo
         ? subject

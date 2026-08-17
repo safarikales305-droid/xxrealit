@@ -508,6 +508,18 @@ export default function AdminFirmyPage() {
             <p>
               Worker:{' '}
               <strong>{String((metrics.contactDiscovery as { worker?: string }).worker ?? '—')}</strong>
+              {(metrics.contactDiscovery as { lastHeartbeatSecondsAgo?: number | null }).lastHeartbeatSecondsAgo !=
+              null ? (
+                <span className="text-xs text-zinc-500">
+                  {' '}
+                  · heartbeat před{' '}
+                  {String(
+                    (metrics.contactDiscovery as { lastHeartbeatSecondsAgo?: number | null })
+                      .lastHeartbeatSecondsAgo,
+                  )}
+                  s
+                </span>
+              ) : null}
             </p>
             <p>
               Queue:{' '}
