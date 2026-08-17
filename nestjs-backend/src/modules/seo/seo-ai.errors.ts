@@ -3,6 +3,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 export type SeoAiErrorCode =
   | 'LOCALITY_NOT_FOUND'
   | 'LOCALITY_AMBIGUOUS'
+  | 'LOCATION_UNRESOLVED'
   | 'SEO_PAGE_ALREADY_EXISTS'
   | 'OPENAI_DISABLED'
   | 'OPENAI_NOT_CONFIGURED'

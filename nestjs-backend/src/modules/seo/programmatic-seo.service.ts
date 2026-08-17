@@ -22,6 +22,9 @@ import {
 } from './programmatic-seo.util';
 import { SeoContentService } from './seo-content.service';
 import { SeoLocationService } from './seo-location.service';
+import { SeoLocationDisplayService } from './seo-location-display.service';
+import { SeoPortalFeedService } from './seo-portal-feed.service';
+import { buildMarketStats, type SeoMarketStats } from './seo-market-stats.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import { getRobotsMetadata } from './seo-indexability.util';
 import type { SitemapEntry } from './seo.service';
@@ -44,6 +47,15 @@ export type ProgrammaticSeoPagePayload = ProgrammaticSeoCopy & {
   totalCount: number;
   hasListings: boolean;
   listings: ProgrammaticSeoListingPreview[];
+  marketStats: SeoMarketStats | null;
+  latestPosts: Awaited<ReturnType<SeoPortalFeedService['getLatestForSeoPage']>>['items'];
+  locationMeta?: {
+    officialCode?: string;
+    resolvedFrom?: string;
+    districtName?: string | null;
+    regionName?: string | null;
+    status?: string;
+  };
   relatedLocations: Array<{ slug: string; name: string; path: string }>;
   internalLinks: {
     sameIntentNearby: Array<{ slug: string; name: string; path: string }>;
@@ -70,6 +82,8 @@ export class ProgrammaticSeoService {
     private readonly prisma: PrismaService,
     private readonly seoLocations: SeoLocationService,
     private readonly seoContent: SeoContentService,
+    private readonly locationDisplay: SeoLocationDisplayService,
+    private readonly portalFeed: SeoPortalFeedService,
   ) {}
 
   private dbToCzGeo(row: {
@@ -108,6 +122,10 @@ export class ProgrammaticSeoService {
   }
 
   async resolveLocation(slug: string): Promise<CzGeoLocation | null> {
+    const resolved = await this.locationDisplay.resolveSeoLocationBySlug(slug);
+    if (resolved) {
+      return this.locationDisplay.toCzGeoLocation(resolved);
+    }
     const db = await this.seoLocations.findBySlug(slug);
     if (db) {
       return this.dbToCzGeo(db);
@@ -119,13 +137,18 @@ export class ProgrammaticSeoService {
     const intent = getProgrammaticSeoIntent(intentSlug);
     if (!intent) throw new NotFoundException('Neznámý typ stránky.');
 
-    const location = await this.resolveLocation(locationSlug);
+    const resolved = await this.locationDisplay.resolveSeoLocationBySlug(locationSlug);
+    const location = resolved
+      ? this.locationDisplay.toCzGeoLocation(resolved)
+      : await this.resolveLocation(locationSlug);
     if (!location) throw new NotFoundException('Lokalita nenalezena.');
 
     const pageKey = buildProgrammaticSeoPageKey(intentSlug, location.slug);
     const published = await this.seoContent.getPublished(pageKey);
     const generated = buildProgrammaticSeoCopy(intent, location);
     const extended = buildExtendedSeoMetadata(intent, location, generated);
+
+    const unresolved = resolved?.status === 'LOCATION_UNRESOLVED';
 
     const copy: ProgrammaticSeoCopy = published?.h1
       ? {
@@ -143,15 +166,15 @@ export class ProgrammaticSeoService {
     const seoMeta = published
       ? (() => {
           const robots = getRobotsMetadata({
-            noindex: published.noindex,
-            robots: published.robots,
-            indexable: published.indexable,
+            noindex: published.noindex || unresolved,
+            robots: unresolved ? 'noindex,follow' : published.robots,
+            indexable: unresolved ? false : published.indexable,
           });
           return {
             canonical: published.canonical ?? extended.canonical,
             robots: robots.robots,
             noindex: !robots.index,
-            indexable: published.indexable,
+            indexable: unresolved ? false : published.indexable,
             ogTitle: published.ogTitle ?? extended.ogTitle,
             ogDescription: published.ogDescription ?? extended.ogDescription,
             ogImage: published.ogImage ?? extended.ogImage,
@@ -164,15 +187,23 @@ export class ProgrammaticSeoService {
         })()
       : {
           canonical: extended.canonical,
-          robots: extended.robots,
-          noindex: false,
-          indexable: true,
+          robots: unresolved ? 'noindex,follow' : extended.robots,
+          noindex: unresolved,
+          indexable: !unresolved,
           ogTitle: extended.ogTitle,
           ogDescription: extended.ogDescription,
           ogImage: extended.ogImage,
           twitterCard: extended.twitterCard,
           schemaJson: extended.schemaJson,
         };
+
+    const latestPosts = (
+      await this.portalFeed.getLatestForSeoPage({
+        cityName: location.name,
+        regionName: resolved?.regionName,
+        limit: 5,
+      })
+    ).items;
 
     return {
       ...copy,
@@ -181,6 +212,17 @@ export class ProgrammaticSeoService {
       totalCount: 0,
       hasListings: false,
       listings: [],
+      marketStats: null,
+      latestPosts,
+      locationMeta: resolved
+        ? {
+            officialCode: resolved.officialCode,
+            resolvedFrom: resolved.resolvedFrom,
+            districtName: resolved.districtName,
+            regionName: resolved.regionName,
+            status: resolved.status,
+          }
+        : undefined,
       relatedLocations: [],
       internalLinks: {
         sameIntentNearby: [],
@@ -210,10 +252,16 @@ export class ProgrammaticSeoService {
     const locationSlug = row.location?.slug;
     if (!locationSlug) throw new NotFoundException('SEO stránka nemá lokalitu.');
 
+    const resolved = row.location?.id
+      ? await this.locationDisplay.resolveSeoLocation(row.location.id)
+      : null;
+
     const intent = getProgrammaticSeoIntent(row.intentSlug);
     if (!intent) throw new NotFoundException('Neznámý intent.');
 
-    const location = await this.resolveLocation(locationSlug);
+    const location = resolved
+      ? this.locationDisplay.toCzGeoLocation(resolved)
+      : await this.resolveLocation(locationSlug);
     if (!location) throw new NotFoundException('Lokalita nenalezena.');
 
     const generated = buildProgrammaticSeoCopy(intent, location);
@@ -257,6 +305,14 @@ export class ProgrammaticSeoService {
           schemaJson: extended.schemaJson,
         };
 
+    const latestPosts = (
+      await this.portalFeed.getLatestForSeoPage({
+        cityName: location.name,
+        regionName: resolved?.regionName,
+        limit: 5,
+      })
+    ).items;
+
     const base: ProgrammaticSeoPagePayload = {
       ...copy,
       intent,
@@ -264,6 +320,17 @@ export class ProgrammaticSeoService {
       totalCount: 0,
       hasListings: false,
       listings: [],
+      marketStats: null,
+      latestPosts,
+      locationMeta: resolved
+        ? {
+            officialCode: resolved.officialCode,
+            resolvedFrom: resolved.resolvedFrom,
+            districtName: resolved.districtName,
+            regionName: resolved.regionName,
+            status: resolved.status,
+          }
+        : undefined,
       relatedLocations: [],
       internalLinks: {
         sameIntentNearby: [],
@@ -343,7 +410,7 @@ export class ProgrammaticSeoService {
 
     const where: Prisma.PropertyWhereInput = { AND: whereParts };
 
-    const [rows, totalCount] = await Promise.all([
+    const [rows, totalCount, priceRows] = await Promise.all([
       intent.isBrokerPage
         ? Promise.resolve([])
         : this.prisma.property.findMany({
@@ -358,6 +425,7 @@ export class ProgrammaticSeoService {
               mainImage: true,
               offerType: true,
               propertyType: true,
+              area: true,
               approved: true,
               isActive: true,
               isVisible: true,
@@ -371,6 +439,14 @@ export class ProgrammaticSeoService {
       intent.isBrokerPage
         ? Promise.resolve(0)
         : this.prisma.property.count({ where }),
+      intent.isBrokerPage
+        ? Promise.resolve([])
+        : this.prisma.property.findMany({
+            where: { ...where, price: { gt: 0 } },
+            select: { price: true, area: true },
+            take: 200,
+            orderBy: { createdAt: 'desc' },
+          }),
     ]);
 
     const listings: ProgrammaticSeoListingPreview[] = rows
@@ -392,11 +468,27 @@ export class ProgrammaticSeoService {
     const generated = buildProgrammaticSeoCopy(intent, location);
     const extended = buildExtendedSeoMetadata(intent, location, generated);
 
+    const marketStats = buildMarketStats({
+      prices: priceRows.map((r) => r.price ?? 0),
+      areas: priceRows.map((r) => r.area),
+      listingCount: totalCount,
+    });
+
+    const latestPosts = (
+      await this.portalFeed.getLatestForSeoPage({
+        cityName: location.name,
+        regionName: base.locationMeta?.regionName,
+        limit: 5,
+      })
+    ).items;
+
     return {
       ...base,
       totalCount,
       hasListings: totalCount > 0,
       listings,
+      marketStats: marketStats.hasEnoughData ? marketStats : null,
+      latestPosts,
       relatedLocations,
       internalLinks: {
         ...internalLinks,

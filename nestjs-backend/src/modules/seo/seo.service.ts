@@ -697,4 +697,14 @@ export class SeoService {
     }
     return { processed: rows.length };
   }
+
+  async lookupRedirect(path: string): Promise<{ toPath: string; statusCode: number } | null> {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    const row = await this.prisma.seoRedirect.findUnique({
+      where: { fromPath: normalized },
+      select: { toPath: true, statusCode: true },
+    });
+    if (!row) return null;
+    return { toPath: row.toPath, statusCode: row.statusCode };
+  }
 }

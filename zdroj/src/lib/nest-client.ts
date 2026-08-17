@@ -14660,6 +14660,49 @@ export async function nestAdminSeoGenerationStats(
   return nestAdminSeoJson<SeoGenerationStats>(token, '/stats');
 }
 
+export type SeoNumericLocationPage = {
+  id: string;
+  pageKey: string;
+  intentSlug: string;
+  h1: string | null;
+  title: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  locationSlug: string | null;
+  officialCode: string | null;
+  status: string;
+  repairStatus: string;
+};
+
+export type SeoNumericLocationRepairResult = {
+  scanned: number;
+  repaired: number;
+  failed: number;
+  dryRun: boolean;
+  results: Array<Record<string, unknown>>;
+};
+
+export async function nestAdminSeoNumericLocationPages(
+  token: string | null,
+  limit = 100,
+): Promise<SeoNumericLocationPage[] | null> {
+  return nestAdminSeoJson<SeoNumericLocationPage[]>(
+    token,
+    `/locations/numeric-pages?limit=${limit}`,
+  );
+}
+
+export async function nestAdminSeoRepairNumericLocationPages(
+  token: string | null,
+  body?: { limit?: number; dryRun?: boolean },
+): Promise<SeoNumericLocationRepairResult | null> {
+  return nestAdminSeoJson<SeoNumericLocationRepairResult>(token, '/locations/repair-numeric-pages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 export type SeoAiGenerateTestInput = {
   localityId?: string;
   localitySlug?: string;

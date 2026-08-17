@@ -181,7 +181,12 @@ function finalizeRecordSync(
     }
     return null;
   }
-  if (!rec.name?.trim()) rec.name = rec.officialCode;
+  if (!rec.name?.trim()) {
+    if (opts.diagnostics.parseErrors.length < 50) {
+      opts.diagnostics.parseErrors.push(`Chybí název u prvku ${rec.elementType} (${rec.officialCode})`);
+    }
+    return null;
+  }
   const row = vfrRecordToImportRow(rec as VfrStreamRecord);
   if (!row) return null;
 

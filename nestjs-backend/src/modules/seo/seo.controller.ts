@@ -11,6 +11,7 @@ import { SeoLocationService } from './seo-location.service';
 import type { SeoLocationImportRow } from './seo-location.util';
 import { SeoGenerationJobService } from './seo-generation-job.service';
 import { SeoAiGenerationService } from './seo-ai-generation.service';
+import { SeoLocationRepairService } from './seo-location-repair.service';
 import { LocalityResolverService } from './locality-resolver.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
 import { SeoService, type SitemapKind } from './seo.service';
@@ -49,6 +50,12 @@ export class SeoPublicController {
     return this.programmaticSeo.resolvePageWithListings(intent, location, Number.isFinite(n) ? n : 24);
   }
 
+  @Get('redirect')
+  lookupRedirect(@Query('path') path?: string) {
+    if (!path?.trim()) return { redirect: null };
+    return this.seo.lookupRedirect(path.trim()).then((redirect) => ({ redirect }));
+  }
+
   @Get('properties/by-slug/:slug')
   findBySlug(@Param('slug') slug: string) {
     return this.seo.findPropertyBySlug(slug);
@@ -79,6 +86,7 @@ export class SeoAdminController {
     private readonly programmaticSeo: ProgrammaticSeoService,
     private readonly seoAi: SeoAiGenerationService,
     private readonly localityResolver: LocalityResolverService,
+    private readonly locationRepair: SeoLocationRepairService,
   ) {}
 
   @Get('settings')
@@ -340,6 +348,23 @@ export class SeoAdminController {
   @Get('stats')
   getGenerationStats() {
     return this.generationJobs.getStats();
+  }
+
+  @Get('locations/numeric-pages')
+  listNumericLocationPages(@Query('limit') limit?: string) {
+    return this.locationRepair.listNumericLocationPages(limit ? Number.parseInt(limit, 10) : 100);
+  }
+
+  @Post('locations/repair-numeric-pages')
+  repairNumericLocationPages(
+    @Body() body?: { limit?: number; dryRun?: boolean },
+  ) {
+    return this.locationRepair.repairNumericLocationPages(body);
+  }
+
+  @Post('pages/:id/repair-location')
+  repairPageLocation(@Param('id') id: string) {
+    return this.locationRepair.repairPage(id, false);
   }
 
   @Post('indexability/recalculate')

@@ -15,6 +15,7 @@ import { buildProgrammaticSeoPath, buildExtendedSeoMetadata } from './programmat
 import { seoLocationToCopyInput } from './seo-generation.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import { LocalityResolverService } from './locality-resolver.service';
+import { SeoLocationDisplayService } from './seo-location-display.service';
 import { SeoLocationService } from './seo-location.service';
 import type { SeoAiGenerateInput, SeoAiPageOutput } from './seo-ai-layout.types';
 import { SEO_KNOWLEDGE_CATEGORIES } from './seo-ai-layout.types';
@@ -31,6 +32,8 @@ import {
   resolveIntentSlugFromEnums,
 } from './seo-ai.enums';
 import { mapOpenAiError, SeoAiHttpException } from './seo-ai.errors';
+import { buildMarketStats } from './seo-market-stats.util';
+import { isInvalidPublicLocationName } from './seo-location-resolver.util';
 
 function resolveIntentSlug(input: SeoAiGenerateInput): string {
   const offer = normalizeSeoAiOfferType(input.offerType);
@@ -54,6 +57,7 @@ export class SeoAiGenerationService {
     private readonly prisma: PrismaService,
     private readonly openai: OpenAiService,
     private readonly localityResolver: LocalityResolverService,
+    private readonly locationDisplay: SeoLocationDisplayService,
     private readonly locations: SeoLocationService,
     private readonly quality: SeoAiQualityService,
   ) {}
@@ -149,18 +153,45 @@ export class SeoAiGenerationService {
       include: {
         region: { select: { name: true } },
         district: { select: { name: true } },
+        parent: { select: { name: true, kind: true } },
       },
     });
+
+    const displayResolved = await this.locationDisplay.resolveSeoLocation(dbLoc.id);
+    if (!displayResolved || displayResolved.status === 'LOCATION_UNRESOLVED') {
+      throw new SeoAiHttpException(
+        'LOCATION_UNRESOLVED',
+        `Lokalitu ${dbLoc.officialCode} nelze použít pro veřejné SEO — chybí skutečný název obce.`,
+        HttpStatus.BAD_REQUEST,
+        { officialCode: dbLoc.officialCode },
+      );
+    }
+
+    await this.locationDisplay.ensureLocationSlugResolved(dbLoc.id);
+    const locationName = displayResolved.name;
+    const locationSlug = displayResolved.slug;
 
     const listingCount = input.useListings !== false
       ? await this.countListings(dbLoc.id, intent.offerType, intent.propertyTypeKey)
       : 0;
     const hasListings = listingCount > 0;
+    const marketStats = await this.loadMarketStats(dbLoc.id, intent.offerType, intent.propertyTypeKey);
 
-    const context = await this.buildGenerationContext(input, intentSlug, dbLoc, listingCount);
+    const context = await this.buildGenerationContext(
+      input,
+      intentSlug,
+      {
+        ...dbLoc,
+        name: locationName,
+        slug: locationSlug,
+        locative: displayResolved.locative,
+      },
+      listingCount,
+      marketStats,
+    );
     const prompt = await this.getActivePrompt('SEO_PAGE_GENERATION');
 
-    const userPrompt = this.buildUserPrompt(input, context, intent.label, dbLoc.name, hasListings);
+    const userPrompt = this.buildUserPrompt(input, context, intent.label, locationName, hasListings);
 
     let aiResult;
     try {
@@ -186,7 +217,7 @@ export class SeoAiGenerationService {
     }
 
     const { output, log: buildLog } = buildSeoAiPageFromAi(parsed, {
-      locationName: dbLoc.name,
+      locationName,
       offerLabel: intent.label,
       hasListings,
       intentSlug,
@@ -194,7 +225,7 @@ export class SeoAiGenerationService {
     });
 
     this.log.log(
-      `SEO AI build [${dbLoc.name}]: AI pole=[${buildLog.aiFieldsReceived.join(', ')}], ` +
+      `SEO AI build [${locationName}]: AI pole=[${buildLog.aiFieldsReceived.join(', ')}], ` +
         `bloky z AI=${buildLog.blocksFromAi}, doplněno=[${buildLog.blocksAdded.map((b) => b.type).join(', ')}], ` +
         `výsledek=${buildLog.finalBlockCount} bloků (${buildLog.finalBlockTypes.join(', ')})`,
     );
@@ -210,10 +241,11 @@ export class SeoAiGenerationService {
       listingCount,
       similarPages,
       indexImmediately: input.indexImmediately,
+      locationName,
     });
 
-    const pageKey = buildProgrammaticSeoPageKey(intentSlug, dbLoc.slug);
-    const publicPath = buildProgrammaticSeoPath(intentSlug, dbLoc.slug);
+    const pageKey = buildProgrammaticSeoPageKey(intentSlug, locationSlug);
+    const publicPath = buildProgrammaticSeoPath(intentSlug, locationSlug);
 
     const existingPage = await this.prisma.seoPageContent.findUnique({
       where: { pageKey },
@@ -238,7 +270,7 @@ export class SeoAiGenerationService {
           previewUrl: `/admin/seo/pages/${existingPage.id}/preview`,
           localityId: dbLoc.id,
           localitySlug: dbLoc.slug,
-          localityName: dbLoc.name,
+          localityName: locationName,
           intentSlug,
           status: existingPage.status,
           durationMs,
@@ -264,7 +296,7 @@ export class SeoAiGenerationService {
       }
     }
 
-    const locForCopy = seoLocationToCopyInput(dbLoc) as CzGeoLocation;
+    const locForCopy = seoLocationToCopyInput({ ...dbLoc, name: locationName, slug: locationSlug, locative: displayResolved.locative }) as CzGeoLocation;
     const extended = buildExtendedSeoMetadata(intent, locForCopy, {
       path: publicPath,
       title: output.metaTitle,
@@ -274,7 +306,7 @@ export class SeoAiGenerationService {
       bodyText: this.composeBodyText(output),
       heroSubtitle: output.subtitle || '',
       heroImageUrl: '',
-      heroImageAlt: `${output.h1} – ${dbLoc.name}`,
+      heroImageAlt: `${output.h1} – ${locationName}`,
       sections: output.blocks.map((b) => ({
         id: b.type,
         h2: b.title ?? b.type,
@@ -284,7 +316,7 @@ export class SeoAiGenerationService {
         input.primaryKeyword,
         ...(input.secondaryKeywords ?? []),
         intent.label,
-        dbLoc.name,
+        locationName,
       ].filter(Boolean) as string[],
       faq: output.faq,
       wordCount: this.composeBodyText(output).split(/\s+/).length,
@@ -324,7 +356,7 @@ export class SeoAiGenerationService {
         input.primaryKeyword,
         ...(input.secondaryKeywords ?? []),
         intent.label,
-        dbLoc.name,
+        locationName,
       ].filter(Boolean) as string[],
       canonical: extended.canonical,
       robots: noindex ? 'noindex,follow' : extended.robots,
@@ -399,8 +431,8 @@ export class SeoAiGenerationService {
       qualityReasons: scores.reasons,
       analysisStatus: 'COMPLETED',
       localityId: dbLoc.id,
-      localitySlug: dbLoc.slug,
-      localityName: dbLoc.name,
+      localitySlug: locationSlug,
+      localityName: locationName,
       intentSlug,
       generation: {
         model: aiResult.model,
@@ -461,8 +493,10 @@ export class SeoAiGenerationService {
       include: {
         location: {
           select: {
+            id: true,
             name: true,
             slug: true,
+            officialCode: true,
             locative: true,
             population: true,
             region: { select: { name: true } },
@@ -472,6 +506,13 @@ export class SeoAiGenerationService {
       },
     });
     if (!page) throw new NotFoundException('Stránka nenalezena.');
+    const resolved = page.location?.id
+      ? await this.locationDisplay.resolveSeoLocation(page.location.id)
+      : null;
+    const intent = page.intentSlug ? getProgrammaticSeoIntent(page.intentSlug as never) : null;
+    const listingCount = page.location?.id && intent
+      ? await this.countListings(page.location.id, intent.offerType, intent.propertyTypeKey)
+      : 0;
     return {
       pageId: page.id,
       status: page.status,
@@ -496,9 +537,22 @@ export class SeoAiGenerationService {
       aiPromptVersionId: page.aiPromptVersionId,
       aiGeneratedAt: page.aiGeneratedAt,
       location: page.location,
-      publicPath: page.intentSlug && page.location?.slug
-        ? buildProgrammaticSeoPath(page.intentSlug, page.location.slug)
+      locationDiagnostics: resolved
+        ? {
+            displayName: resolved.name,
+            rawName: resolved.rawName,
+            officialCode: resolved.officialCode,
+            district: resolved.districtName,
+            region: resolved.regionName,
+            resolvedFrom: resolved.resolvedFrom,
+            seoStatus: resolved.status === 'READY' ? 'READY' : 'LOCATION_UNRESOLVED',
+            listingCount,
+          }
         : null,
+      publicPath:
+        page.intentSlug && (resolved?.slug ?? page.location?.slug)
+          ? buildProgrammaticSeoPath(page.intentSlug, resolved?.slug ?? page.location!.slug)
+          : null,
     };
   }
 
@@ -525,14 +579,16 @@ export class SeoAiGenerationService {
       district?: { name: string } | null;
     },
     listingCount: number,
+    marketStats: ReturnType<typeof buildMarketStats>,
   ) {
     const facts: string[] = [];
     const knowledge: string[] = [];
 
     facts.push(`Lokalita: ${dbLoc.name}`);
+    facts.push(`Veřejný název lokality (použij v H1/title): ${dbLoc.name}`);
     if (dbLoc.locative) facts.push(`Lokál: ${dbLoc.locative}`);
     if (input.useRuian !== false && dbLoc.officialCode) {
-      facts.push(`RÚIAN kód: ${dbLoc.officialCode} (ověřeno)`);
+      facts.push(`Interní RÚIAN kód: ${dbLoc.officialCode} (NEPOUŽÍVEJ v H1/title/meta)`);
     }
     if (input.useCsu !== false && dbLoc.population) {
       facts.push(`Počet obyvatel: ${dbLoc.population} (zdroj ČSÚ, ověřeno)`);
@@ -543,8 +599,18 @@ export class SeoAiGenerationService {
     facts.push(
       listingCount > 0
         ? `Aktivní nabídky v databázi: ${listingCount} (ověřeno)`
-        : 'Aktivní nabídky v databázi: 0 (ověřeno — nevymýšlej inzeráty)',
+        : 'Aktivní nabídky v databázi: 0 (ověřeno — nevymýšlej inzeráty ani ceny)',
     );
+
+    if (marketStats.hasEnoughData) {
+      facts.push(`Medián ceny z inzerátů XXREALIT: ${marketStats.medianPrice ?? '—'} Kč (ověřeno)`);
+      facts.push(`Průměrná cena z inzerátů XXREALIT: ${marketStats.averagePrice ?? '—'} Kč (ověřeno)`);
+      if (marketStats.pricePerM2) {
+        facts.push(`Průměrná cena za m²: ${marketStats.pricePerM2} Kč/m² (ověřeno)`);
+      }
+    } else {
+      facts.push('Cenová data: nedostatek inzerátů — nevymýšlej průměrnou cenu.');
+    }
 
     const approvedKnowledge = await this.prisma.aiKnowledgeItem.findMany({
       where: {
@@ -664,5 +730,48 @@ faq — min. 3 otázky. internalLinks — cesty začínající /.`;
       ];
     }
     return this.prisma.property.count({ where });
+  }
+
+  private async loadMarketStats(
+    locationId: string,
+    offerType?: string,
+    propertyTypeKey?: string,
+  ) {
+    const where: Prisma.PropertyWhereInput = {
+      deletedAt: null,
+      approved: true,
+      isActive: true,
+      isVisible: true,
+      seoLocationId: locationId,
+      price: { gt: 0 },
+    };
+    if (offerType) {
+      const variants =
+        offerType === 'pronajem'
+          ? ['pronájem', 'pronajem', 'nájem', 'najem']
+          : ['prodej', 'prodej'];
+      where.OR = variants.map((v) => ({ offerType: { equals: v, mode: 'insensitive' } }));
+    }
+    if (propertyTypeKey) {
+      where.AND = [
+        {
+          OR: [
+            { propertyTypeKey: { equals: propertyTypeKey, mode: 'insensitive' } },
+            { propertyType: { contains: propertyTypeKey.replace('_', ' '), mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+    const rows = await this.prisma.property.findMany({
+      where,
+      select: { price: true, area: true },
+      take: 200,
+      orderBy: { createdAt: 'desc' },
+    });
+    return buildMarketStats({
+      prices: rows.map((r) => r.price ?? 0),
+      areas: rows.map((r) => r.area),
+      listingCount: rows.length,
+    });
   }
 }

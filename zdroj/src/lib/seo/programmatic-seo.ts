@@ -49,6 +49,36 @@ export type ProgrammaticSeoPageData = {
   totalCount: number;
   hasListings: boolean;
   listings: ProgrammaticSeoListingPreview[];
+  marketStats?: {
+    listingCount: number;
+    averagePrice: number | null;
+    medianPrice: number | null;
+    minPrice: number | null;
+    maxPrice: number | null;
+    pricePerM2: number | null;
+    updatedAt: string;
+    hasEnoughData: boolean;
+  } | null;
+  latestPosts?: Array<{
+    id: string;
+    slug: string;
+    authorName: string;
+    authorAvatarUrl?: string | null;
+    category?: string | null;
+    excerpt: string;
+    thumbnailUrl?: string | null;
+    mediaType?: string | null;
+    publishedAt: string;
+    href: string;
+    reactionCount?: number;
+  }>;
+  locationMeta?: {
+    officialCode?: string;
+    resolvedFrom?: string;
+    districtName?: string | null;
+    regionName?: string | null;
+    status?: string;
+  };
   relatedLocations: Array<{ slug: string; name: string; path: string }>;
   internalLinks: {
     sameIntentNearby: Array<{ slug: string; name: string; path: string }>;
@@ -99,6 +129,22 @@ export async function fetchProgrammaticSeoPage(
     );
     if (!res.ok) return null;
     return (await res.json()) as ProgrammaticSeoPageData;
+  } catch {
+    return null;
+  }
+}
+
+export async function lookupSeoRedirect(path: string): Promise<string | null> {
+  const api = getOptionalInternalApiBaseUrl();
+  if (!api) return null;
+  try {
+    const res = await fetch(
+      `${api}/seo/redirect?path=${encodeURIComponent(path)}`,
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { redirect?: { toPath: string } | null };
+    return data.redirect?.toPath ?? null;
   } catch {
     return null;
   }

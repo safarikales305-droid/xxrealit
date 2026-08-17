@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { ProgrammaticSeoPage } from '@/components/seo/ProgrammaticSeoPage';
 import { JsonLd } from '@/components/seo/JsonLd';
@@ -15,6 +15,7 @@ import {
 import {
   fetchProgrammaticSeoPage,
   isProgrammaticSeoIntent,
+  lookupSeoRedirect,
 } from '@/lib/seo/programmatic-seo';
 
 type Props = { params: Promise<{ intent: string; location: string }> };
@@ -45,6 +46,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProgrammaticSeoRoute({ params }: Props) {
   const { intent, location } = await params;
   if (!isProgrammaticSeoIntent(intent)) notFound();
+
+  const redirectTo = await lookupSeoRedirect(`/${intent}/${location}`);
+  if (redirectTo) permanentRedirect(redirectTo);
 
   const data = await fetchProgrammaticSeoPage(intent, location);
   if (!data) notFound();

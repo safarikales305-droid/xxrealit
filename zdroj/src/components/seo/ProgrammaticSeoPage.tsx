@@ -6,6 +6,9 @@ import { ProgrammaticInternalLinks } from '@/components/seo/ProgrammaticInternal
 import { ProgrammaticSeoHero } from '@/components/seo/ProgrammaticSeoHero';
 import { ProgrammaticSeoComingSoon } from '@/components/seo/ProgrammaticSeoComingSoon';
 import { ProgrammaticSeoRegisterCta } from '@/components/seo/ProgrammaticSeoRegisterCta';
+import { SeoMarketStatsBox } from '@/components/seo/SeoMarketStatsBox';
+import { SeoLatestPostsBlock } from '@/components/seo/SeoLatestPostsBlock';
+import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock';
 
 type Props = {
   data: ProgrammaticSeoPageData;
@@ -45,6 +48,8 @@ export function ProgrammaticSeoPage({ data }: Props) {
     listings,
     totalCount,
     hasListings,
+    marketStats,
+    latestPosts,
     heroSubtitle,
     heroImageUrl,
     heroImageAlt,
@@ -57,7 +62,7 @@ export function ProgrammaticSeoPage({ data }: Props) {
       <SeoBreadcrumbs
         items={[
           { name: 'Domů', path: '/' },
-          { name: intent.label, path: `/${intent.slug}/${location.slug}` },
+          { name: intent.label, path: `/${intent.slug}` },
           { name: location.name, path: data.path },
         ]}
       />
@@ -122,6 +127,10 @@ export function ProgrammaticSeoPage({ data }: Props) {
         </section>
       ) : null}
 
+      {marketStats ? <SeoMarketStatsBox stats={marketStats} /> : null}
+
+      {latestPosts && latestPosts.length > 0 ? <SeoLatestPostsBlock items={latestPosts} /> : null}
+
       <article className="mt-12 space-y-10">
         <header>
           <h2 className="text-2xl font-bold text-zinc-900">{h2}</h2>
@@ -178,6 +187,8 @@ export function ProgrammaticSeoPage({ data }: Props) {
       ) : null}
 
       <ProgrammaticInternalLinks data={data} />
+
+      <SeoDiscoverPortalBlock />
     </div>
   );
 }

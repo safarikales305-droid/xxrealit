@@ -34,10 +34,10 @@ function headingWithLocation(intent: ProgrammaticSeoIntent, loc: CzGeoLocation):
   if (intent.slug === 'realitni-kancelar') {
     return `${intent.heading} ${loc.name}`;
   }
-  if (intent.slug === 'prodej-pozemku') {
-    return `${intent.heading} ${loc.name}`;
+  if (intent.offerType === 'pronajem') {
+    return `${intent.heading} v ${loc.locative} – ceny a aktuální nabídka`;
   }
-  return `${intent.heading} ${loc.name}`;
+  return `${intent.heading} v ${loc.locative} – ceny, nabídka a praktické informace`;
 }
 
 export function buildProgrammaticSeoPath(intentSlug: string, locationSlug: string): string {
@@ -50,7 +50,7 @@ export function buildProgrammaticSeoCopy(
 ): ProgrammaticSeoCopy {
   const path = buildProgrammaticSeoPath(intent.slug, loc.slug);
   const h1 = headingWithLocation(intent, loc);
-  const title = `${h1} | ${SITE}`;
+  const title = `${intent.heading} ${loc.name} – ceny a nabídka | ${SITE}`;
   const description = buildProgrammaticDescription(intent, loc);
   const rich = buildProgrammaticRichContent(intent, loc);
   const h2 = intent.isBrokerPage

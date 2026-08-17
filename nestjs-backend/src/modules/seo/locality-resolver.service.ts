@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpStatus } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { buildSeoLocationSlug, foldSeoAscii } from './seo-location.util';
 import { SeoAiHttpException } from './seo-ai.errors';
-import { HttpStatus } from '@nestjs/common';
+import { SeoLocationDisplayService } from './seo-location-display.service';
+import { buildResolvedSeoLocation } from './seo-location-resolver.util';
 
 export type ResolvedLocality = {
   id: string;
@@ -27,7 +28,10 @@ export type LocalitySearchHit = {
 
 @Injectable()
 export class LocalityResolverService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly locationDisplay: SeoLocationDisplayService,
+  ) {}
 
   private normalizeSlug(value: string): string {
     return foldSeoAscii(value.trim());
@@ -77,6 +81,27 @@ export class LocalityResolverService {
     const slugNorm = slugRaw ? this.normalizeSlug(slugRaw) : '';
 
     if (input.localityId?.trim()) {
+      const resolved = await this.locationDisplay.resolveSeoLocation(input.localityId.trim());
+      if (resolved) {
+        if (resolved.status === 'LOCATION_UNRESOLVED') {
+          throw new SeoAiHttpException(
+            'LOCATION_UNRESOLVED',
+            `Lokalitu ${resolved.officialCode} se nepodařilo převést na veřejný název.`,
+            HttpStatus.BAD_REQUEST,
+            { officialCode: resolved.officialCode },
+          );
+        }
+        return {
+          id: resolved.locationId,
+          name: resolved.name,
+          slug: resolved.slug,
+          slugAscii: resolved.slugAscii,
+          regionName: resolved.regionName,
+          districtName: resolved.districtName,
+          regionId: null,
+          districtId: null,
+        };
+      }
       const byId = await this.prisma.seoLocation.findFirst({
         where: { id: input.localityId.trim(), isActive: true },
         include: {
@@ -224,13 +249,27 @@ export class LocalityResolverService {
       };
     }>,
   ): ResolvedLocality {
-    return {
+    const resolved = buildResolvedSeoLocation({
       id: row.id,
+      officialCode: row.officialCode,
       name: row.name,
       slug: row.slug,
       slugAscii: row.slugAscii,
-      regionName: row.region?.name ?? null,
-      districtName: row.district?.name ?? null,
+      locative: row.locative,
+      kind: row.kind,
+      psc: row.psc,
+      searchTerms: row.searchTerms,
+      parent: null,
+      district: row.district,
+      region: row.region,
+    });
+    return {
+      id: resolved.locationId,
+      name: resolved.name,
+      slug: resolved.slug,
+      slugAscii: resolved.slugAscii,
+      regionName: resolved.regionName,
+      districtName: resolved.districtName,
       regionId: row.regionId,
       districtId: row.districtId,
     };

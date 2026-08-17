@@ -45,10 +45,24 @@ export class SeoAiQualityService {
       }>;
       indexImmediately?: boolean;
       minPublishScore?: number;
+      locationName?: string;
     },
   ): SeoQualityResult {
     const reasons: string[] = [];
     let qualityScore = 0;
+
+    if (context.locationName && /^\d+$/.test(context.locationName.trim())) {
+      reasons.push('Název lokality je pouze číslo — stránka musí být noindex.');
+      return {
+        qualityScore: 0,
+        uniquenessScore: 0,
+        duplicateRisk: 'HIGH',
+        similarPageIds: [],
+        recommendedStatus: 'NEEDS_IMPROVEMENT',
+        indexable: false,
+        reasons,
+      };
+    }
 
     if (output.metaTitle.length >= 45 && output.metaTitle.length <= 60) qualityScore += 10;
     else if (output.metaTitle.length >= 35) qualityScore += 6;

@@ -657,6 +657,7 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }> = [];
 
     for (const loc of locations) {
+      if (/^\d+$/.test(loc.name.trim())) continue;
       for (const intentSlug of intents) {
         if (items.length >= count) break;
         const inputJson = this.generation.normalizeBatchInput(

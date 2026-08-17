@@ -7,10 +7,14 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestAdminSeoDashboard,
   nestAdminSeoHealth,
+  nestAdminSeoNumericLocationPages,
+  nestAdminSeoRepairNumericLocationPages,
   nestAdminSeoSettings,
   nestAdminSeoUpdateSettings,
   type NestSeoSettings,
   type SeoDashboard,
+  type SeoNumericLocationPage,
+  type SeoNumericLocationRepairResult,
 } from '@/lib/nest-client';
 
 function StatCard({ value, label, warn }: { value: string | number; label: string; warn?: boolean }) {
@@ -31,17 +35,21 @@ export default function AdminSeoDashboardPage() {
   const [health, setHealth] = useState<Awaited<ReturnType<typeof nestAdminSeoHealth>>>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [numericPages, setNumericPages] = useState<SeoNumericLocationPage[]>([]);
+  const [repairResult, setRepairResult] = useState<SeoNumericLocationRepairResult | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [s, d, h] = await Promise.all([
+    const [s, d, h, numeric] = await Promise.all([
       nestAdminSeoSettings(token),
       nestAdminSeoDashboard(token),
       nestAdminSeoHealth(token),
+      nestAdminSeoNumericLocationPages(token, 20),
     ]);
     setSettings(s);
     setDashboard(d);
     setHealth(h);
+    setNumericPages(numeric ?? []);
   }, [token]);
 
   useEffect(() => {
@@ -176,6 +184,81 @@ export default function AdminSeoDashboardPage() {
       {msg ? (
         <p className="mb-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm">{msg}</p>
       ) : null}
+
+      <section className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+        <h2 className="text-lg font-semibold text-amber-950">Opravit stránky s číselnou lokalitou</h2>
+        <p className="mt-1 text-sm text-amber-900">
+          Stránky, kde H1, title nebo slug obsahují pouze interní kód (např. 500011), se převedou na
+          skutečný název obce a vytvoří se 301 přesměrování.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!token) return;
+              setBusy(true);
+              void nestAdminSeoRepairNumericLocationPages(token, { dryRun: true, limit: 50 })
+                .then((r) => {
+                  setRepairResult(r);
+                  setMsg(
+                    r
+                      ? `Náhled opravy: ${r.scanned} kandidátů, ${r.repaired} by prošlo, ${r.failed} selže.`
+                      : 'Náhled opravy se nepodařil.',
+                  );
+                })
+                .finally(() => setBusy(false));
+            }}
+            className="rounded-full border border-amber-700 px-4 py-2 text-sm font-semibold text-amber-900"
+          >
+            Náhled opravy
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!token) return;
+              setBusy(true);
+              void nestAdminSeoRepairNumericLocationPages(token, { limit: 50 })
+                .then(async (r) => {
+                  setRepairResult(r);
+                  const numeric = await nestAdminSeoNumericLocationPages(token, 20);
+                  setNumericPages(numeric ?? []);
+                  setMsg(
+                    r
+                      ? `Opraveno ${r.repaired} stránek, ${r.failed} selhalo z ${r.scanned} kandidátů.`
+                      : 'Hromadná oprava se nepodařila.',
+                  );
+                })
+                .finally(() => setBusy(false));
+            }}
+            className="rounded-full bg-amber-700 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Opravit stránky s číselnou lokalitou
+          </button>
+        </div>
+        {numericPages.length ? (
+          <ul className="mt-4 space-y-1 text-sm text-amber-950">
+            {numericPages.slice(0, 10).map((p) => (
+              <li key={p.id} className="flex flex-wrap justify-between gap-2">
+                <Link href={`/admin/seo/stranky/${p.id}`} className="text-orange-700 hover:underline">
+                  {p.title ?? p.h1 ?? p.pageKey}
+                </Link>
+                <span className="font-mono text-xs">
+                  {p.locationName ?? p.officialCode} · {p.repairStatus}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm text-amber-800">Žádné stránky s číselnou lokalitou nebyly nalezeny.</p>
+        )}
+        {repairResult?.results?.length ? (
+          <p className="mt-3 text-xs text-amber-800">
+            Poslední běh: {repairResult.repaired} opraveno, {repairResult.failed} chyb.
+          </p>
+        ) : null}
+      </section>
 
       {settings ? (
         <form

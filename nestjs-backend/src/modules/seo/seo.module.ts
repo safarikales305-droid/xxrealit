@@ -25,6 +25,9 @@ import { SeoAiQualityService } from './seo-ai-quality.service';
 import { SeoAiPromptSeedService } from './seo-ai-prompt.seed.service';
 import { LocalityResolverService } from './locality-resolver.service';
 import { SeoIndexabilityService } from './seo-indexability.service';
+import { SeoLocationDisplayService } from './seo-location-display.service';
+import { SeoLocationRepairService } from './seo-location-repair.service';
+import { SeoPortalFeedService } from './seo-portal-feed.service';
 import { SeoService } from './seo.service';
 
 @Module({
@@ -47,6 +50,9 @@ import { SeoService } from './seo.service';
     SeoAiQualityService,
     SeoAiPromptSeedService,
     LocalityResolverService,
+    SeoLocationDisplayService,
+    SeoLocationRepairService,
+    SeoPortalFeedService,
     SeoIndexabilityService,
     SeoPublicListingsService,
     SeoIndexQueueService,
