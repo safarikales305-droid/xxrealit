@@ -2,22 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { communityPostAuthorUserWhere } from '../posts/community-posts.util';
+import {
+  portalPostFeedInclude,
+  serializePortalPostFeedItem,
+  type PortalPostFeedItemDto,
+} from '../posts/portal-post-feed.serializer';
 
 type CacheEntry = { expiresAt: number; data: unknown };
-
-export type SeoPortalPostItem = {
-  id: string;
-  slug: string;
-  authorName: string;
-  authorAvatarUrl: string | null;
-  category: string | null;
-  excerpt: string;
-  thumbnailUrl: string | null;
-  mediaType: string | null;
-  publishedAt: string;
-  href: string;
-  reactionCount: number;
-};
 
 @Injectable()
 export class SeoPortalFeedService {
@@ -30,12 +21,12 @@ export class SeoPortalFeedService {
     cityName?: string | null;
     regionName?: string | null;
     limit?: number;
-  }): Promise<{ items: SeoPortalPostItem[]; cachedAt: string }> {
+  }): Promise<{ items: PortalPostFeedItemDto[]; cachedAt: string }> {
     const limit = Math.min(5, Math.max(1, input?.limit ?? 5));
     const cacheKey = `seo:${input?.cityName ?? ''}:${input?.regionName ?? ''}:${limit}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.data as { items: SeoPortalPostItem[]; cachedAt: string };
+      return cached.data as { items: PortalPostFeedItemDto[]; cachedAt: string };
     }
 
     const city = input?.cityName?.trim();
@@ -94,55 +85,9 @@ export class SeoPortalFeedService {
       where,
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       take,
-      include: {
-        media: { orderBy: { order: 'asc' }, take: 1 },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            companyProfile: { select: { companyName: true, logoUrl: true } },
-          },
-        },
-        _count: { select: { reactions: true } },
-      },
+      include: portalPostFeedInclude,
     });
 
-    return rows.map((row) => this.serialize(row));
-  }
-
-  private serialize(
-    row: Prisma.PostGetPayload<{
-      include: {
-        media: true;
-        user: {
-          select: {
-            id: true;
-            name: true;
-            avatar: true;
-            companyProfile: { select: { companyName: true; logoUrl: true } };
-          };
-        };
-        _count: { select: { reactions: true } };
-      };
-    }>,
-  ): SeoPortalPostItem {
-    const thumb = row.media[0];
-    const authorName =
-      row.user.companyProfile?.companyName?.trim() || row.user.name?.trim() || 'Uživatel';
-    const postSlug = row.slug ?? row.id;
-    return {
-      id: row.id,
-      slug: postSlug,
-      authorName,
-      authorAvatarUrl: row.user.companyProfile?.logoUrl || row.user.avatar || null,
-      category: row.category,
-      excerpt: (row.content ?? row.description ?? row.title ?? '').trim().slice(0, 180),
-      thumbnailUrl: thumb?.url ?? row.previewImage ?? row.imageUrl ?? null,
-      mediaType: thumb?.type ?? null,
-      publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
-      href: `/prispevek/${postSlug}`,
-      reactionCount: row._count.reactions,
-    };
+    return rows.map((row) => serializePortalPostFeedItem(row));
   }
 }

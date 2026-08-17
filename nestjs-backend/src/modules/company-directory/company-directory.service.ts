@@ -16,6 +16,10 @@ import {
   serializeCompanyDirectoryDetail,
 } from './company-directory.serializer';
 import { parseIcoFromCompanySlug } from './company-directory.slug';
+import {
+  portalPostFeedInclude,
+  serializePortalPostFeedItem,
+} from '../posts/portal-post-feed.serializer';
 
 export type FeaturedProfileCard = {
   type: 'person' | 'company';
@@ -167,20 +171,10 @@ export class CompanyDirectoryService {
       where: { companyDirectoryId: row.id, publishedAt: { not: null } },
       orderBy: { publishedAt: 'desc' },
       take: Math.min(10, Math.max(1, limit)),
-      include: {
-        media: { orderBy: { order: 'asc' }, take: 1 },
-      },
+      include: portalPostFeedInclude,
     });
     return {
-      items: posts.map((p) => ({
-        id: p.id,
-        slug: p.slug ?? p.id,
-        category: p.category,
-        excerpt: (p.content ?? p.description ?? '').trim().slice(0, 180),
-        thumbnailUrl: p.media[0]?.url ?? p.previewImage ?? p.imageUrl ?? null,
-        publishedAt: p.publishedAt?.toISOString() ?? null,
-        href: `/prispevek/${p.slug ?? p.id}`,
-      })),
+      items: posts.map((p) => serializePortalPostFeedItem(p)),
     };
   }
 

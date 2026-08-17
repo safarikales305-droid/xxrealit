@@ -152,18 +152,9 @@ export async function nestAdminCompanySeoGenerateOne(
   );
 }
 
-export type PortalPostFeedItem = {
-  id: string;
-  slug: string;
-  postType?: string | null;
-  authorName?: string;
-  authorAvatarUrl?: string | null;
-  category?: string | null;
-  excerpt: string;
-  thumbnailUrl?: string | null;
-  publishedAt: string;
-  href: string;
-};
+import type { PortalPostFeedItem } from '@/lib/portal-post-feed';
+
+export type { PortalPostFeedItem };
 
 export async function nestGetLatestPortalPosts(limit = 5): Promise<{ items: PortalPostFeedItem[] } | null> {
   if (!API_BASE_URL) return null;

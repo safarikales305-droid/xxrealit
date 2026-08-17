@@ -59,19 +59,7 @@ export type ProgrammaticSeoPageData = {
     updatedAt: string;
     hasEnoughData: boolean;
   } | null;
-  latestPosts?: Array<{
-    id: string;
-    slug: string;
-    authorName: string;
-    authorAvatarUrl?: string | null;
-    category?: string | null;
-    excerpt: string;
-    thumbnailUrl?: string | null;
-    mediaType?: string | null;
-    publishedAt: string;
-    href: string;
-    reactionCount?: number;
-  }>;
+  latestPosts?: import('@/lib/portal-post-feed').PortalPostFeedItem[];
   locationMeta?: {
     officialCode?: string;
     resolvedFrom?: string;

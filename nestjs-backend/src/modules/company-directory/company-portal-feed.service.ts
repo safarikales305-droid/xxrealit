@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { communityPostAuthorUserWhere } from '../posts/community-posts.util';
+import {
+  portalPostFeedInclude,
+  serializePortalPostFeedItem,
+} from '../posts/portal-post-feed.serializer';
 
 type CacheEntry = { expiresAt: number; data: unknown };
 
@@ -26,41 +30,10 @@ export class CompanyPortalFeedService {
       },
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       take: safeLimit,
-      include: {
-        media: { orderBy: { order: 'asc' }, take: 1 },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            companyProfile: { select: { companyName: true, logoUrl: true } },
-          },
-        },
-      },
+      include: portalPostFeedInclude,
     });
 
-    const items = rows.map((row) => {
-      const thumb = row.media[0];
-      const authorName =
-        row.user.companyProfile?.companyName?.trim() || row.user.name?.trim() || 'Uživatel';
-      const avatarUrl = row.user.companyProfile?.logoUrl || row.user.avatar || null;
-      const postSlug = row.slug ?? row.id;
-      const excerpt = (row.content ?? row.description ?? '').trim().slice(0, 180);
-      return {
-        id: row.id,
-        slug: postSlug,
-        postType: row.type,
-        authorName,
-        authorAvatarUrl: avatarUrl,
-        category: row.category,
-        excerpt,
-        thumbnailUrl: thumb?.url ?? row.previewImage ?? row.imageUrl ?? null,
-        mediaType: thumb?.type ?? null,
-        publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
-        href: `/prispevek/${postSlug}`,
-      };
-    });
-
+    const items = rows.map((row) => serializePortalPostFeedItem(row));
     const payload = { items, cachedAt: new Date().toISOString() };
     this.cache.set(cacheKey, { expiresAt: Date.now() + this.ttlMs, data: payload });
     return payload;
@@ -75,19 +48,8 @@ export class CompanyPortalFeedService {
       },
       orderBy: [{ publishedAt: 'desc' }],
       take: safeLimit,
-      include: {
-        media: { orderBy: { order: 'asc' }, take: 1 },
-      },
+      include: portalPostFeedInclude,
     });
-    return rows.map((row) => ({
-      id: row.id,
-      slug: row.slug ?? row.id,
-      postType: row.type,
-      category: row.category,
-      excerpt: (row.content ?? row.description ?? '').trim().slice(0, 180),
-      thumbnailUrl: row.media[0]?.url ?? row.previewImage ?? row.imageUrl ?? null,
-      publishedAt: row.publishedAt?.toISOString() ?? null,
-      href: `/prispevek/${row.slug ?? row.id}`,
-    }));
+    return rows.map((row) => serializePortalPostFeedItem(row));
   }
 }
