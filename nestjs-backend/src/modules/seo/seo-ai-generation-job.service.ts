@@ -7,6 +7,13 @@ import { SeoAiGenerationService } from './seo-ai-generation.service';
 import { SeoAiQualityService } from './seo-ai-quality.service';
 import { buildLocationWhere } from './seo-generation.util';
 import { extractSeoAiJobError, isRetryableSeoAiError } from './seo-ai-job-errors.util';
+import { LocalityResolverService } from './locality-resolver.service';
+import {
+  normalizeSeoAiOfferType,
+  normalizeSeoAiPropertyType,
+  resolveIntentSlugFromEnums,
+} from './seo-ai.enums';
+import { isInvalidPublicLocationName } from './seo-location-resolver.util';
 
 const TICK_MS = 4000;
 const STALE_JOB_MS = 10 * 60 * 1000;
@@ -37,11 +44,13 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     private readonly prisma: PrismaService,
     private readonly generation: SeoAiGenerationService,
     private readonly quality: SeoAiQualityService,
+    private readonly localityResolver: LocalityResolverService,
   ) {}
 
   onModuleInit(): void {
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     void this.recoverStaleJobs();
+    void this.recoverEmptyJobs();
   }
 
   onModuleDestroy(): void {
@@ -50,17 +59,30 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
 
   async estimateJob(settings: SeoAiJobSettings) {
     const count = settings.count ?? 1;
-    const { estimatedTokens, estimatedCostCzk } = this.quality.estimateBatchCostCzk(count);
+    const candidates = await this.buildJobItems(settings, count);
+    const actualCount = candidates.length;
+    const { estimatedTokens, estimatedCostCzk } = this.quality.estimateBatchCostCzk(
+      Math.max(1, actualCount),
+    );
     const todayCount = await this.countAiPagesToday();
     return {
-      pageCount: count,
-      estimatedRequests: count,
+      pageCount: actualCount,
+      requestedCount: count,
+      candidateCount: actualCount,
+      partialBatch: actualCount > 0 && actualCount < count,
+      estimatedRequests: actualCount,
       estimatedTokens,
       estimatedCostCzk,
       dailyLimit: MAX_DAILY_AI_PAGES,
       dailyUsed: todayCount,
       dailyRemaining: Math.max(0, MAX_DAILY_AI_PAGES - todayCount),
       requiresConfirmation: count > MAX_BATCH_WITHOUT_CONFIRM,
+      message:
+        actualCount === 0
+          ? 'Nebyly nalezeny žádné vhodné SEO kandidáty.'
+          : actualCount < count
+            ? `Nalezeny pouze ${actualCount} vhodné kandidátní stránky.`
+            : null,
     };
   }
 
@@ -80,9 +102,18 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }
 
     const estimate = await this.estimateJob(settings);
+    if (estimate.candidateCount === 0) {
+      throw new BadRequestException(
+        estimate.message ??
+          'Nebyly nalezeny žádné vhodné SEO kandidáty. Zkontrolujte import lokalit (RÚIAN) a filtry.',
+      );
+    }
+
+    await this.failEmptyActiveJobs();
+
     const existing = await this.getActiveJob();
-    if (existing) {
-      this.log.log(`[SEO-JOB] duplicate prevented — returning active job ${existing.id}`);
+    if (existing && existing.requestedCount > 0) {
+      this.log.log(`[SEO-LOCALITY] duplicate prevented — returning active job ${existing.id}`);
       return {
         success: true,
         jobId: existing.id,
@@ -93,6 +124,11 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }
 
     const items = await this.buildJobItems(settings, count);
+    if (items.length === 0) {
+      throw new BadRequestException(
+        'Nebyly nalezeny žádné vhodné SEO kandidáty. Zkontrolujte import lokalit (RÚIAN) a filtry.',
+      );
+    }
 
     const job = await this.prisma.seoAiGenerationJob.create({
       data: {
@@ -117,8 +153,19 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       include: { items: true },
     });
 
-    this.log.log(`[SEO-JOB] created job=${job.id} items=${job.items.length}`);
-    return { success: true, jobId: job.id, estimate, itemCount: job.items.length };
+    this.log.log(`[SEO-LOCALITY] job created id=${job.id} items=${job.items.length}`);
+    void this.tick();
+    return {
+      success: true,
+      jobId: job.id,
+      estimate,
+      itemCount: job.items.length,
+      partialBatch: job.items.length < count,
+      message:
+        job.items.length < count
+          ? `Nalezeny pouze ${job.items.length} vhodné kandidátní stránky.`
+          : null,
+    };
   }
 
   getWorkerStatus() {
@@ -284,6 +331,13 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
   }
 
   async cancelJob(jobId: string) {
+    await this.prisma.seoAiGenerationItem.updateMany({
+      where: {
+        jobId,
+        status: { in: [SeoAiGenerationItemStatus.PENDING, SeoAiGenerationItemStatus.RUNNING] },
+      },
+      data: { status: SeoAiGenerationItemStatus.SKIPPED },
+    });
     await this.prisma.seoAiGenerationJob.updateMany({
       where: {
         id: jobId,
@@ -445,7 +499,22 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       if (!job) return;
 
       if (job.status === SeoAiGenerationJobStatus.PENDING) {
-        this.log.log(`[SEO-JOB] worker picked job=${job.id}`);
+        this.log.log(`[SEO-LOCALITY] worker picked job=${job.id}`);
+        const itemCount = await this.prisma.seoAiGenerationItem.count({ where: { jobId: job.id } });
+        if (itemCount === 0) {
+          const rebuilt = await this.rebuildJobItems(job.id);
+          if (!rebuilt) {
+            await this.prisma.seoAiGenerationJob.update({
+              where: { id: job.id },
+              data: {
+                status: SeoAiGenerationJobStatus.FAILED,
+                lastError: 'SEO job nemá žádné položky ke zpracování.',
+                finishedAt: new Date(),
+              },
+            });
+            return;
+          }
+        }
         const preflight = await this.generation.validatePreflight();
         if (!preflight.ok) {
           await this.prisma.seoAiGenerationJob.update({
@@ -484,7 +553,7 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       }
 
       this.log.log(
-        `[SEO-JOB] processing item job=${job.id} ${job.processedCount + 1}/${job.requestedCount}`,
+        `[SEO-LOCALITY] item ${job.processedCount + 1}/${job.requestedCount} started job=${job.id}`,
       );
       await this.processItem(job.id, item.id);
     } finally {
@@ -735,22 +804,8 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       });
     }
 
-    const locationWhere: Prisma.SeoLocationWhereInput = { ...buildLocationWhere() };
-    const filterSlug = settings.locationSlug ?? settings.localitySlug;
-    if (filterSlug) {
-      const loc = await this.prisma.seoLocation.findFirst({
-        where: { ...locationWhere, slug: filterSlug },
-      });
-      if (loc) locationWhere.id = loc.id;
-    }
-
-    const locations = await this.prisma.seoLocation.findMany({
-      where: locationWhere,
-      orderBy: [{ population: 'desc' }, { name: 'asc' }],
-      take: Math.max(count, 1),
-    });
-
-    const intents = PROGRAMMATIC_SEO_INTENT_SLUGS;
+    const intentSlugs = this.resolveIntentSlugs(settings);
+    const locations = await this.loadCandidateLocations(settings, Math.max(count, 1) * intentSlugs.length);
     const items: Array<{
       locationId: string | null;
       intentSlug: string;
@@ -763,9 +818,10 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }> = [];
 
     for (const loc of locations) {
-      if (/^\d+$/.test(loc.name.trim())) continue;
-      for (const intentSlug of intents) {
+      if (isInvalidPublicLocationName(loc.name) || /^\d+$/.test(loc.name.trim())) continue;
+      for (const intentSlug of intentSlugs) {
         if (items.length >= count) break;
+        if (await this.isDuplicateCandidate(loc.id, intentSlug)) continue;
         const inputJson = this.generation.normalizeBatchInput(
           { ...settings, locationSlug: loc.slug, localitySlug: loc.slug, intentSlug },
           { locationId: loc.id, intentSlug },
@@ -784,6 +840,155 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }
 
     return items.slice(0, count);
+  }
+
+  private resolveIntentSlugs(settings: SeoAiJobSettings): string[] {
+    if (settings.intentSlug?.trim()) return [settings.intentSlug.trim()];
+    if (settings.offerType && settings.propertyType) {
+      const offer = normalizeSeoAiOfferType(settings.offerType);
+      const property = normalizeSeoAiPropertyType(settings.propertyType);
+      return [resolveIntentSlugFromEnums(offer, property, settings.intentSlug)];
+    }
+    return [...PROGRAMMATIC_SEO_INTENT_SLUGS];
+  }
+
+  private async loadCandidateLocations(settings: SeoAiJobSettings, limit: number) {
+    const baseWhere = buildLocationWhere();
+    const filterSlug = (settings.locationSlug ?? settings.localitySlug ?? '').trim();
+    const rows: Array<{ id: string; name: string; slug: string; population: number | null }> = [];
+
+    if (filterSlug) {
+      const hits = await this.localityResolver.search(filterSlug, 25);
+      const eligible = hits.filter((h) => !isInvalidPublicLocationName(h.name));
+      for (const hit of eligible) {
+        const loc = await this.prisma.seoLocation.findFirst({
+          where: { id: hit.id, ...baseWhere },
+          select: { id: true, name: true, slug: true, population: true, districtId: true, regionId: true },
+        });
+        if (loc) rows.push(loc);
+      }
+    }
+
+    const more = await this.prisma.seoLocation.findMany({
+      where: baseWhere,
+      orderBy: [{ population: 'desc' }, { name: 'asc' }],
+      take: Math.max(limit, 50),
+      select: { id: true, name: true, slug: true, population: true, districtId: true, regionId: true },
+    });
+
+    const seen = new Set<string>();
+    const merged = [...rows, ...more].filter((loc) => {
+      if (seen.has(loc.id)) return false;
+      seen.add(loc.id);
+      return !isInvalidPublicLocationName(loc.name) && !/^\d+$/.test(loc.name.trim());
+    });
+
+    return merged.slice(0, limit);
+  }
+
+  private async isDuplicateCandidate(locationId: string, intentSlug: string): Promise<boolean> {
+    const existingPage = await this.prisma.seoPageContent.findFirst({
+      where: {
+        locationId,
+        intentSlug,
+        status: { in: [SeoContentStatus.PUBLISHED, SeoContentStatus.REVIEW, SeoContentStatus.DRAFT] },
+      },
+      select: { id: true },
+    });
+    if (existingPage) return true;
+
+    const queued = await this.prisma.seoAiGenerationItem.findFirst({
+      where: {
+        locationId,
+        intentSlug,
+        status: { in: [SeoAiGenerationItemStatus.PENDING, SeoAiGenerationItemStatus.RUNNING] },
+        job: {
+          status: {
+            in: [
+              SeoAiGenerationJobStatus.PENDING,
+              SeoAiGenerationJobStatus.RUNNING,
+              SeoAiGenerationJobStatus.PAUSED,
+            ],
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(queued);
+  }
+
+  private async failEmptyActiveJobs() {
+    const empty = await this.prisma.seoAiGenerationJob.findMany({
+      where: {
+        requestedCount: 0,
+        status: { in: [SeoAiGenerationJobStatus.PENDING, SeoAiGenerationJobStatus.RUNNING, SeoAiGenerationJobStatus.PAUSED] },
+      },
+    });
+    for (const job of empty) {
+      await this.prisma.seoAiGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: SeoAiGenerationJobStatus.FAILED,
+          lastError: 'SEO job nemá žádné položky ke zpracování.',
+          finishedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  async recoverEmptyJobs(jobId?: string) {
+    const jobs = await this.prisma.seoAiGenerationJob.findMany({
+      where: jobId
+        ? { id: jobId }
+        : {
+            status: { in: [SeoAiGenerationJobStatus.PENDING, SeoAiGenerationJobStatus.PAUSED] },
+            OR: [{ requestedCount: 0 }, { items: { none: {} } }],
+          },
+      include: { _count: { select: { items: true } } },
+    });
+    let recovered = 0;
+    for (const job of jobs) {
+      if (job._count.items > 0 && job.requestedCount > 0) continue;
+      const ok = await this.rebuildJobItems(job.id);
+      if (ok) recovered += 1;
+    }
+    if (recovered) void this.tick();
+    return { recovered };
+  }
+
+  private async rebuildJobItems(jobId: string): Promise<boolean> {
+    const job = await this.prisma.seoAiGenerationJob.findUnique({ where: { id: jobId } });
+    if (!job) return false;
+    const settings = (job.settingsJson ?? {}) as SeoAiJobSettings;
+    const count = settings.count ?? job.requestedCount ?? 10;
+    const items = await this.buildJobItems(settings, count);
+    if (!items.length) return false;
+
+    await this.prisma.seoAiGenerationItem.deleteMany({ where: { jobId } });
+    await this.prisma.seoAiGenerationJob.update({
+      where: { id: jobId },
+      data: {
+        requestedCount: items.length,
+        processedCount: 0,
+        status: SeoAiGenerationJobStatus.PENDING,
+        lastError: null,
+        finishedAt: null,
+        items: {
+          create: items.map((item) => ({
+            locationId: item.locationId,
+            intentSlug: item.intentSlug,
+            seoPageId: item.seoPageId,
+            localityName: item.localityName,
+            localitySlug: item.localitySlug,
+            offerType: item.offerType,
+            propertyType: item.propertyType,
+            inputJson: item.inputJson as Prisma.InputJsonValue,
+          })),
+        },
+      },
+    });
+    this.log.warn(`[SEO-LOCALITY] rebuilt ${items.length} items for job=${jobId}`);
+    return true;
   }
 
   private async countAiPagesToday() {

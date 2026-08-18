@@ -20,8 +20,10 @@ import {
   type CompanyDirectoryDetailResponse,
 } from '@/lib/company-directory-client';
 import { CompanyPortalPostsBlock } from '@/components/company-directory/CompanyPortalPostsBlock';
+import { CompanyListingsBlock } from '@/components/company-directory/CompanyListingsBlock';
 import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import type { PortalPostFeedItem } from '@/lib/company-seo-admin-client';
+import type { PropertyFeedItem } from '@/types/property';
 
 type ReviewItem = {
   id: string;
@@ -50,12 +52,14 @@ export function FirmaDetailClient({
   initialReviews = [],
   initialReviewSummary = { average: null, count: 0 },
   initialPortalPosts = [],
+  initialListings = [],
 }: {
   slug: string;
   initialData?: CompanyDirectoryDetailResponse | null;
   initialReviews?: ReviewItem[];
   initialReviewSummary?: { average: number | null; count: number; positive?: number; negative?: number };
   initialPortalPosts?: PortalPostFeedItem[];
+  initialListings?: PropertyFeedItem[];
 }) {
   const [data, setData] = useState<CompanyDirectoryDetailResponse | null>(initialData);
   const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews);
@@ -802,6 +806,13 @@ export function FirmaDetailClient({
         />
 
         <CompanyPortalPostsBlock initialItems={initialPortalPosts} />
+
+        <CompanyListingsBlock
+          companyName={company.name}
+          city={company.city}
+          region={company.region}
+          initialListings={initialListings}
+        />
       </div>
     </div>
   );

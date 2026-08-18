@@ -34,6 +34,7 @@ export type PortalPostFeedItem = {
   facebookPostType?: string | null;
   facebookVideoThumbnail?: string | null;
   facebookVideoHasAudio?: boolean | null;
+  facebookVideoSourceUrl?: string | null;
   source?: string | null;
   reactionCount?: number;
 };
@@ -67,6 +68,7 @@ export function portalPostFeedItemToListingPost(post: PortalPostFeedItem): Listi
     facebookPostType: post.facebookPostType ?? null,
     facebookVideoThumbnail: post.facebookVideoThumbnail ?? null,
     facebookVideoHasAudio: post.facebookVideoHasAudio ?? null,
+    facebookVideoSourceUrl: post.facebookVideoSourceUrl ?? null,
     source: post.source as ListingPost['source'],
   };
 }

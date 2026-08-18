@@ -88,7 +88,10 @@ export class SeoAiAdminController {
 
   @Post('jobs/recover')
   recoverJobs(@Body() body?: { jobId?: string }) {
-    return this.jobs.recoverStaleJob(body?.jobId);
+    return this.jobs.recoverStaleJob(body?.jobId).then(async (stale) => {
+      const empty = await this.jobs.recoverEmptyJobs(body?.jobId);
+      return { ...stale, emptyRecovered: empty.recovered };
+    });
   }
 
   @Get('jobs')

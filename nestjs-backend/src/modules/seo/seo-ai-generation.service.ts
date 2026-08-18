@@ -12,7 +12,7 @@ import { OpenAiService } from '../openai/openai.service';
 import type { CzGeoLocation } from './cz-geo-locations.data';
 import { getProgrammaticSeoIntent } from './programmatic-seo-intents';
 import { buildProgrammaticSeoPath, buildExtendedSeoMetadata } from './programmatic-seo.util';
-import { seoLocationToCopyInput } from './seo-generation.util';
+import { seoLocationToCopyInput, buildLocationWhere } from './seo-generation.util';
 import { buildProgrammaticSeoPageKey } from './seo-location.util';
 import { LocalityResolverService } from './locality-resolver.service';
 import { SeoLocationDisplayService } from './seo-location-display.service';
@@ -468,7 +468,7 @@ export class SeoAiGenerationService {
 
   async getDiagnostics() {
     const [localityCount, promptCount, openAiStatus] = await Promise.all([
-      this.prisma.seoLocation.count({ where: { isActive: true } }),
+      this.prisma.seoLocation.count({ where: buildLocationWhere() }),
       this.prisma.aiPromptVersion.count({
         where: { feature: 'SEO_PAGE_GENERATION', status: AiPromptStatus.ACTIVE },
       }),

@@ -35,6 +35,7 @@ export type PortalPostFeedItemDto = {
   facebookPostType: string | null;
   facebookVideoThumbnail: string | null;
   facebookVideoHasAudio: boolean | null;
+  facebookVideoSourceUrl: string | null;
   source: string | null;
   reactionCount?: number;
 };
@@ -60,6 +61,7 @@ type PostRow = {
   facebookPostType: string | null;
   facebookVideoThumbnail: string | null;
   facebookVideoHasAudio: boolean | null;
+  facebookVideoSourceUrl: string | null;
   source: string | null;
   publishedAt: Date | null;
   createdAt: Date;
@@ -120,6 +122,7 @@ export function serializePortalPostFeedItem(row: PostRow): PortalPostFeedItemDto
     facebookPostType: row.facebookPostType ?? null,
     facebookVideoThumbnail: row.facebookVideoThumbnail?.trim() || null,
     facebookVideoHasAudio: row.facebookVideoHasAudio ?? null,
+    facebookVideoSourceUrl: row.facebookVideoSourceUrl?.trim() || null,
     source: row.source ?? null,
     reactionCount: row._count?.reactions,
   };

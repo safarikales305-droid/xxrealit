@@ -150,6 +150,11 @@ export function SeoGenerationProgressPanel({
         <p className="mt-2 text-sm font-semibold text-zinc-900">
           {job.processedCount} / {job.requestedCount} dokončeno · {pct} %
         </p>
+        {job.requestedCount === 0 ? (
+          <p className="mt-1 text-xs font-medium text-red-700">
+            Úloha nemá žádné položky — použijte Obnovit nebo spusťte novou dávku.
+          </p>
+        ) : null}
       </div>
 
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">

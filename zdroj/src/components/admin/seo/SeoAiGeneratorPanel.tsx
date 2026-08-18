@@ -360,9 +360,11 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
         return;
       }
       setMsg(
-        (job as { existing?: boolean }).existing
+        (job as { existing?: boolean; message?: string | null }).existing
           ? `Probíhá existující AI úloha (${job.itemCount ?? count} stránek).`
-          : `AI úloha spuštěna na serveru (${count} stránek). Můžete zavřít administraci — generování pokračuje.`,
+          : (job as { message?: string | null }).message
+            ? `AI úloha spuštěna (${job.itemCount ?? count} stránek). ${(job as { message?: string | null }).message}`
+            : `AI úloha spuštěna na serveru (${job.itemCount ?? count} stránek). Můžete zavřít administraci — generování pokračuje.`,
       );
       await refreshJob();
       onRefresh?.();

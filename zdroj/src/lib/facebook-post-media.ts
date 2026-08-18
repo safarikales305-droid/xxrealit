@@ -30,6 +30,7 @@ type PostLike = {
   previewSiteName?: ListingPost['previewSiteName'];
   facebookVideoThumbnail?: string | null;
   facebookVideoHasAudio?: boolean | null;
+  facebookVideoSourceUrl?: string | null;
   media?: Array<{ id?: string; url?: string; type?: string; order?: number }>;
 };
 
@@ -103,7 +104,9 @@ export function resolveFacebookPostMedia(post: PostLike): ResolvedFacebookPostMe
     (isFbVideo ? null : String(post.imageUrl ?? '').trim() || null);
 
   const videoUrl =
-    String(post.videoUrl ?? firstMediaUrl(post, 'video') ?? '').trim() || null;
+    String(
+      post.facebookVideoSourceUrl ?? post.videoUrl ?? firstMediaUrl(post, 'video') ?? '',
+    ).trim() || null;
 
   if (isFbVideo) {
     if (
