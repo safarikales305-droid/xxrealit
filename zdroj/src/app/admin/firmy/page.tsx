@@ -14,6 +14,7 @@ import {
   nestAdminCompanyImportJob,
   nestAdminCompanyImportJobItems,
   nestAdminCompanyImportJobs,
+  nestAdminCompanyImportRetry,
   nestAdminCompanyImportStart,
   nestAdminDiscoverContact,
   nestAdminGetContactDetail,
@@ -442,7 +443,16 @@ export default function AdminFirmyPage() {
 
   async function startImport() {
     if (!token || importing) return;
+    if (!form.category?.trim()) {
+      setErrMsg('Vyberte kategorii firem pro import.');
+      return;
+    }
+    if (form.importMode === 'SEARCH' && !form.region?.trim() && !form.city?.trim()) {
+      setErrMsg('Pro vyhledávací import zadejte kraj nebo město.');
+      return;
+    }
     setImporting(true);
+    setErrMsg(null);
     setMsg('Připravuji import…');
     const icoList = form.icoList
       .split(/[\s,;]+/)
@@ -451,19 +461,32 @@ export default function AdminFirmyPage() {
     const res = await nestAdminCompanyImportStart(token, {
       category: form.category,
       region: form.region,
-      city: form.city,
+      city: form.city || undefined,
       batchSize: form.batchSize,
       delayMs: form.delayMs,
       importMode: form.importMode,
       limit: form.limit,
       icoList: form.importMode === 'ICO_LIST' ? icoList : undefined,
     });
-    if (res?.id) {
-      const job = await nestAdminCompanyImportJob(token, String(res.id));
-      if (job) setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
-      setMsg(`Import spuštěn (${String(res.id).slice(0, 8)}…)`);
+    if (res.ok) {
+      const jobId = String(res.data.jobId ?? res.data.id ?? '');
+      if (jobId) {
+        const job = await nestAdminCompanyImportJob(token, jobId);
+        if (job) setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
+      }
+      setMsg(
+        typeof res.data.partitions === 'number' && res.data.partitions > 1
+          ? `Import spuštěn (${jobId.slice(0, 8)}…) — rozděleno na ${res.data.partitions} partitionů.`
+          : `Import spuštěn na serveru (${jobId.slice(0, 8)}…). Můžete zavřít administraci.`,
+      );
     } else {
-      setMsg('Spuštění importu selhalo.');
+      if (res.status === 409 && res.activeJobId) {
+        setErrMsg(`${res.error} Aktivní úloha: ${res.activeJobId.slice(0, 8)}…`);
+        const active = await nestAdminCompanyImportJob(token, res.activeJobId);
+        if (active) setJobs((prev) => [active, ...prev.filter((j) => j.id !== active.id)]);
+      } else {
+        setErrMsg(`Import nelze spustit: ${res.error}`);
+      }
     }
     setImporting(false);
     void refreshJobs();
@@ -741,6 +764,24 @@ export default function AdminFirmyPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {job.status === 'FAILED' ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void nestAdminCompanyImportRetry(token, job.id).then((r) => {
+                                if (r.ok) {
+                                  setMsg('Import znovu spuštěn se stejným nastavením.');
+                                  void refreshJobs();
+                                } else {
+                                  setErrMsg(`Opakování importu selhalo: ${r.error}`);
+                                }
+                              })
+                            }
+                            className="rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-800"
+                          >
+                            Opakovat import
+                          </button>
+                        ) : null}
                         {job.status === 'FAILED' && isAresTooMany(job.error) ? (
                           <button
                             type="button"

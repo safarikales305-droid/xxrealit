@@ -385,8 +385,13 @@ export async function nestAdminCompanyDirectoryDashboard(
 export async function nestAdminCompanyImportStart(
   token: string,
   body: Record<string, unknown>,
-): Promise<Record<string, unknown> | null> {
-  if (!API_BASE_URL) return null;
+): Promise<
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string; status: number; activeJobId?: string }
+> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'API není nakonfigurováno.', status: 0 };
+  }
   const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/start`, {
     method: 'POST',
     headers: {
@@ -396,8 +401,70 @@ export async function nestAdminCompanyImportStart(
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) return null;
-  return (await res.json()) as Record<string, unknown>;
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const nested =
+      payload.message && typeof payload.message === 'object' && !Array.isArray(payload.message)
+        ? (payload.message as Record<string, unknown>)
+        : null;
+    const message =
+      (typeof payload.message === 'string' && payload.message) ||
+      (typeof nested?.message === 'string' && nested.message) ||
+      (typeof payload.error === 'string' && payload.error) ||
+      (Array.isArray(payload.message)
+        ? (payload.message as string[]).join(', ')
+        : null) ||
+      `HTTP ${res.status}`;
+    return {
+      ok: false,
+      error: message,
+      status: res.status,
+      activeJobId:
+        typeof nested?.activeJobId === 'string'
+          ? nested.activeJobId
+          : typeof payload.activeJobId === 'string'
+            ? payload.activeJobId
+            : undefined,
+    };
+  }
+  return { ok: true, data: payload };
+}
+
+export async function nestAdminCompanyImportRetry(
+  token: string,
+  jobId: string,
+): Promise<
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string; status: number; activeJobId?: string }
+> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'API není nakonfigurováno.', status: 0 };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/company-directory/import/jobs/${encodeURIComponent(jobId)}/retry`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    },
+  );
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const nested =
+      payload.message && typeof payload.message === 'object' && !Array.isArray(payload.message)
+        ? (payload.message as Record<string, unknown>)
+        : null;
+    const message =
+      (typeof payload.message === 'string' && payload.message) ||
+      (typeof nested?.message === 'string' && nested.message) ||
+      `HTTP ${res.status}`;
+    return {
+      ok: false,
+      error: message,
+      status: res.status,
+      activeJobId: typeof nested?.activeJobId === 'string' ? nested.activeJobId : undefined,
+    };
+  }
+  return { ok: true, data: payload };
 }
 
 export async function nestAdminCompanyImportJobs(

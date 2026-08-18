@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,6 +19,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AresApiException, AresService } from './ares.service';
 import type { AresEconomicSubject, AresSearchFilter } from './ares.types';
 import {
+  ARES_IMPORT_BATCH_SIZE,
   ARES_IMPORT_DELAY_MS,
   ARES_IMPORT_ENABLED,
   ARES_IMPORT_MAX_REQUESTS_PER_RUN,
@@ -80,38 +82,53 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('ARES import je vypnutý (ARES_IMPORT_ENABLED=false).');
     }
 
-    const running = await this.prisma.companyImportJob.findFirst({
-      where: { status: CompanyImportJobStatus.RUNNING },
-    });
-    if (running) {
-      throw new BadRequestException('Již běží jiný import. Nejprve ho pozastavte nebo dokončete.');
+    const sanitized = this.sanitizeStartInput(input);
+    this.log.log(
+      `[ARES-IMPORT] start route payload category=${sanitized.category ?? '—'} region=${sanitized.region ?? '—'} city=${sanitized.city ?? '—'} mode=${sanitized.importMode}`,
+    );
+
+    const active = await this.findActiveJob();
+    if (active) {
+      throw new ConflictException({
+        message: 'Již běží jiný ARES import. Otevřete existující úlohu nebo ji nejdříve zastavte.',
+        activeJobId: active.id,
+        status: active.status,
+      });
     }
 
-    const importMode = input.importMode ?? (input.icoList?.length ? 'ICO_LIST' : 'SEARCH');
-    const wholeCountry = isWholeCountryRegion(input.region);
+    const importMode = sanitized.importMode;
+    const wholeCountry = isWholeCountryRegion(sanitized.region);
     if (
       importMode === 'SEARCH' &&
       !wholeCountry &&
-      !input.city?.trim() &&
-      !input.region?.trim() &&
-      !input.district?.trim()
+      !sanitized.city?.trim() &&
+      !sanitized.region?.trim() &&
+      !sanitized.district?.trim()
     ) {
       throw new BadRequestException(
         'Pro vyhledávací import zadejte Celá ČR, kraj, okres nebo město.',
       );
     }
-    const searchFilter = this.buildSearchFilter(input);
+
+    if (importMode === 'ICO_LIST') {
+      const list = sanitized.icoList ?? [];
+      if (!list.length) {
+        throw new BadRequestException('Pro import ze seznamu IČO zadejte alespoň jedno IČO.');
+      }
+    }
+
+    const searchFilter = this.buildSearchFilter(sanitized);
     const importLimit =
-      input.limit != null && Number.isFinite(input.limit) && input.limit > 0
-        ? Math.floor(input.limit)
+      sanitized.limit != null && Number.isFinite(sanitized.limit) && sanitized.limit > 0
+        ? Math.floor(sanitized.limit)
         : null;
 
     const baseFilter = searchFilter as AresSearchFilter;
     const partitionCtx = {
-      category: input.category ?? null,
-      region: wholeCountry ? 'Celá ČR' : input.region ?? null,
-      district: input.district ?? null,
-      city: input.city ?? null,
+      category: sanitized.category ?? null,
+      region: wholeCountry ? 'Celá ČR' : sanitized.region ?? null,
+      district: sanitized.district ?? null,
+      city: sanitized.city ?? null,
       wholeCountry,
     };
 
@@ -125,26 +142,117 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       checkpoint.subQueryDepths = parts.map((p) => p.depth);
       checkpoint.regionsTotal = wholeCountry ? 14 : null;
       initialCheckpoint = checkpoint as unknown as Prisma.InputJsonValue;
+      this.log.log(
+        `[ARES-IMPORT] created partitions count=${parts.length} wholeCountry=${wholeCountry}`,
+      );
     }
 
-    return this.prisma.companyImportJob.create({
-      data: {
-        category: input.category ?? null,
-        region: wholeCountry ? 'Celá ČR' : input.region?.trim() || null,
-        district: input.district?.trim() || null,
-        city: input.city?.trim() || null,
-        batchSize: input.batchSize ?? undefined,
-        delayMs: input.delayMs ?? undefined,
+    try {
+      const job = await this.prisma.companyImportJob.create({
+        data: {
+          category: sanitized.category ?? null,
+          region: wholeCountry ? 'Celá ČR' : sanitized.region?.trim() || null,
+          district: sanitized.district?.trim() || null,
+          city: sanitized.city?.trim() || null,
+          batchSize: sanitized.batchSize,
+          delayMs: sanitized.delayMs,
+          importMode,
+          icoList: importMode === 'ICO_LIST' ? (sanitized.icoList ?? []) : [],
+          searchFilter: searchFilter as Prisma.InputJsonValue,
+          checkpoint: initialCheckpoint,
+          status: CompanyImportJobStatus.PENDING,
+          totalExpected:
+            importMode === 'ICO_LIST'
+              ? (sanitized.icoList ?? []).length
+              : null,
+        },
+      });
+
+      this.log.log(`[ARES-IMPORT] job created id=${job.id} status=${job.status}`);
+      void this.tick();
+
+      return {
+        jobId: job.id,
+        id: job.id,
+        status: 'QUEUED',
         importMode,
-        icoList: (input.icoList ?? []).map((ico) => ico.replace(/\D/g, '').padStart(8, '0')),
-        searchFilter: searchFilter as Prisma.InputJsonValue,
-        checkpoint: initialCheckpoint,
-        status: CompanyImportJobStatus.PENDING,
-        totalExpected:
-          importMode === 'ICO_LIST'
-            ? (input.icoList ?? []).length
-            : null,
+        partitions: importMode === 'SEARCH' ? (parseSearchCheckpoint(initialCheckpoint)?.subQueries.length ?? 0) : null,
+      };
+    } catch (err) {
+      const prismaCode =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code)
+          : undefined;
+      this.log.error(
+        `[ARES-IMPORT] job create failed prisma=${prismaCode ?? '—'} error=${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      if (prismaCode === 'P2002') {
+        throw new ConflictException('Databáze odmítla vytvořit importní úlohu — duplicitní záznam.');
+      }
+      throw err;
+    }
+  }
+
+  async retryImport(jobId: string) {
+    const job = await this.getJobOrThrow(jobId);
+    return this.startImport({
+      category: job.category ?? undefined,
+      region: job.region ?? undefined,
+      district: job.district ?? undefined,
+      city: job.city ?? undefined,
+      batchSize: job.batchSize ?? ARES_IMPORT_BATCH_SIZE,
+      delayMs: job.delayMs ?? ARES_IMPORT_DELAY_MS,
+      importMode: (job.importMode as 'SEARCH' | 'ICO_LIST') ?? 'SEARCH',
+      icoList: job.icoList ?? [],
+      limit: parseSearchCheckpoint(job.checkpoint)?.importLimit ?? undefined,
+    });
+  }
+
+  private sanitizeStartInput(input: StartImportInput): StartImportInput {
+    const category =
+      input.category && String(input.category).trim()
+        ? (String(input.category).trim() as CompanyDirectoryCategory)
+        : undefined;
+    const batchSize =
+      input.batchSize != null && Number.isFinite(input.batchSize) && input.batchSize > 0
+        ? Math.min(500, Math.floor(input.batchSize))
+        : ARES_IMPORT_BATCH_SIZE;
+    const delayMs =
+      input.delayMs != null && Number.isFinite(input.delayMs) && input.delayMs >= 0
+        ? Math.floor(input.delayMs)
+        : ARES_IMPORT_DELAY_MS;
+    const importMode = input.importMode ?? (input.icoList?.length ? 'ICO_LIST' : 'SEARCH');
+    const icoList = (input.icoList ?? [])
+      .map((ico) => ico.replace(/\D/g, '').padStart(8, '0'))
+      .filter((ico) => /^\d{8}$/.test(ico));
+
+    return {
+      ...input,
+      category,
+      region: input.region?.trim() || undefined,
+      district: input.district?.trim() || undefined,
+      city: input.city?.trim() || undefined,
+      batchSize,
+      delayMs,
+      importMode,
+      icoList,
+      limit: input.limit,
+    };
+  }
+
+  private async findActiveJob() {
+    return this.prisma.companyImportJob.findFirst({
+      where: {
+        status: {
+          in: [
+            CompanyImportJobStatus.PENDING,
+            CompanyImportJobStatus.RUNNING,
+            CompanyImportJobStatus.PAUSED,
+          ],
+        },
       },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -848,16 +956,29 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async recoverStaleJobs() {
+    const staleMs = 10 * 60 * 1000;
+    const cutoff = new Date(Date.now() - staleMs);
     const stale = await this.prisma.companyImportJob.findMany({
-      where: { status: CompanyImportJobStatus.RUNNING },
+      where: {
+        status: CompanyImportJobStatus.RUNNING,
+        OR: [
+          { lastActivityAt: { lt: cutoff } },
+          { heartbeatAt: { lt: cutoff } },
+          { lastActivityAt: null, startedAt: { lt: cutoff } },
+        ],
+      },
     });
     for (const job of stale) {
       await this.prisma.companyImportJob.update({
         where: { id: job.id },
-        data: { status: CompanyImportJobStatus.PENDING },
+        data: {
+          status: CompanyImportJobStatus.PENDING,
+          error: 'Úloha obnovena po neaktivním workeru.',
+        },
       });
-      this.log.warn(`Recovered stale import job ${job.id}`);
+      this.log.warn(`[ARES-IMPORT] recovered stale import job ${job.id}`);
     }
+    if (stale.length) void this.tick();
   }
 
   private async getJobOrThrow(jobId: string) {

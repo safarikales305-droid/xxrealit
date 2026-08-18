@@ -124,7 +124,7 @@ export class CompanyDirectoryAdminController {
   }
 
   @Post('import/start')
-  startImport(
+  async startImport(
     @Body()
     body: {
       category?: CompanyDirectoryCategory;
@@ -135,9 +135,26 @@ export class CompanyDirectoryAdminController {
       delayMs?: number;
       importMode?: 'SEARCH' | 'ICO_LIST';
       limit?: number;
+      icoList?: string[];
     },
   ) {
-    return this.importService.startImport(body);
+    this.log.log(
+      `[ARES-IMPORT] POST import/start category=${body.category ?? '—'} region=${body.region ?? '—'} city=${body.city ?? '—'} mode=${body.importMode ?? 'SEARCH'}`,
+    );
+    try {
+      return await this.importService.startImport(body);
+    } catch (err) {
+      this.log.error(
+        `[ARES-IMPORT] import/start failed class=${err?.constructor?.name ?? 'Error'} message=${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
+  }
+
+  @Post('import/jobs/:id/retry')
+  retryImport(@Param('id') id: string) {
+    return this.importService.retryImport(id);
   }
 
   @Post('import/jobs/:id/pause')

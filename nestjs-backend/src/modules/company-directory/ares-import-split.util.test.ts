@@ -63,4 +63,32 @@ describe('ares-import-split', () => {
     assert.ok(parts.every((p) => p.filter.sidlo?.kodKraje != null || p.filter.sidlo?.nazevObce?.startsWith('Praha')));
     assert.equal(parts.some((p) => p.filter.sidlo?.textovaAdresa === 'čr'), false);
   });
+
+  it('region import returns a single partition without recursion', () => {
+    const base = buildAresSearchFilter({
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      region: 'Pardubický kraj',
+    });
+    const parts = buildInitialPartitions(base, {
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      region: 'Pardubický kraj',
+    });
+    assert.equal(parts.length, 1);
+    assert.equal(parts[0]?.filter.sidlo?.kodKraje, 94);
+  });
+
+  it('city import returns a single partition', () => {
+    const base = buildAresSearchFilter({
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      city: 'Pardubice',
+      region: 'Pardubický kraj',
+    });
+    const parts = buildInitialPartitions(base, {
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      city: 'Pardubice',
+      region: 'Pardubický kraj',
+    });
+    assert.equal(parts.length, 1);
+    assert.equal(parts[0]?.filter.sidlo?.nazevObce, 'Pardubice');
+  });
 });

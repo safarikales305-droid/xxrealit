@@ -216,11 +216,13 @@ export function buildInitialPartitions(
     return dedupePartitionSpecs(out);
   }
 
-  return splitAresSearchFilter(base, ctx).map((filter, i) => ({
-    filter,
-    label: partitionLabel(filter, ctx),
-    depth: 0,
-  }));
+  return [
+    {
+      filter: base,
+      label: partitionLabel(base, ctx),
+      depth: 0,
+    },
+  ];
 }
 
 /**
