@@ -6,7 +6,9 @@ import {
   buildInitialPartitions,
   isPragueLocation,
   isWholeCountryRegion,
+  subdivideNaceCode,
   splitAresSearchFilter,
+  splitPartitionFurther,
 } from './ares-import-split.util';
 
 describe('ares-import-split', () => {
@@ -90,5 +92,31 @@ describe('ares-import-split', () => {
     });
     assert.equal(parts.length, 1);
     assert.equal(parts[0]?.filter.sidlo?.nazevObce, 'Pardubice');
+  });
+
+  it('subdivides NACE 42 into finer codes', () => {
+    const subs = subdivideNaceCode('42');
+    assert.ok(subs.length > 1);
+    assert.ok(subs.includes('421'));
+  });
+
+  it('splits Praha 1 + NACE 42 when geo exhausted', () => {
+    const filter = buildAresSearchFilter({
+      category: CompanyDirectoryCategory.STAVEBNICTVI,
+      city: 'Praha 1',
+      region: 'Hlavní město Praha',
+    });
+    filter.czNace = ['42'];
+    const parts = splitPartitionFurther(
+      filter,
+      {
+        category: CompanyDirectoryCategory.STAVEBNICTVI,
+        city: 'Praha 1',
+        region: 'Hlavní město Praha',
+      },
+      2,
+    );
+    assert.ok(parts.length > 1, `expected NACE split, got ${parts.length}`);
+    assert.ok(parts.some((p) => p.filter.czNace?.includes('421')));
   });
 });

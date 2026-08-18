@@ -273,6 +273,31 @@ export type ImportJobView = {
   importPhase?: string | null;
   importLimit?: number | null;
   needsResplit?: boolean;
+  completedPartitions?: number;
+  totalPartitions?: number;
+  currentPartitionProcessed?: number;
+  currentPartitionTotal?: number | null;
+  currentPartitionPercent?: number;
+  partitionProgress?: {
+    overallPercent: number;
+    overallLabel: string;
+    partitionPercent: number;
+    partitionLabel: string;
+    completedPartitions: number;
+    totalPartitions: number;
+  };
+  auditLog?: Array<{ at: string; message: string }>;
+  pauseRequested?: boolean;
+  cancelRequested?: boolean;
+  heartbeatAt?: string | null;
+  finishedAt?: string | null;
+  partitionStats?: {
+    total: number;
+    completed: number;
+    pending: number;
+    running: number;
+    failed: number;
+  };
 };
 
 export type AdminCompanyRow = CompanyDirectoryCard & {

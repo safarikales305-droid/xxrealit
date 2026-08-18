@@ -21,6 +21,7 @@ import { CompanyEmailService } from './company-email.service';
 import { CompanyEventsService } from './company-events.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
+import { CompanyImportPartitionService } from './company-import-partition.service';
 import { CompanyReviewMediaStorageService } from './company-review-media-storage.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementEventService } from './company-engagement-event.service';
@@ -55,6 +56,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanyDirectoryService,
     CompanyDirectorySettingsService,
     CompanyImportService,
+    CompanyImportPartitionService,
     CompanyClaimService,
     CompanyAuditService,
     CompanyEmailService,

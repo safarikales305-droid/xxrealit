@@ -33,13 +33,15 @@ import {
   isAresTooManyResultsError,
   isWholeCountryRegion,
   parseSearchCheckpoint,
+  subdivideNaceCode,
   type AresSearchCheckpoint,
 } from './ares-import-split.util';
 import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { getAresImportSkipReason } from './ares-company-importability.util';
 import { CompanyEventsService } from './company-events.service';
-import { computeJobProgress } from './company-job-progress.util';
+import { CompanyImportPartitionService } from './company-import-partition.service';
+import { computeJobProgress, computePartitionBasedProgress } from './company-job-progress.util';
 
 type StartImportInput = {
   category?: CompanyDirectoryCategory;
@@ -64,6 +66,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly ares: AresService,
     private readonly partitionService: AresQueryPartitionService,
+    private readonly importPartitions: CompanyImportPartitionService,
     @Inject(forwardRef(() => CompanyEventsService))
     private readonly events: CompanyEventsService,
   ) {}
@@ -169,6 +172,19 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.log.log(`[ARES-IMPORT] job created id=${job.id} status=${job.status}`);
+
+      if (importMode === 'SEARCH' && initialCheckpoint) {
+        const cp = parseSearchCheckpoint(initialCheckpoint);
+        if (cp?.subQueries.length) {
+          const specs = cp.subQueries.map((filter, i) => ({
+            filter,
+            label: cp.subQueryLabels[i] ?? `partition-${i + 1}`,
+            depth: cp.subQueryDepths[i] ?? 0,
+          }));
+          await this.importPartitions.createInitialPartitions(job.id, specs);
+        }
+      }
+
       void this.tick();
 
       return {
@@ -248,7 +264,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           in: [
             CompanyImportJobStatus.PENDING,
             CompanyImportJobStatus.RUNNING,
-            CompanyImportJobStatus.PAUSED,
+            CompanyImportJobStatus.PAUSE_REQUESTED,
+            CompanyImportJobStatus.CANCEL_REQUESTED,
           ],
         },
       },
@@ -258,84 +275,133 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
   async pauseJob(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
-    if (job.status !== CompanyImportJobStatus.RUNNING) {
-      throw new BadRequestException('Import neběží.');
+    if (
+      job.status === CompanyImportJobStatus.PAUSED ||
+      job.status === CompanyImportJobStatus.PAUSE_REQUESTED
+    ) {
+      return await this.serializeJob(job);
     }
-    return this.prisma.companyImportJob.update({
+    if (
+      job.status === CompanyImportJobStatus.COMPLETED ||
+      job.status === CompanyImportJobStatus.CANCELLED ||
+      job.status === CompanyImportJobStatus.FAILED
+    ) {
+      throw new BadRequestException('Import nelze pozastavit.');
+    }
+    await this.appendAudit(jobId, 'Admin requested PAUSE');
+    const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
-      data: { status: CompanyImportJobStatus.PAUSED },
+      data: {
+        pauseRequested: true,
+        status:
+          job.status === CompanyImportJobStatus.PENDING
+            ? CompanyImportJobStatus.PAUSED
+            : CompanyImportJobStatus.PAUSE_REQUESTED,
+      },
     });
+    await this.appendAudit(jobId, 'Pause request stored');
+    return await this.serializeJob(updated);
   }
 
   async resumeJob(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
-    if (job.status !== CompanyImportJobStatus.PAUSED) {
-      throw new BadRequestException('Import není pozastavený.');
+    if (
+      job.status !== CompanyImportJobStatus.PAUSED &&
+      job.status !== CompanyImportJobStatus.FAILED
+    ) {
+      throw new BadRequestException('Import není pozastavený ani opravitelný.');
     }
-    return this.prisma.companyImportJob.update({
+    await this.appendAudit(jobId, 'Admin resumed job');
+    if (job.status === CompanyImportJobStatus.FAILED) {
+      await this.importPartitions.repairFailedJob(jobId);
+    }
+    const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
-      data: { status: CompanyImportJobStatus.PENDING, error: null },
+      data: {
+        status: CompanyImportJobStatus.PENDING,
+        pauseRequested: false,
+        cancelRequested: false,
+        error: null,
+        finishedAt: null,
+      },
     });
+    void this.tick();
+    return await this.serializeJob(updated);
   }
 
-  /** Obnoví failed job s automatickým re-partition (TOO_MANY_RESULTS). */
+  /** Obnoví failed job — pokračuje od problematického partitionu bez ztráty dat. */
   async resumeWithResplit(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
     if (job.status !== CompanyImportJobStatus.FAILED) {
-      throw new BadRequestException('Re-partition je dostupný jen pro FAILED job.');
+      throw new BadRequestException('Oprava je dostupná jen pro FAILED job.');
     }
+    await this.appendAudit(jobId, 'Admin requested repair/resplit');
+    await this.importPartitions.repairFailedJob(jobId);
     const checkpoint = parseSearchCheckpoint(job.checkpoint) ?? createEmptySearchCheckpoint(null);
-    const baseFilter = (job.searchFilter ?? this.buildSearchFilter(job)) as AresSearchFilter;
-    const wholeCountry = isWholeCountryRegion(job.region);
-    const parts = buildInitialPartitions(baseFilter, {
-      category: job.category,
-      region: job.region,
-      district: job.district,
-      city: job.city,
-      wholeCountry,
-    });
-    checkpoint.subQueries = parts.map((p) => p.filter);
-    checkpoint.subQueryLabels = parts.map((p) => p.label);
-    checkpoint.subQueryDepths = parts.map((p) => p.depth);
-    checkpoint.subQueryIndex = 0;
-    checkpoint.subQueryStart = 0;
     checkpoint.needsResplit = false;
-    checkpoint.phase = 'PARTITIONING';
     checkpoint.stopped = false;
+    checkpoint.phase = 'RUNNING';
 
-    return this.prisma.companyImportJob.update({
+    const partitionCtx = this.partitionService.buildContext(job);
+    partitionCtx.wholeCountry = isWholeCountryRegion(job.region);
+    const idx = Math.min(
+      checkpoint.subQueryIndex,
+      Math.max(0, checkpoint.subQueries.length - 1),
+    );
+    if (checkpoint.subQueries[idx]) {
+      await this.attemptAutoSplit(
+        jobId,
+        checkpoint.subQueries[idx],
+        partitionCtx,
+        checkpoint.subQueryDepths[idx] ?? 0,
+        checkpoint.subQueryLabels[idx] ?? `partition-${idx + 1}`,
+        checkpoint,
+        idx,
+      );
+    }
+
+    const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
         status: CompanyImportJobStatus.PENDING,
         error: null,
         finishedAt: null,
+        pauseRequested: false,
+        cancelRequested: false,
         checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
       },
     });
+    void this.tick();
+    return await this.serializeJob(updated);
   }
 
   async stopJob(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
     if (
       job.status === CompanyImportJobStatus.COMPLETED ||
-      job.status === CompanyImportJobStatus.FAILED
+      job.status === CompanyImportJobStatus.CANCELLED
     ) {
-      return job;
+      return await this.serializeJob(job);
     }
-    const checkpoint = this.mergeCheckpoint(job.checkpoint, { stopped: true });
-    return this.prisma.companyImportJob.update({
+    if (job.status === CompanyImportJobStatus.CANCEL_REQUESTED) {
+      return await this.serializeJob(job);
+    }
+    await this.appendAudit(jobId, 'Admin requested CANCEL');
+    const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
-        status: CompanyImportJobStatus.PAUSED,
-        error: 'Zastaveno administrátorem.',
-        checkpoint,
+        status: CompanyImportJobStatus.CANCEL_REQUESTED,
+        cancelRequested: true,
+        pauseRequested: false,
       },
     });
+    void this.tick();
+    return await this.serializeJob(updated);
   }
 
   async getJob(jobId: string) {
     const job = await this.getJobOrThrow(jobId);
-    return this.serializeJob(job);
+    return await this.serializeJob(job);
   }
 
   async getJobItems(jobId: string, limit = 100) {
@@ -351,7 +417,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
-    return rows.map((row) => this.serializeJob(row));
+    return Promise.all(rows.map((row) => this.serializeJob(row)));
   }
 
   async importIcoBatch(icoList: string[], category?: CompanyDirectoryCategory | null) {
@@ -413,7 +479,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     if (this.processing || !ARES_IMPORT_ENABLED) return;
     const job = await this.prisma.companyImportJob.findFirst({
       where: {
-        status: { in: [CompanyImportJobStatus.PENDING, CompanyImportJobStatus.RUNNING] },
+        status: {
+          in: [
+            CompanyImportJobStatus.PENDING,
+            CompanyImportJobStatus.RUNNING,
+            CompanyImportJobStatus.PAUSE_REQUESTED,
+            CompanyImportJobStatus.CANCEL_REQUESTED,
+          ],
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -427,13 +500,91 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async acknowledgePauseIfRequested(jobId: string) {
+    const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+    if (!job?.pauseRequested) return false;
+    if (
+      job.status === CompanyImportJobStatus.PAUSE_REQUESTED ||
+      job.status === CompanyImportJobStatus.RUNNING ||
+      job.status === CompanyImportJobStatus.PENDING
+    ) {
+      await this.prisma.companyImportJob.update({
+        where: { id: jobId },
+        data: { status: CompanyImportJobStatus.PAUSED, pauseRequested: false },
+      });
+      await this.appendAudit(jobId, 'Worker acknowledged PAUSE');
+      return true;
+    }
+    return false;
+  }
+
+  private async acknowledgeCancelIfRequested(jobId: string) {
+    const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+    if (
+      !job ||
+      (!job.cancelRequested && job.status !== CompanyImportJobStatus.CANCEL_REQUESTED)
+    ) {
+      return false;
+    }
+    await this.importPartitions.cancelPendingPartitions(jobId);
+    const checkpoint = this.mergeCheckpoint(job.checkpoint, { stopped: true });
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        status: CompanyImportJobStatus.CANCELLED,
+        cancelRequested: true,
+        pauseRequested: false,
+        finishedAt: new Date(),
+        error: 'Import zastaven administrátorem.',
+        checkpoint,
+      },
+    });
+    await this.appendAudit(jobId, 'Worker acknowledged CANCEL');
+    return true;
+  }
+
+  private async shouldAbortJob(jobId: string): Promise<boolean> {
+    const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+    if (!job) return true;
+    if (
+      job.cancelRequested ||
+      job.status === CompanyImportJobStatus.CANCELLED ||
+      job.status === CompanyImportJobStatus.CANCEL_REQUESTED
+    ) {
+      return true;
+    }
+    if (job.pauseRequested || job.status === CompanyImportJobStatus.PAUSED) return true;
+    const checkpoint = parseSearchCheckpoint(job.checkpoint);
+    if (checkpoint?.stopped) return true;
+    return false;
+  }
+
+  private async handleAbortSignals(jobId: string) {
+    const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+    if (job.pauseRequested || job.status === CompanyImportJobStatus.PAUSE_REQUESTED) {
+      await this.acknowledgePauseIfRequested(jobId);
+      return;
+    }
+    if (job.cancelRequested || job.status === CompanyImportJobStatus.CANCEL_REQUESTED) {
+      await this.acknowledgeCancelIfRequested(jobId);
+    }
+  }
+
   private async processJobBatch(jobId: string) {
     const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
     if (!job) return;
     if (
       job.status !== CompanyImportJobStatus.PENDING &&
-      job.status !== CompanyImportJobStatus.RUNNING
+      job.status !== CompanyImportJobStatus.RUNNING &&
+      job.status !== CompanyImportJobStatus.PAUSE_REQUESTED &&
+      job.status !== CompanyImportJobStatus.CANCEL_REQUESTED
     ) {
+      return;
+    }
+
+    if (await this.shouldAbortJob(jobId)) {
+      await this.handleAbortSignals(jobId);
       return;
     }
 
@@ -553,7 +704,16 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       const partitionDepth = checkpoint.subQueryDepths[idx] ?? 0;
 
+      const dbWork = await this.importPartitions.getNextWorkPartition(jobId);
+      if (dbWork?.status === 'PENDING') {
+        await this.importPartitions.markPartitionRunning(dbWork.id);
+      }
+
       if (checkpoint.subQueryTotals[idx] == null && requests < maxRequests) {
+        if (await this.shouldAbortJob(jobId)) {
+          await this.handleAbortSignals(jobId);
+          return;
+        }
         requests += 1;
         try {
           const countResult = await this.partitionService.countPartition(activeFilter, partitionCtx, {
@@ -562,30 +722,32 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           });
           checkpoint.subQueryTotals[idx] = countResult.total ?? 0;
           if (this.partitionService.needsFurtherSplit(countResult.total)) {
-            const children = this.partitionService.furtherPartitions(
+            const splitOk = await this.attemptAutoSplit(
+              jobId,
               activeFilter,
               partitionCtx,
               partitionDepth,
+              partitionLabel,
+              checkpoint,
+              idx,
             );
-            if (children.length > 0) {
-              await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
-              return;
-            }
+            if (splitOk) return;
             this.log.warn(
               `Import ${jobId}: partition ${partitionLabel} NEEDS_FURTHER_SPLIT (total=${countResult.total})`,
             );
           }
         } catch (err) {
           if (isAresTooManyResultsError(err)) {
-            const children = this.partitionService.furtherPartitions(
+            const splitOk = await this.attemptAutoSplit(
+              jobId,
               activeFilter,
               partitionCtx,
               partitionDepth,
+              partitionLabel,
+              checkpoint,
+              idx,
             );
-            if (children.length > 0) {
-              await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
-              return;
-            }
+            if (splitOk) return;
           }
           throw err;
         }
@@ -593,6 +755,11 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       if (requests >= maxRequests) {
         await this.persistCheckpoint(jobId, job, checkpoint);
+        return;
+      }
+
+      if (await this.shouldAbortJob(jobId)) {
+        await this.handleAbortSignals(jobId);
         return;
       }
 
@@ -611,38 +778,38 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         });
       } catch (err) {
         if (isAresTooManyResultsError(err)) {
-          const children = this.partitionService.furtherPartitions(
+          const splitOk = await this.attemptAutoSplit(
+            jobId,
             activeFilter,
             partitionCtx,
             partitionDepth,
+            partitionLabel,
+            checkpoint,
+            idx,
           );
-          if (children.length > 0) {
-            await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
-            return;
-          }
+          if (splitOk) return;
         }
         throw err;
       }
 
       const subjects = response.ekonomickeSubjekty ?? [];
-      const subTotal = response.pocetCelkem ?? checkpoint.subQueryTotals[idx] ?? null;
+      let subTotal = response.pocetCelkem ?? checkpoint.subQueryTotals[idx] ?? null;
 
       if (subTotal != null && subTotal > 1000) {
-        const children = this.partitionService.furtherPartitions(
+        const splitOk = await this.attemptAutoSplit(
+          jobId,
           activeFilter,
           partitionCtx,
           partitionDepth,
+          partitionLabel,
+          checkpoint,
+          idx,
         );
-        if (children.length > 0) {
-          await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
-          return;
-        }
-        checkpoint.needsResplit = true;
-        checkpoint.phase = 'DISCOVERING';
-        await this.persistCheckpoint(jobId, job, checkpoint);
-        throw new Error(
-          `Partition ${partitionLabel} vrací ${subTotal} výsledků (>1000) a nelze ji dále rozdělit.`,
+        if (splitOk) return;
+        this.log.warn(
+          `[ARES-IMPORT] partition ${partitionLabel} has ${subTotal} results — importing capped batch of 1000`,
         );
+        subTotal = 1000;
       }
 
       if (subTotal != null) {
@@ -675,6 +842,11 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       for (const subject of subjects) {
         if (importLimit != null && processed >= importLimit) break;
+        if (await this.shouldAbortJob(jobId)) {
+          await this.persistCheckpoint(jobId, job, checkpoint);
+          await this.handleAbortSignals(jobId);
+          return;
+        }
 
         rawResults += 1;
         const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
@@ -740,6 +912,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       if (subQueryExhausted && checkpoint.subQueries.length > 0) {
         nextSubQueryIndex += 1;
         nextSubQueryStart = 0;
+        await this.importPartitions.completeRunningPartitions(jobId);
         if (partitionCtx.wholeCountry) {
           checkpoint.regionsCompleted = Math.min(
             checkpoint.regionsTotal ?? 14,
@@ -791,6 +964,44 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+
+      if (isAresTooManyResultsError(err)) {
+        const failedJob = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+        const checkpoint = parseSearchCheckpoint(failedJob?.checkpoint);
+        if (failedJob && checkpoint?.subQueries.length) {
+          const idx = Math.min(
+            checkpoint.subQueryIndex,
+            Math.max(0, checkpoint.subQueries.length - 1),
+          );
+          const partitionCtx = this.partitionService.buildContext(failedJob);
+          partitionCtx.wholeCountry = isWholeCountryRegion(failedJob.region);
+          const splitOk = await this.attemptAutoSplit(
+            jobId,
+            checkpoint.subQueries[idx] ?? (failedJob.searchFilter as AresSearchFilter),
+            partitionCtx,
+            checkpoint.subQueryDepths[idx] ?? 0,
+            checkpoint.subQueryLabels[idx] ?? `partition-${idx + 1}`,
+            checkpoint,
+            idx,
+          );
+          if (splitOk) return;
+        }
+        await this.prisma.companyImportJob.update({
+          where: { id: jobId },
+          data: {
+            status: CompanyImportJobStatus.PENDING,
+            error: null,
+            checkpoint: this.mergeCheckpoint(failedJob?.checkpoint, {
+              needsResplit: true,
+              phase: 'PARTITIONING',
+            }),
+            lastActivityAt: new Date(),
+          },
+        });
+        this.log.warn(`Import ${jobId}: TOO_MANY_RESULTS — čeká na další rozdělení partitionu`);
+        return;
+      }
+
       const pauseOnRateLimit =
         err instanceof AresApiException && (err.statusCode === 429 || err.statusCode >= 500);
 
@@ -987,7 +1198,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     return job;
   }
 
-  private serializeJob(job: {
+  private async serializeJob(job: {
     id: string;
     source: string;
     category: CompanyDirectoryCategory | null;
@@ -1016,17 +1227,43 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     heartbeatAt?: Date | null;
     searchFilter?: Prisma.JsonValue;
     checkpoint?: Prisma.JsonValue | null;
+    auditLog?: Prisma.JsonValue | null;
+    pauseRequested?: boolean;
+    cancelRequested?: boolean;
   }) {
     const checkpoint = parseSearchCheckpoint(job.checkpoint);
     const isComplete = job.status === CompanyImportJobStatus.COMPLETED;
+    const partitionStats = await this.importPartitions.getProgressStats(job.id);
+
+    const totalPartitions =
+      partitionStats.total > 0
+        ? partitionStats.total
+        : checkpoint?.subQueries?.length ?? 0;
+    const completedPartitions =
+      partitionStats.total > 0
+        ? partitionStats.completed
+        : checkpoint?.subQueryIndex ?? 0;
+    const currentIdx = checkpoint?.subQueryIndex ?? 0;
+    const currentPartitionTotal = checkpoint?.subQueryTotals?.[currentIdx] ?? null;
+
+    const partitionProgress = computePartitionBasedProgress({
+      completedPartitions,
+      totalPartitions,
+      currentPartitionCursor: checkpoint?.subQueryStart ?? 0,
+      currentPartitionTotal,
+      overallProcessed: job.processed,
+      jobStatus: job.status,
+      isComplete,
+    });
+
     const progress = computeJobProgress(job.processed, job.totalExpected, job.startedAt);
-    const progressPercent = isComplete
-      ? progress.percentage
-      : Math.min(99, progress.percentage);
+    const progressPercent = isComplete ? 100 : partitionProgress.overallPercent;
     const displayStatus =
-      checkpoint?.stopped && job.status === CompanyImportJobStatus.PAUSED
-        ? 'STOPPED'
-        : job.status;
+      job.status === CompanyImportJobStatus.CANCELLED
+        ? 'CANCELLED'
+        : checkpoint?.stopped && job.status === CompanyImportJobStatus.PAUSED
+          ? 'STOPPED'
+          : job.status;
     return {
       id: job.id,
       source: job.source,
@@ -1045,8 +1282,18 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       totalExpected: job.totalExpected,
       totalFound: job.totalExpected,
       progress,
-      progressLabel: progress.label,
+      progressLabel: partitionProgress.overallLabel,
       progressPercent,
+      partitionProgress,
+      currentPartitionProcessed: partitionProgress.currentPartitionProcessed,
+      currentPartitionTotal: partitionProgress.currentPartitionTotal,
+      currentPartitionPercent: partitionProgress.partitionPercent,
+      completedPartitions,
+      totalPartitions,
+      partitionStats,
+      auditLog: Array.isArray(job.auditLog) ? job.auditLog : [],
+      pauseRequested: job.pauseRequested ?? false,
+      cancelRequested: job.cancelRequested ?? false,
       etaSeconds: progress.etaSeconds,
       requestsCount: job.requestsCount ?? 0,
       lastActivityAt: job.lastActivityAt?.toISOString() ?? null,
@@ -1085,9 +1332,11 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     const before = checkpoint.subQueries.slice(0, index);
     const beforeLabels = checkpoint.subQueryLabels.slice(0, index);
     const beforeDepths = checkpoint.subQueryDepths.slice(0, index);
+    const beforeTotals = checkpoint.subQueryTotals.slice(0, index);
     const after = checkpoint.subQueries.slice(index + 1);
     const afterLabels = checkpoint.subQueryLabels.slice(index + 1);
     const afterDepths = checkpoint.subQueryDepths.slice(index + 1);
+    const afterTotals = checkpoint.subQueryTotals.slice(index + 1);
 
     checkpoint.subQueries = [
       ...before,
@@ -1104,8 +1353,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       ...children.map((c) => c.depth),
       ...afterDepths,
     ];
+    checkpoint.subQueryTotals = [
+      ...beforeTotals,
+      ...children.map(() => null as number | null),
+      ...afterTotals,
+    ];
     checkpoint.subQueryStart = 0;
     checkpoint.phase = 'PARTITIONING';
+    checkpoint.needsResplit = false;
 
     await this.prisma.companyImportJob.update({
       where: { id: jobId },
@@ -1113,8 +1368,19 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
         error: null,
         lastActivityAt: new Date(),
+        status: CompanyImportJobStatus.PENDING,
       },
     });
+
+    const dbParts = await this.prisma.companyImportPartition.findMany({
+      where: { jobId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const parentPart = dbParts[index];
+    if (parentPart) {
+      await this.importPartitions.splitPartition(parentPart.id, children);
+    }
+
     this.log.warn(
       `Import ${jobId}: partition ${index + 1} rozdělen na ${children.length} poddotazů (celkem ${checkpoint.subQueries.length}).`,
     );
@@ -1138,5 +1404,60 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
   private sleep(ms: number) {
     return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async appendAudit(jobId: string, message: string) {
+    const job = await this.prisma.companyImportJob.findUnique({
+      where: { id: jobId },
+      select: { auditLog: true },
+    });
+    const existing = Array.isArray(job?.auditLog) ? (job!.auditLog as unknown[]) : [];
+    const entry = {
+      at: new Date().toISOString(),
+      message,
+    };
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        auditLog: [...existing.slice(-49), entry] as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async attemptAutoSplit(
+    jobId: string,
+    activeFilter: AresSearchFilter,
+    partitionCtx: ReturnType<AresQueryPartitionService['buildContext']>,
+    partitionDepth: number,
+    partitionLabel: string,
+    checkpoint: AresSearchCheckpoint,
+    idx: number,
+  ): Promise<boolean> {
+    let children = this.partitionService.furtherPartitions(
+      activeFilter,
+      partitionCtx,
+      partitionDepth,
+    );
+
+    if (children.length === 0 && activeFilter.czNace?.length === 1) {
+      const subs = subdivideNaceCode(activeFilter.czNace[0]);
+      if (subs.length > 1) {
+        children = subs.map((nace) => ({
+          filter: { ...activeFilter, czNace: [nace], start: 0 },
+          label: `${partitionLabel} · nace=${nace}`,
+          depth: partitionDepth + 1,
+        }));
+      }
+    }
+
+    if (children.length === 0) return false;
+
+    await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+
+    await this.appendAudit(
+      jobId,
+      `Auto-split partition ${partitionLabel} → ${children.length} children (>1000 výsledků)`,
+    );
+    return true;
   }
 }

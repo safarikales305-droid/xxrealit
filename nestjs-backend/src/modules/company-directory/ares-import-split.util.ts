@@ -6,7 +6,37 @@ import { naceCodesForCategory } from './ares-activity.mapper';
 import type { CompanyDirectoryCategory } from '@prisma/client';
 
 export const ARES_MAX_RESULTS_PER_QUERY = 1000;
-export const MAX_PARTITION_DEPTH = 6;
+export const MAX_PARTITION_DEPTH = 8;
+
+/** Rozšíření hrubého NACE kódu na jemnější podkódy pro ARES dotazy pod 1000 výsledků. */
+export function subdivideNaceCode(nace: string): string[] {
+  const code = nace.trim();
+  if (!code || code.length >= 4) return [];
+
+  const MAP: Record<string, string[]> = {
+    '41': ['411', '412', '429'],
+    '42': ['421', '422', '423', '424', '425', '426', '427', '428', '429'],
+    '43': ['431', '432', '433', '439'],
+    '64': ['641', '642', '643', '649'],
+    '65': ['651', '652', '653'],
+    '66': ['661', '662', '663'],
+    '68': ['681', '682', '683'],
+    '6831': ['68310', '68311', '68312'],
+    '6832': ['68320', '68321'],
+    '7111': ['71110', '71111', '71112'],
+    '7112': ['71120', '71121', '71122'],
+  };
+
+  if (MAP[code]) return MAP[code];
+
+  if (code.length === 2) {
+    return [`${code}1`, `${code}2`, `${code}3`, `${code}9`];
+  }
+  if (code.length === 3) {
+    return [`${code}0`, `${code}1`, `${code}2`, `${code}9`];
+  }
+  return [];
+}
 
 export type AresImportPhase =
   | 'DISCOVERING'
@@ -21,7 +51,7 @@ export type AresSearchCheckpoint = {
   subQueryLabels: string[];
   subQueryIndex: number;
   subQueryStart: number;
-  subQueryTotals: number[];
+  subQueryTotals: Array<number | null>;
   subQueryDepths: number[];
   aggregateTotal: number | null;
   importLimit: number | null;
@@ -287,6 +317,27 @@ export function splitPartitionFurther(
     return dedupePartitionSpecs(out);
   }
 
+  if (filter.czNace?.length === 1) {
+    const subs = subdivideNaceCode(filter.czNace[0]);
+    if (subs.length > 1) {
+      const out: Array<{ filter: AresSearchFilter; label: string; depth: number }> = [];
+      for (const nace of subs) {
+        const child = buildPartition(filter, nace, sidlo);
+        out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
+      }
+      return dedupePartitionSpecs(out);
+    }
+  }
+
+  if (sidlo.nazevOkresu && !sidlo.nazevObce) {
+    const out: Array<{ filter: AresSearchFilter; label: string; depth: number }> = [];
+    for (const nace of naceList) {
+      const child = buildPartition(filter, nace, { ...sidlo, textovaAdresa: sidlo.nazevOkresu });
+      out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
+    }
+    if (out.length) return dedupePartitionSpecs(out);
+  }
+
   return [];
 }
 
@@ -374,7 +425,9 @@ export function parseSearchCheckpoint(raw: unknown): AresSearchCheckpoint | null
       : (c.subQueries as AresSearchFilter[]).map((_, i) => `partition-${i + 1}`),
     subQueryIndex: Number(c.subQueryIndex ?? 0) || 0,
     subQueryStart: Number(c.subQueryStart ?? 0) || 0,
-    subQueryTotals: Array.isArray(c.subQueryTotals) ? (c.subQueryTotals as number[]) : [],
+    subQueryTotals: Array.isArray(c.subQueryTotals)
+      ? (c.subQueryTotals as Array<number | null>)
+      : [],
     subQueryDepths: Array.isArray(c.subQueryDepths) ? (c.subQueryDepths as number[]) : [],
     aggregateTotal: c.aggregateTotal != null ? Number(c.aggregateTotal) : null,
     importLimit: c.importLimit != null ? Number(c.importLimit) : null,
@@ -394,11 +447,14 @@ export function parseSearchCheckpoint(raw: unknown): AresSearchCheckpoint | null
 }
 
 export function computeAggregateTotal(
-  subQueryTotals: number[],
+  subQueryTotals: Array<number | null>,
   importLimit: number | null,
 ): number | null {
   if (subQueryTotals.length === 0) return null;
-  const sum = subQueryTotals.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const sum = subQueryTotals.reduce<number>(
+    (a, b) => a + (b != null && Number.isFinite(b) ? b : 0),
+    0,
+  );
   if (importLimit != null && importLimit > 0) return Math.min(sum, importLimit);
   return sum;
 }

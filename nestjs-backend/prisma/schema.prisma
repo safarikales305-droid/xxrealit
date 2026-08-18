@@ -6257,9 +6257,21 @@ enum CompanyDirectoryVerificationStatus {
 enum CompanyImportJobStatus {
   PENDING
   RUNNING
+  PAUSE_REQUESTED
   PAUSED
+  CANCEL_REQUESTED
+  CANCELLED
   COMPLETED
   FAILED
+}
+
+enum CompanyImportPartitionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  SPLIT
+  FAILED
+  CANCELLED
 }
 
 enum CompanyImportJobSource {
@@ -6782,6 +6794,10 @@ model CompanyImportJob {
 
   status CompanyImportJobStatus @default(PENDING)
 
+  pauseRequested  Boolean @default(false)
+  cancelRequested Boolean @default(false)
+  auditLog        Json?
+
   processed Int @default(0)
   created   Int @default(0)
   updated   Int @default(0)
@@ -6811,9 +6827,38 @@ model CompanyImportJob {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items CompanyImportItem[]
+  items       CompanyImportItem[]
+  partitions  CompanyImportPartition[]
 
   @@index([status, createdAt])
+}
+
+model CompanyImportPartition {
+  id             String                       @id @default(cuid())
+  jobId          String
+  job            CompanyImportJob             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  parentId       String?
+  parent         CompanyImportPartition?      @relation("ImportPartitionTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       CompanyImportPartition[]     @relation("ImportPartitionTree")
+  sortOrder      Int                          @default(0)
+  depth          Int                          @default(0)
+  label          String?
+  filtersJson    Json
+  status         CompanyImportPartitionStatus @default(PENDING)
+  estimatedCount Int?
+  cursor         Int                          @default(0)
+  processedCount Int                          @default(0)
+  createdCount   Int                          @default(0)
+  updatedCount   Int                          @default(0)
+  skippedCount   Int                          @default(0)
+  error          String?                      @db.Text
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  @@index([jobId, status, sortOrder])
+  @@index([parentId])
 }
 
 model CompanyClaimRequest {

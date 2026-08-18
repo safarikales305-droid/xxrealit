@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { CompanyImportProgressBar } from '@/components/admin/CompanyImportProgressBar';
+import { CompanyImportJobControls } from '@/components/admin/CompanyImportJobControls';
 import {
   nestAdminCompanyClaims,
   nestAdminCompanyDirectoryDashboard,
@@ -149,7 +150,10 @@ export default function AdminFirmyPage() {
   });
 
   const hasActiveJobs = useMemo(
-    () => jobs.some((j) => j.status === 'RUNNING' || j.status === 'PENDING'),
+    () =>
+      jobs.some((j) =>
+        ['RUNNING', 'PENDING', 'PAUSE_REQUESTED', 'CANCEL_REQUESTED'].includes(j.status),
+      ),
     [jobs],
   );
 
@@ -763,83 +767,47 @@ export default function AdminFirmyPage() {
                             : ''}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {job.status === 'FAILED' ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void nestAdminCompanyImportRetry(token, job.id).then((r) => {
-                                if (r.ok) {
-                                  setMsg('Import znovu spuštěn se stejným nastavením.');
-                                  void refreshJobs();
-                                } else {
-                                  setErrMsg(`Opakování importu selhalo: ${r.error}`);
-                                }
-                              })
-                            }
-                            className="rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-800"
-                          >
-                            Opakovat import
-                          </button>
-                        ) : null}
-                        {job.status === 'FAILED' && isAresTooMany(job.error) ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void nestAdminCompanyImportAction(token, job.id, 'resplit').then(() =>
-                                refreshJobs(),
-                              )
-                            }
-                            className="rounded border border-orange-300 px-2 py-1 text-xs text-orange-800"
-                          >
-                            Pokračovat s rozdělením
-                          </button>
-                        ) : null}
-                        {(['pause', 'resume', 'stop'] as const).map((action) => (
-                          <button
-                            key={action}
-                            type="button"
-                            onClick={() =>
-                              void nestAdminCompanyImportAction(token, job.id, action).then(() =>
-                                refreshJobs(),
-                              )
-                            }
-                            className="rounded border px-2 py-1 text-xs capitalize"
-                          >
-                            {action === 'pause'
-                              ? 'Pozastavit'
-                              : action === 'resume'
-                                ? 'Pokračovat'
-                                : 'Zastavit'}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setDetailJobId(job.id)}
-                          className="rounded border px-2 py-1 text-xs"
-                        >
-                          Detail
-                        </button>
-                      </div>
+                      <CompanyImportJobControls
+                        token={token}
+                        job={job}
+                        onRefresh={() => void refreshJobs()}
+                        onMessage={setMsg}
+                        onError={setErrMsg}
+                        onDetail={() => setDetailJobId(job.id)}
+                      />
                     </div>
 
                     <div className="mt-4">
                       <CompanyImportProgressBar
-                        title="ARES import"
+                        title="ARES import — celkový postup"
                         status={job.status}
                         percent={job.progressPercent ?? 0}
-                        label={job.progressLabel ?? `${job.processed} zpracováno`}
+                        label={
+                          job.partitionProgress?.overallLabel ??
+                          job.progressLabel ??
+                          `${job.processed} zpracováno`
+                        }
                         etaSeconds={job.etaSeconds}
                       />
+                      {job.currentPartitionPercent != null ? (
+                        <p className="mt-2 text-xs text-zinc-600">
+                          Aktuální poddotaz: {job.currentPartitionProcessed ?? 0}
+                          {job.currentPartitionTotal != null
+                            ? ` / ${job.currentPartitionTotal}`
+                            : ''}{' '}
+                          — {job.currentPartitionPercent} %
+                        </p>
+                      ) : null}
                     </div>
 
                     <p className="mt-3 text-xs text-zinc-600">
-                      Celkem nalezeno: {job.totalFound ?? job.totalExpected ?? '—'}
+                      <strong>Celkový import:</strong> {job.progressPercent ?? 0} %
                       <br />
-                      Zpracováno: {job.processed}
-                      {job.totalExpected != null ? ` / ${job.totalExpected}` : ''} · Nové: {job.created}{' '}
-                      · Aktualizované: {job.updated} · Přeskočené: {job.skipped ?? 0} · Chyby:{' '}
-                      {job.failed}
+                      Partitiony: {job.completedPartitions ?? job.subQueryIndex ?? 0} /{' '}
+                      {job.totalPartitions ?? job.subQueryCount ?? '—'} dokončeno
+                      <br />
+                      Firmy: {job.processed} zpracováno · Nové: {job.created} · Aktualizované:{' '}
+                      {job.updated} · Přeskočené: {job.skipped ?? 0} · Chyby: {job.failed}
                       <br />
                       API requesty: {job.requestsCount ?? 0}
                       {job.currentBatchFrom != null && job.currentBatchTo != null ? (
@@ -848,28 +816,16 @@ export default function AdminFirmyPage() {
                           Aktuální dávka: {job.currentBatchFrom}–{job.currentBatchTo}
                         </>
                       ) : null}
-                      {job.currentCompanyName ? (
-                        <>
-                          <br />
-                          Aktuální firma: {job.currentCompanyName}
-                        </>
-                      ) : null}
                       {job.currentPartitionLabel ? (
                         <>
                           <br />
-                          Partition: {job.currentPartitionLabel}
+                          Aktuálně: {job.currentPartitionLabel}
                         </>
                       ) : null}
                       {job.regionsTotal != null ? (
                         <>
                           <br />
                           Kraje: {job.regionsCompleted ?? 0} / {job.regionsTotal}
-                        </>
-                      ) : null}
-                      {job.subQueryCount != null && job.subQueryCount > 0 ? (
-                        <>
-                          <br />
-                          Poddotaz: {(job.subQueryIndex ?? 0) + 1} / {job.subQueryCount}
                         </>
                       ) : null}
                     </p>
@@ -1858,6 +1814,50 @@ export default function AdminFirmyPage() {
                 Zavřít
               </button>
             </div>
+            {(() => {
+              const detailJob = jobs.find((j) => j.id === detailJobId);
+              if (!detailJob) return null;
+              return (
+                <div className="mt-4 space-y-3 rounded-lg border bg-zinc-50 p-3 text-xs text-zinc-700">
+                  <p>
+                    <strong>Job ID:</strong> {detailJob.id}
+                    <br />
+                    <strong>Status:</strong> {detailJob.status}
+                    <br />
+                    <strong>Heartbeat:</strong>{' '}
+                    {detailJob.heartbeatAt
+                      ? new Date(detailJob.heartbeatAt).toLocaleString('cs-CZ')
+                      : '—'}
+                    <br />
+                    <strong>Poslední aktivita:</strong>{' '}
+                    {detailJob.lastActivityAt
+                      ? new Date(detailJob.lastActivityAt).toLocaleString('cs-CZ')
+                      : '—'}
+                    <br />
+                    <strong>Partitiony:</strong> {detailJob.partitionStats?.completed ?? detailJob.completedPartitions ?? 0}{' '}
+                    dokončeno · {detailJob.partitionStats?.pending ?? '—'} čeká ·{' '}
+                    {detailJob.partitionStats?.running ?? '—'} běží ·{' '}
+                    {detailJob.partitionStats?.failed ?? '—'} chyba
+                    <br />
+                    <strong>Aktuální partition:</strong> {detailJob.currentPartitionLabel ?? '—'}
+                    <br />
+                    <strong>Poslední chyba:</strong> {detailJob.error ?? '—'}
+                  </p>
+                  {detailJob.auditLog?.length ? (
+                    <div>
+                      <p className="font-semibold">Poslední události</p>
+                      <ul className="mt-1 max-h-32 overflow-auto">
+                        {[...detailJob.auditLog].reverse().slice(0, 20).map((entry, i) => (
+                          <li key={`${entry.at}-${i}`}>
+                            {new Date(entry.at).toLocaleString('cs-CZ')} — {entry.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -1896,10 +1896,4 @@ export default function AdminFirmyPage() {
       ) : null}
     </div>
   );
-}
-
-function isAresTooMany(error?: string | null): boolean {
-  if (!error) return false;
-  const msg = error.toLowerCase();
-  return msg.includes('příliš mnoho') || msg.includes('1000') || msg.includes('1 000');
 }
