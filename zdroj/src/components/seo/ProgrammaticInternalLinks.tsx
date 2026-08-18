@@ -34,9 +34,18 @@ function LinkSection({
 
 export function ProgrammaticInternalLinks({ data }: Props) {
   const { intent, location, internalLinks, relatedLocations } = data;
+  const cityQ = encodeURIComponent(location.name);
+
+  const portalLinks = [
+    { href: `/reality?city=${cityQ}`, label: `Reality v ${location.name}` },
+    { href: `/firmy?city=${cityQ}`, label: `Firmy v ${location.name}` },
+    { href: `/profesionalove?city=${cityQ}`, label: `Profesionálové v ${location.name}` },
+    { href: `/ubytovani?city=${cityQ}`, label: `Ubytování v ${location.name}` },
+  ];
 
   return (
     <div className="mt-10 grid gap-4 lg:grid-cols-2">
+      <LinkSection title={`Objevte ${location.name} na XXREALIT`} links={portalLinks} />
       <LinkSection
         title={`Další ${intent.label.toLowerCase()} v okolí`}
         links={internalLinks.sameIntentNearby.map((l) => ({ href: l.path, label: l.name }))}

@@ -14852,6 +14852,9 @@ export type SeoAiJobView = {
   lastError?: string | null;
   pauseReason?: string | null;
   progressPct?: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastActivityAt?: string | null;
   items?: SeoAiJobItemView[];
 };
 
@@ -15034,12 +15037,43 @@ export async function nestAdminSeoAiEstimateJob(
 export async function nestAdminSeoAiCreateJob(
   token: string | null,
   body: Record<string, unknown>,
-): Promise<{ success: boolean; jobId: string; estimate: SeoAiJobEstimate } | null> {
+): Promise<{
+  success: boolean;
+  jobId: string;
+  estimate: SeoAiJobEstimate;
+  itemCount?: number;
+  existing?: boolean;
+} | null> {
   return nestAdminSeoAiJson(token, '/jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+export type SeoAiJobProgressResponse = {
+  active: SeoAiJobView | null;
+  worker: { online: boolean; lastHeartbeat: string | null; heartbeatAgeMs?: number | null };
+  staleWarning: boolean;
+  recentJobs: SeoAiJobView[];
+};
+
+export async function nestAdminSeoAiGetProgress(
+  token: string | null,
+): Promise<SeoAiJobProgressResponse | null> {
+  return nestAdminSeoAiJson<SeoAiJobProgressResponse>(token, '/jobs/progress');
+}
+
+export async function nestAdminSeoAiRecoverJob(token: string | null, jobId?: string) {
+  return nestAdminSeoAiJson<{ recovered: number }>(token, '/jobs/recover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(jobId ? { jobId } : {}),
+  });
+}
+
+export async function nestAdminSeoAiListJobs(token: string | null): Promise<SeoAiJobView[] | null> {
+  return nestAdminSeoAiJson<SeoAiJobView[]>(token, '/jobs');
 }
 
 export async function nestAdminSeoAiGetActiveJob(token: string | null): Promise<SeoAiJobView | null> {

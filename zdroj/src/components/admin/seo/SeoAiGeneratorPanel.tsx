@@ -10,11 +10,12 @@ import {
   nestAdminSeoAiDiagnostics,
   nestAdminSeoAiEstimateJob,
   nestAdminSeoAiGenerateTest,
-  nestAdminSeoAiGetActiveJob,
   nestAdminSeoAiGetJob,
   nestAdminSeoAiGetJobErrors,
   nestAdminSeoAiGetJobItems,
+  nestAdminSeoAiGetProgress,
   nestAdminSeoAiPauseJob,
+  nestAdminSeoAiRecoverJob,
   nestAdminSeoAiResumeJob,
   nestAdminSeoAiRetryFailedJob,
   nestAdminSeoAiRetryJobItem,
@@ -25,9 +26,11 @@ import {
   type SeoAiJobErrorView,
   type SeoAiJobEstimate,
   type SeoAiJobItemView,
+  type SeoAiJobProgressResponse,
   type SeoAiJobView,
   type SeoAiLocalitySearchHit,
 } from '@/lib/nest-client';
+import { SeoGenerationProgressPanel } from '@/components/admin/seo/SeoGenerationProgressPanel';
 
 const TONES: { label: string; value: string }[] = [
   { label: 'Odborný', value: 'EXPERT' },
@@ -92,6 +95,7 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
   const [testResult, setTestResult] = useState<SeoAiGenerateTestResult | null>(null);
   const [estimate, setEstimate] = useState<SeoAiJobEstimate | null>(null);
   const [activeJob, setActiveJob] = useState<SeoAiJobView | null>(null);
+  const [jobProgress, setJobProgress] = useState<SeoAiJobProgressResponse | null>(null);
   const [diagnostics, setDiagnostics] = useState<SeoAiDiagnostics | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [showAiJson, setShowAiJson] = useState(false);
@@ -125,7 +129,9 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
   });
 
   const refreshJob = useCallback(async () => {
-    const job = await nestAdminSeoAiGetActiveJob(token);
+    const progress = await nestAdminSeoAiGetProgress(token);
+    setJobProgress(progress);
+    const job = progress?.active;
     if (job?.id) {
       const full = await nestAdminSeoAiGetJob(token, job.id);
       setActiveJob(full);
@@ -134,6 +140,16 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
       } else if (full?.id) {
         const items = await nestAdminSeoAiGetJobItems(token, full.id);
         setJobItems(items ?? []);
+      }
+    } else if (progress?.recentJobs?.[0]?.id) {
+      const last = progress.recentJobs[0];
+      if (['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(last.status)) {
+        setActiveJob(last);
+        const items = await nestAdminSeoAiGetJobItems(token, last.id);
+        setJobItems(items ?? []);
+      } else {
+        setActiveJob(null);
+        setJobItems([]);
       }
     } else {
       setActiveJob(null);
@@ -154,7 +170,7 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
 
   useEffect(() => {
     if (!activeJob || !['PENDING', 'RUNNING', 'PAUSED'].includes(activeJob.status)) return;
-    const id = setInterval(() => void refreshJob(), 3000);
+    const id = setInterval(() => void refreshJob(), 4000);
     return () => clearInterval(id);
   }, [activeJob, refreshJob]);
 
@@ -343,7 +359,11 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
         });
         return;
       }
-      setMsg(`AI úloha spuštěna (${count} stránek).`);
+      setMsg(
+        (job as { existing?: boolean }).existing
+          ? `Probíhá existující AI úloha (${job.itemCount ?? count} stránek).`
+          : `AI úloha spuštěna na serveru (${count} stránek). Můžete zavřít administraci — generování pokračuje.`,
+      );
       await refreshJob();
       onRefresh?.();
     } catch (e) {
@@ -526,146 +546,64 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
       ) : null}
 
       {activeJob ? (
-        <div className="rounded-lg border border-violet-100 bg-white p-3 text-sm space-y-2">
-          <p>
-            AI úloha: <strong>{activeJob.status}</strong> · {activeJob.processedCount}/{activeJob.requestedCount}
-            {activeJob.progressPct != null ? ` (${activeJob.progressPct} %)` : ''}
-          </p>
-          <p className="text-xs text-zinc-700">
-            vytvořeno {activeJob.createdCount}
-            {activeJob.updatedCount > 0 ? ` · aktualizováno ${activeJob.updatedCount}` : ''}
-            {' · '}ke kontrole {activeJob.reviewCount}
-            {' · '}přeskočeno {activeJob.skippedCount ?? 0}
-            {' · '}chyby {activeJob.errorCount}
-            {activeJob.retriedCount ? ` · opakování ${activeJob.retriedCount}` : ''}
-          </p>
-          {activeJob.currentItem ? <p className="text-xs text-zinc-600">Aktuálně: {activeJob.currentItem}</p> : null}
-          {activeJob.pauseReason ? (
-            <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">
-              {activeJob.pauseReason.startsWith('AUTO_PAUSED')
-                ? 'Úloha byla automaticky pozastavena, protože opakovaně vzniká stejná chyba.'
-                : `Pozastaveno: ${activeJob.pauseReason}`}
-            </p>
-          ) : null}
-          {activeJob.lastError ? <p className="text-xs text-red-700">Poslední chyba: {activeJob.lastError}</p> : null}
-          <p className="text-xs text-zinc-600">
-            Požadavky: {activeJob.requestCount ?? 0} (úspěšné {activeJob.successfulRequestCount ?? 0}, neúspěšné{' '}
-            {activeJob.failedRequestCount ?? 0}) · Tokeny: {activeJob.totalInputTokens ?? 0} in /{' '}
-            {activeJob.totalOutputTokens ?? 0} out · Náklad: ~{activeJob.estimatedCostCzk} Kč (odhad) /{' '}
-            {activeJob.actualCostCzk} Kč (skutečný)
-          </p>
+        <SeoGenerationProgressPanel
+          title="AI generování SEO stránek"
+          job={activeJob}
+          items={jobItems}
+          worker={jobProgress?.worker}
+          staleWarning={jobProgress?.staleWarning}
+          busy={busy}
+          onPause={() => void jobAction('pause')}
+          onResume={() => void jobAction('resume')}
+          onCancel={() => void jobAction('cancel')}
+          onRecover={() => {
+            if (!activeJob?.id) return;
+            setBusy(true);
+            void nestAdminSeoAiRecoverJob(token, activeJob.id)
+              .then(() => refreshJob())
+              .finally(() => setBusy(false));
+          }}
+          previewHref={(item) =>
+            item.seoPageId ? `/admin/seo/pages/${item.seoPageId}/preview` : null
+          }
+        />
+      ) : null}
 
-          {jobItems.length > 0 ? (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
-                <thead>
-                  <tr className="border-b text-zinc-500">
-                    <th className="py-1 pr-2">#</th>
-                    <th className="py-1 pr-2">Lokalita</th>
-                    <th className="py-1 pr-2">Nabídka</th>
-                    <th className="py-1 pr-2">Typ</th>
-                    <th className="py-1 pr-2">Stav</th>
-                    <th className="py-1 pr-2">Fáze</th>
-                    <th className="py-1 pr-2">Pokus</th>
-                    <th className="py-1 pr-2">Kvalita</th>
-                    <th className="py-1 pr-2">Chyba</th>
-                    <th className="py-1 pr-2">Akce</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobItems.map((item) => (
-                    <tr key={item.id} className="border-b border-zinc-100 align-top">
-                      <td className="py-1 pr-2">{item.order ?? '—'}</td>
-                      <td className="py-1 pr-2">
-                        {item.localityName ?? item.localitySlug ?? '—'}
-                        {item.localitySlug ? <span className="block text-zinc-500">{item.localitySlug}</span> : null}
-                      </td>
-                      <td className="py-1 pr-2">{item.offerType ?? '—'}</td>
-                      <td className="py-1 pr-2">{item.propertyType ?? item.intentSlug ?? '—'}</td>
-                      <td className="py-1 pr-2">{itemStatusLabel(item.status)}</td>
-                      <td className="py-1 pr-2">{item.phase ?? '—'}</td>
-                      <td className="py-1 pr-2">{item.attempt}</td>
-                      <td className="py-1 pr-2">
-                        {item.qualityScore != null ? item.qualityScore : '—'}
-                        {item.uniquenessScore != null ? ` / ${item.uniquenessScore}` : ''}
-                      </td>
-                      <td className="py-1 pr-2 max-w-[200px]">
-                        {item.status === 'SKIPPED' && item.errorCode ? (
-                          <span className="text-zinc-600" title={item.errorMessage ?? undefined}>
-                            {item.errorCode}
-                          </span>
-                        ) : item.errorCode ? (
-                          <span className="text-red-700" title={item.errorMessage ?? undefined}>
-                            {item.errorCode}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="py-1 pr-2">
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            className="rounded border px-1 py-0.5"
-                            onClick={() => setExpandedItemId(expandedItemId === item.id ? null : item.id)}
-                          >
-                            Detail
-                          </button>
-                          {item.status === 'FAILED' ? (
-                            <button
-                              type="button"
-                              className="rounded border px-1 py-0.5"
-                              disabled={busy}
-                              onClick={() => void retryJobItem(item.id)}
-                            >
-                              Opakovat
-                            </button>
-                          ) : null}
-                          {item.seoPageId ? (
-                            <>
-                              <Link
-                                href={`/admin/seo/pages/${item.seoPageId}/preview`}
-                                className="rounded border px-1 py-0.5 underline"
-                              >
-                                Náhled
-                              </Link>
-                              <Link
-                                href={`/admin/seo/stranky/${item.seoPageId}`}
-                                className="rounded border px-1 py-0.5 underline"
-                              >
-                                Stránka
-                              </Link>
-                            </>
-                          ) : null}
-                        </div>
-                        {expandedItemId === item.id ? (
-                          <div className="mt-1 rounded bg-zinc-50 p-2 text-[10px]">
-                            {item.errorMessage ? <p className="text-red-800">Chyba: {item.errorMessage}</p> : null}
-                            {item.inputJson ? (
-                              <details className="mt-1">
-                                <summary>Vstup</summary>
-                                <pre className="max-h-32 overflow-auto">{JSON.stringify(item.inputJson, null, 2)}</pre>
-                              </details>
-                            ) : null}
-                            {item.outputPreviewJson ? (
-                              <details className="mt-1">
-                                <summary>AI výstup (náhled)</summary>
-                                <pre className="max-h-32 overflow-auto">{JSON.stringify(item.outputPreviewJson, null, 2)}</pre>
-                              </details>
-                            ) : null}
-                            {item.durationMs != null ? <p>Doba: {item.durationMs} ms</p> : null}
-                            {item.costCzk > 0 ? <p>Náklad: {item.costCzk} Kč</p> : null}
-                          </div>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+      {jobProgress?.recentJobs && jobProgress.recentJobs.length > 1 ? (
+        <details className="rounded-lg border border-violet-100 bg-white p-3 text-sm">
+          <summary className="cursor-pointer font-medium text-violet-900">
+            Historie AI úloh ({jobProgress.recentJobs.length})
+          </summary>
+          <ul className="mt-2 space-y-2 text-xs">
+            {jobProgress.recentJobs.map((j) => (
+              <li key={j.id} className="flex flex-wrap justify-between gap-2 border-b border-zinc-100 pb-2">
+                <span>
+                  {j.startedAt ? new Date(j.startedAt).toLocaleString('cs-CZ') : '—'} · {j.status}
+                </span>
+                <span>
+                  {j.processedCount}/{j.requestedCount} · vytvořeno {j.createdCount} · chyby {j.errorCount}
+                </span>
+                <Link href={`/admin/seo/stranky`} className="text-orange-700 hover:underline">
+                  Detail
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
-          {showJobErrors && jobErrors.length > 0 ? (
+      {activeJob && activeJob.errorCount > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={() => void jobAction('retry-failed')} className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm">
+            Opakovat chybné položky
+          </button>
+          <button type="button" disabled={busy} onClick={() => void loadJobErrors()} className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700">
+            Zobrazit chyby
+          </button>
+        </div>
+      ) : null}
+
+      {showJobErrors && jobErrors.length > 0 ? (
             <details open className="mt-2 rounded border border-red-100 bg-red-50 p-2 text-xs">
               <summary className="cursor-pointer font-medium text-red-900">Chyby AI úlohy ({jobErrors.length})</summary>
               <ul className="mt-2 space-y-2">
@@ -684,8 +622,6 @@ export function SeoAiGeneratorPanel({ token, onRefresh }: Props) {
                 ))}
               </ul>
             </details>
-          ) : null}
-        </div>
       ) : null}
 
       {testResult ? (

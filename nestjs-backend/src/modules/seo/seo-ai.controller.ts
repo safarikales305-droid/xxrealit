@@ -81,6 +81,16 @@ export class SeoAiAdminController {
     return this.jobs.createJob(body, this.userId(req));
   }
 
+  @Get('jobs/progress')
+  getJobProgress() {
+    return this.jobs.getProgressView();
+  }
+
+  @Post('jobs/recover')
+  recoverJobs(@Body() body?: { jobId?: string }) {
+    return this.jobs.recoverStaleJob(body?.jobId);
+  }
+
   @Get('jobs')
   listJobs() {
     return this.jobs.listJobs();

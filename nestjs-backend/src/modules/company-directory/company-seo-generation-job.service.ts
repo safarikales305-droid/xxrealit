@@ -10,13 +10,16 @@ import { CompanySeoPageService } from './company-seo-page.service';
 import type { CompanySeoGenerationFilters } from './company-seo-page.types';
 
 const ITEM_DELAY_MS = 2500;
+const STALE_JOB_MS = 10 * 60 * 1000;
+const WORKER_ONLINE_MS = 30_000;
+
+let workerLastHeartbeat: Date | null = null;
 
 @Injectable()
 export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(CompanySeoGenerationJobService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private processing = false;
-  private cancelRequested = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -25,10 +28,21 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
 
   onModuleInit(): void {
     this.timer = setInterval(() => void this.tick(), ARES_WORKER_TICK_MS);
+    void this.recoverStaleJobs();
   }
 
   onModuleDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+  }
+
+  getWorkerStatus() {
+    const last = workerLastHeartbeat;
+    const ageMs = last ? Date.now() - last.getTime() : null;
+    return {
+      online: ageMs != null && ageMs < WORKER_ONLINE_MS,
+      lastHeartbeat: last?.toISOString() ?? null,
+      heartbeatAgeMs: ageMs,
+    };
   }
 
   async getStats() {
@@ -39,9 +53,19 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
 
   async getProgress() {
     const job = await this.getActiveJob();
+    const recent = await this.listJobs(10);
+    const worker = this.getWorkerStatus();
+    const staleWarning =
+      job?.status === 'RUNNING' &&
+      job.updatedAt &&
+      Date.now() - new Date(job.updatedAt).getTime() > STALE_JOB_MS;
+
     return {
       active: Boolean(job && ['PENDING', 'RUNNING', 'PAUSED'].includes(job.status)),
       job: job ? this.serializeJob(job) : null,
+      worker,
+      staleWarning,
+      recentJobs: recent,
     };
   }
 
@@ -64,14 +88,16 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     });
     const companies = await this.prisma.companyDirectoryEntry.findMany({
       where: { id: { in: items.map((i) => i.companyId) } },
-      select: { id: true, name: true, ico: true, slug: true },
+      select: { id: true, name: true, ico: true, slug: true, city: true },
     });
     const companyMap = Object.fromEntries(companies.map((c) => [c.id, c]));
-    return items.map((item) => ({
+    return items.map((item, index) => ({
+      order: index + 1,
       id: item.id,
       companyId: item.companyId,
       companyName: companyMap[item.companyId]?.name ?? '—',
       companyIco: companyMap[item.companyId]?.ico ?? '',
+      localityName: companyMap[item.companyId]?.city ?? null,
       slug: companyMap[item.companyId]?.slug ?? item.seoPage?.slug ?? '',
       status: item.status,
       phase: item.phase,
@@ -85,15 +111,57 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     }));
   }
 
+  async recoverStaleJob(jobId?: string) {
+    const cutoff = new Date(Date.now() - STALE_JOB_MS);
+    const stale = await this.prisma.companySeoGenerationJob.findMany({
+      where: jobId
+        ? { id: jobId }
+        : { status: CompanySeoGenerationJobStatus.RUNNING, updatedAt: { lt: cutoff } },
+    });
+    let recovered = 0;
+    for (const job of stale) {
+      if (
+        job.status !== CompanySeoGenerationJobStatus.RUNNING &&
+        job.status !== CompanySeoGenerationJobStatus.PENDING
+      ) {
+        continue;
+      }
+      await this.prisma.companySeoGenerationItem.updateMany({
+        where: { jobId: job.id, status: CompanySeoGenerationItemStatus.RUNNING },
+        data: { status: CompanySeoGenerationItemStatus.PENDING, phase: 'RECOVERED' },
+      });
+      await this.prisma.companySeoGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: CompanySeoGenerationJobStatus.PENDING,
+          currentItem: null,
+          lastError: 'Úloha obnovena po neaktivním workeru.',
+        },
+      });
+      recovered += 1;
+      this.log.warn(`[SEO-JOB] recovered stale company job=${job.id}`);
+    }
+    if (recovered) void this.tick();
+    return { recovered };
+  }
+
+  private async recoverStaleJobs() {
+    const result = await this.recoverStaleJob();
+    if (result.recovered > 0) {
+      this.log.log(`[SEO-JOB] recovered ${result.recovered} stale company job(s) on startup`);
+    }
+  }
+
   async startJob(input: {
     type: CompanySeoGenerationJobType;
     filters?: CompanySeoGenerationFilters;
     createdById?: string;
     forceUpdate?: boolean;
   }) {
-    const active = await this.getActiveJob();
-    if (active && ['PENDING', 'RUNNING', 'PAUSED'].includes(active.status)) {
-      throw new BadRequestException('Již běží jiná úloha generování firemních SEO stránek.');
+    const existing = await this.getActiveJob();
+    if (existing && ['PENDING', 'RUNNING', 'PAUSED'].includes(existing.status)) {
+      this.log.log(`[SEO-JOB] duplicate prevented — returning active company job ${existing.id}`);
+      return { ...this.serializeJob(existing), existing: true };
     }
 
     const filters: CompanySeoGenerationFilters = {
@@ -132,7 +200,8 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       },
     });
 
-    this.cancelRequested = false;
+    this.log.log(`[SEO-JOB] created company job=${job.id} items=${companies.length}`);
+    void this.tick();
     return this.serializeJob(job);
   }
 
@@ -145,6 +214,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       where: { id: job.id },
       data: { status: 'PAUSED', pausedAt: new Date(), pauseReason: 'admin_pause' },
     });
+    this.log.log(`[SEO-JOB] paused company job=${job.id}`);
     return this.serializeJob(updated);
   }
 
@@ -153,18 +223,18 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     if (!job || job.status !== 'PAUSED') {
       throw new BadRequestException('Žádná pozastavená úloha.');
     }
-    this.cancelRequested = false;
     const updated = await this.prisma.companySeoGenerationJob.update({
       where: { id: job.id },
       data: { status: 'RUNNING', pausedAt: null, pauseReason: null },
     });
+    this.log.log(`[SEO-JOB] resumed company job=${job.id}`);
+    void this.tick();
     return this.serializeJob(updated);
   }
 
   async cancelJob() {
     const job = await this.getActiveJob();
     if (!job) throw new BadRequestException('Žádná aktivní úloha.');
-    this.cancelRequested = true;
     const updated = await this.prisma.companySeoGenerationJob.update({
       where: { id: job.id },
       data: {
@@ -177,6 +247,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       where: { jobId: job.id, status: { in: ['PENDING', 'RUNNING'] } },
       data: { status: 'SKIPPED', errorCode: 'CANCELLED' },
     });
+    this.log.log(`[SEO-JOB] cancelled company job=${job.id}`);
     return this.serializeJob(updated);
   }
 
@@ -189,15 +260,20 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
 
   private async tick() {
     if (this.processing) return;
-    const job = await this.prisma.companySeoGenerationJob.findFirst({
-      where: { status: { in: ['PENDING', 'RUNNING'] } },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!job || this.cancelRequested) return;
-
+    workerLastHeartbeat = new Date();
     this.processing = true;
     try {
+      const job = await this.prisma.companySeoGenerationJob.findFirst({
+        where: { status: { in: ['PENDING', 'RUNNING'] } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!job) return;
+
+      const fresh = await this.prisma.companySeoGenerationJob.findUnique({ where: { id: job.id } });
+      if (!fresh || fresh.status === 'PAUSED' || fresh.status === 'CANCELLED') return;
+
       if (job.status === 'PENDING') {
+        this.log.log(`[SEO-JOB] worker picked company job=${job.id}`);
         await this.prisma.companySeoGenerationJob.update({
           where: { id: job.id },
           data: { status: 'RUNNING', startedAt: new Date() },
@@ -213,54 +289,88 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
           where: { id: job.id },
           data: { status: 'COMPLETED', finishedAt: new Date(), currentItem: null },
         });
+        this.log.log(`[SEO-JOB] completed company job=${job.id}`);
         return;
       }
 
+      const statusCheck = await this.prisma.companySeoGenerationJob.findUnique({
+        where: { id: job.id },
+        select: { status: true },
+      });
+      if (statusCheck?.status === 'PAUSED' || statusCheck?.status === 'CANCELLED') return;
+
       const company = await this.prisma.companyDirectoryEntry.findUnique({
         where: { id: item.companyId },
-        select: { name: true },
+        select: { name: true, city: true },
       });
+      const label = company ? `${company.name}${company.city ? ` — ${company.city}` : ''}` : item.companyId;
+      const itemIndex = job.processedCount + 1;
+
+      this.log.log(
+        `[SEO-JOB] processing company item ${itemIndex}/${job.requestedCount} job=${job.id} company=${label}`,
+      );
+
       await this.prisma.companySeoGenerationJob.update({
         where: { id: job.id },
-        data: { currentItem: company?.name ?? item.companyId },
+        data: { currentItem: label },
       });
       await this.prisma.companySeoGenerationItem.update({
         where: { id: item.id },
         data: { status: 'RUNNING', attempt: { increment: 1 }, phase: 'generating' },
       });
 
+      const started = Date.now();
       const filters = (job.filtersJson ?? {}) as CompanySeoGenerationFilters;
       const forceUpdate = !filters.onlyMissing;
-      const result = await this.seoPages.generateForCompany(item.companyId, {
-        forceUpdate,
-        skipEnrichmentWait: job.type === 'TEST',
-      });
-
       let itemStatus: CompanySeoGenerationItemStatus = 'COMPLETED';
       let seoPageId: string | null = null;
       let qualityScore: number | null = null;
       let errorCode: string | null = null;
       let errorMessage: string | null = null;
+      let createdDelta = 0;
+      let updatedDelta = 0;
 
-      if (result.action === 'created' || result.action === 'updated') {
-        seoPageId = result.seoPageId;
-        const page = await this.prisma.companySeoPage.findUnique({ where: { id: result.seoPageId } });
-        qualityScore = page?.seoScore ?? null;
-      } else if (result.action === 'skipped') {
-        itemStatus = 'SKIPPED';
-        errorCode = result.reason;
-        errorMessage =
-          result.reason === 'SEO_PAGE_EXISTS'
-            ? 'SEO stránka již existuje — použijte Aktualizovat'
-            : result.reason;
-      } else if (result.action === 'waiting_enrichment') {
-        itemStatus = 'WAITING_FOR_ENRICHMENT';
-        errorCode = 'WAITING_FOR_ENRICHMENT';
-      } else {
+      try {
+        const result = await this.seoPages.generateForCompany(item.companyId, {
+          forceUpdate,
+          skipEnrichmentWait: job.type === 'TEST',
+        });
+
+        if (result.action === 'created' || result.action === 'updated') {
+          seoPageId = result.seoPageId;
+          const page = await this.prisma.companySeoPage.findUnique({ where: { id: result.seoPageId } });
+          qualityScore = page?.seoScore ?? null;
+          if (result.action === 'created') createdDelta = 1;
+          if (result.action === 'updated') updatedDelta = 1;
+          this.log.log(`[SEO-JOB] company page saved job=${job.id} page=${result.seoPageId}`);
+        } else if (result.action === 'skipped') {
+          itemStatus = 'SKIPPED';
+          errorCode = result.reason;
+          errorMessage =
+            result.reason === 'SEO_PAGE_EXISTS'
+              ? 'SEO stránka již existuje — použijte Aktualizovat'
+              : result.reason;
+        } else if (result.action === 'waiting_enrichment') {
+          itemStatus = 'WAITING_FOR_ENRICHMENT';
+          errorCode = 'WAITING_FOR_ENRICHMENT';
+        } else {
+          itemStatus = 'FAILED';
+          errorCode = 'ERROR';
+          errorMessage = result.error;
+          this.log.warn(
+            `[SEO-JOB] company item failed job=${job.id} item=${item.id} error=${errorMessage ?? 'unknown'}`,
+          );
+        }
+      } catch (err) {
         itemStatus = 'FAILED';
         errorCode = 'ERROR';
-        errorMessage = result.error;
+        errorMessage = err instanceof Error ? err.message : String(err);
+        this.log.error(
+          `[SEO-JOB] company item exception job=${job.id} item=${item.id} error=${errorMessage}`,
+        );
       }
+
+      const durationMs = Date.now() - started;
 
       await this.prisma.companySeoGenerationItem.update({
         where: { id: item.id },
@@ -274,20 +384,24 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
         },
       });
 
+      const progressPct = Math.round(((job.processedCount + 1) / job.requestedCount) * 100);
       await this.prisma.companySeoGenerationJob.update({
         where: { id: job.id },
         data: {
           processedCount: { increment: 1 },
-          createdCount: result.action === 'created' ? { increment: 1 } : undefined,
-          updatedCount: result.action === 'updated' ? { increment: 1 } : undefined,
-          skippedCount: itemStatus === 'SKIPPED' || itemStatus === 'WAITING_FOR_ENRICHMENT' ? { increment: 1 } : undefined,
+          createdCount: createdDelta ? { increment: createdDelta } : undefined,
+          updatedCount: updatedDelta ? { increment: updatedDelta } : undefined,
+          skippedCount:
+            itemStatus === 'SKIPPED' || itemStatus === 'WAITING_FOR_ENRICHMENT' ? { increment: 1 } : undefined,
           failedCount: itemStatus === 'FAILED' ? { increment: 1 } : undefined,
         },
       });
 
+      this.log.log(`[SEO-JOB] progress ${progressPct}% company job=${job.id} duration=${durationMs}ms`);
+
       await new Promise((r) => setTimeout(r, ITEM_DELAY_MS));
     } catch (err) {
-      this.log.error(`Company SEO job tick failed: ${err instanceof Error ? err.message : err}`);
+      this.log.error(`[SEO-JOB] company job tick failed: ${err instanceof Error ? err.message : err}`);
     } finally {
       this.processing = false;
     }
@@ -309,11 +423,13 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     finishedAt: Date | null;
     pausedAt: Date | null;
     createdAt: Date;
+    updatedAt?: Date;
   }) {
     const progressPct = job.requestedCount
       ? Math.round((job.processedCount / job.requestedCount) * 1000) / 10
       : 0;
     return {
+      id: job.id,
       jobId: job.id,
       type: job.type,
       status: job.status,
@@ -329,6 +445,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       startedAt: job.startedAt?.toISOString() ?? null,
       finishedAt: job.finishedAt?.toISOString() ?? null,
       pausedAt: job.pausedAt?.toISOString() ?? null,
+      lastActivityAt: job.updatedAt?.toISOString() ?? null,
       createdAt: job.createdAt.toISOString(),
     };
   }

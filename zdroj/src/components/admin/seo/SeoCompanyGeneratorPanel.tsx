@@ -2,15 +2,20 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { SeoGenerationProgressPanel } from '@/components/admin/seo/SeoGenerationProgressPanel';
 import {
   nestAdminCompanySeoCancel,
   nestAdminCompanySeoGenerateBatch,
   nestAdminCompanySeoGenerateFilter,
   nestAdminCompanySeoGenerateTest,
+  nestAdminCompanySeoJobItems,
   nestAdminCompanySeoPause,
   nestAdminCompanySeoProgress,
+  nestAdminCompanySeoRecoverJob,
   nestAdminCompanySeoResume,
   nestAdminCompanySeoStats,
+  type CompanySeoJobItemView,
+  type CompanySeoJobProgressResponse,
   type CompanySeoJobView,
   type CompanySeoStats,
 } from '@/lib/company-seo-admin-client';
@@ -21,12 +26,17 @@ type Props = {
 
 export function SeoCompanyGeneratorPanel({ token }: Props) {
   const [stats, setStats] = useState<CompanySeoStats | null>(null);
-  const [progress, setProgress] = useState<CompanySeoJobView | null>(null);
-  const [active, setActive] = useState(false);
+  const [jobProgress, setJobProgress] = useState<CompanySeoJobProgressResponse | null>(null);
+  const [jobItems, setJobItems] = useState<CompanySeoJobItemView[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [onlyMissing, setOnlyMissing] = useState(true);
+
+  const activeJob = jobProgress?.job ?? null;
+  const isActive = Boolean(
+    activeJob && ['PENDING', 'RUNNING', 'PAUSED'].includes(activeJob.status),
+  );
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -35,9 +45,12 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
       nestAdminCompanySeoProgress(token),
     ]);
     setStats(s);
-    if (p) {
-      setActive(p.active);
-      setProgress(p.job);
+    setJobProgress(p);
+    if (p?.job?.jobId) {
+      const items = await nestAdminCompanySeoJobItems(token, p.job.jobId);
+      setJobItems(items ?? []);
+    } else {
+      setJobItems([]);
     }
   }, [token]);
 
@@ -46,12 +59,12 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!token || !active) return;
+    if (!token || !isActive) return;
     const id = setInterval(() => void refresh(), 3000);
     return () => clearInterval(id);
-  }, [token, active, refresh]);
+  }, [token, isActive, refresh]);
 
-  async function run(label: string, fn: () => Promise<unknown>) {
+  async function run(label: string, fn: () => Promise<CompanySeoJobView | null | undefined>) {
     if (!token) {
       setError('Chybí přihlášení.');
       return;
@@ -62,7 +75,22 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
     try {
       const res = await fn();
       if (!res) throw new Error('Akce se nezdařila.');
-      setMsg(label);
+      setMsg(res.existing ? 'Používá se existující běžící úloha.' : label);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Chyba');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function jobAction(action: 'pause' | 'resume' | 'cancel') {
+    if (!token) return;
+    setBusy(true);
+    try {
+      if (action === 'pause') await nestAdminCompanySeoPause(token);
+      if (action === 'resume') await nestAdminCompanySeoResume(token);
+      if (action === 'cancel') await nestAdminCompanySeoCancel(token);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Chyba');
@@ -127,15 +155,6 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
         >
           Generovat pro aktuální filtr
         </Btn>
-        <Btn disabled={busy || !active} onClick={() => void run('Úloha pokračuje.', () => nestAdminCompanySeoResume(token!))}>
-          Pokračovat v úloze
-        </Btn>
-        <Btn disabled={busy || !active} onClick={() => void run('Úloha pozastavena.', () => nestAdminCompanySeoPause(token!))}>
-          Pozastavit
-        </Btn>
-        <Btn disabled={busy || !active} onClick={() => void run('Úloha zrušena.', () => nestAdminCompanySeoCancel(token!))}>
-          Zrušit
-        </Btn>
       </div>
 
       <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
@@ -143,17 +162,83 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
         Pouze firmy bez existující SEO stránky
       </label>
 
-      {progress ? (
-        <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 text-sm">
-          <p>
-            <strong>Úloha:</strong> {progress.type} · {progress.status} · {progress.progressPct}%
-          </p>
-          <p className="mt-1 text-zinc-600">
-            Zpracováno {progress.processedCount}/{progress.requestedCount} · vytvořeno {progress.createdCount} ·
-            aktualizováno {progress.updatedCount} · přeskočeno {progress.skippedCount} · chyby {progress.failedCount}
-          </p>
-          {progress.currentItem ? <p className="mt-1 text-zinc-500">Aktuálně: {progress.currentItem}</p> : null}
+      {activeJob ? (
+        <div className="mt-4">
+          <SeoGenerationProgressPanel
+            title="SEO firmy"
+            job={{
+              id: activeJob.jobId,
+              status: activeJob.status,
+              requestedCount: activeJob.requestedCount,
+              processedCount: activeJob.processedCount,
+              createdCount: activeJob.createdCount,
+              updatedCount: activeJob.updatedCount,
+              skippedCount: activeJob.skippedCount,
+              failedCount: activeJob.failedCount,
+              progressPct: activeJob.progressPct,
+              currentItem: activeJob.currentItem,
+              startedAt: activeJob.startedAt,
+              lastActivityAt: activeJob.lastActivityAt,
+              lastError: activeJob.lastError,
+              type: activeJob.type,
+            }}
+            items={jobItems.map((item) => ({
+              id: item.id,
+              status: item.status,
+              companyName: item.companyName,
+              localityName: item.localityName,
+              qualityScore: item.qualityScore,
+              errorCode: item.errorCode,
+              phase: item.phase,
+              attempt: item.attempt,
+              seoPageId: item.seoPageId,
+            }))}
+            worker={jobProgress?.worker}
+            staleWarning={jobProgress?.staleWarning}
+            busy={busy}
+            onPause={() => void jobAction('pause')}
+            onResume={() => void jobAction('resume')}
+            onCancel={() => void jobAction('cancel')}
+            onRecover={() => {
+              if (!token || !activeJob.jobId) return;
+              setBusy(true);
+              void nestAdminCompanySeoRecoverJob(token, activeJob.jobId)
+                .then(() => refresh())
+                .finally(() => setBusy(false));
+            }}
+            itemLabel={(item) =>
+              item.companyName
+                ? `${item.companyName}${item.localityName ? ` — ${item.localityName}` : ''}`
+                : '—'
+            }
+            previewHref={(item) =>
+              item.seoPageId ? `/admin/seo/firmy/${item.seoPageId}/preview` : null
+            }
+          />
         </div>
+      ) : null}
+
+      {jobProgress?.recentJobs && jobProgress.recentJobs.length > 1 ? (
+        <details className="mt-4 rounded-lg border border-orange-100 bg-white p-3 text-sm">
+          <summary className="cursor-pointer font-medium text-orange-900">
+            Historie firemních úloh ({jobProgress.recentJobs.length})
+          </summary>
+          <ul className="mt-2 space-y-2 text-xs">
+            {jobProgress.recentJobs.map((j) => (
+              <li key={j.jobId} className="flex flex-wrap justify-between gap-2 border-b border-zinc-100 pb-2">
+                <span>
+                  {j.startedAt ? new Date(j.startedAt).toLocaleString('cs-CZ') : '—'} · {j.type} · {j.status}
+                </span>
+                <span>
+                  {j.processedCount}/{j.requestedCount} · vytvořeno {j.createdCount} · chyby {j.failedCount}
+                </span>
+                <Link href="/admin/seo/firmy" className="text-orange-700 hover:underline">
+                  Detail
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
       ) : null}
 
       {msg ? <p className="mt-3 text-sm text-green-700">{msg}</p> : null}

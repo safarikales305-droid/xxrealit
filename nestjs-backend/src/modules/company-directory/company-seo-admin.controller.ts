@@ -121,6 +121,11 @@ export class CompanySeoAdminController {
     return this.jobs.cancelJob();
   }
 
+  @Post('jobs/recover')
+  recover(@Body() body?: { jobId?: string }) {
+    return this.jobs.recoverStaleJob(body?.jobId);
+  }
+
   @Post('companies/:companyId/seo/evaluate')
   evaluate(@Param('companyId') companyId: string) {
     return this.seoPages.generateForCompany(companyId, { forceUpdate: true });

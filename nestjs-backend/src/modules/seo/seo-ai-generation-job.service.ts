@@ -9,12 +9,16 @@ import { buildLocationWhere } from './seo-generation.util';
 import { extractSeoAiJobError, isRetryableSeoAiError } from './seo-ai-job-errors.util';
 
 const TICK_MS = 4000;
+const STALE_JOB_MS = 10 * 60 * 1000;
+const WORKER_ONLINE_MS = 30_000;
 const MAX_DAILY_AI_PAGES = 100;
 const MAX_BATCH_WITHOUT_CONFIRM = 10;
-const MAX_ITEM_ATTEMPTS = 2;
+const MAX_ITEM_ATTEMPTS = 3;
 const AUTO_PAUSE_CONSECUTIVE = 3;
 const AUTO_PAUSE_ERROR_RATE = 0.7;
 const AUTO_PAUSE_MIN_PROCESSED = 5;
+
+let workerLastHeartbeat: Date | null = null;
 
 export type SeoAiJobSettings = SeoAiGenerateInput & {
   count?: number;
@@ -37,6 +41,7 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
 
   onModuleInit(): void {
     this.timer = setInterval(() => void this.tick(), TICK_MS);
+    void this.recoverStaleJobs();
   }
 
   onModuleDestroy(): void {
@@ -75,6 +80,18 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     }
 
     const estimate = await this.estimateJob(settings);
+    const existing = await this.getActiveJob();
+    if (existing) {
+      this.log.log(`[SEO-JOB] duplicate prevented — returning active job ${existing.id}`);
+      return {
+        success: true,
+        jobId: existing.id,
+        existing: true,
+        estimate,
+        itemCount: existing.requestedCount,
+      };
+    }
+
     const items = await this.buildJobItems(settings, count);
 
     const job = await this.prisma.seoAiGenerationJob.create({
@@ -100,7 +117,73 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       include: { items: true },
     });
 
+    this.log.log(`[SEO-JOB] created job=${job.id} items=${job.items.length}`);
     return { success: true, jobId: job.id, estimate, itemCount: job.items.length };
+  }
+
+  getWorkerStatus() {
+    const last = workerLastHeartbeat;
+    const ageMs = last ? Date.now() - last.getTime() : null;
+    return {
+      online: ageMs != null && ageMs < WORKER_ONLINE_MS,
+      lastHeartbeat: last?.toISOString() ?? null,
+      heartbeatAgeMs: ageMs,
+    };
+  }
+
+  async getProgressView() {
+    const active = await this.getActiveJob();
+    const recent = await this.listJobs(10);
+    const worker = this.getWorkerStatus();
+    const staleWarning =
+      active?.status === 'RUNNING' &&
+      active.lastActivityAt &&
+      Date.now() - new Date(active.lastActivityAt).getTime() > STALE_JOB_MS;
+
+    return {
+      active,
+      worker,
+      staleWarning,
+      recentJobs: recent,
+    };
+  }
+
+  async recoverStaleJob(jobId?: string) {
+    const cutoff = new Date(Date.now() - STALE_JOB_MS);
+    const stale = await this.prisma.seoAiGenerationJob.findMany({
+      where: jobId
+        ? { id: jobId }
+        : { status: SeoAiGenerationJobStatus.RUNNING, updatedAt: { lt: cutoff } },
+    });
+    let recovered = 0;
+    for (const job of stale) {
+      if (job.status !== SeoAiGenerationJobStatus.RUNNING && job.status !== SeoAiGenerationJobStatus.PENDING) {
+        continue;
+      }
+      await this.prisma.seoAiGenerationItem.updateMany({
+        where: { jobId: job.id, status: SeoAiGenerationItemStatus.RUNNING },
+        data: { status: SeoAiGenerationItemStatus.PENDING, phase: 'RECOVERED' },
+      });
+      await this.prisma.seoAiGenerationJob.update({
+        where: { id: job.id },
+        data: {
+          status: SeoAiGenerationJobStatus.PENDING,
+          currentItem: null,
+          lastError: 'Úloha obnovena po neaktivním workeru.',
+        },
+      });
+      recovered += 1;
+      this.log.warn(`[SEO-JOB] recovered stale job=${job.id}`);
+    }
+    if (recovered) void this.tick();
+    return { recovered };
+  }
+
+  private async recoverStaleJobs() {
+    const result = await this.recoverStaleJob();
+    if (result.recovered > 0) {
+      this.log.log(`[SEO-JOB] recovered ${result.recovered} stale job(s) on startup`);
+    }
   }
 
   async getJob(jobId: string) {
@@ -326,6 +409,9 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     currentItem: string | null;
     lastError?: string | null;
     pauseReason?: string | null;
+    startedAt?: Date | null;
+    finishedAt?: Date | null;
+    updatedAt?: Date;
     items?: unknown[];
   }) {
     const progressPct = job.requestedCount
@@ -334,6 +420,9 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
     return {
       ...job,
       progressPct,
+      startedAt: job.startedAt?.toISOString() ?? null,
+      finishedAt: job.finishedAt?.toISOString() ?? null,
+      lastActivityAt: job.updatedAt?.toISOString() ?? null,
       skippedCount: job.skippedCount ?? 0,
       retriedCount: job.retriedCount ?? 0,
       requestCount: job.requestCount ?? 0,
@@ -347,6 +436,7 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
   private async tick() {
     if (this.processing) return;
     this.processing = true;
+    workerLastHeartbeat = new Date();
     try {
       const job = await this.prisma.seoAiGenerationJob.findFirst({
         where: { status: { in: [SeoAiGenerationJobStatus.PENDING, SeoAiGenerationJobStatus.RUNNING] } },
@@ -355,6 +445,7 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       if (!job) return;
 
       if (job.status === SeoAiGenerationJobStatus.PENDING) {
+        this.log.log(`[SEO-JOB] worker picked job=${job.id}`);
         const preflight = await this.generation.validatePreflight();
         if (!preflight.ok) {
           await this.prisma.seoAiGenerationJob.update({
@@ -388,9 +479,13 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
             currentItem: null,
           },
         });
+        this.log.log(`[SEO-JOB] completed job=${job.id}`);
         return;
       }
 
+      this.log.log(
+        `[SEO-JOB] processing item job=${job.id} ${job.processedCount + 1}/${job.requestedCount}`,
+      );
       await this.processItem(job.id, item.id);
     } finally {
       this.processing = false;
@@ -399,6 +494,12 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
 
   private async processItem(jobId: string, itemId: string) {
     const job = await this.prisma.seoAiGenerationJob.findUniqueOrThrow({ where: { id: jobId } });
+    if (
+      job.status === SeoAiGenerationJobStatus.PAUSED ||
+      job.status === SeoAiGenerationJobStatus.CANCELLED
+    ) {
+      return;
+    }
     const item = await this.prisma.seoAiGenerationItem.findUniqueOrThrow({ where: { id: itemId } });
     const settings = (job.settingsJson ?? {}) as SeoAiJobSettings;
     const rawInput = (item.inputJson ?? settings) as SeoAiGenerateInput;
@@ -435,9 +536,14 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       data: { currentItem: label },
     });
 
-    this.log.log(`SEO AI job item start: job=${jobId} item=${itemId} ${label}`);
+    this.log.log(`[SEO-JOB] AI request started: job=${jobId} item=${itemId} ${label}`);
 
     try {
+      if (item.attempt > 1) {
+        const backoffMs = Math.min(30_000, 2000 * 2 ** (item.attempt - 2));
+        await new Promise((r) => setTimeout(r, backoffMs));
+      }
+
       const result = await this.generation.generateSeoAiPage(input, job.createdById ?? undefined, {
         batch: true,
         existingPageId: item.seoPageId ?? undefined,
@@ -524,17 +630,17 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
       });
 
       this.log.log(
-        `SEO AI job item OK: ${label} pageId=${result.pageId} action=${result.action} ${durationMs}ms`,
+        `[SEO-JOB] page saved: ${label} pageId=${result.pageId} action=${result.action} ${durationMs}ms progress=${Math.round(((job.processedCount + 1) / job.requestedCount) * 100)}%`,
       );
     } catch (err) {
       const parsed = extractSeoAiJobError(err);
       const durationMs = Date.now() - startedAt;
       this.log.warn(
-        `SEO AI job item FAILED: job=${jobId} item=${itemId} code=${parsed.code} phase=${parsed.phase} ${parsed.message}`,
+        `[SEO-JOB] item failed: job=${jobId} item=${itemId} code=${parsed.code} phase=${parsed.phase} attempt=${item.attempt + 1} http=${parsed.httpStatus ?? '—'} ${parsed.message}`,
       );
 
       const canRetry =
-        isRetryableSeoAiError(parsed.code) && item.attempt + 1 < MAX_ITEM_ATTEMPTS;
+        isRetryableSeoAiError(parsed.code) && item.attempt < MAX_ITEM_ATTEMPTS;
 
       await this.prisma.seoAiGenerationItem.update({
         where: { id: itemId },

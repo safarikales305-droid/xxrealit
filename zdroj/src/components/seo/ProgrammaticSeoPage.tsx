@@ -9,6 +9,8 @@ import { ProgrammaticSeoRegisterCta } from '@/components/seo/ProgrammaticSeoRegi
 import { SeoMarketStatsBox } from '@/components/seo/SeoMarketStatsBox';
 import { SeoLatestPostsBlock } from '@/components/seo/SeoLatestPostsBlock';
 import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock';
+import { LocationMapSection } from '@/components/maps/LocationMapSection';
+import { ShareButtons } from '@/components/share/ShareButtons';
 
 type Props = {
   data: ProgrammaticSeoPageData;
@@ -56,6 +58,8 @@ export function ProgrammaticSeoPage({ data }: Props) {
   } = data;
 
   const showComingSoon = !hasListings && listings.length === 0;
+  const shareUrl = data.seo?.canonical ?? `https://www.xxrealit.cz${data.path}`;
+  const canShare = !data.seo?.noindex;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -76,6 +80,11 @@ export function ProgrammaticSeoPage({ data }: Props) {
           hasListings={hasListings}
           totalCount={totalCount}
         />
+        {canShare ? (
+          <div className="mt-4 flex justify-end">
+            <ShareButtons title={h1} url={shareUrl} label="Sdílet" variant="pill" tone="brand" />
+          </div>
+        ) : null}
       </div>
 
       {showComingSoon ? (
@@ -128,6 +137,18 @@ export function ProgrammaticSeoPage({ data }: Props) {
       ) : null}
 
       {marketStats ? <SeoMarketStatsBox stats={marketStats} /> : null}
+
+      <LocationMapSection
+        title={`Lokalita ${location.name}`}
+        location={{
+          name: location.name,
+          city: location.name,
+          region: data.locationMeta?.regionName ?? undefined,
+        }}
+        shareTitle={h1}
+        shareUrl={shareUrl}
+        className="mt-10"
+      />
 
       {latestPosts && latestPosts.length > 0 ? <SeoLatestPostsBlock items={latestPosts} /> : null}
 

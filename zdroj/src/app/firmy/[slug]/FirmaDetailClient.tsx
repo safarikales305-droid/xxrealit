@@ -20,6 +20,7 @@ import {
   type CompanyDirectoryDetailResponse,
 } from '@/lib/company-directory-client';
 import { CompanyPortalPostsBlock } from '@/components/company-directory/CompanyPortalPostsBlock';
+import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import type { PortalPostFeedItem } from '@/lib/company-seo-admin-client';
 
 type ReviewItem = {
@@ -784,6 +785,21 @@ export function FirmaDetailClient({
             ) : null}
           </div>
         </section>
+
+        <LocationMapSection
+          title="Kde nás najdete"
+          location={{
+            name: company.name,
+            street: company.street,
+            city: company.city,
+            postalCode: company.postalCode,
+            region: company.region,
+            country: 'Česko',
+          }}
+          shareTitle={company.name}
+          shareUrl={`https://www.xxrealit.cz/firmy/${slug}`}
+          shareDescription={company.shortDescription ?? company.description ?? undefined}
+        />
 
         <CompanyPortalPostsBlock initialItems={initialPortalPosts} />
       </div>

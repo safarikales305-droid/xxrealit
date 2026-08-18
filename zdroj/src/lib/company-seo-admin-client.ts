@@ -25,6 +25,7 @@ export type CompanySeoPageAdminRow = {
 };
 
 export type CompanySeoJobView = {
+  id?: string;
   jobId: string;
   type: string;
   status: string;
@@ -37,6 +38,33 @@ export type CompanySeoJobView = {
   progressPct: number;
   currentItem?: string | null;
   lastError?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastActivityAt?: string | null;
+  existing?: boolean;
+};
+
+export type CompanySeoJobProgressResponse = {
+  active: boolean;
+  job: CompanySeoJobView | null;
+  worker?: { online: boolean; lastHeartbeat: string | null; heartbeatAgeMs?: number | null };
+  staleWarning?: boolean;
+  recentJobs?: CompanySeoJobView[];
+};
+
+export type CompanySeoJobItemView = {
+  order?: number;
+  id: string;
+  companyName?: string;
+  localityName?: string | null;
+  status: string;
+  phase?: string | null;
+  attempt?: number;
+  qualityScore?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  seoPageId?: string | null;
+  previewUrl?: string | null;
 };
 
 export type CompanySeoStats = {
@@ -73,7 +101,18 @@ export async function nestAdminCompanySeoStats(token: string) {
 }
 
 export async function nestAdminCompanySeoProgress(token: string) {
-  return adminFetch<{ active: boolean; job: CompanySeoJobView | null }>(token, '/progress');
+  return adminFetch<CompanySeoJobProgressResponse>(token, '/progress');
+}
+
+export async function nestAdminCompanySeoRecoverJob(token: string, jobId?: string) {
+  return adminFetch<{ recovered: number }>(token, '/jobs/recover', {
+    method: 'POST',
+    body: JSON.stringify(jobId ? { jobId } : {}),
+  });
+}
+
+export async function nestAdminCompanySeoListJobs(token: string, limit = 10) {
+  return adminFetch<CompanySeoJobView[]>(token, `/jobs?limit=${limit}`);
 }
 
 export async function nestAdminCompanySeoPages(
@@ -137,7 +176,7 @@ export async function nestAdminCompanySeoCancel(token: string) {
 }
 
 export async function nestAdminCompanySeoJobItems(token: string, jobId: string) {
-  return adminFetch<Array<Record<string, unknown>>>(token, `/jobs/${encodeURIComponent(jobId)}/items`);
+  return adminFetch<CompanySeoJobItemView[]>(token, `/jobs/${encodeURIComponent(jobId)}/items`);
 }
 
 export async function nestAdminCompanySeoGenerateOne(
