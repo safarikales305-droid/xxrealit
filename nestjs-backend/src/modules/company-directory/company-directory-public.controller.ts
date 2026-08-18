@@ -81,6 +81,11 @@ export class CompanyDirectoryPublicController {
     return this.directory.getCompanyPortalPosts(slug, limit ? Number(limit) : 5);
   }
 
+  @Get('public/:slug/listings')
+  companyListings(@Param('slug') slug: string, @Query('limit') limit?: string) {
+    return this.directory.getCompanyPublicListings(slug, limit ? Number(limit) : 6);
+  }
+
   @Get('public/:slug')
   async detail(@Param('slug') slug: string, @Req() req: Request) {
     const data = await this.directory.getPublicBySlug(slug);

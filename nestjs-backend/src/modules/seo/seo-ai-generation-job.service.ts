@@ -179,7 +179,26 @@ export class SeoAiGenerationJobService implements OnModuleInit, OnModuleDestroy 
   }
 
   async getProgressView() {
-    const active = await this.getActiveJob();
+    let active = await this.getActiveJob();
+    if (active && active.requestedCount === 0) {
+      await this.recoverEmptyJobs(active.id);
+      const refreshed = await this.prisma.seoAiGenerationJob.findUnique({
+        where: { id: active.id },
+      });
+      if (refreshed && refreshed.requestedCount === 0) {
+        await this.prisma.seoAiGenerationJob.update({
+          where: { id: active.id },
+          data: {
+            status: SeoAiGenerationJobStatus.FAILED,
+            lastError: 'SEO job nemá žádné položky ke zpracování.',
+            finishedAt: new Date(),
+          },
+        });
+        active = null;
+      } else {
+        active = await this.getActiveJob();
+      }
+    }
     const recent = await this.listJobs(10);
     const worker = this.getWorkerStatus();
     const staleWarning =

@@ -53,6 +53,7 @@ export function FirmaDetailClient({
   initialReviewSummary = { average: null, count: 0 },
   initialPortalPosts = [],
   initialListings = [],
+  initialCompanyListings = [],
 }: {
   slug: string;
   initialData?: CompanyDirectoryDetailResponse | null;
@@ -60,6 +61,7 @@ export function FirmaDetailClient({
   initialReviewSummary?: { average: number | null; count: number; positive?: number; negative?: number };
   initialPortalPosts?: PortalPostFeedItem[];
   initialListings?: PropertyFeedItem[];
+  initialCompanyListings?: PropertyFeedItem[];
 }) {
   const [data, setData] = useState<CompanyDirectoryDetailResponse | null>(initialData);
   const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews);
@@ -812,6 +814,7 @@ export function FirmaDetailClient({
           city={company.city}
           region={company.region}
           initialListings={initialListings}
+          companyListings={initialCompanyListings}
         />
       </div>
     </div>

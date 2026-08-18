@@ -3,7 +3,7 @@ import { getServerSideApiBaseUrl } from '@/lib/api';
 import type { CompanyDirectoryDetailResponse } from '@/lib/company-directory-client';
 import type { PortalPostFeedItem } from '@/lib/company-seo-admin-client';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
-import type { PropertyFeedItem } from '@/types/property';
+import { safeNormalizePropertyFromApi, type PropertyFeedItem } from '@/types/property';
 import { FirmaDetailClient } from './FirmaDetailClient';
 
 type ReviewResponse = {
@@ -64,6 +64,20 @@ async function fetchListingsForCompany(city?: string | null, region?: string | n
   return items.slice(0, 6);
 }
 
+async function fetchCompanyOwnedListings(slug: string): Promise<PropertyFeedItem[]> {
+  const base = getServerSideApiBaseUrl();
+  if (!base || !slug.trim()) return [];
+  const res = await fetch(
+    `${base}/company-directory/public/${encodeURIComponent(slug.trim())}/listings?limit=6`,
+    { next: { revalidate: 120 }, headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { items?: unknown[] };
+  return (data.items ?? [])
+    .map(safeNormalizePropertyFromApi)
+    .filter((x): x is PropertyFeedItem => x != null);
+}
+
 export default async function FirmaDetailPage({
   params,
 }: {
@@ -74,10 +88,11 @@ export default async function FirmaDetailPage({
   if (!data?.company) {
     notFound();
   }
-  const [reviews, portalPosts, listings] = await Promise.all([
+  const [reviews, portalPosts, listings, companyListings] = await Promise.all([
     fetchReviews(slug),
     fetchPortalPosts(),
     fetchListingsForCompany(data.company.city, data.company.region),
+    fetchCompanyOwnedListings(slug),
   ]);
 
   return (
@@ -88,6 +103,7 @@ export default async function FirmaDetailPage({
       initialReviewSummary={reviews?.summary ?? { average: null, count: 0 }}
       initialPortalPosts={portalPosts}
       initialListings={listings}
+      initialCompanyListings={companyListings}
     />
   );
 }

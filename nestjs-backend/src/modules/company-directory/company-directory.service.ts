@@ -20,6 +20,9 @@ import {
   portalPostFeedInclude,
   serializePortalPostFeedItem,
 } from '../posts/portal-post-feed.serializer';
+import { classicPublicListingWhere } from '../properties/property-listing-scope';
+import { serializeProperty } from '../properties/properties.serializer';
+import { socialInclude } from '../properties/shorts-listing.social-include';
 
 export type FeaturedProfileCard = {
   type: 'person' | 'company';
@@ -175,6 +178,38 @@ export class CompanyDirectoryService {
     });
     return {
       items: posts.map((p) => serializePortalPostFeedItem(p)),
+    };
+  }
+
+  async getCompanyPublicListings(slug: string, limit = 6) {
+    if (!this.isEnabled()) {
+      throw new NotFoundException('Registr firem není aktivní.');
+    }
+    const icoFromSlug = parseIcoFromCompanySlug(slug);
+    const row = await this.prisma.companyDirectoryEntry.findFirst({
+      where: {
+        publicProfile: true,
+        OR: [{ slug }, ...(icoFromSlug ? [{ ico: icoFromSlug }] : [])],
+      },
+      select: { claimedByUserId: true },
+    });
+    if (!row?.claimedByUserId) {
+      return { items: [] as Record<string, unknown>[] };
+    }
+    const take = Math.min(10, Math.max(1, limit));
+    const rows = await this.prisma.property.findMany({
+      where: {
+        userId: row.claimedByUserId,
+        ...classicPublicListingWhere,
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: socialInclude(),
+    });
+    return {
+      items: rows.map((r) =>
+        serializeProperty({ ...r, likes: 'likes' in r ? r.likes : [] }),
+      ),
     };
   }
 

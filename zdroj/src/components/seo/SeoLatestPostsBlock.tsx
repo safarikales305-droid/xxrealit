@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { PortalPostFeedItem } from '@/lib/portal-post-feed';
-import { PostCompactMediaPreview } from '@/components/community/PostCompactMediaPreview';
+import { PortalPostMediaCard } from '@/components/community/PortalPostMediaCard';
 
 export function SeoLatestPostsBlock({ items }: { items: PortalPostFeedItem[] }) {
   if (!items.length) return null;
@@ -17,34 +17,30 @@ export function SeoLatestPostsBlock({ items }: { items: PortalPostFeedItem[] }) 
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Link
-          href={featured.href}
-          className="group overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-4 transition hover:border-orange-200"
-        >
-          <PostCompactMediaPreview
+        <div className="overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+          <PortalPostMediaCard
             post={featured}
-            className="mb-3 aspect-[16/10] w-full"
+            mediaClassName="mb-3 aspect-[16/10] w-full"
           />
-          <p className="text-xs text-zinc-500">
-            {featured.authorName}
-            {featured.publishedAt ? ` · ${new Date(featured.publishedAt).toLocaleDateString('cs-CZ')}` : ''}
-          </p>
-          <p className="mt-2 line-clamp-4 text-sm text-zinc-700">{featured.excerpt}</p>
-        </Link>
+          <Link href={featured.href} className="block">
+            <p className="text-xs text-zinc-500">
+              {featured.authorName}
+              {featured.publishedAt ? ` · ${new Date(featured.publishedAt).toLocaleDateString('cs-CZ')}` : ''}
+            </p>
+            <p className="mt-2 line-clamp-4 text-sm text-zinc-700">{featured.excerpt}</p>
+          </Link>
+        </div>
 
         <ul className="space-y-3">
           {rest.map((post) => (
             <li key={post.id}>
-              <Link
-                href={post.href}
-                className="flex gap-3 rounded-xl border border-zinc-100 p-3 transition hover:border-orange-200"
-              >
-                <PostCompactMediaPreview post={post} className="size-16 shrink-0" />
-                <div className="min-w-0">
+              <div className="flex gap-3 rounded-xl border border-zinc-100 p-3">
+                <PortalPostMediaCard post={post} compact mediaClassName="size-16 shrink-0" />
+                <Link href={post.href} className="min-w-0">
                   <p className="text-xs text-zinc-500">{post.authorName}</p>
                   <p className="mt-1 line-clamp-2 text-sm text-zinc-700">{post.excerpt}</p>
-                </div>
-              </Link>
+                </Link>
+              </div>
             </li>
           ))}
         </ul>
