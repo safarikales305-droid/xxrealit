@@ -11,6 +11,12 @@ import { sanitizeAresRequestBody } from './ares-import-diagnostics.util';
 import { icosFromSubjects } from './ares-import-diagnostics.util';
 import { aresRequestHash, responseIcoFingerprint } from './ares-request-hash.util';
 import { resolveCityKodObce } from './ares-master-partitions.util';
+import {
+  ARES_MAX_RESULTS_PER_QUERY,
+  buildInitialPartitions,
+  splitPartitionFurther,
+  type AresPartitionContext,
+} from './ares-import-split.util';
 
 export type AresRawTestInput = {
   locality?: string;
@@ -36,6 +42,9 @@ export type AresRawTestResult = {
   lastIco: string | null;
   responseFingerprint: string;
   errorMessage?: string;
+  tooManyResults?: boolean;
+  tooManyMessage?: string;
+  suggestedPartitions?: Array<{ label: string; filter: AresSearchFilter }>;
   pages: Array<{
     offset: number;
     returned: number;
@@ -69,6 +78,15 @@ export class AresRawTestService {
       }
     }
     return filter;
+  }
+
+  suggestPartitions(filter: AresSearchFilter, ctx: AresPartitionContext = {}) {
+    const fromInitial = buildInitialPartitions(filter, { ...ctx, wholeCountry: true, masterSync: false });
+    if (fromInitial.length > 1) {
+      return fromInitial.map((p) => ({ label: p.label, filter: p.filter }));
+    }
+    const fromSplit = splitPartitionFurther(filter, ctx, 0);
+    return fromSplit.map((p) => ({ label: p.label, filter: p.filter }));
   }
 
   async runTest(input: AresRawTestInput): Promise<AresRawTestResult> {
@@ -109,6 +127,21 @@ export class AresRawTestService {
       }
     }
 
+    const tooManyResults =
+      Boolean(
+        errorMessage &&
+          (errorMessage.toLowerCase().includes('příliš mnoho') ||
+            errorMessage.toLowerCase().includes('maximálně') ||
+            errorMessage.toLowerCase().includes('1 000')),
+      ) ||
+      (pocetCelkem != null && pocetCelkem > ARES_MAX_RESULTS_PER_QUERY);
+    const tooManyMessage = tooManyResults
+      ? 'ARES dotaz je příliš široký — MASTER SYNC by tento dotaz automaticky rozdělil.'
+      : undefined;
+    const suggestedPartitions = tooManyResults
+      ? this.suggestPartitions(filter, { wholeCountry: !filter.sidlo && !filter.ico })
+      : undefined;
+
     const uniqueIcos = [...new Set(allIcos)];
     const existingRows = uniqueIcos.length
       ? await this.prisma.companyDirectoryEntry.findMany({
@@ -135,7 +168,21 @@ export class AresRawTestService {
       lastIco: uniqueIcos[uniqueIcos.length - 1] ?? null,
       responseFingerprint: responseIcoFingerprint(uniqueIcos),
       errorMessage,
+      tooManyResults,
+      tooManyMessage,
+      suggestedPartitions,
       pages,
+    };
+  }
+
+  async runSplitPreview(input: AresRawTestInput) {
+    const filter = this.buildFilter(input);
+    const partitions = this.suggestPartitions(filter, { wholeCountry: !filter.sidlo && !filter.ico });
+    return {
+      requestBody: sanitizeAresRequestBody(filter),
+      partitionCount: partitions.length,
+      partitions: partitions.slice(0, 50),
+      truncated: partitions.length > 50,
     };
   }
 

@@ -159,6 +159,13 @@ export class CompanyDirectoryAdminController {
     return this.aresRawTest.runTest(body);
   }
 
+  @Post('import/diagnostics/raw-test/split-preview')
+  rawAresSplitPreview(
+    @Body() body: { locality?: string; nace?: string; ico?: string; limit?: number },
+  ) {
+    return this.aresRawTest.runSplitPreview(body);
+  }
+
   @Post('import/diagnostics/raw-test/presets')
   rawAresTestPresets() {
     return this.aresRawTest.runPresetTests();

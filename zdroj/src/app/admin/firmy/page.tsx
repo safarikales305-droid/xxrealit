@@ -21,6 +21,7 @@ import {
   nestAdminCompanyImportMasterSync,
   nestAdminCompanyImportMiniMasterSync,
   nestAdminAresRawTest,
+  nestAdminAresSplitPreview,
   nestAdminAresWorkerDiagnostics,
   nestAdminProcessOnePartition,
   nestAdminRequeueImportJob,
@@ -136,6 +137,8 @@ export default function AdminFirmyPage() {
   const [rawTestForm, setRawTestForm] = useState({ locality: '', nace: '', ico: '', limit: 10 });
   const [rawTestResult, setRawTestResult] = useState<Record<string, unknown> | null>(null);
   const [rawTesting, setRawTesting] = useState(false);
+  const [rawSplitResult, setRawSplitResult] = useState<Record<string, unknown> | null>(null);
+  const [rawSplitTesting, setRawSplitTesting] = useState(false);
   const [workerDiag, setWorkerDiag] = useState<Record<string, unknown> | null>(null);
   const [partitionTestOne, setPartitionTestOne] = useState<Record<string, unknown> | null>(null);
   const [processingOne, setProcessingOne] = useState(false);
@@ -158,8 +161,8 @@ export default function AdminFirmyPage() {
     region: 'Celá ČR',
     city: '',
     limit: 1500,
-    batchSize: 100,
-    delayMs: 500,
+    batchSize: 500,
+    delayMs: 2000,
     importMode: 'SEARCH' as 'ICO_LIST' | 'SEARCH',
     icoList: '05754194\n00006947',
   });
@@ -824,13 +827,18 @@ export default function AdminFirmyPage() {
             placeholder="Max. počet firem k importu"
             className="rounded-lg border px-3 py-2 text-sm"
           />
-          <input
-            type="number"
+          <select
             value={form.batchSize}
-                onChange={(e) => setForm((f) => ({ ...f, batchSize: Number(e.target.value) }))}
-                placeholder="Velikost dávky (ARES request)"
-                className="rounded-lg border px-3 py-2 text-sm"
-              />
+            onChange={(e) => setForm((f) => ({ ...f, batchSize: Number(e.target.value) }))}
+            className="rounded-lg border px-3 py-2 text-sm"
+            title="Maximální počet firem zpracovaných workerem v jedné dávce"
+          >
+            {[100, 250, 500, 750, 1000].map((n) => (
+              <option key={n} value={n}>
+                Dávka {n} firem
+              </option>
+            ))}
+          </select>
               <input
                 type="number"
                 value={form.delayMs}
@@ -902,9 +910,31 @@ export default function AdminFirmyPage() {
             >
               {rawTesting ? 'Testuji…' : 'Otestovat ARES přímo'}
             </button>
+            <button
+              type="button"
+              disabled={rawSplitTesting || !token}
+              onClick={async () => {
+                if (!token) return;
+                setRawSplitTesting(true);
+                const res = await nestAdminAresSplitPreview(token, rawTestForm);
+                setRawSplitResult(res);
+                setRawSplitTesting(false);
+              }}
+              className="mt-4 ml-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold"
+            >
+              {rawSplitTesting ? 'Počítám…' : 'Otestovat rozdělení'}
+            </button>
+            {rawTestResult?.tooManyMessage ? (
+              <p className="mt-3 text-sm text-amber-800">{String(rawTestResult.tooManyMessage)}</p>
+            ) : null}
             {rawTestResult ? (
               <pre className="mt-4 max-h-80 overflow-auto rounded-lg bg-zinc-900 p-3 text-xs text-green-100">
                 {JSON.stringify(rawTestResult, null, 2)}
+              </pre>
+            ) : null}
+            {rawSplitResult ? (
+              <pre className="mt-4 max-h-80 overflow-auto rounded-lg bg-amber-950 p-3 text-xs text-amber-100">
+                {JSON.stringify(rawSplitResult, null, 2)}
               </pre>
             ) : null}
           </section>
@@ -1631,6 +1661,176 @@ export default function AdminFirmyPage() {
 
       {tab === 'settings' && automationSettings ? (
         <section className="space-y-6">
+          <div className="rounded-xl border bg-white p-5">
+            <h2 className="text-lg font-semibold">ARES import</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Maximální počet firem zpracovaných workerem v jedné dávce. Doporučeno 500.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="text-sm">
+                Velikost dávky
+                <select
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.aresImport?.batchSize ?? 500}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        batchSize: Number(e.target.value) || 500,
+                      },
+                    })
+                  }
+                >
+                  {[100, 250, 500, 750, 1000].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Prodleva mezi dávkami (ms)
+                <input
+                  type="number"
+                  min={0}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.aresImport?.delayMs ?? 2000}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        delayMs: Number(e.target.value) || 2000,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="text-sm">
+                Max retries
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.aresImport?.maxRetries ?? 5}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        maxRetries: Number(e.target.value) || 5,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="text-sm">
+                Concurrency
+                <input
+                  type="number"
+                  min={1}
+                  max={3}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.aresImport?.concurrency ?? 1}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        concurrency: Number(e.target.value) || 1,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={automationSettings.aresImport?.autoContinue ?? true}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        autoContinue: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Automaticky pokračovat
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={automationSettings.aresImport?.saveCheckpoint ?? true}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        saveCheckpoint: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Ukládat checkpoint
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={automationSettings.aresImport?.autoRecoverOnRestart ?? true}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        autoRecoverOnRestart: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Automaticky obnovit po restartu
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={automationSettings.aresImport?.maintainRegistry ?? false}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        maintainRegistry: e.target.checked,
+                      },
+                    })
+                  }
+                />
+                Automaticky udržovat registr
+              </label>
+              <label className="text-sm">
+                Interval údržby
+                <select
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={automationSettings.aresImport?.maintainInterval ?? 'weekly'}
+                  onChange={(e) =>
+                    setAutomationSettings({
+                      ...automationSettings,
+                      aresImport: {
+                        ...automationSettings.aresImport,
+                        maintainInterval: e.target.value as 'daily' | 'weekly' | 'manual',
+                      },
+                    })
+                  }
+                >
+                  <option value="daily">Denně</option>
+                  <option value="weekly">1× týdně</option>
+                  <option value="manual">Ručně</option>
+                </select>
+              </label>
+            </div>
+          </div>
           <div className="rounded-xl border bg-white p-5">
             <h2 className="text-lg font-semibold">SEO</h2>
             {seoStats ? (

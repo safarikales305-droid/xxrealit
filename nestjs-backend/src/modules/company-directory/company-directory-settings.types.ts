@@ -30,10 +30,23 @@ export type CompanyDirectoryEmailCampaignSettings = {
   monthlyAfterSequence: boolean;
 };
 
+export type CompanyDirectoryAresImportSettings = {
+  batchSize: number;
+  delayMs: number;
+  maxRetries: number;
+  concurrency: number;
+  autoContinue: boolean;
+  saveCheckpoint: boolean;
+  autoRecoverOnRestart: boolean;
+  maintainRegistry: boolean;
+  maintainInterval: 'daily' | 'weekly' | 'manual';
+};
+
 export type CompanyDirectoryAutomationSettings = {
   seo: CompanyDirectorySeoSettings;
   facebook: CompanyDirectoryFacebookSettings;
   email: CompanyDirectoryEmailCampaignSettings;
+  aresImport: CompanyDirectoryAresImportSettings;
 };
 
 export const DEFAULT_COMPANY_DIRECTORY_SEO_SETTINGS: CompanyDirectorySeoSettings = {
@@ -69,10 +82,23 @@ export const DEFAULT_COMPANY_DIRECTORY_EMAIL_SETTINGS: CompanyDirectoryEmailCamp
   monthlyAfterSequence: true,
 };
 
+export const DEFAULT_COMPANY_DIRECTORY_ARES_IMPORT_SETTINGS: CompanyDirectoryAresImportSettings = {
+  batchSize: 500,
+  delayMs: 2000,
+  maxRetries: 5,
+  concurrency: 1,
+  autoContinue: true,
+  saveCheckpoint: true,
+  autoRecoverOnRestart: true,
+  maintainRegistry: false,
+  maintainInterval: 'weekly',
+};
+
 export const DEFAULT_COMPANY_DIRECTORY_AUTOMATION_SETTINGS: CompanyDirectoryAutomationSettings = {
   seo: DEFAULT_COMPANY_DIRECTORY_SEO_SETTINGS,
   facebook: DEFAULT_COMPANY_DIRECTORY_FACEBOOK_SETTINGS,
   email: DEFAULT_COMPANY_DIRECTORY_EMAIL_SETTINGS,
+  aresImport: DEFAULT_COMPANY_DIRECTORY_ARES_IMPORT_SETTINGS,
 };
 
 export const FACEBOOK_POSTS_PER_DAY_MIN = 2;

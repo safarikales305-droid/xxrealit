@@ -345,7 +345,37 @@ export function splitPartitionFurther(
   }
 
   if (!sidlo.kodKraje && !sidlo.nazevObce && !sidlo.nazevOkresu) {
-    return buildInitialPartitions(filter, { ...ctx, wholeCountry: true });
+    if (filter.czNace?.length) {
+      const out: Array<{ filter: AresSearchFilter; label: string; depth: number }> = [];
+      for (const region of CZECH_REGIONS) {
+        if (region.code === 19) {
+          for (const district of pragueDistrictFilters()) {
+            for (const nace of naceList) {
+              const child = buildPartition(filter, nace, { kodKraje: 19, ...district });
+              out.push({
+                filter: child,
+                label: partitionLabel(child, { ...ctx, region: region.name }),
+                depth: depth + 1,
+              });
+            }
+          }
+        } else {
+          for (const nace of naceList) {
+            const child = buildPartition(filter, nace, { kodKraje: region.code });
+            out.push({
+              filter: child,
+              label: partitionLabel(child, { ...ctx, region: region.name }),
+              depth: depth + 1,
+            });
+          }
+        }
+      }
+      return dedupePartitionSpecs(out, ctx);
+    }
+    if (ctx.masterSync) {
+      return [];
+    }
+    return buildInitialPartitions(filter, { ...ctx, wholeCountry: true, masterSync: false });
   }
 
   if (naceList.length > 1 || (filter.czNace?.length ?? 0) > 1) {

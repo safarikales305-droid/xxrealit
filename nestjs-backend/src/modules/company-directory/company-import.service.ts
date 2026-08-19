@@ -19,9 +19,13 @@ import { AresApiException, AresService } from './ares.service';
 import type { AresEconomicSubject, AresSearchFilter } from './ares.types';
 import {
   ARES_IMPORT_BATCH_SIZE,
+  ARES_IMPORT_BATCH_SIZE_OPTIONS,
   ARES_IMPORT_DELAY_MS,
   ARES_IMPORT_ENABLED,
   ARES_IMPORT_MAX_REQUESTS_PER_RUN,
+  ARES_IMPORT_MAX_RETRIES,
+  ARES_IMPORT_RETRY_DELAYS_MS,
+  ARES_PAGE_SIZE,
 } from './company-directory.constants';
 import {
   buildAresSearchFilter,
@@ -53,6 +57,8 @@ import { CompanyEventsService } from './company-events.service';
 import { CompanyImportPartitionService } from './company-import-partition.service';
 import { AresImportWorkerService } from './ares-import-worker.service';
 import { computeJobProgress, computePartitionBasedProgress } from './company-job-progress.util';
+import { CompanyDirectorySettingsService } from './company-directory-settings.service';
+import type { CompanyImportPartition } from '@prisma/client';
 
 type StartImportInput = {
   category?: CompanyDirectoryCategory;
@@ -83,6 +89,7 @@ export class CompanyImportService {
     private readonly events: CompanyEventsService,
     @Inject(forwardRef(() => AresImportWorkerService))
     private readonly aresWorker: AresImportWorkerService,
+    private readonly automationSettings: CompanyDirectorySettingsService,
   ) {}
 
   private wakeWorker(): void {
@@ -95,10 +102,11 @@ export class CompanyImportService {
     limit?: number;
     partitionLimit?: number;
   }) {
+    const aresSettings = this.automationSettings.getCached().aresImport;
     return this.startImport({
       region: 'Celá ČR',
-      batchSize: input?.batchSize ?? 100,
-      delayMs: input?.delayMs ?? 500,
+      batchSize: input?.batchSize ?? aresSettings.batchSize,
+      delayMs: input?.delayMs ?? aresSettings.delayMs,
       importMode: 'SEARCH',
       syncType: 'ARES_CZ_MASTER_SYNC',
       masterSync: true,
@@ -108,7 +116,12 @@ export class CompanyImportService {
   }
 
   async startMiniMasterSync() {
-    return this.startMasterSync({ partitionLimit: 5, batchSize: 100, delayMs: 500 });
+    const aresSettings = this.automationSettings.getCached().aresImport;
+    return this.startMasterSync({
+      partitionLimit: 5,
+      batchSize: aresSettings.batchSize,
+      delayMs: aresSettings.delayMs,
+    });
   }
 
   async startImport(input: StartImportInput) {
@@ -276,7 +289,11 @@ export class CompanyImportService {
         : undefined;
     const batchSize =
       input.batchSize != null && Number.isFinite(input.batchSize) && input.batchSize > 0
-        ? Math.min(500, Math.floor(input.batchSize))
+        ? (() => {
+            const v = Math.floor(input.batchSize);
+            if ((ARES_IMPORT_BATCH_SIZE_OPTIONS as readonly number[]).includes(v)) return v;
+            return Math.min(1000, Math.max(100, v));
+          })()
         : ARES_IMPORT_BATCH_SIZE;
     const delayMs =
       input.delayMs != null && Number.isFinite(input.delayMs) && input.delayMs >= 0
@@ -858,8 +875,9 @@ export class CompanyImportService {
       },
     });
 
-    const batchSize = job.batchSize ?? 100;
+    const companiesPerBatch = job.batchSize ?? ARES_IMPORT_BATCH_SIZE;
     const delayMs = job.delayMs ?? ARES_IMPORT_DELAY_MS;
+    const maxRetries = ARES_IMPORT_MAX_RETRIES;
     const maxRequests = ARES_IMPORT_MAX_REQUESTS_PER_RUN;
     let requests = 0;
     let created = job.created;
@@ -869,13 +887,15 @@ export class CompanyImportService {
     let processed = job.processed;
     let alreadySeenSkipped = job.alreadySeenSkipped ?? 0;
     let inactiveSkipped = job.inactiveSkipped ?? 0;
+    let companiesInWorkerBatch = 0;
+    let lastIco: string | null = job.lastIco;
     const partitionCtx = this.partitionService.buildContext(job);
     partitionCtx.masterSync =
       job.syncType === 'ARES_CZ_MASTER_SYNC' || job.syncType === 'ALL_CZECH_COMPANIES';
     const hintCategory = partitionCtx.masterSync ? null : job.category;
 
     try {
-      while (requests < maxRequests) {
+      while (requests < maxRequests && companiesInWorkerBatch < companiesPerBatch) {
         if (await this.shouldAbortJob(jobId)) {
           await this.handleAbortSignals(jobId);
           return;
@@ -910,26 +930,91 @@ export class CompanyImportService {
           return;
         }
 
+        const partitionLabel = partition.label ?? partition.partitionKey ?? partition.id;
         this.log.log(
-          `[ARES-WORKER] claiming partition ${partition.id} key=${partition.label ?? partition.partitionKey}`,
+          `[ARES-WORKER] partition=${partitionLabel} cursor=${partition.cursor} batch=${companiesInWorkerBatch}/${companiesPerBatch}`,
         );
         await this.aresWorker.updateProcessingContext(jobId, partition.id, partition.label);
 
         const activeFilter = partition.filtersJson as AresSearchFilter;
-        const start = partition.cursor;
-        const pocet = batchSize;
+        let start = partition.cursor;
 
+        if (start === 0) {
+          try {
+            requests += 1;
+            const countResult = await this.partitionService.countPartition(activeFilter, partitionCtx, {
+              partitionId: partition.id,
+              partitionLabel,
+            });
+            if (this.partitionService.needsFurtherSplit(countResult.total)) {
+              this.log.warn(
+                `[ARES-WORKER] SPLIT_REQUIRED partition=${partitionLabel} total=${countResult.total}`,
+              );
+              await this.appendAudit(
+                jobId,
+                `PARTITION_SPLIT: ${partitionLabel} — ${countResult.total} výsledků (>1000)`,
+              );
+              const splitOk = await this.attemptDbPartitionSplit(jobId, partition, partitionCtx);
+              if (splitOk) continue;
+              continue;
+            }
+          } catch (err) {
+            if (isAresTooManyResultsError(err)) {
+              this.log.warn(`[ARES-WORKER] TOO_MANY_RESULTS on count — splitting ${partitionLabel}`);
+              await this.appendAudit(jobId, `PARTITION_SPLIT: ${partitionLabel} — TOO_MANY_RESULTS`);
+              const splitOk = await this.attemptDbPartitionSplit(jobId, partition, partitionCtx);
+              if (splitOk) continue;
+              continue;
+            }
+            await this.markPartitionFailed(partition.id, err);
+            continue;
+          }
+        }
+
+        if (requests >= maxRequests || companiesInWorkerBatch >= companiesPerBatch) break;
+
+        const fetchPocet = ARES_PAGE_SIZE;
         requests += 1;
         const fetchStarted = Date.now();
-        this.log.log(`[ARES-WORKER] sending ARES request offset=${start} label=${partition.label}`);
-        const response = await this.ares.searchCompanies({ ...activeFilter, start, pocet });
-        this.log.log(`[ARES-WORKER] HTTP 200 returned=${response.ekonomickeSubjekty?.length ?? 0}`);
+        this.log.log(
+          `[ARES-WORKER] ARES_REQUEST partition=${partitionLabel} offset=${start} pocet=${fetchPocet}`,
+        );
+
+        let response;
+        try {
+          response = await this.fetchAresWithRetry(
+            { ...activeFilter, start, pocet: fetchPocet },
+            { jobId, partitionLabel, maxRetries },
+          );
+        } catch (err) {
+          if (isAresTooManyResultsError(err)) {
+            await this.appendAudit(jobId, `PARTITION_SPLIT: ${partitionLabel} — TOO_MANY_RESULTS při fetch`);
+            const splitOk = await this.attemptDbPartitionSplit(jobId, partition, partitionCtx);
+            if (splitOk) continue;
+            continue;
+          }
+          await this.markPartitionFailed(partition.id, err);
+          continue;
+        }
 
         const subjects = response.ekonomickeSubjekty ?? [];
         const subTotal = response.pocetCelkem ?? null;
         const partitionKey = partition.partitionKey ?? partition.id;
+        const { firstIco, lastIco: pageLastIco } = icosFromSubjects(subjects);
+
+        if (subTotal != null && subTotal > 1000 && start === 0) {
+          await this.appendAudit(
+            jobId,
+            `PARTITION_SPLIT: ${partitionLabel} — pocetCelkem=${subTotal}`,
+          );
+          const splitOk = await this.attemptDbPartitionSplit(jobId, partition, partitionCtx);
+          if (splitOk) continue;
+          continue;
+        }
 
         for (const subject of subjects) {
+          if (companiesInWorkerBatch >= companiesPerBatch) break;
+
           const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
           const seenInJob = await this.safeSeenLookup(jobId, normalizedIco);
           if (seenInJob) {
@@ -948,29 +1033,79 @@ export class CompanyImportService {
             }
             await this.safeSeenUpsert(jobId, normalizedIco, partitionKey);
             processed += 1;
+            companiesInWorkerBatch += 1;
+            lastIco = normalizedIco;
           } catch {
             failed += 1;
             processed += 1;
+            companiesInWorkerBatch += 1;
           }
-          await this.sleep(Math.min(300, delayMs));
         }
 
         const nextCursor = start + subjects.length;
+        const maxFetchable = subTotal != null ? Math.min(subTotal, 1000) : nextCursor;
         const exhausted =
           subjects.length === 0 ||
-          subjects.length < pocet ||
-          (subTotal != null && nextCursor >= Math.min(subTotal, 1000));
+          subjects.length < fetchPocet ||
+          nextCursor >= maxFetchable;
+
+        this.log.log(
+          `[ARES-WORKER] partition=${partitionLabel} offset=${start} returned=${subjects.length} firstIco=${firstIco ?? '—'} lastIco=${pageLastIco ?? '—'} nextCursor=${nextCursor} exhausted=${exhausted}`,
+        );
+
+        await this.prisma.aresImportRequestLog.create({
+          data: {
+            jobId,
+            endpoint: ARES_SEARCH_ENDPOINT,
+            requestHash: aresRequestHash(sanitizeAresRequestBody({ ...activeFilter, start, pocet: fetchPocet })),
+            requestBody: sanitizeAresRequestBody({ ...activeFilter, start, pocet: fetchPocet }) as Prisma.InputJsonValue,
+            httpStatus: 200,
+            returnedCount: subjects.length,
+            pocetCelkem: subTotal,
+            offset: start,
+            durationMs: Date.now() - fetchStarted,
+            responseFingerprint: responseIcoFingerprint(icosFromSubjects(subjects).icos),
+          },
+        });
 
         if (exhausted) {
           await this.importPartitions.completePartition(partition.id, {
             cursor: nextCursor,
             processedCount: nextCursor,
           });
+          await this.appendAudit(jobId, `PARTITION_COMPLETED: ${partitionLabel}`);
         } else {
           await this.prisma.companyImportPartition.update({
             where: { id: partition.id },
-            data: { cursor: nextCursor, processedCount: nextCursor },
+            data: {
+              cursor: nextCursor,
+              processedCount: nextCursor,
+              lockedBy: workerId,
+              lockedAt: new Date(),
+            },
           });
+        }
+
+        await this.prisma.companyImportJob.update({
+          where: { id: jobId },
+          data: {
+            processed,
+            created,
+            updated,
+            failed,
+            skipped,
+            alreadySeenSkipped,
+            inactiveSkipped,
+            lastIco,
+            jobUniqueIcoCount: await this.safeSeenCount(jobId),
+            requestsCount: { increment: 1 },
+            lastWorkerActivityAt: new Date(),
+            heartbeatAt: new Date(),
+          },
+        });
+
+        if (delayMs > 0) {
+          await this.sleep(delayMs);
         }
       }
 
@@ -990,13 +1125,116 @@ export class CompanyImportService {
       await this.prisma.companyImportJob.update({
         where: { id: jobId },
         data: {
-          status: CompanyImportJobStatus.FAILED,
+          status: CompanyImportJobStatus.QUEUED,
           error: message,
-          finishedAt: new Date(),
           requestsCount: requests > 0 ? { increment: requests } : undefined,
+          lastWorkerActivityAt: new Date(),
         },
       });
     }
+  }
+
+  private async fetchAresWithRetry(
+    filter: AresSearchFilter,
+    meta: { jobId: string; partitionLabel?: string; maxRetries?: number },
+  ) {
+    const maxRetries = meta.maxRetries ?? ARES_IMPORT_MAX_RETRIES;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.ares.searchCompanies(filter);
+      } catch (err) {
+        lastErr = err;
+        if (isAresTooManyResultsError(err)) throw err;
+        const retryable =
+          err instanceof AresApiException &&
+          (err.statusCode === 429 || err.statusCode >= 500);
+        const network =
+          err instanceof Error &&
+          (err.message.toLowerCase().includes('fetch') ||
+            err.message.toLowerCase().includes('timeout') ||
+            err.message.toLowerCase().includes('network'));
+        if (!retryable && !network) throw err;
+        if (attempt < maxRetries) {
+          const delay = ARES_IMPORT_RETRY_DELAYS_MS[Math.min(attempt, ARES_IMPORT_RETRY_DELAYS_MS.length - 1)];
+          await this.appendAudit(
+            meta.jobId,
+            `RETRY: ${meta.partitionLabel ?? 'partition'} attempt ${attempt + 1}/${maxRetries} za ${delay}ms`,
+          );
+          await this.sleep(delay);
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  private async attemptDbPartitionSplit(
+    jobId: string,
+    partition: CompanyImportPartition,
+    partitionCtx: ReturnType<AresQueryPartitionService['buildContext']>,
+  ): Promise<boolean> {
+    const activeFilter = partition.filtersJson as AresSearchFilter;
+    const depth = partition.depth ?? 0;
+    let children = this.partitionService.furtherPartitions(activeFilter, partitionCtx, depth);
+
+    if (children.length === 0 && activeFilter.czNace?.length === 1) {
+      const subs = subdivideNaceCode(activeFilter.czNace[0]);
+      if (subs.length > 1) {
+        children = subs.map((nace) => ({
+          filter: { ...activeFilter, czNace: [nace], start: 0, pocet: ARES_PAGE_SIZE },
+          label: `${partition.label ?? 'partition'} · nace=${nace}`,
+          depth: depth + 1,
+        }));
+      }
+    }
+
+    if (children.length === 0) {
+      await this.prisma.companyImportPartition.update({
+        where: { id: partition.id },
+        data: {
+          status: 'FAILED',
+          error: 'UNRESOLVED_PARTITION — nelze dále bezpečně rozdělit',
+          completedAt: new Date(),
+          lockedBy: null,
+          lockedAt: null,
+        },
+      });
+      await this.appendAudit(
+        jobId,
+        `FAILED_PARTITION: ${partition.label ?? partition.id} — UNRESOLVED_PARTITION`,
+      );
+      return false;
+    }
+
+    await this.importPartitions.splitPartition(
+      partition.id,
+      children.map((c) => ({
+        filter: c.filter,
+        label: c.label,
+        depth: c.depth,
+        partitionKey: buildPartitionKeyWithoutPage(c.filter, partitionCtx),
+      })),
+      partitionCtx,
+    );
+    await this.appendAudit(
+      jobId,
+      `PARTITION_SPLIT: ${partition.label ?? partition.id} → ${children.length} children`,
+    );
+    return true;
+  }
+
+  private async markPartitionFailed(partitionId: string, err: unknown) {
+    const message = err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500);
+    await this.prisma.companyImportPartition.update({
+      where: { id: partitionId },
+      data: {
+        status: 'FAILED',
+        error: message,
+        completedAt: new Date(),
+        lockedBy: null,
+        lockedAt: null,
+      },
+    });
   }
 
   private async releaseJobToQueue(

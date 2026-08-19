@@ -100,23 +100,18 @@ describe('ares-import-split', () => {
     assert.ok(subs.includes('421'));
   });
 
-  it('splits Praha 1 + NACE 42 when geo exhausted', () => {
-    const filter = buildAresSearchFilter({
-      category: CompanyDirectoryCategory.STAVEBNICTVI,
-      city: 'Praha 1',
-      region: 'Hlavní město Praha',
-    });
-    filter.czNace = ['42'];
-    const parts = splitPartitionFurther(
-      filter,
-      {
-        category: CompanyDirectoryCategory.STAVEBNICTVI,
-        city: 'Praha 1',
-        region: 'Hlavní město Praha',
-      },
-      2,
-    );
-    assert.ok(parts.length > 1, `expected NACE split, got ${parts.length}`);
-    assert.ok(parts.some((p) => p.filter.czNace?.includes('421')));
+  it('splits saturated national NACE into regional children (not re-NACE master list)', () => {
+    const filter = { start: 0, pocet: 100, czNace: ['41'] };
+    const parts = splitPartitionFurther(filter, { masterSync: true }, 0);
+    assert.ok(parts.length > 1, `expected regional split, got ${parts.length}`);
+    assert.ok(parts.every((p) => p.filter.czNace?.includes('41')));
+    assert.ok(parts.some((p) => p.filter.sidlo?.kodKraje != null || p.filter.sidlo?.nazevObce?.startsWith('Praha')));
+  });
+
+  it('master sync initial partitions use national NACE codes', () => {
+    const base = buildAresSearchFilter({ masterSync: true });
+    const parts = buildInitialPartitions(base, { masterSync: true });
+    assert.ok(parts.length > 100);
+    assert.ok(parts.every((p) => p.filter.czNace?.length === 1));
   });
 });

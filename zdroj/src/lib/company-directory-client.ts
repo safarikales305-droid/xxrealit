@@ -481,6 +481,27 @@ export async function nestAdminAresRawTest(
   return (await res.json()) as Record<string, unknown>;
 }
 
+export async function nestAdminAresSplitPreview(
+  token: string,
+  body: { locality?: string; nace?: string; ico?: string },
+) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/company-directory/import/diagnostics/raw-test/split-preview`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
+}
+
 export async function nestAdminAresWorkerDiagnostics(token: string) {
   if (!API_BASE_URL) return null;
   const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/diagnostics/worker`, {
@@ -1422,6 +1443,17 @@ export type CompanyAutomationSettings = {
     profileViewThrottleDays: number;
     sequenceDelaysDays: number[];
     monthlyAfterSequence: boolean;
+  };
+  aresImport: {
+    batchSize: number;
+    delayMs: number;
+    maxRetries: number;
+    concurrency: number;
+    autoContinue: boolean;
+    saveCheckpoint: boolean;
+    autoRecoverOnRestart: boolean;
+    maintainRegistry: boolean;
+    maintainInterval: 'daily' | 'weekly' | 'manual';
   };
 };
 

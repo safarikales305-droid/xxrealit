@@ -114,15 +114,31 @@ export const CONTACT_DISCOVERY_DELAY_MS = Math.max(
   Number(process.env.CONTACT_DISCOVERY_DELAY_MS ?? 3000) || 3000,
 );
 
-export const ARES_IMPORT_BATCH_SIZE = Math.max(
-  1,
-  Math.min(50, Number(process.env.ARES_IMPORT_BATCH_SIZE ?? 10) || 10),
-);
+/** Max počet výsledků na jeden ARES HTTP request (stránkování API). */
+export const ARES_PAGE_SIZE = 100;
+
+/** Povolené hodnoty interní dávky (firem zpracovaných workerem za jeden běh). */
+export const ARES_IMPORT_BATCH_SIZE_OPTIONS = [100, 250, 500, 750, 1000] as const;
+
+/** Default interní dávky — firem zpracovaných workerem mezi prodlevami (ne ARES page size). */
+export const ARES_IMPORT_BATCH_SIZE = (() => {
+  const raw = Number(process.env.ARES_IMPORT_BATCH_SIZE ?? 500) || 500;
+  const allowed = ARES_IMPORT_BATCH_SIZE_OPTIONS as readonly number[];
+  if (allowed.includes(raw)) return raw;
+  return Math.max(100, Math.min(1000, Math.floor(raw)));
+})();
 
 export const ARES_IMPORT_DELAY_MS = Math.max(
   200,
-  Number(process.env.ARES_IMPORT_DELAY_MS ?? 1500) || 1500,
+  Number(process.env.ARES_IMPORT_DELAY_MS ?? 2000) || 2000,
 );
+
+export const ARES_IMPORT_MAX_RETRIES = Math.max(
+  1,
+  Math.min(10, Number(process.env.ARES_IMPORT_MAX_RETRIES ?? 5) || 5),
+);
+
+export const ARES_IMPORT_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000, 60000];
 
 export const ARES_IMPORT_MAX_REQUESTS_PER_RUN = Math.max(
   1,

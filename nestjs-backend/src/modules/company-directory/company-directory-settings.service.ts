@@ -5,10 +5,14 @@ import {
   FACEBOOK_POSTS_PER_DAY_MAX,
   FACEBOOK_POSTS_PER_DAY_MIN,
   type CompanyDirectoryAutomationSettings,
+  type CompanyDirectoryAresImportSettings,
   type CompanyDirectoryFacebookSettings,
   type CompanyDirectoryEmailCampaignSettings,
   type CompanyDirectorySeoSettings,
 } from './company-directory-settings.types';
+import {
+  ARES_IMPORT_BATCH_SIZE_OPTIONS,
+} from './company-directory.constants';
 
 const SETTINGS_KEY = 'company_directory_automation_settings';
 
@@ -61,6 +65,8 @@ export class CompanyDirectorySettingsService implements OnModuleInit {
     const seoRaw = o.seo && typeof o.seo === 'object' ? (o.seo as Record<string, unknown>) : {};
     const fbRaw = o.facebook && typeof o.facebook === 'object' ? (o.facebook as Record<string, unknown>) : {};
     const emailRaw = o.email && typeof o.email === 'object' ? (o.email as Record<string, unknown>) : {};
+    const aresRaw =
+      o.aresImport && typeof o.aresImport === 'object' ? (o.aresImport as Record<string, unknown>) : {};
 
     const seo: CompanyDirectorySeoSettings = {
       aiEnrichmentEnabled: this.bool(seoRaw.aiEnrichmentEnabled, d.seo.aiEnrichmentEnabled),
@@ -99,7 +105,30 @@ export class CompanyDirectorySettingsService implements OnModuleInit {
       monthlyAfterSequence: this.bool(emailRaw.monthlyAfterSequence, d.email.monthlyAfterSequence),
     };
 
-    return { seo, facebook, email };
+    const batchRaw = this.num(aresRaw.batchSize, d.aresImport.batchSize, 100, 1000);
+    const batchSize = (ARES_IMPORT_BATCH_SIZE_OPTIONS as readonly number[]).includes(batchRaw)
+      ? batchRaw
+      : d.aresImport.batchSize;
+
+    const maintainIntervalRaw = this.str(aresRaw.maintainInterval, d.aresImport.maintainInterval);
+    const maintainInterval: CompanyDirectoryAresImportSettings['maintainInterval'] =
+      maintainIntervalRaw === 'daily' || maintainIntervalRaw === 'weekly' || maintainIntervalRaw === 'manual'
+        ? maintainIntervalRaw
+        : d.aresImport.maintainInterval;
+
+    const aresImport: CompanyDirectoryAresImportSettings = {
+      batchSize,
+      delayMs: this.num(aresRaw.delayMs, d.aresImport.delayMs, 0, 60_000),
+      maxRetries: this.num(aresRaw.maxRetries, d.aresImport.maxRetries, 1, 10),
+      concurrency: this.num(aresRaw.concurrency, d.aresImport.concurrency, 1, 3),
+      autoContinue: this.bool(aresRaw.autoContinue, d.aresImport.autoContinue),
+      saveCheckpoint: this.bool(aresRaw.saveCheckpoint, d.aresImport.saveCheckpoint),
+      autoRecoverOnRestart: this.bool(aresRaw.autoRecoverOnRestart, d.aresImport.autoRecoverOnRestart),
+      maintainRegistry: this.bool(aresRaw.maintainRegistry, d.aresImport.maintainRegistry),
+      maintainInterval,
+    };
+
+    return { seo, facebook, email, aresImport };
   }
 
   async getSettings(): Promise<CompanyDirectoryAutomationSettings> {
@@ -114,6 +143,7 @@ export class CompanyDirectorySettingsService implements OnModuleInit {
       seo: { ...current.seo, ...patch.seo },
       facebook: { ...current.facebook, ...patch.facebook },
       email: { ...current.email, ...patch.email },
+      aresImport: { ...current.aresImport, ...patch.aresImport },
     });
 
     if (merged.facebook.publishFromHour >= merged.facebook.publishToHour) {
