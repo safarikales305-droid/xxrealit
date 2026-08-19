@@ -446,7 +446,7 @@ export function parseSearchCheckpoint(raw: unknown): AresSearchCheckpoint | null
     subQueryStart:
       typeof c.subQueryStart === 'number' && Number.isFinite(c.subQueryStart)
         ? c.subQueryStart
-        : Number(c.subQueryStart ?? 0) || 0,
+        : 0,
     subQueryTotals: Array.isArray(c.subQueryTotals)
       ? (c.subQueryTotals as Array<number | null>)
       : [],

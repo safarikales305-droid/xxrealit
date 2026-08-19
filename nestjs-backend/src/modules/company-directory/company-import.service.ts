@@ -432,7 +432,6 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     if (!checkpoint?.subQueries.length) {
       throw new BadRequestException('Import job nemá připravené partitiony.');
     }
-
     const idx = Math.min(checkpoint.subQueryIndex, checkpoint.subQueries.length - 1);
     const activeFilter = checkpoint.subQueries[idx];
     const partitionCtx = this.partitionService.buildContext(job);
@@ -452,12 +451,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       pocetCelkem: number | null;
       firstIco: string | null;
       lastIco: string | null;
-      httpStatus: number;
-      durationMs: number;
       existingInPage: number;
       newInPage: number;
+      durationMs: number;
     }> = [];
-
     const allIcos: string[] = [];
     let start = 0;
     const pocet = 100;
@@ -483,10 +480,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         pocetCelkem,
         firstIco,
         lastIco,
-        httpStatus: 200,
-        durationMs: Date.now() - pageStarted,
         existingInPage: existingSet.size,
         newInPage: icos.filter((ico) => !existingSet.has(ico)).length,
+        durationMs: Date.now() - pageStarted,
       });
       const cap = pocetCelkem != null ? Math.min(pocetCelkem, 1000) : null;
       if (
@@ -952,7 +948,6 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       const existingIcoSet = new Set(existingBeforeUpsert.map((row) => row.ico));
       let batchCreated = 0;
       let batchUpdated = 0;
-      let batchExisting = existingIcoSet.size;
       let batchSkipped = 0;
 
       if (subTotal != null && subTotal > 1000) {
@@ -1088,8 +1083,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       }
       fingerprints[String(idx)] = fingerprint;
       checkpoint.resultFingerprints = fingerprints;
-
-      const diagnosticEntry: AresRequestDiagnostic = {
+      checkpoint.aresDiagnostics = appendDiagnostic(checkpoint.aresDiagnostics ?? [], {
         at: new Date().toISOString(),
         kind: 'FETCH',
         partitionIndex: idx,
@@ -1106,27 +1100,22 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         durationMs: fetchDurationMs,
         createdInBatch: batchCreated,
         updatedInBatch: batchUpdated,
-        existingInBatch: batchExisting,
+        existingInBatch: existingIcoSet.size,
         skippedInBatch: batchSkipped,
         duplicateResultSet,
         duplicateOfPartitionIndex,
-      };
-      checkpoint.aresDiagnostics = appendDiagnostic(
-        checkpoint.aresDiagnostics ?? [],
-        diagnosticEntry,
-      );
+      });
       if (duplicateResultSet) {
         this.log.warn(
-          `[ARES-IMPORT] DUPLICATE_RESULT_SET job=${jobId} partition=${idx} duplicateOf=${duplicateOfPartitionIndex} label=${partitionLabel}`,
+          `[ARES-IMPORT] DUPLICATE_RESULT_SET job=${jobId} partition=${idx} duplicateOf=${duplicateOfPartitionIndex}`,
         );
         await this.appendAudit(
           jobId,
           `DUPLICATE_RESULT_SET: partition ${idx} stejné IČO jako partition ${duplicateOfPartitionIndex}`,
         );
       }
-
       this.log.log(
-        `[ARES-IMPORT] FETCH job=${jobId} partition=${idx + 1}/${checkpoint.subQueries.length} offset=${start} total=${subTotal ?? '—'} returned=${subjects.length} first=${firstIco ?? '—'} last=${responseLastIco ?? '—'} new=${batchCreated} updated=${batchUpdated} existing=${batchExisting} ${fetchDurationMs}ms`,
+        `[ARES-IMPORT] FETCH job=${jobId} partition=${idx + 1}/${checkpoint.subQueries.length} offset=${start} total=${subTotal ?? '—'} returned=${subjects.length} first=${firstIco ?? '—'} last=${responseLastIco ?? '—'} new=${batchCreated} updated=${batchUpdated} existing=${existingIcoSet.size} ${fetchDurationMs}ms`,
       );
 
       const partitionTotal = subTotal ?? checkpoint.subQueryTotals[idx] ?? null;
@@ -1572,7 +1561,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     jobId: string,
     checkpoint: AresSearchCheckpoint,
     index: number,
-    children: Array<{ filter: AresSearchFilter; label: string; depth: number }>,
+    children: Array<{ filter: AresSearchFilter; label: string; depth: number; partitionKey?: string }>,
     partitionCtx: ReturnType<AresQueryPartitionService['buildContext']>,
   ) {
     const before = checkpoint.subQueries.slice(0, index);

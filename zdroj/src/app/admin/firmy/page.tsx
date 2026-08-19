@@ -1886,9 +1886,6 @@ export default function AdminFirmyPage() {
                         {'\n'}
                         V DB existuje: {String(partitionTestResult.dbExisting ?? '—')} · Nových:{' '}
                         {String(partitionTestResult.dbNew ?? '—')}
-                        {'\n'}
-                        Stránkování:{' '}
-                        {partitionTestResult.paginationWorking ? 'OK' : 'NE'}
                       </p>
                       <pre className="mt-2 max-h-40 overflow-auto rounded bg-white p-2 text-[10px]">
                         {JSON.stringify(partitionTestResult.requestBody, null, 2)}

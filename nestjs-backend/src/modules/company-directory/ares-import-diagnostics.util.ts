@@ -45,22 +45,10 @@ export function extractRegionFromLabel(label: string): string | null {
   return match ? match[1].trim() : null;
 }
 
-export function extractMunicipalityFromLabel(label: string): string | null {
-  const match = label.match(/obec=([^·]+)/);
-  return match ? match[1].trim() : null;
-}
-
-export function extractNaceFromLabel(label: string): string | null {
-  const match = label.match(/nace=([^·]+)/);
-  return match ? match[1].trim() : null;
-}
-
 export function computeRegionProgress(labels: string[], currentIndex: number) {
   const regions = [
     ...new Set(
-      labels
-        .map(extractRegionFromLabel)
-        .filter((r): r is string => Boolean(r)),
+      labels.map(extractRegionFromLabel).filter((r): r is string => Boolean(r)),
     ),
   ];
   const currentRegion = extractRegionFromLabel(labels[currentIndex] ?? '') ?? null;
@@ -97,10 +85,6 @@ export function appendDiagnostic(
   return [...diagnostics, entry].slice(-max);
 }
 
-export function labelForFilter(filter: AresSearchFilter, ctx: AresPartitionContext): string {
-  return partitionLabel(filter, ctx);
-}
-
 export function normalizeIco(ico: string): string {
   return ico.replace(/\D/g, '').padStart(8, '0');
 }
@@ -108,13 +92,7 @@ export function normalizeIco(ico: string): string {
 export function icosFromSubjects(
   subjects: Array<{ ico: string }>,
 ): { firstIco: string | null; lastIco: string | null; icos: string[] } {
-  if (!subjects.length) {
-    return { firstIco: null, lastIco: null, icos: [] };
-  }
+  if (!subjects.length) return { firstIco: null, lastIco: null, icos: [] };
   const icos = subjects.map((s) => normalizeIco(s.ico));
-  return {
-    firstIco: icos[0] ?? null,
-    lastIco: icos[icos.length - 1] ?? null,
-    icos,
-  };
+  return { firstIco: icos[0] ?? null, lastIco: icos[icos.length - 1] ?? null, icos };
 }

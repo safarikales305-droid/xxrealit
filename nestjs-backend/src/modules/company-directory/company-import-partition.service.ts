@@ -19,21 +19,9 @@ export class CompanyImportPartitionService {
   async createInitialPartitions(
     jobId: string,
     specs: PartitionSpec[],
-    ctx?: AresPartitionContext,
+    ctx: AresPartitionContext = {},
   ) {
     if (!specs.length) return [];
-    const partitionCtx = ctx ?? {};
-    const data = specs.map((spec, index) => ({
-      jobId,
-      sortOrder: index,
-      depth: spec.depth,
-      label: spec.label,
-      partitionKey:
-        spec.partitionKey ?? buildPartitionKeyWithoutPage(spec.filter, partitionCtx),
-      filtersJson: spec.filter as Prisma.InputJsonValue,
-      status: CompanyImportPartitionStatus.PENDING,
-    }));
-
     const existingKeys = new Set(
       (
         await this.prisma.companyImportPartition.findMany({
@@ -45,15 +33,26 @@ export class CompanyImportPartitionService {
         .filter((key): key is string => Boolean(key)),
     );
 
-    const uniqueData = data.filter((row) => {
-      if (!row.partitionKey || existingKeys.has(row.partitionKey)) return false;
-      existingKeys.add(row.partitionKey);
-      return true;
-    });
+    const data = specs
+      .map((spec, index) => ({
+        jobId,
+        sortOrder: index,
+        depth: spec.depth,
+        label: spec.label,
+        partitionKey:
+          spec.partitionKey ?? buildPartitionKeyWithoutPage(spec.filter, ctx),
+        filtersJson: spec.filter as Prisma.InputJsonValue,
+        status: CompanyImportPartitionStatus.PENDING,
+      }))
+      .filter((row) => {
+        if (!row.partitionKey || existingKeys.has(row.partitionKey)) return false;
+        existingKeys.add(row.partitionKey);
+        return true;
+      });
 
-    if (!uniqueData.length) return [];
+    if (!data.length) return [];
 
-    await this.prisma.companyImportPartition.createMany({ data: uniqueData });
+    await this.prisma.companyImportPartition.createMany({ data });
     return this.prisma.companyImportPartition.findMany({
       where: { jobId },
       orderBy: { sortOrder: 'asc' },
@@ -166,11 +165,12 @@ export class CompanyImportPartitionService {
     jobId: string,
     specs: PartitionSpec[],
     completedBeforeIndex: number,
+    ctx: AresPartitionContext = {},
   ) {
     const existing = await this.prisma.companyImportPartition.count({ where: { jobId } });
     if (existing > 0) return;
 
-    await this.createInitialPartitions(jobId, specs);
+    await this.createInitialPartitions(jobId, specs, ctx);
     if (completedBeforeIndex > 0) {
       const rows = await this.prisma.companyImportPartition.findMany({
         where: { jobId },
@@ -198,7 +198,7 @@ export class CompanyImportPartitionService {
 
   async completePartition(
     partitionId: string,
-    stats?: { cursor?: number; processedCount?: number; createdCount?: number; updatedCount?: number; skippedCount?: number },
+    stats?: { cursor?: number; processedCount?: number },
   ) {
     await this.prisma.companyImportPartition.update({
       where: { id: partitionId },
@@ -207,9 +207,6 @@ export class CompanyImportPartitionService {
         completedAt: new Date(),
         ...(stats?.cursor != null ? { cursor: stats.cursor } : {}),
         ...(stats?.processedCount != null ? { processedCount: stats.processedCount } : {}),
-        ...(stats?.createdCount != null ? { createdCount: stats.createdCount } : {}),
-        ...(stats?.updatedCount != null ? { updatedCount: stats.updatedCount } : {}),
-        ...(stats?.skippedCount != null ? { skippedCount: stats.skippedCount } : {}),
       },
     });
   }
