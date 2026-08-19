@@ -19,7 +19,11 @@ import {
   nestAdminCompanyImportRetry,
   nestAdminCompanyImportStart,
   nestAdminCompanyImportMasterSync,
+  nestAdminCompanyImportMiniMasterSync,
   nestAdminAresRawTest,
+  nestAdminAresWorkerDiagnostics,
+  nestAdminProcessOnePartition,
+  nestAdminRequeueImportJob,
   nestAdminDiscoverContact,
   nestAdminGetContactDetail,
   nestAdminConfirmContact,
@@ -132,6 +136,9 @@ export default function AdminFirmyPage() {
   const [rawTestForm, setRawTestForm] = useState({ locality: '', nace: '', ico: '', limit: 10 });
   const [rawTestResult, setRawTestResult] = useState<Record<string, unknown> | null>(null);
   const [rawTesting, setRawTesting] = useState(false);
+  const [workerDiag, setWorkerDiag] = useState<Record<string, unknown> | null>(null);
+  const [partitionTestOne, setPartitionTestOne] = useState<Record<string, unknown> | null>(null);
+  const [processingOne, setProcessingOne] = useState(false);
   const [discoveringContact, setDiscoveringContact] = useState(false);
   const [contactError, setContactError] = useState<{ status: number; message: string } | null>(null);
 
@@ -160,7 +167,7 @@ export default function AdminFirmyPage() {
   const hasActiveJobs = useMemo(
     () =>
       jobs.some((j) =>
-        ['RUNNING', 'PENDING', 'PAUSE_REQUESTED', 'CANCEL_REQUESTED'].includes(j.status),
+        ['QUEUED', 'RUNNING', 'PENDING', 'PAUSE_REQUESTED', 'CANCEL_REQUESTED'].includes(j.status),
       ),
     [jobs],
   );
@@ -654,29 +661,98 @@ export default function AdminFirmyPage() {
               Importuje ekonomické subjekty podle národních NACE partitionů bez portálové kategorie.
               Kategorizace probíhá až po uložení firmy.
             </p>
-            <button
-              type="button"
-              disabled={importing}
-              onClick={async () => {
-                if (!token) return;
-                setImporting(true);
-                setErrMsg(null);
-                const res = await nestAdminCompanyImportMasterSync(token, {
-                  batchSize: form.batchSize,
-                  delayMs: form.delayMs,
-                });
-                setImporting(false);
-                if (!res.ok) setErrMsg(res.error);
-                else {
-                  setMsg('Master sync ČR spuštěn.');
-                  await refreshJobs();
-                }
-              }}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {importing ? <Loader2 className="size-4 animate-spin" /> : null}
-              Spustit kompletní synchronizaci firem ČR
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={importing}
+                onClick={async () => {
+                  if (!token) return;
+                  setImporting(true);
+                  setErrMsg(null);
+                  const res = await nestAdminCompanyImportMiniMasterSync(token);
+                  setImporting(false);
+                  if (!res.ok) setErrMsg(res.error);
+                  else {
+                    setMsg('Testovací MASTER SYNC (5 partitionů) spuštěn.');
+                    await refreshJobs();
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-orange-400 bg-white px-4 py-2 text-sm font-semibold text-orange-900 disabled:opacity-60"
+              >
+                Testovací MASTER SYNC – 5 partitionů
+              </button>
+              <button
+                type="button"
+                disabled={importing}
+                onClick={async () => {
+                  if (!token) return;
+                  setImporting(true);
+                  setErrMsg(null);
+                  const res = await nestAdminCompanyImportMasterSync(token, {
+                    batchSize: form.batchSize,
+                    delayMs: form.delayMs,
+                  });
+                  setImporting(false);
+                  if (!res.ok) setErrMsg(res.error);
+                  else {
+                    setMsg('Master sync ČR spuštěn.');
+                    await refreshJobs();
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {importing ? <Loader2 className="size-4 animate-spin" /> : null}
+                Spustit kompletní synchronizaci firem ČR
+              </button>
+            </div>
+            {workerDiag ? (
+              <pre className="mt-4 max-h-48 overflow-auto rounded-lg bg-zinc-900 p-3 text-xs text-green-100">
+                {JSON.stringify(workerDiag, null, 2)}
+              </pre>
+            ) : null}
+          </section>
+
+          <section className="rounded-xl border bg-white p-5">
+            <h2 className="text-lg font-semibold">ARES Worker</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!token}
+                onClick={async () => {
+                  if (!token) return;
+                  const d = await nestAdminAresWorkerDiagnostics(token);
+                  setWorkerDiag(d);
+                }}
+                className="rounded-lg border px-4 py-2 text-sm font-semibold"
+              >
+                Diagnostikovat worker
+              </button>
+              <button
+                type="button"
+                disabled={processingOne || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setProcessingOne(true);
+                  setErrMsg(null);
+                  try {
+                    const res = await nestAdminProcessOnePartition(token);
+                    setPartitionTestOne(res);
+                    await refreshJobs();
+                  } catch (e) {
+                    setErrMsg(e instanceof Error ? e.message : 'Partition test selhal.');
+                  }
+                  setProcessingOne(false);
+                }}
+                className="rounded-lg border border-emerald-600 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 disabled:opacity-60"
+              >
+                {processingOne ? 'Zpracovávám…' : 'Zpracovat 1 partition nyní'}
+              </button>
+            </div>
+            {partitionTestOne ? (
+              <pre className="mt-4 max-h-48 overflow-auto rounded-lg bg-zinc-900 p-3 text-xs text-green-100">
+                {JSON.stringify(partitionTestOne, null, 2)}
+              </pre>
+            ) : null}
           </section>
 
           <section className="rounded-xl border bg-white p-5">
@@ -857,6 +933,12 @@ export default function AdminFirmyPage() {
                             ? ` · aktivita ${new Date(job.lastActivityAt).toLocaleString('cs-CZ')}`
                             : ''}
                         </p>
+                        {(job.status === 'QUEUED' || job.status === 'PENDING') &&
+                        (job.requestsCount ?? 0) === 0 ? (
+                          <p className="mt-1 text-xs text-amber-700">
+                            ⚠ Úloha čeká na worker (API requesty = 0). Zkontrolujte ARES Worker diagnostiku.
+                          </p>
+                        ) : null}
                       </div>
                       <CompanyImportJobControls
                         token={token}

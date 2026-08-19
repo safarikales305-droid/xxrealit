@@ -481,6 +481,74 @@ export async function nestAdminAresRawTest(
   return (await res.json()) as Record<string, unknown>;
 }
 
+export async function nestAdminAresWorkerDiagnostics(token: string) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/diagnostics/worker`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function nestAdminCompanyImportMiniMasterSync(token: string) {
+  if (!API_BASE_URL) {
+    return { ok: false as const, error: 'API není nakonfigurováno.', status: 0 };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/master-sync/mini-start`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: '{}',
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false as const,
+      error: (typeof payload.message === 'string' && payload.message) || `HTTP ${res.status}`,
+      status: res.status,
+    };
+  }
+  return { ok: true as const, data: payload };
+}
+
+export async function nestAdminProcessOnePartition(token: string, jobId?: string) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/company-directory/import/diagnostics/process-one-partition`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(jobId ? { jobId } : {}),
+    },
+  );
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(payload.message ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function nestAdminRequeueImportJob(token: string, jobId: string) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/company-directory/import/jobs/${encodeURIComponent(jobId)}/requeue`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as ImportJobView;
+}
+
 export async function nestAdminCompanyImportStart(
   token: string,
   body: Record<string, unknown>,

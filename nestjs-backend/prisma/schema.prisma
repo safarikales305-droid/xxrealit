@@ -6255,6 +6255,7 @@ enum CompanyDirectoryVerificationStatus {
 }
 
 enum CompanyImportJobStatus {
+  QUEUED
   PENDING
   RUNNING
   PAUSE_REQUESTED
@@ -6262,6 +6263,7 @@ enum CompanyImportJobStatus {
   CANCEL_REQUESTED
   CANCELLED
   COMPLETED
+  COMPLETED_WITH_WARNINGS
   FAILED
 }
 
@@ -6270,6 +6272,7 @@ enum CompanyImportPartitionStatus {
   RUNNING
   COMPLETED
   SPLIT
+  RETRY_WAIT
   FAILED
   CANCELLED
 }
@@ -6843,6 +6846,7 @@ model CompanyImportJob {
 
   requestsCount  Int       @default(0)
   lastActivityAt DateTime?
+  lastWorkerActivityAt DateTime?
   heartbeatAt    DateTime?
 
   createdAt DateTime @default(now())
@@ -6914,6 +6918,8 @@ model CompanyImportPartition {
   createdCount   Int                          @default(0)
   updatedCount   Int                          @default(0)
   skippedCount   Int                          @default(0)
+  lockedBy       String?
+  lockedAt       DateTime?
   error          String?                      @db.Text
   startedAt      DateTime?
   completedAt    DateTime?
@@ -6923,6 +6929,22 @@ model CompanyImportPartition {
   @@index([jobId, status, sortOrder])
   @@index([parentId])
   @@unique([jobId, partitionKey])
+}
+
+model AresWorkerHeartbeat {
+  id                    String   @id @default("ares-import-primary")
+  workerId              String
+  service               String   @default("nestjs-backend")
+  status                String   @default("ONLINE")
+  lastHeartbeatAt       DateTime @default(now())
+  lastPollAt            DateTime?
+  currentJobId          String?
+  currentPartitionId    String?
+  currentPartitionLabel String?
+  lastError             String?  @db.Text
+  pendingJobs           Int      @default(0)
+  pendingPartitions     Int      @default(0)
+  updatedAt             DateTime @updatedAt
 }
 
 model CompanyClaimRequest {

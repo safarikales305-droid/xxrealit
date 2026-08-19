@@ -23,6 +23,7 @@ import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
 import { AresRawTestService } from './ares-raw-test.service';
+import { AresImportWorkerService } from './ares-import-worker.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { CompanyDirectorySettingsService } from './company-directory-settings.service';
@@ -56,6 +57,7 @@ export class CompanyDirectoryAdminController {
     private readonly directory: CompanyDirectoryService,
     private readonly importService: CompanyImportService,
     private readonly aresRawTest: AresRawTestService,
+    private readonly aresWorker: AresImportWorkerService,
     private readonly claims: CompanyClaimService,
     private readonly ares: AresService,
     private readonly google: CompanyGoogleEnrichmentService,
@@ -128,6 +130,26 @@ export class CompanyDirectoryAdminController {
   @Post('import/master-sync/start')
   startMasterSync(@Body() body?: { batchSize?: number; delayMs?: number; limit?: number }) {
     return this.importService.startMasterSync(body);
+  }
+
+  @Post('import/master-sync/mini-start')
+  startMiniMasterSync() {
+    return this.importService.startMiniMasterSync();
+  }
+
+  @Get('import/diagnostics/worker')
+  workerDiagnostics() {
+    return this.aresWorker.getDiagnostics();
+  }
+
+  @Post('import/diagnostics/process-one-partition')
+  processOnePartition(@Body() body?: { jobId?: string }) {
+    return this.importService.processOnePartitionNow(body?.jobId);
+  }
+
+  @Post('import/jobs/:id/requeue')
+  requeueImportJob(@Param('id') id: string) {
+    return this.importService.requeueJob(id);
   }
 
   @Post('import/diagnostics/raw-test')

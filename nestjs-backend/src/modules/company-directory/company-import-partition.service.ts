@@ -78,6 +78,47 @@ export class CompanyImportPartitionService {
     });
   }
 
+  async claimNextPartition(jobId: string, workerId: string) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = await this.prisma.companyImportPartition.findFirst({
+        where: {
+          jobId,
+          status: CompanyImportPartitionStatus.PENDING,
+        },
+        orderBy: { sortOrder: 'asc' },
+      });
+      if (!candidate) return null;
+
+      const claimed = await this.prisma.companyImportPartition.updateMany({
+        where: {
+          id: candidate.id,
+          status: CompanyImportPartitionStatus.PENDING,
+        },
+        data: {
+          status: CompanyImportPartitionStatus.RUNNING,
+          lockedBy: workerId,
+          lockedAt: new Date(),
+          startedAt: candidate.startedAt ?? new Date(),
+        },
+      });
+      if (claimed.count === 1) {
+        return this.prisma.companyImportPartition.findUnique({ where: { id: candidate.id } });
+      }
+    }
+    return null;
+  }
+
+  async releasePartition(partitionId: string, status: CompanyImportPartitionStatus) {
+    await this.prisma.companyImportPartition.update({
+      where: { id: partitionId },
+      data: {
+        status,
+        lockedBy: null,
+        lockedAt: null,
+      },
+    });
+  }
+
   async getProgressStats(jobId: string) {
     const rows = await this.prisma.companyImportPartition.groupBy({
       by: ['status'],

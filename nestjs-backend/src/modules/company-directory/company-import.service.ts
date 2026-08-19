@@ -4,8 +4,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -24,7 +22,6 @@ import {
   ARES_IMPORT_DELAY_MS,
   ARES_IMPORT_ENABLED,
   ARES_IMPORT_MAX_REQUESTS_PER_RUN,
-  ARES_WORKER_TICK_MS,
 } from './company-directory.constants';
 import {
   buildAresSearchFilter,
@@ -54,6 +51,7 @@ import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { getAresImportSkipReason } from './ares-company-importability.util';
 import { CompanyEventsService } from './company-events.service';
 import { CompanyImportPartitionService } from './company-import-partition.service';
+import { AresImportWorkerService } from './ares-import-worker.service';
 import { computeJobProgress, computePartitionBasedProgress } from './company-job-progress.util';
 
 type StartImportInput = {
@@ -69,13 +67,12 @@ type StartImportInput = {
   query?: string;
   syncType?: CompanyImportSyncType;
   masterSync?: boolean;
+  partitionLimit?: number;
 };
 
 @Injectable()
-export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
+export class CompanyImportService {
   private readonly log = new Logger(CompanyImportService.name);
-  private workerTimer: ReturnType<typeof setInterval> | null = null;
-  private processing = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -84,18 +81,20 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     private readonly importPartitions: CompanyImportPartitionService,
     @Inject(forwardRef(() => CompanyEventsService))
     private readonly events: CompanyEventsService,
+    @Inject(forwardRef(() => AresImportWorkerService))
+    private readonly aresWorker: AresImportWorkerService,
   ) {}
 
-  onModuleInit(): void {
-    this.workerTimer = setInterval(() => void this.tick(), ARES_WORKER_TICK_MS);
-    void this.recoverStaleJobs();
+  private wakeWorker(): void {
+    void this.aresWorker.pulse();
   }
 
-  onModuleDestroy(): void {
-    if (this.workerTimer) clearInterval(this.workerTimer);
-  }
-
-  async startMasterSync(input?: { batchSize?: number; delayMs?: number; limit?: number }) {
+  async startMasterSync(input?: {
+    batchSize?: number;
+    delayMs?: number;
+    limit?: number;
+    partitionLimit?: number;
+  }) {
     return this.startImport({
       region: 'Celá ČR',
       batchSize: input?.batchSize ?? 100,
@@ -104,7 +103,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       syncType: 'ARES_CZ_MASTER_SYNC',
       masterSync: true,
       limit: input?.limit,
+      partitionLimit: input?.partitionLimit,
     });
+  }
+
+  async startMiniMasterSync() {
+    return this.startMasterSync({ partitionLimit: 5, batchSize: 100, delayMs: 500 });
   }
 
   async startImport(input: StartImportInput) {
@@ -172,7 +176,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
     let initialCheckpoint: Prisma.InputJsonValue | undefined;
     if (importMode === 'SEARCH') {
-      const parts = buildInitialPartitions(baseFilter, partitionCtx);
+      let parts = buildInitialPartitions(baseFilter, partitionCtx);
+      if (partitionCtx.masterSync && sanitized.partitionLimit) {
+        parts = parts.slice(0, Math.max(1, sanitized.partitionLimit));
+      }
       const checkpoint = createEmptySearchCheckpoint(importLimit);
       checkpoint.phase = parts.length > 1 ? 'PARTITIONING' : 'RUNNING';
       checkpoint.subQueries = parts.map((p) => p.filter);
@@ -199,7 +206,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           icoList: importMode === 'ICO_LIST' ? (sanitized.icoList ?? []) : [],
           searchFilter: searchFilter as Prisma.InputJsonValue,
           checkpoint: initialCheckpoint,
-          status: CompanyImportJobStatus.PENDING,
+          status: CompanyImportJobStatus.QUEUED,
           totalExpected:
             importMode === 'ICO_LIST'
               ? (sanitized.icoList ?? []).length
@@ -222,7 +229,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      void this.tick();
+      this.wakeWorker();
 
       return {
         jobId: job.id,
@@ -299,6 +306,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       where: {
         status: {
           in: [
+            CompanyImportJobStatus.QUEUED,
             CompanyImportJobStatus.PENDING,
             CompanyImportJobStatus.RUNNING,
             CompanyImportJobStatus.PAUSE_REQUESTED,
@@ -331,7 +339,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       data: {
         pauseRequested: true,
         status:
-          job.status === CompanyImportJobStatus.PENDING
+          job.status === CompanyImportJobStatus.QUEUED ||
+      job.status === CompanyImportJobStatus.PENDING
             ? CompanyImportJobStatus.PAUSED
             : CompanyImportJobStatus.PAUSE_REQUESTED,
       },
@@ -355,14 +364,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
-        status: CompanyImportJobStatus.PENDING,
+        status: CompanyImportJobStatus.QUEUED,
         pauseRequested: false,
         cancelRequested: false,
         error: null,
         finishedAt: null,
       },
     });
-    void this.tick();
+    this.wakeWorker();
     return await this.serializeJob(updated);
   }
 
@@ -400,7 +409,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     const updated = await this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
-        status: CompanyImportJobStatus.PENDING,
+        status: CompanyImportJobStatus.QUEUED,
         error: null,
         finishedAt: null,
         pauseRequested: false,
@@ -408,7 +417,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
       },
     });
-    void this.tick();
+    this.wakeWorker();
     return await this.serializeJob(updated);
   }
 
@@ -432,7 +441,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         pauseRequested: false,
       },
     });
-    void this.tick();
+    this.wakeWorker();
     return await this.serializeJob(updated);
   }
 
@@ -633,29 +642,118 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async tick() {
-    if (this.processing || !ARES_IMPORT_ENABLED) return;
-    const job = await this.prisma.companyImportJob.findFirst({
-      where: {
-        status: {
-          in: [
-            CompanyImportJobStatus.PENDING,
-            CompanyImportJobStatus.RUNNING,
-            CompanyImportJobStatus.PAUSE_REQUESTED,
-            CompanyImportJobStatus.CANCEL_REQUESTED,
-          ],
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!job) return;
-
-    this.processing = true;
-    try {
-      await this.processJobBatch(job.id);
-    } finally {
-      this.processing = false;
+  async processWorkerBatch(jobId: string, workerId: string) {
+    const dbPartitionCount = await this.prisma.companyImportPartition.count({ where: { jobId } });
+    if (dbPartitionCount > 0) {
+      await this.processDbPartitionBatch(jobId, workerId);
+      return;
     }
+    await this.processJobBatch(jobId, workerId);
+  }
+
+  async processOnePartitionNow(jobId?: string) {
+    const targetJob =
+      jobId != null
+        ? await this.getJobOrThrow(jobId)
+        : await this.prisma.companyImportJob.findFirst({
+            where: {
+              status: {
+                in: [
+                  CompanyImportJobStatus.QUEUED,
+                  CompanyImportJobStatus.PENDING,
+                  CompanyImportJobStatus.RUNNING,
+                ],
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+    if (!targetJob) {
+      throw new NotFoundException('Žádná aktivní importní úloha.');
+    }
+
+    const workerId = `diagnostic:${process.pid}`;
+    const partition = await this.importPartitions.claimNextPartition(targetJob.id, workerId);
+    if (!partition) {
+      throw new BadRequestException('Úloha nemá žádný PENDING partition.');
+    }
+
+    const activeFilter = partition.filtersJson as AresSearchFilter;
+    const pocet = Math.min(20, targetJob.batchSize ?? 100);
+    const started = Date.now();
+    this.log.log(
+      `[ARES-WORKER] sending ARES request partition=${partition.label ?? partition.id}`,
+    );
+    const response = await this.ares.searchCompanies({
+      ...activeFilter,
+      start: partition.cursor,
+      pocet,
+    });
+    const subjects = response.ekonomickeSubjekty ?? [];
+    const { icos } = icosFromSubjects(subjects);
+    const existingRows = icos.length
+      ? await this.prisma.companyDirectoryEntry.findMany({
+          where: { ico: { in: icos } },
+          select: { ico: true },
+        })
+      : [];
+    const existingSet = new Set(existingRows.map((r) => r.ico));
+    let created = 0;
+    let updated = 0;
+    const partitionCtx = this.partitionService.buildContext(targetJob);
+    partitionCtx.masterSync =
+      targetJob.syncType === 'ARES_CZ_MASTER_SYNC' ||
+      targetJob.syncType === 'ALL_CZECH_COMPANIES';
+    const hintCategory = partitionCtx.masterSync ? null : targetJob.category;
+
+    for (const subject of subjects.slice(0, 10)) {
+      const result = await this.upsertFromSubject(subject, hintCategory, targetJob.id);
+      if (result.action === 'created') created += 1;
+      if (result.action === 'updated') updated += 1;
+    }
+
+    await this.prisma.companyImportJob.update({
+      where: { id: targetJob.id },
+      data: {
+        status: CompanyImportJobStatus.RUNNING,
+        requestsCount: { increment: 1 },
+        lastWorkerActivityAt: new Date(),
+        heartbeatAt: new Date(),
+      },
+    });
+
+    return {
+      jobId: targetJob.id,
+      partitionId: partition.id,
+      partitionLabel: partition.label,
+      httpStatus: 200,
+      aresTotal: response.pocetCelkem ?? null,
+      returned: subjects.length,
+      uniqueIco: new Set(icos).size,
+      newCompany: created,
+      existingCompany: existingSet.size,
+      updated,
+      durationMs: Date.now() - started,
+      requestBody: sanitizeAresRequestBody({ ...activeFilter, start: partition.cursor, pocet }),
+    };
+  }
+
+  async requeueJob(jobId: string) {
+    await this.getJobOrThrow(jobId);
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        status: CompanyImportJobStatus.QUEUED,
+        error: null,
+        pauseRequested: false,
+        cancelRequested: false,
+        finishedAt: null,
+      },
+    });
+    await this.importPartitions.repairFailedJob(jobId);
+    this.wakeWorker();
+    return this.serializeJob(
+      await this.prisma.companyImportJob.findUniqueOrThrow({ where: { id: jobId } }),
+    );
   }
 
   private async acknowledgePauseIfRequested(jobId: string) {
@@ -664,6 +762,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     if (
       job.status === CompanyImportJobStatus.PAUSE_REQUESTED ||
       job.status === CompanyImportJobStatus.RUNNING ||
+      job.status === CompanyImportJobStatus.QUEUED ||
       job.status === CompanyImportJobStatus.PENDING
     ) {
       await this.prisma.companyImportJob.update({
@@ -729,11 +828,256 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processJobBatch(jobId: string) {
+  private async processDbPartitionBatch(jobId: string, workerId: string) {
+    const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+    const createdAtBatchStart = job.created;
+
+    if (
+      job.status !== CompanyImportJobStatus.QUEUED &&
+      job.status !== CompanyImportJobStatus.PENDING &&
+      job.status !== CompanyImportJobStatus.RUNNING &&
+      job.status !== CompanyImportJobStatus.PAUSE_REQUESTED &&
+      job.status !== CompanyImportJobStatus.CANCEL_REQUESTED
+    ) {
+      return;
+    }
+
+    if (await this.shouldAbortJob(jobId)) {
+      await this.handleAbortSignals(jobId);
+      return;
+    }
+
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        status: CompanyImportJobStatus.RUNNING,
+        startedAt: job.startedAt ?? new Date(),
+        error: null,
+        heartbeatAt: new Date(),
+      },
+    });
+
+    const batchSize = job.batchSize ?? 100;
+    const delayMs = job.delayMs ?? ARES_IMPORT_DELAY_MS;
+    const maxRequests = ARES_IMPORT_MAX_REQUESTS_PER_RUN;
+    let requests = 0;
+    let created = job.created;
+    let updated = job.updated;
+    let failed = job.failed;
+    let skipped = job.skipped;
+    let processed = job.processed;
+    let alreadySeenSkipped = job.alreadySeenSkipped ?? 0;
+    let inactiveSkipped = job.inactiveSkipped ?? 0;
+    const partitionCtx = this.partitionService.buildContext(job);
+    partitionCtx.masterSync =
+      job.syncType === 'ARES_CZ_MASTER_SYNC' || job.syncType === 'ALL_CZECH_COMPANIES';
+    const hintCategory = partitionCtx.masterSync ? null : job.category;
+
+    try {
+      while (requests < maxRequests) {
+        if (await this.shouldAbortJob(jobId)) {
+          await this.handleAbortSignals(jobId);
+          return;
+        }
+
+        let partition = await this.prisma.companyImportPartition.findFirst({
+          where: { jobId, status: 'RUNNING', lockedBy: workerId },
+          orderBy: { sortOrder: 'asc' },
+        });
+        if (!partition) {
+          partition = await this.importPartitions.claimNextPartition(jobId, workerId);
+        }
+        if (!partition) {
+          const pending = await this.prisma.companyImportPartition.count({
+            where: { jobId, status: 'PENDING' },
+          });
+          if (pending === 0) {
+            await this.prisma.companyImportJob.update({
+              where: { id: jobId },
+              data: {
+                status:
+                  job.warningCode != null
+                    ? CompanyImportJobStatus.COMPLETED_WITH_WARNINGS
+                    : CompanyImportJobStatus.COMPLETED,
+                finishedAt: new Date(),
+                lastWorkerActivityAt: new Date(),
+              },
+            });
+          } else {
+            await this.releaseJobToQueue(jobId, requests);
+          }
+          return;
+        }
+
+        this.log.log(
+          `[ARES-WORKER] claiming partition ${partition.id} key=${partition.label ?? partition.partitionKey}`,
+        );
+        await this.aresWorker.updateProcessingContext(jobId, partition.id, partition.label);
+
+        const activeFilter = partition.filtersJson as AresSearchFilter;
+        const start = partition.cursor;
+        const pocet = batchSize;
+
+        requests += 1;
+        const fetchStarted = Date.now();
+        this.log.log(`[ARES-WORKER] sending ARES request offset=${start} label=${partition.label}`);
+        const response = await this.ares.searchCompanies({ ...activeFilter, start, pocet });
+        this.log.log(`[ARES-WORKER] HTTP 200 returned=${response.ekonomickeSubjekty?.length ?? 0}`);
+
+        const subjects = response.ekonomickeSubjekty ?? [];
+        const subTotal = response.pocetCelkem ?? null;
+        const partitionKey = partition.partitionKey ?? partition.id;
+
+        for (const subject of subjects) {
+          const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
+          const seenInJob = await this.safeSeenLookup(jobId, normalizedIco);
+          if (seenInJob) {
+            skipped += 1;
+            alreadySeenSkipped += 1;
+            continue;
+          }
+
+          try {
+            const result = await this.upsertFromSubject(subject, hintCategory, jobId);
+            if (result.action === 'created') created += 1;
+            if (result.action === 'updated') updated += 1;
+            if (result.action === 'skipped') {
+              skipped += 1;
+              inactiveSkipped += 1;
+            }
+            await this.safeSeenUpsert(jobId, normalizedIco, partitionKey);
+            processed += 1;
+          } catch {
+            failed += 1;
+            processed += 1;
+          }
+          await this.sleep(Math.min(300, delayMs));
+        }
+
+        const nextCursor = start + subjects.length;
+        const exhausted =
+          subjects.length === 0 ||
+          subjects.length < pocet ||
+          (subTotal != null && nextCursor >= Math.min(subTotal, 1000));
+
+        if (exhausted) {
+          await this.importPartitions.completePartition(partition.id, {
+            cursor: nextCursor,
+            processedCount: nextCursor,
+          });
+        } else {
+          await this.prisma.companyImportPartition.update({
+            where: { id: partition.id },
+            data: { cursor: nextCursor, processedCount: nextCursor },
+          });
+        }
+      }
+
+      await this.releaseJobToQueue(jobId, requests, {
+        processed,
+        created,
+        updated,
+        failed,
+        skipped,
+        alreadySeenSkipped,
+        inactiveSkipped,
+        createdAtBatchStart,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.log.error(`[ARES-WORKER] batch failed job=${jobId}: ${message}`);
+      await this.prisma.companyImportJob.update({
+        where: { id: jobId },
+        data: {
+          status: CompanyImportJobStatus.FAILED,
+          error: message,
+          finishedAt: new Date(),
+          requestsCount: requests > 0 ? { increment: requests } : undefined,
+        },
+      });
+    }
+  }
+
+  private async releaseJobToQueue(
+    jobId: string,
+    requests: number,
+    stats?: {
+      processed: number;
+      created: number;
+      updated: number;
+      failed: number;
+      skipped: number;
+      alreadySeenSkipped: number;
+      inactiveSkipped: number;
+      createdAtBatchStart: number;
+    },
+  ) {
+    const warningCode =
+      stats && (stats.created === stats.createdAtBatchStart) && requests > 10
+        ? 'WARNING_NO_NEW_COMPANIES'
+        : undefined;
+
+    await this.prisma.companyImportJob.update({
+      where: { id: jobId },
+      data: {
+        ...(stats
+          ? {
+              processed: stats.processed,
+              created: stats.created,
+              updated: stats.updated,
+              failed: stats.failed,
+              skipped: stats.skipped,
+              alreadySeenSkipped: stats.alreadySeenSkipped,
+              inactiveSkipped: stats.inactiveSkipped,
+              jobUniqueIcoCount: await this.safeSeenCount(jobId),
+            }
+          : {}),
+        requestsCount: requests > 0 ? { increment: requests } : undefined,
+        lastWorkerActivityAt: requests > 0 ? new Date() : undefined,
+        heartbeatAt: new Date(),
+        status: CompanyImportJobStatus.QUEUED,
+        warningCode,
+      },
+    });
+  }
+
+  private async safeSeenLookup(jobId: string, ico: string) {
+    try {
+      return await this.prisma.aresSyncSeenCompany.findUnique({
+        where: { jobId_ico: { jobId, ico } },
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async safeSeenUpsert(jobId: string, ico: string, partitionKey: string) {
+    try {
+      await this.prisma.aresSyncSeenCompany.upsert({
+        where: { jobId_ico: { jobId, ico } },
+        create: { jobId, ico, partitionKey },
+        update: {},
+      });
+    } catch {
+      // table may not exist before migration
+    }
+  }
+
+  private async safeSeenCount(jobId: string) {
+    try {
+      return await this.prisma.aresSyncSeenCompany.count({ where: { jobId } });
+    } catch {
+      return 0;
+    }
+  }
+
+  private async processJobBatch(jobId: string, workerId = 'legacy') {
     const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
     if (!job) return;
     const createdAtBatchStart = job.created;
     if (
+      job.status !== CompanyImportJobStatus.QUEUED &&
       job.status !== CompanyImportJobStatus.PENDING &&
       job.status !== CompanyImportJobStatus.RUNNING &&
       job.status !== CompanyImportJobStatus.PAUSE_REQUESTED &&
@@ -758,7 +1102,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         status: CompanyImportJobStatus.RUNNING,
         startedAt: job.startedAt ?? new Date(),
         error: null,
-        lastActivityAt: new Date(),
+        lastWorkerActivityAt: new Date(),
         heartbeatAt: new Date(),
       },
     });
@@ -822,10 +1166,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
             lastCursor: nextCursor,
             lastIco,
             requestsCount: { increment: requests },
-            lastActivityAt: new Date(),
+            lastWorkerActivityAt: new Date(),
             heartbeatAt: new Date(),
             checkpoint: { mode: 'ICO_LIST', index: nextCursor } as Prisma.InputJsonValue,
-            status: done ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
+            status: done ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.QUEUED,
             finishedAt: done ? new Date() : null,
           },
         });
@@ -880,7 +1224,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       if (dbPart?.status === 'COMPLETED' || dbPart?.status === 'SPLIT') {
         checkpoint.subQueryIndex = idx + 1;
         checkpoint.subQueryStart = 0;
-        await this.persistCheckpoint(jobId, job, checkpoint);
+        await this.persistCheckpoint(jobId, checkpoint);
         return;
       }
       if (dbPart?.status === 'PENDING') {
@@ -932,7 +1276,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (requests >= maxRequests) {
-        await this.persistCheckpoint(jobId, job, checkpoint);
+        await this.persistCheckpoint(jobId, checkpoint, requests, true);
         return;
       }
 
@@ -968,8 +1312,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           data: {
             duplicateQueryCount: { increment: 1 },
             checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
-            status: CompanyImportJobStatus.PENDING,
-            lastActivityAt: new Date(),
+            status: CompanyImportJobStatus.QUEUED,
+            lastWorkerActivityAt: new Date(),
           },
         });
         return;
@@ -1074,7 +1418,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       for (const subject of subjects) {
         if (importLimit != null && processed >= importLimit) break;
         if (await this.shouldAbortJob(jobId)) {
-          await this.persistCheckpoint(jobId, job, checkpoint);
+          await this.persistCheckpoint(jobId, checkpoint, requests, true);
           await this.handleAbortSignals(jobId);
           return;
         }
@@ -1313,10 +1657,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           lastIco,
           totalExpected,
           requestsCount: { increment: requests },
-          lastActivityAt: new Date(),
+          lastWorkerActivityAt: new Date(),
           heartbeatAt: new Date(),
           checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
-          status: noMore ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
+          status: noMore ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.QUEUED,
           finishedAt: noMore ? new Date() : null,
           error: null,
           warningCode:
@@ -1352,13 +1696,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         await this.prisma.companyImportJob.update({
           where: { id: jobId },
           data: {
-            status: CompanyImportJobStatus.PENDING,
+            status: CompanyImportJobStatus.QUEUED,
             error: null,
             checkpoint: this.mergeCheckpoint(failedJob?.checkpoint, {
               needsResplit: true,
               phase: 'PARTITIONING',
             }),
-            lastActivityAt: new Date(),
+            lastWorkerActivityAt: new Date(),
           },
         });
         this.log.warn(`Import ${jobId}: TOO_MANY_RESULTS — čeká na další rozdělení partitionu`);
@@ -1537,16 +1881,16 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async recoverStaleJobs() {
+  async recoverStaleJobs() {
     const staleMs = 10 * 60 * 1000;
     const cutoff = new Date(Date.now() - staleMs);
     const stale = await this.prisma.companyImportJob.findMany({
       where: {
         status: CompanyImportJobStatus.RUNNING,
         OR: [
-          { lastActivityAt: { lt: cutoff } },
+          { lastWorkerActivityAt: { lt: cutoff } },
           { heartbeatAt: { lt: cutoff } },
-          { lastActivityAt: null, startedAt: { lt: cutoff } },
+          { lastWorkerActivityAt: null, startedAt: { lt: cutoff } },
         ],
       },
     });
@@ -1554,13 +1898,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.companyImportJob.update({
         where: { id: job.id },
         data: {
-          status: CompanyImportJobStatus.PENDING,
+          status: CompanyImportJobStatus.QUEUED,
           error: 'Úloha obnovena po neaktivním workeru.',
         },
       });
       this.log.warn(`[ARES-IMPORT] recovered stale import job ${job.id}`);
     }
-    if (stale.length) void this.tick();
+    if (stale.length) this.wakeWorker();
   }
 
   private async getJobOrThrow(jobId: string) {
@@ -1594,7 +1938,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     createdAt: Date;
     updatedAt: Date;
     requestsCount?: number;
-    lastActivityAt?: Date | null;
+    lastWorkerActivityAt?: Date | null;
     heartbeatAt?: Date | null;
     searchFilter?: Prisma.JsonValue;
     checkpoint?: Prisma.JsonValue | null;
@@ -1678,7 +2022,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       cancelRequested: job.cancelRequested ?? false,
       etaSeconds: progress.etaSeconds,
       requestsCount: job.requestsCount ?? 0,
-      lastActivityAt: job.lastActivityAt?.toISOString() ?? null,
+      lastWorkerActivityAt: job.lastWorkerActivityAt?.toISOString() ?? null,
+      lastActivityAt: job.lastWorkerActivityAt?.toISOString() ?? null,
       heartbeatAt: job.heartbeatAt?.toISOString() ?? null,
       searchFilter: job.searchFilter ?? null,
       batchSize: job.batchSize,
@@ -1761,8 +2106,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       data: {
         checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
         error: null,
-        lastActivityAt: new Date(),
-        status: CompanyImportJobStatus.PENDING,
+        lastWorkerActivityAt: new Date(),
+        status: CompanyImportJobStatus.QUEUED,
       },
     });
 
@@ -1782,16 +2127,18 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
   private async persistCheckpoint(
     jobId: string,
-    job: { requestsCount?: number },
     checkpoint: AresSearchCheckpoint,
+    requestsIncrement = 0,
+    workerActivity = false,
   ) {
     await this.prisma.companyImportJob.update({
       where: { id: jobId },
       data: {
         checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
-        lastActivityAt: new Date(),
         heartbeatAt: new Date(),
-        status: CompanyImportJobStatus.PENDING,
+        status: CompanyImportJobStatus.QUEUED,
+        ...(requestsIncrement > 0 ? { requestsCount: { increment: requestsIncrement } } : {}),
+        ...(workerActivity ? { lastWorkerActivityAt: new Date() } : {}),
       },
     });
   }
