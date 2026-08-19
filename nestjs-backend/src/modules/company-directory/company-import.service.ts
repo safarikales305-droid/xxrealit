@@ -13,6 +13,7 @@ import {
   CompanyDirectoryCategory,
   CompanyImportItemResult,
   CompanyImportJobStatus,
+  CompanyImportSyncType,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -46,6 +47,8 @@ import {
   sanitizeAresRequestBody,
   type AresRequestDiagnostic,
 } from './ares-import-diagnostics.util';
+import { aresRequestHash, fingerprintOverlapRatio, responseIcoFingerprint } from './ares-request-hash.util';
+import { ARES_API_VERSION, ARES_PAGINATION } from './ares-api.constants';
 import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { getAresImportSkipReason } from './ares-company-importability.util';
@@ -64,6 +67,8 @@ type StartImportInput = {
   icoList?: string[];
   limit?: number;
   query?: string;
+  syncType?: CompanyImportSyncType;
+  masterSync?: boolean;
 };
 
 @Injectable()
@@ -90,6 +95,18 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     if (this.workerTimer) clearInterval(this.workerTimer);
   }
 
+  async startMasterSync(input?: { batchSize?: number; delayMs?: number; limit?: number }) {
+    return this.startImport({
+      region: 'Celá ČR',
+      batchSize: input?.batchSize ?? 100,
+      delayMs: input?.delayMs ?? 500,
+      importMode: 'SEARCH',
+      syncType: 'ARES_CZ_MASTER_SYNC',
+      masterSync: true,
+      limit: input?.limit,
+    });
+  }
+
   async startImport(input: StartImportInput) {
     if (!ARES_IMPORT_ENABLED) {
       throw new BadRequestException('ARES import je vypnutý (ARES_IMPORT_ENABLED=false).');
@@ -111,8 +128,21 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
     const importMode = sanitized.importMode;
     const wholeCountry = isWholeCountryRegion(sanitized.region);
+    const partitionCtx = {
+      category: sanitized.category ?? null,
+      region: wholeCountry ? 'Celá ČR' : sanitized.region ?? null,
+      district: sanitized.district ?? null,
+      city: sanitized.city ?? null,
+      wholeCountry,
+      masterSync:
+        sanitized.masterSync ||
+        sanitized.syncType === 'ARES_CZ_MASTER_SYNC' ||
+        sanitized.syncType === 'ALL_CZECH_COMPANIES',
+    };
+
     if (
       importMode === 'SEARCH' &&
+      !partitionCtx.masterSync &&
       !wholeCountry &&
       !sanitized.city?.trim() &&
       !sanitized.region?.trim() &&
@@ -135,15 +165,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       sanitized.limit != null && Number.isFinite(sanitized.limit) && sanitized.limit > 0
         ? Math.floor(sanitized.limit)
         : null;
-
     const baseFilter = searchFilter as AresSearchFilter;
-    const partitionCtx = {
-      category: sanitized.category ?? null,
-      region: wholeCountry ? 'Celá ČR' : sanitized.region ?? null,
-      district: sanitized.district ?? null,
-      city: sanitized.city ?? null,
-      wholeCountry,
-    };
+    const syncType =
+      sanitized.syncType ??
+      (partitionCtx.masterSync ? CompanyImportSyncType.ARES_CZ_MASTER_SYNC : CompanyImportSyncType.TARGETED);
 
     let initialCheckpoint: Prisma.InputJsonValue | undefined;
     if (importMode === 'SEARCH') {
@@ -153,7 +178,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       checkpoint.subQueries = parts.map((p) => p.filter);
       checkpoint.subQueryLabels = parts.map((p) => p.label);
       checkpoint.subQueryDepths = parts.map((p) => p.depth);
-      checkpoint.regionsTotal = wholeCountry ? 14 : null;
+      checkpoint.regionsTotal = partitionCtx.masterSync ? null : wholeCountry ? 14 : null;
       initialCheckpoint = checkpoint as unknown as Prisma.InputJsonValue;
       this.log.log(
         `[ARES-IMPORT] created partitions count=${parts.length} wholeCountry=${wholeCountry}`,
@@ -163,7 +188,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     try {
       const job = await this.prisma.companyImportJob.create({
         data: {
-          category: sanitized.category ?? null,
+          syncType,
+          category: partitionCtx.masterSync ? null : sanitized.category ?? null,
           region: wholeCountry ? 'Celá ČR' : sanitized.region?.trim() || null,
           district: sanitized.district?.trim() || null,
           city: sanitized.city?.trim() || null,
@@ -420,6 +446,14 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       where: { jobId },
       orderBy: { createdAt: 'desc' },
       take: limit,
+    });
+  }
+
+  async listRequestLogs(jobId?: string, limit = 50) {
+    return this.prisma.aresImportRequestLog.findMany({
+      where: jobId ? { jobId } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(100, Math.max(1, limit)),
     });
   }
 
@@ -698,6 +732,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
   private async processJobBatch(jobId: string) {
     const job = await this.prisma.companyImportJob.findUnique({ where: { id: jobId } });
     if (!job) return;
+    const createdAtBatchStart = job.created;
     if (
       job.status !== CompanyImportJobStatus.PENDING &&
       job.status !== CompanyImportJobStatus.RUNNING &&
@@ -801,6 +836,8 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       const pocet = batchSize;
       const partitionCtx = this.partitionService.buildContext(job);
       partitionCtx.wholeCountry = isWholeCountryRegion(job.region);
+      partitionCtx.masterSync =
+        job.syncType === 'ARES_CZ_MASTER_SYNC' || job.syncType === 'ALL_CZECH_COMPANIES';
 
       let checkpoint =
         parseSearchCheckpoint(job.checkpoint) ?? createEmptySearchCheckpoint(null);
@@ -904,6 +941,42 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const requestBody = sanitizeAresRequestBody({ ...activeFilter, start, pocet });
+      const reqHash = aresRequestHash(requestBody);
+      const priorHashes = checkpoint.requestHashes ?? {};
+      const duplicateQuery = Object.values(priorHashes).includes(reqHash);
+      if (duplicateQuery) {
+        this.log.warn(`[ARES-IMPORT] DUPLICATE_QUERY job=${jobId} partition=${idx} hash=${reqHash}`);
+        await this.appendAudit(jobId, `DUPLICATE_QUERY: partition ${partitionLabel} — stejný ARES request`);
+        await this.prisma.aresImportRequestLog.create({
+          data: {
+            jobId,
+            endpoint: ARES_SEARCH_ENDPOINT,
+            requestHash: reqHash,
+            requestBody: requestBody as Prisma.InputJsonValue,
+            httpStatus: 0,
+            returnedCount: 0,
+            offset: start,
+            duplicateQuery: true,
+            errorMessage: 'DUPLICATE_QUERY — request skipped',
+          },
+        });
+        checkpoint.subQueryIndex = idx + 1;
+        checkpoint.subQueryStart = 0;
+        await this.prisma.companyImportJob.update({
+          where: { id: jobId },
+          data: {
+            duplicateQueryCount: { increment: 1 },
+            checkpoint: checkpoint as unknown as Prisma.InputJsonValue,
+            status: CompanyImportJobStatus.PENDING,
+            lastActivityAt: new Date(),
+          },
+        });
+        return;
+      }
+      priorHashes[String(idx)] = reqHash;
+      checkpoint.requestHashes = priorHashes;
+
       requests += 1;
       const fetchStarted = Date.now();
       this.partitionService.logPartitionRequest('FETCH', activeFilter, partitionCtx, {
@@ -993,6 +1066,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       let rawResults = checkpoint.rawResults;
       let duplicatesSkipped = checkpoint.duplicatesSkipped;
 
+      let alreadySeenSkipped = job.alreadySeenSkipped ?? 0;
+      let inactiveSkipped = job.inactiveSkipped ?? 0;
+
       const importLimit = checkpoint.importLimit;
 
       for (const subject of subjects) {
@@ -1005,25 +1081,28 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
         rawResults += 1;
         const normalizedIco = subject.ico.replace(/\D/g, '').padStart(8, '0');
-        const dupInJob = await this.prisma.companyImportItem.findFirst({
-          where: {
-            jobId,
-            ico: normalizedIco,
-            result: { in: [CompanyImportItemResult.CREATED, CompanyImportItemResult.UPDATED, CompanyImportItemResult.SKIPPED] },
-          },
+        const seenInJob = await this.prisma.aresSyncSeenCompany.findUnique({
+          where: { jobId_ico: { jobId, ico: normalizedIco } },
         });
-        if (dupInJob) {
+        if (seenInJob) {
           skipped += 1;
           duplicatesSkipped += 1;
+          alreadySeenSkipped += 1;
           batchSkipped += 1;
           continue;
         }
 
         try {
-          const result = await this.upsertFromSubject(subject, job.category, jobId);
+          const hintCategory = partitionCtx.masterSync ? null : job.category;
+          const result = await this.upsertFromSubject(subject, hintCategory, jobId);
           if (result.action === 'created') {
             created += 1;
             batchCreated += 1;
+            checkpoint.newCompaniesSinceStart = (checkpoint.newCompaniesSinceStart ?? 0) + 1;
+            checkpoint.lastNewCompanyAt = new Date().toISOString();
+            checkpoint.requestsSinceLastCreate = 0;
+          } else {
+            checkpoint.requestsSinceLastCreate = (checkpoint.requestsSinceLastCreate ?? 0) + 1;
           }
           if (result.action === 'updated') {
             updated += 1;
@@ -1032,7 +1111,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           if (result.action === 'skipped') {
             skipped += 1;
             batchSkipped += 1;
+            inactiveSkipped += 1;
           }
+          await this.prisma.aresSyncSeenCompany.upsert({
+            where: { jobId_ico: { jobId, ico: normalizedIco } },
+            create: { jobId, ico: normalizedIco, partitionKey },
+            update: {},
+          });
           processed += 1;
           lastIco = normalizedIco;
           currentCompanyName = result.name ?? subject.obchodniJmeno ?? null;
@@ -1071,8 +1156,11 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         subTotal,
         start,
       );
+      const pageIcoFp = responseIcoFingerprint(responseIcos);
       const fingerprints = { ...(checkpoint.resultFingerprints ?? {}) };
+      const responseIcoFps = { ...(checkpoint.responseIcoFingerprints ?? {}) };
       let duplicateResultSet = false;
+      let suspiciousDuplicate = false;
       let duplicateOfPartitionIndex: number | null = null;
       for (const [partitionIndex, existingFingerprint] of Object.entries(fingerprints)) {
         if (existingFingerprint === fingerprint && partitionIndex !== String(idx)) {
@@ -1081,8 +1169,22 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           break;
         }
       }
+      for (const [partitionIndex, existingIcoFp] of Object.entries(responseIcoFps)) {
+        if (
+          partitionIndex !== String(idx) &&
+          existingIcoFp === pageIcoFp &&
+          responseIcos.length >= 5
+        ) {
+          suspiciousDuplicate = true;
+          duplicateOfPartitionIndex = Number(partitionIndex);
+          break;
+        }
+      }
       fingerprints[String(idx)] = fingerprint;
+      responseIcoFps[String(idx)] = pageIcoFp;
       checkpoint.resultFingerprints = fingerprints;
+      checkpoint.responseIcoFingerprints = responseIcoFps;
+      checkpoint.currentRequestRows = subjects.length;
       checkpoint.aresDiagnostics = appendDiagnostic(checkpoint.aresDiagnostics ?? [], {
         at: new Date().toISOString(),
         kind: 'FETCH',
@@ -1105,6 +1207,26 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         duplicateResultSet,
         duplicateOfPartitionIndex,
       });
+      await this.prisma.aresImportRequestLog.create({
+        data: {
+          jobId,
+          endpoint: ARES_SEARCH_ENDPOINT,
+          requestHash: reqHash,
+          requestBody: requestBody as Prisma.InputJsonValue,
+          httpStatus: 200,
+          pocetCelkem: subTotal,
+          returnedCount: subjects.length,
+          uniqueIcoCount: new Set(responseIcos).size,
+          createdCount: batchCreated,
+          updatedCount: batchUpdated,
+          seenInJobCount: batchSkipped,
+          offset: start,
+          durationMs: fetchDurationMs,
+          responseFingerprint: pageIcoFp,
+          duplicateQuery: false,
+          suspiciousDuplicate,
+        },
+      });
       if (duplicateResultSet) {
         this.log.warn(
           `[ARES-IMPORT] DUPLICATE_RESULT_SET job=${jobId} partition=${idx} duplicateOf=${duplicateOfPartitionIndex}`,
@@ -1112,6 +1234,15 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         await this.appendAudit(
           jobId,
           `DUPLICATE_RESULT_SET: partition ${idx} stejné IČO jako partition ${duplicateOfPartitionIndex}`,
+        );
+      }
+      if (suspiciousDuplicate) {
+        this.log.warn(
+          `[ARES-IMPORT] SUSPICIOUS_DUPLICATE_RESULT_SET job=${jobId} partition=${idx} duplicateOf=${duplicateOfPartitionIndex}`,
+        );
+        await this.appendAudit(
+          jobId,
+          `SUSPICIOUS_DUPLICATE_RESULT_SET: partition ${idx} shodná množina IČO jako partition ${duplicateOfPartitionIndex}`,
         );
       }
       this.log.log(
@@ -1175,6 +1306,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           updated,
           failed,
           skipped,
+          alreadySeenSkipped,
+          inactiveSkipped,
+          jobUniqueIcoCount: await this.prisma.aresSyncSeenCompany.count({ where: { jobId } }),
           lastCursor: nextSubQueryStart,
           lastIco,
           totalExpected,
@@ -1185,6 +1319,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           status: noMore ? CompanyImportJobStatus.COMPLETED : CompanyImportJobStatus.PENDING,
           finishedAt: noMore ? new Date() : null,
           error: null,
+          warningCode:
+            (checkpoint.requestsSinceLastCreate ?? 0) > 50 && created === createdAtBatchStart
+              ? 'WARNING_NO_NEW_COMPANIES'
+              : undefined,
         },
       });
     } catch (err) {
@@ -1369,8 +1507,16 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     region?: string | null;
     district?: string | null;
     city?: string | null;
+    masterSync?: boolean;
+    syncType?: CompanyImportSyncType;
   }) {
-    return buildAresSearchFilter(input);
+    return buildAresSearchFilter({
+      ...input,
+      masterSync:
+        input.masterSync ||
+        input.syncType === 'ARES_CZ_MASTER_SYNC' ||
+        input.syncType === 'ALL_CZECH_COMPANIES',
+    });
   }
 
   private mergeCheckpoint(
@@ -1455,6 +1601,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     auditLog?: Prisma.JsonValue | null;
     pauseRequested?: boolean;
     cancelRequested?: boolean;
+    jobUniqueIcoCount?: number | null;
+    alreadySeenSkipped?: number | null;
+    inactiveSkipped?: number | null;
+    duplicateQueryCount?: number | null;
+    warningCode?: string | null;
+    syncType?: string | null;
   }) {
     const checkpoint = parseSearchCheckpoint(job.checkpoint);
     const isComplete = job.status === CompanyImportJobStatus.COMPLETED;
@@ -1548,6 +1700,13 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       currentRegion: checkpoint?.currentRegion ?? null,
       currentRegionOrder: checkpoint?.currentRegionOrder ?? null,
       uniqueIcoCount,
+      jobUniqueIcoCount: job.jobUniqueIcoCount ?? uniqueIcoCount,
+      alreadySeenSkipped: job.alreadySeenSkipped ?? null,
+      inactiveSkipped: job.inactiveSkipped ?? null,
+      duplicateQueryCount: job.duplicateQueryCount ?? null,
+      warningCode: job.warningCode ?? null,
+      syncType: job.syncType,
+      currentRequestRows: checkpoint?.currentRequestRows ?? null,
       aresDiagnostics: checkpoint?.aresDiagnostics ?? [],
       rawResults: checkpoint?.rawResults ?? null,
       duplicatesSkipped: checkpoint?.duplicatesSkipped ?? null,

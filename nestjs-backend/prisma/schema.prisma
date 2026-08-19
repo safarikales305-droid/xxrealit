@@ -6278,6 +6278,12 @@ enum CompanyImportJobSource {
   ARES
 }
 
+enum CompanyImportSyncType {
+  TARGETED
+  ARES_CZ_MASTER_SYNC
+  ALL_CZECH_COMPANIES
+}
+
 enum CompanyClaimRequestStatus {
   PENDING
   UNDER_REVIEW
@@ -6794,6 +6800,7 @@ model CompanySeoGenerationItem {
 model CompanyImportJob {
   id       String                   @id @default(cuid())
   source   CompanyImportJobSource   @default(ARES)
+  syncType CompanyImportSyncType    @default(TARGETED)
   category CompanyDirectoryCategory?
   region   String?
   district String?
@@ -6810,6 +6817,13 @@ model CompanyImportJob {
   updated   Int @default(0)
   failed    Int @default(0)
   skipped   Int @default(0)
+
+  jobUniqueIcoCount    Int @default(0)
+  inactiveSkipped      Int @default(0)
+  alreadySeenSkipped   Int @default(0)
+  duplicateQueryCount  Int @default(0)
+  warningCode          String?
+  importSubjectTypes   Json?
 
   lastCursor    Int     @default(0)
   lastIco       String?
@@ -6834,10 +6848,51 @@ model CompanyImportJob {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items       CompanyImportItem[]
-  partitions  CompanyImportPartition[]
+  items        CompanyImportItem[]
+  partitions   CompanyImportPartition[]
+  seenCompanies AresSyncSeenCompany[]
+  requestLogs  AresImportRequestLog[]
 
   @@index([status, createdAt])
+  @@index([syncType, status])
+}
+
+model AresSyncSeenCompany {
+  id           String   @id @default(cuid())
+  jobId        String
+  job          CompanyImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  ico          String
+  partitionKey String?
+  firstSeenAt  DateTime @default(now())
+
+  @@unique([jobId, ico])
+  @@index([jobId])
+}
+
+model AresImportRequestLog {
+  id                  String   @id @default(cuid())
+  jobId               String?
+  job                 CompanyImportJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  endpoint            String
+  requestHash         String
+  requestBody         Json
+  httpStatus          Int
+  pocetCelkem         Int?
+  returnedCount       Int      @default(0)
+  uniqueIcoCount      Int      @default(0)
+  createdCount        Int      @default(0)
+  updatedCount        Int      @default(0)
+  seenInJobCount      Int      @default(0)
+  offset              Int      @default(0)
+  durationMs          Int      @default(0)
+  responseFingerprint String?
+  duplicateQuery      Boolean  @default(false)
+  suspiciousDuplicate Boolean  @default(false)
+  errorMessage        String?  @db.Text
+  createdAt           DateTime @default(now())
+
+  @@index([jobId, createdAt(sort: Desc)])
+  @@index([requestHash])
 }
 
 model CompanyImportPartition {

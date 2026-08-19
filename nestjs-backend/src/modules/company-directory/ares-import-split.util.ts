@@ -4,6 +4,8 @@ import { CZECH_REGIONS } from './company-directory.constants';
 import { OKRES_NAMES_BY_KRAJ_CODE } from './czech-ares-geo.constants';
 import { naceCodesForCategory } from './ares-activity.mapper';
 import type { CompanyDirectoryCategory } from '@prisma/client';
+import { resolveCityKodObce } from './ares-master-partitions.util';
+import { buildNaceMasterPartitions } from './ares-master-partitions.util';
 
 export const ARES_MAX_RESULTS_PER_QUERY = 1000;
 export const MAX_PARTITION_DEPTH = 8;
@@ -53,6 +55,7 @@ export type AresSearchCheckpoint = {
   subQueryStart: number;
   subQueryTotals: Array<number | null>;
   subQueryDepths: number[];
+  subQueryStatuses?: Array<'PENDING' | 'RUNNING' | 'SATURATED' | 'DUPLICATE_QUERY' | 'COMPLETED'>;
   aggregateTotal: number | null;
   importLimit: number | null;
   currentCompanyName: string | null;
@@ -67,6 +70,13 @@ export type AresSearchCheckpoint = {
   needsResplit: boolean;
   aresDiagnostics?: import('./ares-import-diagnostics.util').AresRequestDiagnostic[];
   resultFingerprints?: Record<string, string>;
+  responseIcoFingerprints?: Record<string, string>;
+  requestHashes?: Record<string, string>;
+  currentRequestRows?: number;
+  currentPartitionUniqueIco?: number;
+  newCompaniesSinceStart?: number;
+  lastNewCompanyAt?: string | null;
+  requestsSinceLastCreate?: number;
   currentRegion?: string | null;
   currentRegionOrder?: number | null;
 };
@@ -77,6 +87,7 @@ export type AresPartitionContext = {
   district?: string | null;
   city?: string | null;
   wholeCountry?: boolean;
+  masterSync?: boolean;
 };
 
 export function isAresTooManyResultsError(err: unknown): boolean {
@@ -222,6 +233,14 @@ export function buildInitialPartitions(
   base: AresSearchFilter,
   ctx: AresPartitionContext,
 ): Array<{ filter: AresSearchFilter; label: string; depth: number }> {
+  if (ctx.masterSync) {
+    return buildNaceMasterPartitions(base.pocet ?? 100).map((p) => ({
+      filter: p.filter,
+      label: p.label,
+      depth: p.depth,
+    }));
+  }
+
   const naceList = singleNaceCodes(base, ctx);
 
   if (ctx.wholeCountry || isWholeCountryRegion(ctx.region)) {
@@ -382,7 +401,12 @@ export function buildAresSearchFilter(input: {
   region?: string | null;
   district?: string | null;
   city?: string | null;
+  masterSync?: boolean;
 }): AresSearchFilter {
+  if (input.masterSync) {
+    return { start: 0, pocet: 100 };
+  }
+
   const wholeCountry = isWholeCountryRegion(input.region);
   const kodKraje = wholeCountry ? undefined : regionNameToKodKraje(input.region);
   const czNace = input.category ? naceCodesForCategory(input.category) : undefined;
@@ -391,16 +415,21 @@ export function buildAresSearchFilter(input: {
 
   if (input.district?.trim()) {
     sidlo.nazevOkresu = input.district.trim();
-  } else if (input.city?.trim() && !isPragueLocation(input.city, input.region)) {
-    sidlo.nazevObce = input.city.trim();
-  } else if (input.city?.trim() && isPragueLocation(input.city, input.region)) {
-    sidlo.kodKraje = 19;
-    sidlo.nazevObce = 'Praha 1';
+  } else if (input.city?.trim()) {
+    const kodObce = resolveCityKodObce(input.city);
+    if (kodObce) {
+      sidlo.kodObce = kodObce;
+    } else if (isPragueLocation(input.city, input.region)) {
+      sidlo.kodKraje = 19;
+      sidlo.kodObce = 554782;
+    } else {
+      sidlo.textovaAdresa = input.city.trim();
+    }
   } else if (kodKraje) {
-    sidlo.kodKraje = kodKraje;
+    sidlo.textovaAdresa = input.region?.trim();
   }
 
-  const filter: AresSearchFilter = {};
+  const filter: AresSearchFilter = { start: 0, pocet: 100 };
   if (czNace && czNace.length > 0) filter.czNace = czNace;
   if (Object.keys(sidlo).length > 0) filter.sidlo = sidlo;
   return filter;

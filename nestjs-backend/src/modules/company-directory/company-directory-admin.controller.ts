@@ -22,6 +22,7 @@ import { CompanyDirectoryService } from './company-directory.service';
 import { CompanyEmailService } from './company-email.service';
 import { CompanyGoogleEnrichmentService } from './company-google-enrichment.service';
 import { CompanyImportService } from './company-import.service';
+import { AresRawTestService } from './ares-raw-test.service';
 import { CompanyReviewService } from './company-review.service';
 import { CompanyEngagementCampaignService } from './company-engagement-campaign.service';
 import { CompanyDirectorySettingsService } from './company-directory-settings.service';
@@ -54,6 +55,7 @@ export class CompanyDirectoryAdminController {
   constructor(
     private readonly directory: CompanyDirectoryService,
     private readonly importService: CompanyImportService,
+    private readonly aresRawTest: AresRawTestService,
     private readonly claims: CompanyClaimService,
     private readonly ares: AresService,
     private readonly google: CompanyGoogleEnrichmentService,
@@ -121,6 +123,28 @@ export class CompanyDirectoryAdminController {
   @Get('import/jobs/:id/items')
   getImportJobItems(@Param('id') id: string) {
     return this.importService.getJobItems(id);
+  }
+
+  @Post('import/master-sync/start')
+  startMasterSync(@Body() body?: { batchSize?: number; delayMs?: number; limit?: number }) {
+    return this.importService.startMasterSync(body);
+  }
+
+  @Post('import/diagnostics/raw-test')
+  rawAresTest(
+    @Body() body: { locality?: string; nace?: string; ico?: string; limit?: number },
+  ) {
+    return this.aresRawTest.runTest(body);
+  }
+
+  @Post('import/diagnostics/raw-test/presets')
+  rawAresTestPresets() {
+    return this.aresRawTest.runPresetTests();
+  }
+
+  @Get('import/diagnostics/request-log')
+  async requestLog(@Query('jobId') jobId?: string, @Query('limit') limit?: string) {
+    return this.importService.listRequestLogs(jobId, limit ? Number(limit) : 50);
   }
 
   @Post('import/start')

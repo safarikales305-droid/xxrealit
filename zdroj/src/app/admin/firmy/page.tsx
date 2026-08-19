@@ -18,6 +18,8 @@ import {
   nestAdminCompanyImportTestPartition,
   nestAdminCompanyImportRetry,
   nestAdminCompanyImportStart,
+  nestAdminCompanyImportMasterSync,
+  nestAdminAresRawTest,
   nestAdminDiscoverContact,
   nestAdminGetContactDetail,
   nestAdminConfirmContact,
@@ -127,6 +129,9 @@ export default function AdminFirmyPage() {
   const [reviewRemoveId, setReviewRemoveId] = useState<string | null>(null);
   const [reviewRemoveReason, setReviewRemoveReason] = useState('Porušení pravidel');
   const [reviewActionBusy, setReviewActionBusy] = useState(false);
+  const [rawTestForm, setRawTestForm] = useState({ locality: '', nace: '', ico: '', limit: 10 });
+  const [rawTestResult, setRawTestResult] = useState<Record<string, unknown> | null>(null);
+  const [rawTesting, setRawTesting] = useState(false);
   const [discoveringContact, setDiscoveringContact] = useState(false);
   const [contactError, setContactError] = useState<{ status: number; message: string } | null>(null);
 
@@ -643,8 +648,39 @@ export default function AdminFirmyPage() {
 
       {tab === 'ares' ? (
         <>
+          <section className="rounded-xl border-2 border-orange-300 bg-orange-50/50 p-5">
+            <h2 className="text-lg font-semibold text-orange-950">A) Kompletní ARES sync ČR</h2>
+            <p className="mt-1 text-sm text-orange-900/80">
+              Importuje ekonomické subjekty podle národních NACE partitionů bez portálové kategorie.
+              Kategorizace probíhá až po uložení firmy.
+            </p>
+            <button
+              type="button"
+              disabled={importing}
+              onClick={async () => {
+                if (!token) return;
+                setImporting(true);
+                setErrMsg(null);
+                const res = await nestAdminCompanyImportMasterSync(token, {
+                  batchSize: form.batchSize,
+                  delayMs: form.delayMs,
+                });
+                setImporting(false);
+                if (!res.ok) setErrMsg(res.error);
+                else {
+                  setMsg('Master sync ČR spuštěn.');
+                  await refreshJobs();
+                }
+              }}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {importing ? <Loader2 className="size-4 animate-spin" /> : null}
+              Spustit kompletní synchronizaci firem ČR
+            </button>
+          </section>
+
           <section className="rounded-xl border bg-white p-5">
-            <h2 className="text-lg font-semibold">ARES import</h2>
+            <h2 className="text-lg font-semibold">B) Ruční / cílený import</h2>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <select
                 value={form.category}
@@ -748,6 +784,56 @@ export default function AdminFirmyPage() {
           </section>
 
           <section className="rounded-xl border bg-white p-5">
+            <h2 className="text-lg font-semibold">Diagnostika — RAW ARES TEST</h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <input
+                value={rawTestForm.locality}
+                onChange={(e) => setRawTestForm((f) => ({ ...f, locality: e.target.value }))}
+                placeholder="Lokalita"
+                className="rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                value={rawTestForm.nace}
+                onChange={(e) => setRawTestForm((f) => ({ ...f, nace: e.target.value }))}
+                placeholder="NACE (volitelné)"
+                className="rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                value={rawTestForm.ico}
+                onChange={(e) => setRawTestForm((f) => ({ ...f, ico: e.target.value }))}
+                placeholder="IČO (volitelné)"
+                className="rounded-lg border px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                value={rawTestForm.limit}
+                onChange={(e) => setRawTestForm((f) => ({ ...f, limit: Number(e.target.value) }))}
+                placeholder="Max. stránek"
+                className="rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={rawTesting || !token}
+              onClick={async () => {
+                if (!token) return;
+                setRawTesting(true);
+                const res = await nestAdminAresRawTest(token, rawTestForm);
+                setRawTestResult(res);
+                setRawTesting(false);
+              }}
+              className="mt-4 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm font-semibold"
+            >
+              {rawTesting ? 'Testuji…' : 'Otestovat ARES přímo'}
+            </button>
+            {rawTestResult ? (
+              <pre className="mt-4 max-h-80 overflow-auto rounded-lg bg-zinc-900 p-3 text-xs text-green-100">
+                {JSON.stringify(rawTestResult, null, 2)}
+              </pre>
+            ) : null}
+          </section>
+
+          <section className="rounded-xl border bg-white p-5">
             <h2 className="text-lg font-semibold">Import historie</h2>
             <div className="mt-3 space-y-4">
               {jobs.length === 0 ? (
@@ -758,7 +844,9 @@ export default function AdminFirmyPage() {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold">
-                          {job.category ?? '—'} · {job.region ?? '—'} · {job.city ?? '—'}
+                          {job.syncType === 'ARES_CZ_MASTER_SYNC' || job.syncType === 'ALL_CZECH_COMPANIES'
+                            ? 'ARES MASTER SYNC — Česká republika'
+                            : `${job.category ?? '—'} · ${job.region ?? '—'} · ${job.city ?? '—'}`}
                         </p>
                         <p className="text-xs text-zinc-500">
                           {job.id.slice(0, 8)}… · {job.status}
@@ -809,9 +897,20 @@ export default function AdminFirmyPage() {
                       Partitiony: {job.completedPartitions ?? job.subQueryIndex ?? 0} /{' '}
                       {job.totalPartitions ?? job.subQueryCount ?? '—'} dokončeno
                       <br />
-                      Firmy: {job.processed} zpracováno · Unique IČO: {job.uniqueIcoCount ?? job.processed} · Nové:{' '}
+                      Firmy: {job.processed} zpracováno · Unique IČO (job):{' '}
+                      {job.jobUniqueIcoCount ?? job.uniqueIcoCount ?? job.processed} · Nové:{' '}
                       {job.created} · Aktualizované: {job.updated} · Přeskočené:{' '}
-                      {job.skipped ?? 0} · Chyby: {job.failed}
+                      {job.skipped ?? 0}
+                      {job.alreadySeenSkipped ? ` · Již viděné: ${job.alreadySeenSkipped}` : ''}
+                      {job.inactiveSkipped ? ` · Neaktivní: ${job.inactiveSkipped}` : ''}
+                      {job.duplicateQueryCount ? ` · Duplicitní dotazy: ${job.duplicateQueryCount}` : ''}
+                      · Chyby: {job.failed}
+                      {job.warningCode ? (
+                        <>
+                          <br />
+                          <span className="text-amber-700">Varování: {job.warningCode}</span>
+                        </>
+                      ) : null}
                       <br />
                       API requesty: {job.requestsCount ?? 0}
                       {job.currentBatchFrom != null && job.currentBatchTo != null ? (

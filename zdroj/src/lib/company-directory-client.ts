@@ -275,6 +275,13 @@ export type ImportJobView = {
   currentRegion?: string | null;
   currentRegionOrder?: number | null;
   uniqueIcoCount?: number | null;
+  jobUniqueIcoCount?: number | null;
+  alreadySeenSkipped?: number | null;
+  inactiveSkipped?: number | null;
+  duplicateQueryCount?: number | null;
+  warningCode?: string | null;
+  syncType?: string | null;
+  currentRequestRows?: number | null;
   aresDiagnostics?: Array<{
     at: string;
     partitionLabel: string;
@@ -425,6 +432,53 @@ export async function nestAdminCompanyDirectoryDashboard(
   });
   if (!res.ok) return null;
   return (await res.json()) as Record<string, number>;
+}
+
+export async function nestAdminCompanyImportMasterSync(
+  token: string,
+  body?: { batchSize?: number; delayMs?: number; limit?: number },
+): Promise<
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string; status: number; activeJobId?: string }
+> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'API není nakonfigurováno.', status: 0 };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/master-sync/start`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const message =
+      (typeof payload.message === 'string' && payload.message) ||
+      `HTTP ${res.status}`;
+    return { ok: false, error: message, status: res.status };
+  }
+  return { ok: true, data: payload };
+}
+
+export async function nestAdminAresRawTest(
+  token: string,
+  body: { locality?: string; nace?: string; ico?: string; limit?: number },
+) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/company-directory/import/diagnostics/raw-test`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
 }
 
 export async function nestAdminCompanyImportStart(
