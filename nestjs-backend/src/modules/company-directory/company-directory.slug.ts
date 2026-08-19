@@ -11,7 +11,19 @@ export function slugifyCompanyName(name: string): string {
     .slice(0, 80);
 }
 
+/** Canonical public URL slug: `{name-slug}-{ico}` */
 export function buildCompanySlug(
+  name: string,
+  ico: string,
+  _category?: CompanyDirectoryCategory | null,
+): string {
+  const base = slugifyCompanyName(name) || 'subjekt';
+  const normalizedIco = ico.replace(/\D/g, '').padStart(8, '0');
+  return `${base}-${normalizedIco}`;
+}
+
+/** Legacy slug with category prefix — kept for redirect detection. */
+export function buildLegacyCompanySlug(
   name: string,
   ico: string,
   category?: CompanyDirectoryCategory | null,
@@ -25,4 +37,8 @@ export function buildCompanySlug(
 export function parseIcoFromCompanySlug(slug: string): string | null {
   const m = /-(\d{8})$/.exec(slug);
   return m?.[1] ?? null;
+}
+
+export function slugifyLocationLabel(label: string): string {
+  return slugifyCompanyName(label);
 }

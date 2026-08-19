@@ -250,16 +250,30 @@ export class SeoService {
       where: {
         publicProfile: true,
         hidden: false,
-        seoStatus: 'SEO_READY',
+        seoPage: {
+          is: {
+            indexable: true,
+            status: 'READY',
+          },
+        },
       },
-      select: { slug: true, seoLastSignificantChangeAt: true, updatedAt: true },
+      select: {
+        slug: true,
+        seoLastSignificantChangeAt: true,
+        updatedAt: true,
+        seoPage: { select: { updatedAt: true } },
+      },
       orderBy: { seoLastSignificantChangeAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
     return rows.map((r) => ({
       loc: `${base}/firmy/${r.slug}`,
-      lastmod: (r.seoLastSignificantChangeAt ?? r.updatedAt).toISOString(),
+      lastmod: (
+        r.seoLastSignificantChangeAt ??
+        r.seoPage?.updatedAt ??
+        r.updatedAt
+      ).toISOString(),
       changefreq: 'weekly' as const,
       priority: 0.55,
     }));

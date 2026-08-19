@@ -58,6 +58,37 @@ export class CompanySeoAdminController {
     return this.seoPages.getPreview(id);
   }
 
+  @Post('regenerate/dry-run')
+  regenerateDryRun(@Body() body: { filters?: CompanySeoGenerationFilters }) {
+    return this.jobs.dryRun(body.filters);
+  }
+
+  @Post('regenerate')
+  regenerate(
+    @CurrentUser() admin: AuthUser,
+    @Body()
+    body: {
+      filters?: CompanySeoGenerationFilters;
+      dryRun?: boolean;
+      confirmAll?: boolean;
+    },
+  ) {
+    const scope = body.filters?.scope ?? 'all';
+    if (scope === 'all' && !body.confirmAll && !body.dryRun) {
+      return {
+        error: 'CONFIRMATION_REQUIRED',
+        message:
+          'Bude zkontrolováno a případně přegenerováno SEO všech firem. Firemní data, recenze, claimy a ověřené kontakty nebudou odstraněny.',
+      };
+    }
+    return this.jobs.startJob({
+      type: CompanySeoGenerationJobType.BULK_ALL,
+      filters: body.filters,
+      createdById: admin.id,
+      dryRun: body.dryRun,
+    });
+  }
+
   @Post('generate-test')
   generateTest(@CurrentUser() admin: AuthUser) {
     return this.jobs.startJob({

@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import type { CompanyDirectoryDetailResponse } from '@/lib/company-directory-client';
 import type { PortalPostFeedItem } from '@/lib/company-seo-admin-client';
@@ -87,6 +87,9 @@ export default async function FirmaDetailPage({
   const data = await fetchCompany(slug);
   if (!data?.company) {
     notFound();
+  }
+  if (data.redirectTo && data.redirectTo !== `/firmy/${slug}`) {
+    permanentRedirect(data.redirectTo);
   }
   const [reviews, portalPosts, listings, companyListings] = await Promise.all([
     fetchReviews(slug),

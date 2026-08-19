@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { ARES_WORKER_TICK_MS } from './company-directory.constants';
 import { CompanySeoPageService } from './company-seo-page.service';
+import { CompanySeoRegenerationService } from './company-seo-regeneration.service';
 import type { CompanySeoGenerationFilters } from './company-seo-page.types';
 
 const ITEM_DELAY_MS = 2500;
@@ -24,6 +25,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
   constructor(
     private readonly prisma: PrismaService,
     private readonly seoPages: CompanySeoPageService,
+    private readonly regeneration: CompanySeoRegenerationService,
   ) {}
 
   onModuleInit(): void {
@@ -157,7 +159,12 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     filters?: CompanySeoGenerationFilters;
     createdById?: string;
     forceUpdate?: boolean;
+    dryRun?: boolean;
   }) {
+    if (input.type === 'BULK_ALL') {
+      return this.startBulkRegeneration(input);
+    }
+
     const existing = await this.getActiveJob();
     if (existing && ['PENDING', 'RUNNING', 'PAUSED'].includes(existing.status)) {
       this.log.log(`[SEO-JOB] duplicate prevented — returning active company job ${existing.id}`);
@@ -201,6 +208,81 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     });
 
     this.log.log(`[SEO-JOB] created company job=${job.id} items=${companies.length}`);
+    void this.tick();
+    return this.serializeJob(job);
+  }
+
+  async dryRun(filters?: CompanySeoGenerationFilters) {
+    return this.regeneration.dryRun(filters);
+  }
+
+  private async startBulkRegeneration(input: {
+    filters?: CompanySeoGenerationFilters;
+    createdById?: string;
+    dryRun?: boolean;
+  }) {
+    const existing = await this.getActiveJob();
+    if (existing && ['PENDING', 'RUNNING', 'PAUSED'].includes(existing.status)) {
+      this.log.log(`[SEO-JOB] duplicate prevented — returning active company job ${existing.id}`);
+      return { ...this.serializeJob(existing), existing: true };
+    }
+
+    const filters: CompanySeoGenerationFilters = {
+      scope: 'all',
+      regenerateMetadata: true,
+      regenerateCanonical: true,
+      regenerateStructuredData: true,
+      regenerateInternalLinks: true,
+      regenerateContent: true,
+      regenerateSitemap: true,
+      regenerateScore: true,
+      regenerateRobots: true,
+      ...input.filters,
+    };
+
+    const where = this.regeneration.buildScopeWhere(filters);
+    const total = await this.prisma.companyDirectoryEntry.count({ where });
+    if (!total) {
+      throw new BadRequestException('Nebyla nalezena žádná firma odpovídající rozsahu.');
+    }
+
+    const job = await this.prisma.companySeoGenerationJob.create({
+      data: {
+        type: 'BULK_ALL',
+        status: CompanySeoGenerationJobStatus.PENDING,
+        requestedCount: total,
+        filtersJson: filters as object,
+        createdById: input.createdById,
+        dryRun: input.dryRun ?? false,
+        summaryJson: input.dryRun ? ((await this.regeneration.dryRun(filters)) as object) : undefined,
+      },
+    });
+
+    const batchSize = 500;
+    let cursor: string | undefined;
+    let created = 0;
+    while (created < total) {
+      const batch = await this.prisma.companyDirectoryEntry.findMany({
+        where,
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: batchSize,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+      if (!batch.length) break;
+      await this.prisma.companySeoGenerationItem.createMany({
+        data: batch.map((c) => ({
+          jobId: job.id,
+          companyId: c.id,
+          status: CompanySeoGenerationItemStatus.PENDING,
+        })),
+        skipDuplicates: true,
+      });
+      created += batch.length;
+      cursor = batch[batch.length - 1]!.id;
+    }
+
+    this.log.log(`[SEO-JOB] created bulk company job=${job.id} items=${created}`);
     void this.tick();
     return this.serializeJob(job);
   }
@@ -322,6 +404,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       const started = Date.now();
       const filters = (job.filtersJson ?? {}) as CompanySeoGenerationFilters;
       const forceUpdate = !filters.onlyMissing;
+      const isBulk = job.type === 'BULK_ALL';
       let itemStatus: CompanySeoGenerationItemStatus = 'COMPLETED';
       let seoPageId: string | null = null;
       let qualityScore: number | null = null;
@@ -329,37 +412,75 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       let errorMessage: string | null = null;
       let createdDelta = 0;
       let updatedDelta = 0;
+      let unchangedDelta = 0;
+
+      await this.prisma.companySeoGenerationJob.update({
+        where: { id: job.id },
+        data: { currentCompanyId: item.companyId },
+      });
 
       try {
-        const result = await this.seoPages.generateForCompany(item.companyId, {
-          forceUpdate,
-          skipEnrichmentWait: job.type === 'TEST',
-        });
+        if (isBulk) {
+          const result = await this.regeneration.regenerateCompany(item.companyId, {
+            regenerateMetadata: filters.regenerateMetadata ?? true,
+            regenerateCanonical: filters.regenerateCanonical ?? true,
+            regenerateStructuredData: filters.regenerateStructuredData ?? true,
+            regenerateInternalLinks: filters.regenerateInternalLinks ?? true,
+            regenerateContent: filters.regenerateContent ?? true,
+            regenerateScore: filters.regenerateScore ?? true,
+            regenerateRobots: filters.regenerateRobots ?? true,
+            skipAi: filters.skipAi,
+            dryRun: job.dryRun,
+          });
 
-        if (result.action === 'created' || result.action === 'updated') {
-          seoPageId = result.seoPageId;
-          const page = await this.prisma.companySeoPage.findUnique({ where: { id: result.seoPageId } });
-          qualityScore = page?.seoScore ?? null;
-          if (result.action === 'created') createdDelta = 1;
-          if (result.action === 'updated') updatedDelta = 1;
-          this.log.log(`[SEO-JOB] company page saved job=${job.id} page=${result.seoPageId}`);
-        } else if (result.action === 'skipped') {
-          itemStatus = 'SKIPPED';
-          errorCode = result.reason;
-          errorMessage =
-            result.reason === 'SEO_PAGE_EXISTS'
-              ? 'SEO stránka již existuje — použijte Aktualizovat'
-              : result.reason;
-        } else if (result.action === 'waiting_enrichment') {
-          itemStatus = 'WAITING_FOR_ENRICHMENT';
-          errorCode = 'WAITING_FOR_ENRICHMENT';
+          if (result.action === 'updated') {
+            seoPageId = result.seoPageId ?? null;
+            qualityScore = result.score;
+            updatedDelta = 1;
+          } else if (result.action === 'unchanged') {
+            unchangedDelta = 1;
+            itemStatus = 'SKIPPED';
+            errorCode = 'UNCHANGED';
+          } else if (result.action === 'skipped') {
+            itemStatus = 'SKIPPED';
+            errorCode = result.reason;
+            errorMessage = result.reason;
+          } else {
+            itemStatus = 'FAILED';
+            errorCode = 'ERROR';
+            errorMessage = result.error;
+          }
         } else {
-          itemStatus = 'FAILED';
-          errorCode = 'ERROR';
-          errorMessage = result.error;
-          this.log.warn(
-            `[SEO-JOB] company item failed job=${job.id} item=${item.id} error=${errorMessage ?? 'unknown'}`,
-          );
+          const result = await this.seoPages.generateForCompany(item.companyId, {
+            forceUpdate,
+            skipEnrichmentWait: job.type === 'TEST',
+          });
+
+          if (result.action === 'created' || result.action === 'updated') {
+            seoPageId = result.seoPageId;
+            const page = await this.prisma.companySeoPage.findUnique({ where: { id: result.seoPageId } });
+            qualityScore = page?.seoScore ?? null;
+            if (result.action === 'created') createdDelta = 1;
+            if (result.action === 'updated') updatedDelta = 1;
+            this.log.log(`[SEO-JOB] company page saved job=${job.id} page=${result.seoPageId}`);
+          } else if (result.action === 'skipped') {
+            itemStatus = 'SKIPPED';
+            errorCode = result.reason;
+            errorMessage =
+              result.reason === 'SEO_PAGE_EXISTS'
+                ? 'SEO stránka již existuje — použijte Aktualizovat'
+                : result.reason;
+          } else if (result.action === 'waiting_enrichment') {
+            itemStatus = 'WAITING_FOR_ENRICHMENT';
+            errorCode = 'WAITING_FOR_ENRICHMENT';
+          } else {
+            itemStatus = 'FAILED';
+            errorCode = 'ERROR';
+            errorMessage = result.error;
+            this.log.warn(
+              `[SEO-JOB] company item failed job=${job.id} item=${item.id} error=${errorMessage ?? 'unknown'}`,
+            );
+          }
         }
       } catch (err) {
         itemStatus = 'FAILED';
@@ -393,6 +514,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
           updatedCount: updatedDelta ? { increment: updatedDelta } : undefined,
           skippedCount:
             itemStatus === 'SKIPPED' || itemStatus === 'WAITING_FOR_ENRICHMENT' ? { increment: 1 } : undefined,
+          unchangedCount: unchangedDelta ? { increment: unchangedDelta } : undefined,
           failedCount: itemStatus === 'FAILED' ? { increment: 1 } : undefined,
         },
       });
@@ -416,6 +538,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
     createdCount: number;
     updatedCount: number;
     skippedCount: number;
+    unchangedCount?: number;
     failedCount: number;
     currentItem: string | null;
     lastError: string | null;
@@ -438,6 +561,7 @@ export class CompanySeoGenerationJobService implements OnModuleInit, OnModuleDes
       createdCount: job.createdCount,
       updatedCount: job.updatedCount,
       skippedCount: job.skippedCount,
+      unchangedCount: (job as { unchangedCount?: number }).unchangedCount ?? 0,
       failedCount: job.failedCount,
       progressPct,
       currentItem: job.currentItem,

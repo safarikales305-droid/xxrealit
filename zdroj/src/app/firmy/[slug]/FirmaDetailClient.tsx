@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Building2, MapPin, Star } from 'lucide-react';
+import { Building2, MapPin, Share2, Star } from 'lucide-react';
 import { PublicHeader } from '@/components/navigation/PublicHeader';
 import {
   CompanyReviewMediaUpload,
@@ -138,6 +138,9 @@ export function FirmaDetailClient({
 
   const company: CompanyDirectoryDetail | undefined = data?.company;
   const seoPage = data?.companySeoPage;
+  const seoMeta = data?.seo;
+  const breadcrumbs = seoMeta?.breadcrumbs ?? [];
+  const canonicalUrl = seoMeta?.canonical ?? `https://www.xxrealit.cz/firmy/${slug}`;
   const displayShortDescription = seoPage?.shortDescription ?? company?.shortDescription;
   const displayDescription = seoPage?.longDescription ?? company?.description;
   const googleRating = data?.googleRating ?? company?.googleRating ?? company?.rating;
@@ -162,6 +165,26 @@ export function FirmaDetailClient({
   function trackClick(type: 'WEBSITE_CLICK' | 'PHONE_CLICK' | 'EMAIL_CLICK') {
     if (!company) return;
     void nestTrackCompanyEvent({ companyId: company.id, type });
+  }
+
+  async function shareCompany() {
+    const payload = {
+      title: company?.name ?? 'Firma',
+      text: seoMeta?.description ?? company?.shortDescription ?? undefined,
+      url: canonicalUrl,
+    };
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch {
+        /* fallback below */
+      }
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(canonicalUrl);
+      setLeadMsg('Odkaz na firmu byl zkopírován do schránky.');
+    }
   }
 
   async function submitClaim(e: React.FormEvent) {
@@ -265,23 +288,63 @@ export function FirmaDetailClient({
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16">
       <PublicHeader activeSection="profiles" />
       <div className="mx-auto max-w-3xl px-4 pt-8 sm:px-6">
-        <Link href="/profesionalove" className="text-sm font-semibold text-[#e85d00] hover:underline">
-          ← Lidé a firmy
+        <Link href="/firmy" className="text-sm font-semibold text-[#e85d00] hover:underline">
+          ← Katalog firem
         </Link>
 
+        {breadcrumbs.length > 1 ? (
+          <nav aria-label="Drobečková navigace" className="mt-4 text-xs text-zinc-500">
+            <ol className="flex flex-wrap items-center gap-1">
+              {breadcrumbs.map((crumb, index) => (
+                <li key={`${crumb.name}-${index}`} className="flex items-center gap-1">
+                  {index > 0 ? <span aria-hidden="true">›</span> : null}
+                  {crumb.href ? (
+                    <Link href={crumb.href} className="hover:text-orange-700 hover:underline">
+                      {crumb.name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-zinc-700">{crumb.name}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </nav>
+        ) : null}
+
         <article className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
-              <Building2 className="size-7" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
+                <Building2 className="size-7" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold text-zinc-900">{company.name}</h1>
+                <p className="mt-1 text-sm text-zinc-600">IČO: {company.ico}</p>
+                {company.city ? (
+                  <p className="mt-1 text-sm text-zinc-600">Sídlo: {company.city}</p>
+                ) : null}
+                {company.legalForm ? (
+                  <p className="mt-1 text-sm text-zinc-600">Právní forma: {company.legalForm}</p>
+                ) : null}
+                {company.street || company.postalCode ? (
+                  <p className="mt-1 text-sm text-zinc-600">
+                    Adresa: {[company.street, company.postalCode, company.city].filter(Boolean).join(', ')}
+                  </p>
+                ) : null}
+                {company.region ? (
+                  <p className="mt-1 text-sm text-zinc-600">Kraj: {company.region}</p>
+                ) : null}
+                <p className="mt-1 text-sm text-zinc-500">{company.categoryLabel}</p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-zinc-900">{company.name}</h1>
-              <p className="mt-1 text-sm text-zinc-600">
-                IČO: {company.ico}
-                {company.city ? ` · ${company.city}` : ''}
-              </p>
-              <p className="mt-1 text-sm text-zinc-500">{company.categoryLabel}</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => void shareCompany()}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+            >
+              <Share2 className="size-3.5" />
+              Sdílet firmu
+            </button>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -803,7 +866,7 @@ export function FirmaDetailClient({
             country: 'Česko',
           }}
           shareTitle={company.name}
-          shareUrl={`https://www.xxrealit.cz/firmy/${slug}`}
+          shareUrl={canonicalUrl}
           shareDescription={company.shortDescription ?? company.description ?? undefined}
         />
 

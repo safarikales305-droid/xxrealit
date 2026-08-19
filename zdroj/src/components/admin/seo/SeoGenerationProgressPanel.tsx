@@ -32,6 +32,7 @@ export type SeoJobProgressView = {
   errorCount?: number;
   failedCount?: number;
   skippedCount?: number;
+  unchangedCount?: number;
   progressPct?: number;
   currentItem?: string | null;
   startedAt?: string | null;
@@ -157,8 +158,9 @@ export function SeoGenerationProgressPanel({
         ) : null}
       </div>
 
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Úspěšně" value={job.createdCount ?? 0} />
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
+        <Stat label="Aktualizováno" value={(job.updatedCount ?? 0) + (job.createdCount ?? 0)} />
+        <Stat label="Beze změny" value={job.unchangedCount ?? 0} />
         <Stat label="Ke kontrole" value={job.reviewCount ?? 0} />
         <Stat label="Chyby" value={failed} warn={failed > 0} />
         <Stat label="Přeskočeno" value={job.skippedCount ?? 0} />

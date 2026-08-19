@@ -106,13 +106,19 @@ export class CompanyDirectoryService {
     const row = await this.prisma.companyDirectoryEntry.findFirst({
       where: {
         publicProfile: true,
-        OR: [{ slug }, ...(icoFromSlug ? [{ ico: icoFromSlug }] : [])],
+        OR: [
+          { slug },
+          ...(icoFromSlug ? [{ ico: icoFromSlug }] : []),
+          { previousSlugs: { has: slug } },
+        ],
       },
       include: { seoPage: true },
     });
     if (!row) {
       throw new NotFoundException('Firemní profil nebyl nalezen.');
     }
+
+    const redirectTo = row.slug !== slug ? `/firmy/${row.slug}` : null;
 
     const similar = await this.prisma.companyDirectoryEntry.findMany({
       where: {
@@ -132,6 +138,7 @@ export class CompanyDirectoryService {
     return {
       company: serializeCompanyDirectoryDetail(row),
       seo: this.seo.buildPublicSeoMeta(row),
+      redirectTo,
       companySeoPage: row.seoPage
         ? {
             id: row.seoPage.id,

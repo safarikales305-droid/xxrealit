@@ -33,6 +33,7 @@ import { CompanySocialPublishService } from './company-social-publish.service';
 import { CompanySeoAdminController } from './company-seo-admin.controller';
 import { CompanySeoPageService } from './company-seo-page.service';
 import { CompanySeoGenerationJobService } from './company-seo-generation-job.service';
+import { CompanySeoRegenerationService } from './company-seo-regeneration.service';
 import { CompanyPortalFeedService } from './company-portal-feed.service';
 import { CompanyApprovedEmailService } from './company-approved-email.service';
 import { CompanyReviewSocialCardService } from './company-review-social-card.service';
@@ -69,6 +70,7 @@ import { AresQueryPartitionService } from './ares-query-partition.service';
     CompanySeoService,
     CompanySeoPageService,
     CompanySeoGenerationJobService,
+    CompanySeoRegenerationService,
     CompanyPortalFeedService,
     CompanySocialPublishService,
     CompanyApprovedEmailService,

@@ -73,7 +73,10 @@ export type CompanyDirectorySeoMeta = {
   seoQualityScore: number | null;
   seoStatus: string;
   indexStatus: string;
-  jsonLd: Record<string, unknown> | null;
+  indexable?: boolean;
+  h1?: string;
+  breadcrumbs?: Array<{ name: string; href: string }>;
+  jsonLd: Record<string, unknown> | Array<Record<string, unknown>> | null;
 };
 
 /** Public company detail — matches `serializeCompanyDirectoryDetail()` output. */
@@ -232,6 +235,7 @@ export type CompanySeoPagePublic = {
 export type CompanyDirectoryDetailResponse = {
   company: CompanyDirectoryDetail;
   seo?: CompanyDirectorySeoMeta;
+  redirectTo?: string | null;
   companySeoPage?: CompanySeoPagePublic | null;
   similar: CompanyDirectoryCard[];
   xxrealitReviewSummary?: { average: number | null; count: number };

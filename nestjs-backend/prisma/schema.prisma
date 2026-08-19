@@ -6537,6 +6537,7 @@ enum CompanySeoGenerationJobType {
   BATCH_10
   BATCH_100
   FILTER
+  BULK_ALL
 }
 
 enum CompanyAuditAction {
@@ -6668,6 +6669,8 @@ model CompanyDirectoryEntry {
   indexStatus                 CompanyIndexStatus @default(UNKNOWN)
   seoLastSignificantChangeAt  DateTime?
   previousSlugs               String[] @default([])
+  seoDirty                    Boolean  @default(false)
+  seoInputHash                String?
 
   socialIntroPublishedAt DateTime?
   socialIntroPostId      String?
@@ -6746,9 +6749,13 @@ model CompanySeoGenerationJob {
   createdCount   Int                          @default(0)
   updatedCount   Int                          @default(0)
   skippedCount   Int                          @default(0)
+  unchangedCount Int                          @default(0)
   failedCount    Int                          @default(0)
   filtersJson    Json?
   currentItem    String?
+  currentCompanyId String?
+  summaryJson    Json?
+  dryRun         Boolean                      @default(false)
   lastError      String?                      @db.Text
   pauseReason    String?
   startedAt      DateTime?

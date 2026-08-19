@@ -7,7 +7,7 @@ import { buildCompanySlug, parseIcoFromCompanySlug, slugifyCompanyName } from '.
 describe('company-directory slug', () => {
   it('builds stable slug with ico suffix', () => {
     const slug = buildCompanySlug('Stavební firma XY', '12345678', CompanyDirectoryCategory.STAVEBNICTVI);
-    assert.equal(slug, 'stavebni-firma-stavebni-firma-xy-12345678');
+    assert.equal(slug, 'stavebni-firma-xy-12345678');
     assert.equal(parseIcoFromCompanySlug(slug), '12345678');
   });
 

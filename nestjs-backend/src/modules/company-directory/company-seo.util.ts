@@ -2,61 +2,95 @@ import type { CompanyDirectoryEntry } from '@prisma/client';
 import { CATEGORY_LABELS } from './company-directory.constants';
 import type { CompanyEnrichmentPayload } from './company-sourced-field.types';
 
-export function buildCompanySeoTitle(company: Pick<
-  CompanyDirectoryEntry,
-  'name' | 'city' | 'categories'
->): string {
-  const category = company.categories[0];
-  const categoryLabel = category ? CATEGORY_LABELS[category].toLowerCase() : 'firma';
-  const city = company.city?.trim();
-  if (city) {
-    return `${company.name} – ${categoryLabel} ${city} | XXREALIT`;
-  }
-  return `${company.name} – ${categoryLabel} | XXREALIT`;
+export function formatCompanyIco(ico: string): string {
+  return ico.replace(/\D/g, '').padStart(8, '0');
 }
 
-export function buildCompanyMetaDescription(company: Pick<
-  CompanyDirectoryEntry,
-  'name' | 'city' | 'shortDescription' | 'description'
-> & { services?: string[] }): string {
+export function buildCompanySeoTitle(
+  company: Pick<CompanyDirectoryEntry, 'name' | 'city' | 'ico'>,
+): string {
+  const ico = formatCompanyIco(company.ico);
+  const city = company.city?.trim();
+  if (city) {
+    return `${company.name} – ${city}, IČO ${ico} | XXREALIT`;
+  }
+  return `${company.name}, IČO ${ico} | XXREALIT`;
+}
+
+export function buildCompanyMetaDescription(
+  company: Pick<
+    CompanyDirectoryEntry,
+    'name' | 'city' | 'ico' | 'shortDescription' | 'description'
+  > & { services?: string[] },
+): string {
+  const ico = formatCompanyIco(company.ico);
   if (company.shortDescription?.trim()) {
     const base = company.shortDescription.trim();
-    return base.length <= 160 ? `${base} Profil firmy na XXREALIT.` : base.slice(0, 157) + '…';
+    const suffix = ' Prohlédněte si profil firmy na XXREALIT.';
+    if (base.length + suffix.length <= 160) return `${base}${suffix}`;
+    return base.length <= 160 ? base : base.slice(0, 157) + '…';
   }
   const city = company.city?.trim();
   const services = company.services?.slice(0, 2).join(', ');
   if (city && services) {
-    return `${company.name} působí v ${city} a zaměřuje se na ${services}. Kontakty a profil firmy na XXREALIT.`;
+    return `${company.name}, IČO ${ico} – informace o firmě se sídlem v ${city}, zaměření na ${services}, kontakty a recenze. Prohlédněte si profil firmy na XXREALIT.`;
   }
   if (city) {
-    return `${company.name} působí v ${city}. Kontakty, zkušenosti a profil firmy na XXREALIT.`;
+    return `${company.name}, IČO ${ico} – informace o firmě, sídlo v ${city}, kontaktní údaje, zaměření společnosti a recenze. Prohlédněte si profil firmy na XXREALIT.`;
   }
-  return `Profil firmy ${company.name} na XXREALIT – kontakty, služby a recenze.`;
+  return `${company.name}, IČO ${ico} – informace o firmě, kontaktní údaje, zaměření společnosti a recenze. Prohlédněte si profil firmy na XXREALIT.`;
 }
 
-export function computeSeoQualityScore(company: Pick<
-  CompanyDirectoryEntry,
-  | 'name'
-  | 'ico'
-  | 'city'
-  | 'region'
-  | 'street'
-  | 'website'
-  | 'phone'
-  | 'email'
-  | 'description'
-  | 'shortDescription'
-  | 'verifiedBusinessEmail'
-  | 'xxrealitReviewCount'
-  | 'logoUrl'
-  | 'profileStatus'
-  | 'contentEnrichedAt'
-  | 'businessActivities'
-> & { serviceCount?: number }): number {
+export type IndexabilityDecision = 'index' | 'conditional' | 'noindex';
+
+export function evaluateIndexability(
+  score: number,
+  hasUniqueContent: boolean,
+): IndexabilityDecision {
+  if (score >= 80) return 'index';
+  if (score >= 60 && hasUniqueContent) return 'conditional';
+  return 'noindex';
+}
+
+export function shouldIndexCompany(
+  score: number,
+  hasUniqueContent: boolean,
+  seoPageStatus?: string | null,
+): boolean {
+  if (seoPageStatus === 'DRAFT' || seoPageStatus === 'DUPLICATE_CONTENT_REVIEW') return false;
+  const decision = evaluateIndexability(score, hasUniqueContent);
+  return decision === 'index' || decision === 'conditional';
+}
+
+export function computeSeoQualityScore(
+  company: Pick<
+    CompanyDirectoryEntry,
+    | 'name'
+    | 'ico'
+    | 'city'
+    | 'region'
+    | 'street'
+    | 'website'
+    | 'phone'
+    | 'email'
+    | 'description'
+    | 'shortDescription'
+    | 'verifiedBusinessEmail'
+    | 'xxrealitReviewCount'
+    | 'logoUrl'
+    | 'profileStatus'
+    | 'contentEnrichedAt'
+    | 'businessActivities'
+    | 'legalForm'
+    | 'postalCode'
+  > & { serviceCount?: number; hasUniqueTitle?: boolean; hasUniqueDescription?: boolean },
+): number {
   let score = 0;
   if (company.name && company.ico) score += 10;
   if (company.city && company.region) score += 8;
   if (company.street) score += 5;
+  if (company.postalCode) score += 2;
+  if (company.legalForm) score += 3;
   if (company.website) score += 12;
   if (company.phone) score += 8;
   if (company.email || company.verifiedBusinessEmail) score += 8;
@@ -68,6 +102,8 @@ export function computeSeoQualityScore(company: Pick<
   if (company.profileStatus === 'CLAIMED' || company.profileStatus === 'VERIFIED') score += 7;
   if (company.contentEnrichedAt) score += 2;
   if ((company.businessActivities?.length ?? 0) > 0) score += 5;
+  if (company.hasUniqueTitle) score += 3;
+  if (company.hasUniqueDescription) score += 3;
   return Math.min(100, score);
 }
 
@@ -107,12 +143,14 @@ export function buildCompanyJsonLd(
     | 'name'
     | 'website'
     | 'phone'
+    | 'email'
     | 'street'
     | 'city'
     | 'postalCode'
     | 'country'
     | 'xxrealitRatingAverage'
     | 'xxrealitReviewCount'
+    | 'logoUrl'
   >,
   profileUrl: string,
   socialLinks: string[] = [],
@@ -123,6 +161,8 @@ export function buildCompanyJsonLd(
     name: company.name,
     url: profileUrl,
   };
+  if (company.logoUrl) schema.image = company.logoUrl;
+  if (company.email) schema.email = company.email;
   if (company.website) schema.sameAs = [company.website, ...socialLinks].filter(Boolean);
   else if (socialLinks.length) schema.sameAs = socialLinks;
   if (company.phone) schema.telephone = company.phone;
@@ -147,4 +187,53 @@ export function buildCompanyJsonLd(
     };
   }
   return schema;
+}
+
+export function buildCompanyBreadcrumbJsonLd(
+  items: Array<{ name: string; url: string }>,
+): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: items.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: item.name,
+      item: item.url,
+    })),
+  };
+}
+
+export function buildCompanyBreadcrumbs(
+  company: Pick<CompanyDirectoryEntry, 'name' | 'city' | 'region' | 'categories'>,
+  baseUrl: string,
+): Array<{ name: string; href: string }> {
+  const base = baseUrl.replace(/\/+$/, '');
+  const crumbs: Array<{ name: string; href: string }> = [
+    { name: 'XXREALIT', href: base },
+    { name: 'Firmy', href: `${base}/firmy` },
+  ];
+  if (company.region?.trim()) {
+    crumbs.push({
+      name: company.region.trim(),
+      href: `${base}/firmy/${slugifyLocation(company.region)}`,
+    });
+  }
+  if (company.city?.trim()) {
+    crumbs.push({
+      name: company.city.trim(),
+      href: `${base}/firmy/${slugifyLocation(company.city)}`,
+    });
+  }
+  crumbs.push({ name: company.name, href: '' });
+  return crumbs;
+}
+
+function slugifyLocation(label: string): string {
+  return label
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

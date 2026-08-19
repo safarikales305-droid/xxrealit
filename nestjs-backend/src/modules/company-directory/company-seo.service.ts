@@ -1,16 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { CompanyDirectoryEntry } from '@prisma/client';
+import type { CompanyDirectoryEntry, CompanySeoPage } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { CompanyAuditService } from './company-audit.service';
 import { CompanyDirectorySettingsService } from './company-directory-settings.service';
 import type { CompanyEnrichmentPayload } from './company-sourced-field.types';
 import {
+  buildCompanyBreadcrumbJsonLd,
+  buildCompanyBreadcrumbs,
   buildCompanyJsonLd,
   buildCompanyMetaDescription,
   buildCompanySeoTitle,
   computeSeoQualityScore,
   extractServicesFromEnrichment,
+  shouldIndexCompany,
   textSimilarity,
 } from './company-seo.util';
 
@@ -32,21 +35,26 @@ export class CompanySeoService {
   }
 
   async isSeoReady(companyId: string): Promise<boolean> {
-    const company = await this.prisma.companyDirectoryEntry.findUnique({ where: { id: companyId } });
-    return company?.seoStatus === 'SEO_READY';
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+      include: { seoPage: true },
+    });
+    if (!company) return false;
+    if (company.seoPage?.indexable) return true;
+    return company.seoStatus === 'SEO_READY';
   }
 
   async evaluateCompany(companyId: string) {
-    const company = await this.prisma.companyDirectoryEntry.findUnique({ where: { id: companyId } });
+    const company = await this.prisma.companyDirectoryEntry.findUnique({
+      where: { id: companyId },
+      include: { seoPage: true },
+    });
     if (!company) return null;
 
     const enrichment = (company.enrichmentData ?? null) as CompanyEnrichmentPayload | null;
     const services = extractServicesFromEnrichment(enrichment);
-    const score = computeSeoQualityScore({ ...company, serviceCount: services.length });
-    const cfg = this.settings.getCached();
-
-    let seoTitle = company.seoTitle ?? buildCompanySeoTitle(company);
-    let seoDescription =
+    const seoTitle = company.seoTitle ?? buildCompanySeoTitle(company);
+    const seoDescription =
       company.seoDescription ?? buildCompanyMetaDescription({ ...company, services });
     let shortDescription = company.shortDescription;
     let description = company.description;
@@ -59,19 +67,22 @@ export class CompanySeoService {
       }
     }
 
-    const seoReady =
-      score >= cfg.seo.minScoreForIndex &&
-      Boolean(shortDescription || description) &&
-      Boolean(company.website || company.description);
-
-    const indexStatus = seoReady ? 'INDEXABLE' : company.indexStatus === 'INDEXED' ? 'INDEXED' : 'UNKNOWN';
+    const score = computeSeoQualityScore({
+      ...company,
+      serviceCount: services.length,
+      hasUniqueTitle: Boolean(seoTitle),
+      hasUniqueDescription: Boolean(seoDescription),
+    });
+    const hasUniqueContent = Boolean(shortDescription?.trim() || description?.trim());
+    const indexable = shouldIndexCompany(score, hasUniqueContent, company.seoPage?.status);
+    const seoReady = indexable;
 
     const updated = await this.prisma.companyDirectoryEntry.update({
       where: { id: companyId },
       data: {
         seoQualityScore: score,
         seoStatus: seoReady ? 'SEO_READY' : 'SEO_NOT_READY',
-        indexStatus: seoReady ? indexStatus : 'UNKNOWN',
+        indexStatus: seoReady ? 'INDEXABLE' : 'UNKNOWN',
         seoTitle,
         seoDescription,
         shortDescription,
@@ -87,11 +98,24 @@ export class CompanySeoService {
       },
     });
 
+    if (company.seoPage) {
+      await this.prisma.companySeoPage.update({
+        where: { id: company.seoPage.id },
+        data: {
+          seoScore: score,
+          indexable,
+          status: indexable ? 'READY' : 'DRAFT',
+          title: seoTitle,
+          metaDescription: seoDescription,
+        },
+      });
+    }
+
     await this.audit.log({
       companyId,
       action: 'SEO_UPDATE',
       message: `SEO score ${score}, status ${updated.seoStatus}`,
-      meta: { score, seoStatus: updated.seoStatus },
+      meta: { score, seoStatus: updated.seoStatus, indexable },
     });
 
     return updated;
@@ -113,27 +137,54 @@ export class CompanySeoService {
     );
   }
 
-  buildPublicSeoMeta(company: CompanyDirectoryEntry) {
+  buildPublicSeoMeta(
+    company: CompanyDirectoryEntry & { seoPage?: CompanySeoPage | null },
+  ) {
     const cfg = this.settings.getCached();
     const canonical = this.buildCanonicalUrl(company.slug);
     const enrichment = (company.enrichmentData ?? null) as CompanyEnrichmentPayload | null;
-    const socialLinks =
-      enrichment?.socialLinks?.map((s) => s.value).filter(Boolean) ?? [];
-    const indexable = company.seoStatus === 'SEO_READY';
-    const robots = cfg.seo.noindexWeakProfiles && !indexable ? 'noindex, follow' : 'index, follow';
+    const socialLinks = enrichment?.socialLinks?.map((s) => s.value).filter(Boolean) ?? [];
+    const seoPage = company.seoPage;
+    const title = seoPage?.title ?? company.seoTitle ?? buildCompanySeoTitle(company);
+    const description =
+      seoPage?.metaDescription ?? company.seoDescription ?? buildCompanyMetaDescription(company);
+    const score = seoPage?.seoScore ?? company.seoQualityScore;
+    const hasUniqueContent = Boolean(
+      seoPage?.shortDescription?.trim() ||
+        company.shortDescription?.trim() ||
+        company.description?.trim(),
+    );
+    const indexable =
+      seoPage != null
+        ? seoPage.indexable && seoPage.status === 'READY'
+        : shouldIndexCompany(score, hasUniqueContent, null) && company.seoStatus === 'SEO_READY';
+    const robots =
+      cfg.seo.noindexWeakProfiles && !indexable ? 'noindex, follow' : 'index, follow';
+
+    const base = resolveFrontendUrl().replace(/\/+$/, '');
+    const breadcrumbs = buildCompanyBreadcrumbs(company, base);
+    const jsonLd = cfg.seo.generateJsonLd
+      ? [
+          buildCompanyJsonLd(company, canonical, socialLinks),
+          buildCompanyBreadcrumbJsonLd(
+            breadcrumbs.filter((c) => c.href).map((c) => ({ name: c.name, url: c.href })),
+          ),
+        ]
+      : null;
 
     return {
-      title: company.seoTitle ?? buildCompanySeoTitle(company),
-      description: company.seoDescription ?? buildCompanyMetaDescription(company),
+      title,
+      description,
       canonical,
       robots,
       keywords: company.seoKeywords,
-      seoQualityScore: company.seoQualityScore,
+      seoQualityScore: score,
       seoStatus: company.seoStatus,
-      indexStatus: company.indexStatus,
-      jsonLd: cfg.seo.generateJsonLd
-        ? buildCompanyJsonLd(company, canonical, socialLinks)
-        : null,
+      indexStatus: indexable ? 'INDEXABLE' : company.indexStatus,
+      indexable,
+      breadcrumbs,
+      jsonLd,
+      h1: company.name,
     };
   }
 
@@ -144,13 +195,23 @@ export class CompanySeoService {
     const where = {
       publicProfile: true,
       hidden: false,
-      seoStatus: 'SEO_READY' as const,
+      seoPage: {
+        is: {
+          indexable: true,
+          status: 'READY' as const,
+        },
+      },
     };
     const [total, rows] = await Promise.all([
       this.prisma.companyDirectoryEntry.count({ where }),
       this.prisma.companyDirectoryEntry.findMany({
         where,
-        select: { slug: true, seoLastSignificantChangeAt: true, updatedAt: true },
+        select: {
+          slug: true,
+          seoLastSignificantChangeAt: true,
+          updatedAt: true,
+          seoPage: { select: { updatedAt: true } },
+        },
         orderBy: { seoLastSignificantChangeAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -160,7 +221,11 @@ export class CompanySeoService {
     const base = origin.replace(/\/+$/, '');
     const entries = rows.map((r) => ({
       loc: `${base}/firmy/${r.slug}`,
-      lastmod: (r.seoLastSignificantChangeAt ?? r.updatedAt).toISOString(),
+      lastmod: (
+        r.seoLastSignificantChangeAt ??
+        r.seoPage?.updatedAt ??
+        r.updatedAt
+      ).toISOString(),
       changefreq: 'weekly' as const,
       priority: 0.55,
     }));

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { SeoGenerationProgressPanel } from '@/components/admin/seo/SeoGenerationProgressPanel';
+import { CompanySeoBulkRegenModal } from '@/components/admin/seo/CompanySeoBulkRegenModal';
 import {
   nestAdminCompanySeoCancel,
   nestAdminCompanySeoGenerateBatch,
@@ -32,6 +33,7 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [onlyMissing, setOnlyMissing] = useState(true);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const activeJob = jobProgress?.job ?? null;
   const isActive = Boolean(
@@ -117,6 +119,9 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <Btn disabled={busy} onClick={() => setBulkOpen(true)}>
+          🔄 Přegenerovat SEO databázi firem
+        </Btn>
         <Btn
           disabled={busy}
           onClick={() =>
@@ -174,6 +179,7 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
               createdCount: activeJob.createdCount,
               updatedCount: activeJob.updatedCount,
               skippedCount: activeJob.skippedCount,
+              unchangedCount: activeJob.unchangedCount,
               failedCount: activeJob.failedCount,
               progressPct: activeJob.progressPct,
               currentItem: activeJob.currentItem,
@@ -243,6 +249,16 @@ export function SeoCompanyGeneratorPanel({ token }: Props) {
 
       {msg ? <p className="mt-3 text-sm text-green-700">{msg}</p> : null}
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+
+      <CompanySeoBulkRegenModal
+        token={token}
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onStarted={() => {
+          setMsg('Hromadná regenerace SEO firem byla spuštěna.');
+          void refresh();
+        }}
+      />
 
       <p className="mt-4 text-xs text-zinc-500">
         Správa tabulky a detailů:{' '}

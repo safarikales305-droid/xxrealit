@@ -14,6 +14,7 @@ import {
   buildCompanySeoTitle,
   computeSeoQualityScore,
   extractServicesFromEnrichment,
+  shouldIndexCompany,
   textSimilarity,
 } from './company-seo.util';
 import type {
@@ -240,12 +241,20 @@ export class CompanySeoPageService {
     try {
       const generated = await this.buildSeoContent(company);
       const dup = await this.findDuplicateContent(company.id, generated.longDescription ?? generated.shortDescription ?? '');
-      const cfg = this.settings.getCached();
       const services = extractServicesFromEnrichment(
         (company.enrichmentData ?? null) as CompanyEnrichmentPayload | null,
       );
-      const score = computeSeoQualityScore({ ...company, serviceCount: services.length });
-      const indexable = !dup && score >= cfg.seo.minScoreForIndex && generated.shortDescription != null;
+      const score = computeSeoQualityScore({
+        ...company,
+        serviceCount: services.length,
+        hasUniqueTitle: Boolean(generated.title),
+        hasUniqueDescription: Boolean(generated.metaDescription),
+      });
+      const hasUniqueContent = Boolean(generated.shortDescription ?? generated.longDescription);
+      const indexable =
+        !dup &&
+        shouldIndexCompany(score, hasUniqueContent, dup ? 'DUPLICATE_CONTENT_REVIEW' : 'READY') &&
+        generated.shortDescription != null;
       const status: CompanySeoPageStatus = dup ? 'DUPLICATE_CONTENT_REVIEW' : indexable ? 'READY' : 'DRAFT';
       const contentHash = this.hashContent(generated);
 
@@ -318,6 +327,10 @@ export class CompanySeoPageService {
   }
 
   async markOutdatedForCompany(companyId: string) {
+    await this.prisma.companyDirectoryEntry.update({
+      where: { id: companyId },
+      data: { seoDirty: true },
+    });
     const page = await this.prisma.companySeoPage.findUnique({ where: { companyId } });
     if (!page || page.status === 'SEO_OUTDATED') return null;
     return this.prisma.companySeoPage.update({

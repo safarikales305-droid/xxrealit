@@ -34,6 +34,7 @@ export type CompanySeoJobView = {
   createdCount: number;
   updatedCount: number;
   skippedCount: number;
+  unchangedCount?: number;
   failedCount: number;
   progressPct: number;
   currentItem?: string | null;
@@ -42,6 +43,21 @@ export type CompanySeoJobView = {
   finishedAt?: string | null;
   lastActivityAt?: string | null;
   existing?: boolean;
+  error?: string;
+  message?: string;
+};
+
+export type CompanySeoDryRunSummary = {
+  total: number;
+  ok: number;
+  badTitle: number;
+  missingDescription: number;
+  badCanonical: number;
+  potentialDuplicates: number;
+  noindex: number;
+  missingStructuredData: number;
+  missingSitemap: number;
+  duplicateIco: number;
 };
 
 export type CompanySeoJobProgressResponse = {
@@ -160,6 +176,26 @@ export async function nestAdminCompanySeoGenerateFilter(
   return adminFetch<CompanySeoJobView>(token, '/generate-filter', {
     method: 'POST',
     body: JSON.stringify({ filters, forceUpdate }),
+  });
+}
+
+export async function nestAdminCompanySeoRegenerateDryRun(
+  token: string,
+  filters?: Record<string, unknown>,
+) {
+  return adminFetch<CompanySeoDryRunSummary>(token, '/regenerate/dry-run', {
+    method: 'POST',
+    body: JSON.stringify({ filters }),
+  });
+}
+
+export async function nestAdminCompanySeoRegenerate(
+  token: string,
+  body: { filters?: Record<string, unknown>; confirmAll?: boolean; dryRun?: boolean },
+) {
+  return adminFetch<CompanySeoJobView>(token, '/regenerate', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 
