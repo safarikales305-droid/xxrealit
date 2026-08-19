@@ -15,6 +15,7 @@ import {
   nestAdminCompanyImportJob,
   nestAdminCompanyImportJobItems,
   nestAdminCompanyImportJobs,
+  nestAdminCompanyImportTestPartition,
   nestAdminCompanyImportRetry,
   nestAdminCompanyImportStart,
   nestAdminDiscoverContact,
@@ -105,6 +106,8 @@ export default function AdminFirmyPage() {
   const [importing, setImporting] = useState(false);
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [detailItems, setDetailItems] = useState<Array<Record<string, unknown>>>([]);
+  const [partitionTestResult, setPartitionTestResult] = useState<Record<string, unknown> | null>(null);
+  const [testingPartition, setTestingPartition] = useState(false);
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
   const [contactModal, setContactModal] = useState<{ companyId: string; name: string } | null>(null);
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null);
@@ -806,8 +809,9 @@ export default function AdminFirmyPage() {
                       Partitiony: {job.completedPartitions ?? job.subQueryIndex ?? 0} /{' '}
                       {job.totalPartitions ?? job.subQueryCount ?? '—'} dokončeno
                       <br />
-                      Firmy: {job.processed} zpracováno · Nové: {job.created} · Aktualizované:{' '}
-                      {job.updated} · Přeskočené: {job.skipped ?? 0} · Chyby: {job.failed}
+                      Firmy: {job.processed} zpracováno · Unique IČO: {job.uniqueIcoCount ?? job.processed} · Nové:{' '}
+                      {job.created} · Aktualizované: {job.updated} · Přeskočené:{' '}
+                      {job.skipped ?? 0} · Chyby: {job.failed}
                       <br />
                       API requesty: {job.requestsCount ?? 0}
                       {job.currentBatchFrom != null && job.currentBatchTo != null ? (
@@ -826,6 +830,15 @@ export default function AdminFirmyPage() {
                         <>
                           <br />
                           Kraje: {job.regionsCompleted ?? 0} / {job.regionsTotal}
+                          {job.currentRegion ? (
+                            <>
+                              {' '}
+                              · Aktuální kraj: {job.currentRegion}
+                              {job.currentRegionOrder != null
+                                ? ` (${job.currentRegionOrder} / ${job.regionsTotal})`
+                                : ''}
+                            </>
+                          ) : null}
                         </>
                       ) : null}
                     </p>
@@ -1843,6 +1856,80 @@ export default function AdminFirmyPage() {
                     <br />
                     <strong>Poslední chyba:</strong> {detailJob.error ?? '—'}
                   </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={testingPartition}
+                      className="rounded border border-orange-300 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 disabled:opacity-50"
+                      onClick={() => {
+                        if (!token) return;
+                        setTestingPartition(true);
+                        setPartitionTestResult(null);
+                        void nestAdminCompanyImportTestPartition(token, detailJob.id).then((result) => {
+                          setPartitionTestResult(result);
+                          setTestingPartition(false);
+                          if (!result) setErrMsg('Test partition selhal.');
+                        });
+                      }}
+                    >
+                      {testingPartition ? 'Testuji ARES…' : 'Otestovat aktuální ARES partition'}
+                    </button>
+                  </div>
+                  {partitionTestResult ? (
+                    <div className="rounded border border-orange-200 bg-orange-50/60 p-2 text-[11px]">
+                      <p className="font-semibold">Výsledek testu (bez importu)</p>
+                      <p className="mt-1 whitespace-pre-wrap">
+                        ARES celkem: {String(partitionTestResult.pocetCelkem ?? '—')}
+                        {'\n'}
+                        Stránek: {String(partitionTestResult.pagesRequested ?? '—')} · Unique IČO:{' '}
+                        {String(partitionTestResult.rawAresUniqueIco ?? '—')}
+                        {'\n'}
+                        V DB existuje: {String(partitionTestResult.dbExisting ?? '—')} · Nových:{' '}
+                        {String(partitionTestResult.dbNew ?? '—')}
+                        {'\n'}
+                        Stránkování:{' '}
+                        {partitionTestResult.paginationWorking ? 'OK' : 'NE'}
+                      </p>
+                      <pre className="mt-2 max-h-40 overflow-auto rounded bg-white p-2 text-[10px]">
+                        {JSON.stringify(partitionTestResult.requestBody, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
+                  {detailJob.aresDiagnostics?.length ? (
+                    <div>
+                      <p className="font-semibold">ARES request diagnostika (posledních 20)</p>
+                      <div className="mt-1 max-h-48 overflow-auto">
+                        <table className="w-full text-left text-[10px]">
+                          <thead>
+                            <tr className="border-b text-zinc-500">
+                              <th className="py-1 pr-1">Partition</th>
+                              <th className="py-1 pr-1">Offset</th>
+                              <th className="py-1 pr-1">Celkem</th>
+                              <th className="py-1 pr-1">Vráceno</th>
+                              <th className="py-1 pr-1">Nové</th>
+                              <th className="py-1 pr-1">Exist.</th>
+                              <th className="py-1 pr-1">HTTP</th>
+                              <th className="py-1">Čas</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...detailJob.aresDiagnostics].reverse().map((row, i) => (
+                              <tr key={`${row.at}-${i}`} className="border-b align-top">
+                                <td className="py-1 pr-1">{row.partitionLabel}</td>
+                                <td className="py-1 pr-1">{row.offset}</td>
+                                <td className="py-1 pr-1">{row.pocetCelkem ?? '—'}</td>
+                                <td className="py-1 pr-1">{row.returnedCount}</td>
+                                <td className="py-1 pr-1">{row.createdInBatch}</td>
+                                <td className="py-1 pr-1">{row.existingInBatch}</td>
+                                <td className="py-1 pr-1">{row.httpStatus}</td>
+                                <td className="py-1">{row.durationMs}ms</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
                   {detailJob.auditLog?.length ? (
                     <div>
                       <p className="font-semibold">Poslední události</p>

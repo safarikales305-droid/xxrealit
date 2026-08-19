@@ -6843,6 +6843,7 @@ model CompanyImportPartition {
   sortOrder      Int                          @default(0)
   depth          Int                          @default(0)
   label          String?
+  partitionKey   String?
   filtersJson    Json
   status         CompanyImportPartitionStatus @default(PENDING)
   estimatedCount Int?
@@ -6859,6 +6860,7 @@ model CompanyImportPartition {
 
   @@index([jobId, status, sortOrder])
   @@index([parentId])
+  @@unique([jobId, partitionKey])
 }
 
 model CompanyClaimRequest {

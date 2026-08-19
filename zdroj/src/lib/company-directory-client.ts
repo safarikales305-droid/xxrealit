@@ -268,6 +268,31 @@ export type ImportJobView = {
   currentPartitionLabel?: string | null;
   regionsCompleted?: number | null;
   regionsTotal?: number | null;
+  currentRegion?: string | null;
+  currentRegionOrder?: number | null;
+  uniqueIcoCount?: number | null;
+  aresDiagnostics?: Array<{
+    at: string;
+    kind: 'COUNT' | 'FETCH';
+    partitionIndex: number;
+    partitionKey: string;
+    partitionLabel: string;
+    endpoint: string;
+    requestBody: Record<string, unknown>;
+    httpStatus: number;
+    pocetCelkem: number | null;
+    returnedCount: number;
+    firstIco: string | null;
+    lastIco: string | null;
+    offset: number;
+    durationMs: number;
+    createdInBatch: number;
+    updatedInBatch: number;
+    existingInBatch: number;
+    skippedInBatch: number;
+    duplicateResultSet: boolean;
+    duplicateOfPartitionIndex: number | null;
+  }>;
   rawResults?: number | null;
   duplicatesSkipped?: number | null;
   importPhase?: string | null;
@@ -512,6 +537,22 @@ export async function nestAdminCompanyImportAction(
   if (!API_BASE_URL) return null;
   const res = await fetch(
     `${API_BASE_URL}/admin/company-directory/import/jobs/${encodeURIComponent(jobId)}/${action}`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function nestAdminCompanyImportTestPartition(
+  token: string,
+  jobId: string,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/company-directory/import/jobs/${encodeURIComponent(jobId)}/test-partition`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },

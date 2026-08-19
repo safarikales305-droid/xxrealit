@@ -34,8 +34,18 @@ import {
   isWholeCountryRegion,
   parseSearchCheckpoint,
   subdivideNaceCode,
+  buildPartitionKeyWithoutPage,
   type AresSearchCheckpoint,
 } from './ares-import-split.util';
+import {
+  appendDiagnostic,
+  ARES_SEARCH_ENDPOINT,
+  computeRegionProgress,
+  icosFromSubjects,
+  resultFingerprint,
+  sanitizeAresRequestBody,
+  type AresRequestDiagnostic,
+} from './ares-import-diagnostics.util';
 import { AresQueryPartitionService } from './ares-query-partition.service';
 import { normalizeAresCompanyForDb } from './company-directory.serializer';
 import { getAresImportSkipReason } from './ares-company-importability.util';
@@ -180,8 +190,9 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
             filter,
             label: cp.subQueryLabels[i] ?? `partition-${i + 1}`,
             depth: cp.subQueryDepths[i] ?? 0,
+            partitionKey: buildPartitionKeyWithoutPage(filter, partitionCtx),
           }));
-          await this.importPartitions.createInitialPartitions(job.id, specs);
+          await this.importPartitions.createInitialPartitions(job.id, specs, partitionCtx);
         }
       }
 
@@ -410,6 +421,123 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+  }
+
+  async testCurrentPartition(jobId: string) {
+    const job = await this.getJobOrThrow(jobId);
+    if (job.importMode !== 'SEARCH') {
+      throw new BadRequestException('Test partition je dostupný jen pro vyhledávací import.');
+    }
+    const checkpoint = parseSearchCheckpoint(job.checkpoint);
+    if (!checkpoint?.subQueries.length) {
+      throw new BadRequestException('Import job nemá připravené partitiony.');
+    }
+
+    const idx = Math.min(checkpoint.subQueryIndex, checkpoint.subQueries.length - 1);
+    const activeFilter = checkpoint.subQueries[idx];
+    const partitionCtx = this.partitionService.buildContext(job);
+    partitionCtx.wholeCountry = isWholeCountryRegion(job.region);
+    const partitionLabel = checkpoint.subQueryLabels[idx] ?? `partition-${idx + 1}`;
+    const partitionKey = buildPartitionKeyWithoutPage(activeFilter, partitionCtx);
+    const startedAt = Date.now();
+
+    const countResult = await this.partitionService.countPartition(activeFilter, partitionCtx, {
+      partitionId: `${jobId}:${idx}`,
+      partitionLabel,
+    });
+
+    const pages: Array<{
+      offset: number;
+      returnedCount: number;
+      pocetCelkem: number | null;
+      firstIco: string | null;
+      lastIco: string | null;
+      httpStatus: number;
+      durationMs: number;
+      existingInPage: number;
+      newInPage: number;
+    }> = [];
+
+    const allIcos: string[] = [];
+    let start = 0;
+    const pocet = 100;
+    let pocetCelkem = countResult.total;
+
+    while (pages.length < 50) {
+      const pageStarted = Date.now();
+      const response = await this.ares.searchCompanies({ ...activeFilter, start, pocet });
+      const subjects = response.ekonomickeSubjekty ?? [];
+      pocetCelkem = response.pocetCelkem ?? pocetCelkem;
+      const { firstIco, lastIco, icos } = icosFromSubjects(subjects);
+      const existingInDb = icos.length
+        ? await this.prisma.companyDirectoryEntry.findMany({
+            where: { ico: { in: icos } },
+            select: { ico: true },
+          })
+        : [];
+      const existingSet = new Set(existingInDb.map((row) => row.ico));
+      allIcos.push(...icos);
+      pages.push({
+        offset: start,
+        returnedCount: subjects.length,
+        pocetCelkem,
+        firstIco,
+        lastIco,
+        httpStatus: 200,
+        durationMs: Date.now() - pageStarted,
+        existingInPage: existingSet.size,
+        newInPage: icos.filter((ico) => !existingSet.has(ico)).length,
+      });
+      const cap = pocetCelkem != null ? Math.min(pocetCelkem, 1000) : null;
+      if (
+        subjects.length === 0 ||
+        subjects.length < pocet ||
+        (cap != null && start + subjects.length >= cap)
+      ) {
+        break;
+      }
+      start += subjects.length;
+    }
+
+    const uniqueIcos = [...new Set(allIcos)];
+    const existingRows = uniqueIcos.length
+      ? await this.prisma.companyDirectoryEntry.findMany({
+          where: { ico: { in: uniqueIcos } },
+          select: { ico: true },
+        })
+      : [];
+    const existingIcoSet = new Set(existingRows.map((row) => row.ico));
+    const newIcos = uniqueIcos.filter((ico) => !existingIcoSet.has(ico));
+
+    return {
+      endpoint: ARES_SEARCH_ENDPOINT,
+      apiVersion: 'ARES REST ekonomicke-subjekty-v-be',
+      partitionIndex: idx,
+      partitionLabel,
+      partitionKey,
+      requestBody: sanitizeAresRequestBody(activeFilter),
+      countRequest: {
+        httpStatus: countResult.httpStatus,
+        pocetCelkem: countResult.total,
+        returnedCount: countResult.returnedCount,
+      },
+      pocetCelkem,
+      pagesRequested: pages.length,
+      rawAresUniqueIco: uniqueIcos.length,
+      pages,
+      dbExisting: existingIcoSet.size,
+      dbNew: newIcos.length,
+      newIcos: newIcos.slice(0, 100),
+      paginationWorking:
+        pages.length > 1 ||
+        (pages[0] != null &&
+          pocetCelkem != null &&
+          pages[0].returnedCount >= Math.min(pocetCelkem, pocet)),
+      naceFilterWorking: Boolean(activeFilter.czNace?.length),
+      regionFilterWorking: activeFilter.sidlo?.kodKraje != null,
+      municipalityFilterWorking: Boolean(activeFilter.sidlo?.nazevObce),
+      durationMs: Date.now() - startedAt,
+    };
   }
 
   async listJobs(limit = 20) {
@@ -680,7 +808,12 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
 
       let checkpoint =
         parseSearchCheckpoint(job.checkpoint) ?? createEmptySearchCheckpoint(null);
-      checkpoint.subQueryStart = checkpoint.subQueryStart || job.lastCursor;
+      if (
+        typeof checkpoint.subQueryStart !== 'number' ||
+        !Number.isFinite(checkpoint.subQueryStart)
+      ) {
+        checkpoint.subQueryStart = 0;
+      }
 
       if (checkpoint.subQueries.length === 0) {
         const parts = buildInitialPartitions(baseFilter, partitionCtx);
@@ -703,10 +836,22 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       checkpoint.phase = 'RUNNING';
 
       const partitionDepth = checkpoint.subQueryDepths[idx] ?? 0;
+      const partitionKey = buildPartitionKeyWithoutPage(activeFilter, partitionCtx);
+      const regionProgress = computeRegionProgress(checkpoint.subQueryLabels, idx);
+      checkpoint.currentRegion = regionProgress.currentRegion;
+      checkpoint.currentRegionOrder = regionProgress.regionOrder;
+      checkpoint.regionsTotal = regionProgress.regionsTotal;
+      checkpoint.regionsCompleted = regionProgress.regionsCompleted;
 
-      const dbWork = await this.importPartitions.getNextWorkPartition(jobId);
-      if (dbWork?.status === 'PENDING') {
-        await this.importPartitions.markPartitionRunning(dbWork.id);
+      const dbPart = await this.importPartitions.getPartitionBySortOrder(jobId, idx);
+      if (dbPart?.status === 'COMPLETED' || dbPart?.status === 'SPLIT') {
+        checkpoint.subQueryIndex = idx + 1;
+        checkpoint.subQueryStart = 0;
+        await this.persistCheckpoint(jobId, job, checkpoint);
+        return;
+      }
+      if (dbPart?.status === 'PENDING') {
+        await this.importPartitions.markPartitionRunning(dbPart.id);
       }
 
       if (checkpoint.subQueryTotals[idx] == null && requests < maxRequests) {
@@ -764,6 +909,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       }
 
       requests += 1;
+      const fetchStarted = Date.now();
       this.partitionService.logPartitionRequest('FETCH', activeFilter, partitionCtx, {
         partitionId: `${jobId}:${idx}`,
         partitionLabel,
@@ -793,7 +939,21 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       }
 
       const subjects = response.ekonomickeSubjekty ?? [];
+      const fetchDurationMs = Date.now() - fetchStarted;
+      const { firstIco, lastIco: responseLastIco, icos: responseIcos } =
+        icosFromSubjects(subjects);
       let subTotal = response.pocetCelkem ?? checkpoint.subQueryTotals[idx] ?? null;
+      const existingBeforeUpsert = responseIcos.length
+        ? await this.prisma.companyDirectoryEntry.findMany({
+            where: { ico: { in: responseIcos } },
+            select: { ico: true },
+          })
+        : [];
+      const existingIcoSet = new Set(existingBeforeUpsert.map((row) => row.ico));
+      let batchCreated = 0;
+      let batchUpdated = 0;
+      let batchExisting = existingIcoSet.size;
+      let batchSkipped = 0;
 
       if (subTotal != null && subTotal > 1000) {
         const splitOk = await this.attemptAutoSplit(
@@ -860,14 +1020,24 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         if (dupInJob) {
           skipped += 1;
           duplicatesSkipped += 1;
+          batchSkipped += 1;
           continue;
         }
 
         try {
           const result = await this.upsertFromSubject(subject, job.category, jobId);
-          if (result.action === 'created') created += 1;
-          if (result.action === 'updated') updated += 1;
-          if (result.action === 'skipped') skipped += 1;
+          if (result.action === 'created') {
+            created += 1;
+            batchCreated += 1;
+          }
+          if (result.action === 'updated') {
+            updated += 1;
+            batchUpdated += 1;
+          }
+          if (result.action === 'skipped') {
+            skipped += 1;
+            batchSkipped += 1;
+          }
           processed += 1;
           lastIco = normalizedIco;
           currentCompanyName = result.name ?? subject.obchodniJmeno ?? null;
@@ -899,6 +1069,66 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
         await this.sleep(Math.min(300, delayMs));
       }
 
+      const fingerprint = resultFingerprint(
+        firstIco,
+        responseLastIco,
+        subjects.length,
+        subTotal,
+        start,
+      );
+      const fingerprints = { ...(checkpoint.resultFingerprints ?? {}) };
+      let duplicateResultSet = false;
+      let duplicateOfPartitionIndex: number | null = null;
+      for (const [partitionIndex, existingFingerprint] of Object.entries(fingerprints)) {
+        if (existingFingerprint === fingerprint && partitionIndex !== String(idx)) {
+          duplicateResultSet = true;
+          duplicateOfPartitionIndex = Number(partitionIndex);
+          break;
+        }
+      }
+      fingerprints[String(idx)] = fingerprint;
+      checkpoint.resultFingerprints = fingerprints;
+
+      const diagnosticEntry: AresRequestDiagnostic = {
+        at: new Date().toISOString(),
+        kind: 'FETCH',
+        partitionIndex: idx,
+        partitionKey,
+        partitionLabel,
+        endpoint: ARES_SEARCH_ENDPOINT,
+        requestBody: sanitizeAresRequestBody({ ...activeFilter, start, pocet }),
+        httpStatus: 200,
+        pocetCelkem: subTotal,
+        returnedCount: subjects.length,
+        firstIco,
+        lastIco: responseLastIco,
+        offset: start,
+        durationMs: fetchDurationMs,
+        createdInBatch: batchCreated,
+        updatedInBatch: batchUpdated,
+        existingInBatch: batchExisting,
+        skippedInBatch: batchSkipped,
+        duplicateResultSet,
+        duplicateOfPartitionIndex,
+      };
+      checkpoint.aresDiagnostics = appendDiagnostic(
+        checkpoint.aresDiagnostics ?? [],
+        diagnosticEntry,
+      );
+      if (duplicateResultSet) {
+        this.log.warn(
+          `[ARES-IMPORT] DUPLICATE_RESULT_SET job=${jobId} partition=${idx} duplicateOf=${duplicateOfPartitionIndex} label=${partitionLabel}`,
+        );
+        await this.appendAudit(
+          jobId,
+          `DUPLICATE_RESULT_SET: partition ${idx} stejné IČO jako partition ${duplicateOfPartitionIndex}`,
+        );
+      }
+
+      this.log.log(
+        `[ARES-IMPORT] FETCH job=${jobId} partition=${idx + 1}/${checkpoint.subQueries.length} offset=${start} total=${subTotal ?? '—'} returned=${subjects.length} first=${firstIco ?? '—'} last=${responseLastIco ?? '—'} new=${batchCreated} updated=${batchUpdated} existing=${batchExisting} ${fetchDurationMs}ms`,
+      );
+
       const partitionTotal = subTotal ?? checkpoint.subQueryTotals[idx] ?? null;
       const nextStart = start + subjects.length;
       const subQueryExhausted =
@@ -912,13 +1142,19 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       if (subQueryExhausted && checkpoint.subQueries.length > 0) {
         nextSubQueryIndex += 1;
         nextSubQueryStart = 0;
-        await this.importPartitions.completeRunningPartitions(jobId);
-        if (partitionCtx.wholeCountry) {
-          checkpoint.regionsCompleted = Math.min(
-            checkpoint.regionsTotal ?? 14,
-            checkpoint.regionsCompleted + 1,
-          );
+        if (dbPart) {
+          await this.importPartitions.completePartition(dbPart.id, {
+            cursor: nextStart,
+            processedCount: nextStart,
+          });
         }
+        const nextRegionProgress = computeRegionProgress(
+          checkpoint.subQueryLabels,
+          nextSubQueryIndex,
+        );
+        checkpoint.regionsCompleted = nextRegionProgress.regionsCompleted;
+        checkpoint.currentRegion = nextRegionProgress.currentRegion;
+        checkpoint.currentRegionOrder = nextRegionProgress.regionOrder;
       }
 
       const allSubQueriesDone =
@@ -950,7 +1186,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           updated,
           failed,
           skipped,
-          lastCursor: checkpoint.subQueries.length > 0 ? nextSubQueryStart : nextStart,
+          lastCursor: nextSubQueryStart,
           lastIco,
           totalExpected,
           requestsCount: { increment: requests },
@@ -1234,6 +1470,11 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     const checkpoint = parseSearchCheckpoint(job.checkpoint);
     const isComplete = job.status === CompanyImportJobStatus.COMPLETED;
     const partitionStats = await this.importPartitions.getProgressStats(job.id);
+    const uniqueIcoGroups = await this.prisma.companyImportItem.groupBy({
+      by: ['ico'],
+      where: { jobId: job.id },
+    });
+    const uniqueIcoCount = uniqueIcoGroups.length;
 
     const totalPartitions =
       partitionStats.total > 0
@@ -1315,6 +1556,10 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
       subQueryCount: checkpoint?.subQueries?.length ?? null,
       regionsCompleted: checkpoint?.regionsCompleted ?? null,
       regionsTotal: checkpoint?.regionsTotal ?? null,
+      currentRegion: checkpoint?.currentRegion ?? null,
+      currentRegionOrder: checkpoint?.currentRegionOrder ?? null,
+      uniqueIcoCount,
+      aresDiagnostics: checkpoint?.aresDiagnostics ?? [],
       rawResults: checkpoint?.rawResults ?? null,
       duplicatesSkipped: checkpoint?.duplicatesSkipped ?? null,
       importPhase: checkpoint?.phase ?? null,
@@ -1328,6 +1573,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     checkpoint: AresSearchCheckpoint,
     index: number,
     children: Array<{ filter: AresSearchFilter; label: string; depth: number }>,
+    partitionCtx: ReturnType<AresQueryPartitionService['buildContext']>,
   ) {
     const before = checkpoint.subQueries.slice(0, index);
     const beforeLabels = checkpoint.subQueryLabels.slice(0, index);
@@ -1378,7 +1624,7 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
     });
     const parentPart = dbParts[index];
     if (parentPart) {
-      await this.importPartitions.splitPartition(parentPart.id, children);
+      await this.importPartitions.splitPartition(parentPart.id, children, partitionCtx);
     }
 
     this.log.warn(
@@ -1446,13 +1692,17 @@ export class CompanyImportService implements OnModuleInit, OnModuleDestroy {
           filter: { ...activeFilter, czNace: [nace], start: 0 },
           label: `${partitionLabel} · nace=${nace}`,
           depth: partitionDepth + 1,
+          partitionKey: buildPartitionKeyWithoutPage(
+            { ...activeFilter, czNace: [nace] },
+            partitionCtx,
+          ),
         }));
       }
     }
 
     if (children.length === 0) return false;
 
-    await this.replacePartitionAtIndex(jobId, checkpoint, idx, children);
+    await this.replacePartitionAtIndex(jobId, checkpoint, idx, children, partitionCtx);
 
     await this.appendAudit(
       jobId,

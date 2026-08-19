@@ -177,6 +177,11 @@ export class CompanyDirectoryAdminController {
     return this.importService.resumeWithResplit(id);
   }
 
+  @Post('import/jobs/:id/test-partition')
+  testImportPartition(@Param('id') id: string) {
+    return this.importService.testCurrentPartition(id);
+  }
+
   @Get('google/jobs')
   listGoogleJobs() {
     return this.google.listJobs();

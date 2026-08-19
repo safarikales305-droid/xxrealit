@@ -2,32 +2,67 @@ import { Injectable } from '@nestjs/common';
 import { CompanyImportPartitionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import type { AresSearchFilter } from './ares.types';
+import { buildPartitionKeyWithoutPage } from './ares-import-split.util';
+import type { AresPartitionContext } from './ares-import-split.util';
 
 export type PartitionSpec = {
   filter: AresSearchFilter;
   label: string;
   depth: number;
+  partitionKey?: string;
 };
 
 @Injectable()
 export class CompanyImportPartitionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createInitialPartitions(jobId: string, specs: PartitionSpec[]) {
+  async createInitialPartitions(
+    jobId: string,
+    specs: PartitionSpec[],
+    ctx?: AresPartitionContext,
+  ) {
     if (!specs.length) return [];
-    await this.prisma.companyImportPartition.createMany({
-      data: specs.map((spec, index) => ({
-        jobId,
-        sortOrder: index,
-        depth: spec.depth,
-        label: spec.label,
-        filtersJson: spec.filter as Prisma.InputJsonValue,
-        status: CompanyImportPartitionStatus.PENDING,
-      })),
+    const partitionCtx = ctx ?? {};
+    const data = specs.map((spec, index) => ({
+      jobId,
+      sortOrder: index,
+      depth: spec.depth,
+      label: spec.label,
+      partitionKey:
+        spec.partitionKey ?? buildPartitionKeyWithoutPage(spec.filter, partitionCtx),
+      filtersJson: spec.filter as Prisma.InputJsonValue,
+      status: CompanyImportPartitionStatus.PENDING,
+    }));
+
+    const existingKeys = new Set(
+      (
+        await this.prisma.companyImportPartition.findMany({
+          where: { jobId },
+          select: { partitionKey: true },
+        })
+      )
+        .map((row) => row.partitionKey)
+        .filter((key): key is string => Boolean(key)),
+    );
+
+    const uniqueData = data.filter((row) => {
+      if (!row.partitionKey || existingKeys.has(row.partitionKey)) return false;
+      existingKeys.add(row.partitionKey);
+      return true;
     });
+
+    if (!uniqueData.length) return [];
+
+    await this.prisma.companyImportPartition.createMany({ data: uniqueData });
     return this.prisma.companyImportPartition.findMany({
       where: { jobId },
       orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async getPartitionBySortOrder(jobId: string, sortOrder: number) {
+    return this.prisma.companyImportPartition.findFirst({
+      where: { jobId, sortOrder },
     });
   }
 
@@ -68,6 +103,7 @@ export class CompanyImportPartitionService {
   async splitPartition(
     partitionId: string,
     children: PartitionSpec[],
+    ctx: AresPartitionContext = {},
   ): Promise<void> {
     const parent = await this.prisma.companyImportPartition.findUnique({
       where: { id: partitionId },
@@ -107,9 +143,12 @@ export class CompanyImportPartitionService {
         sortOrder: parent.sortOrder + index + 1,
         depth: child.depth,
         label: child.label,
+        partitionKey:
+          child.partitionKey ?? buildPartitionKeyWithoutPage(child.filter, ctx),
         filtersJson: child.filter as Prisma.InputJsonValue,
         status: CompanyImportPartitionStatus.PENDING,
       })),
+      skipDuplicates: true,
     });
   }
 
@@ -154,6 +193,24 @@ export class CompanyImportPartitionService {
     await this.prisma.companyImportPartition.update({
       where: { id: partitionId },
       data: { status: CompanyImportPartitionStatus.RUNNING, startedAt: new Date() },
+    });
+  }
+
+  async completePartition(
+    partitionId: string,
+    stats?: { cursor?: number; processedCount?: number; createdCount?: number; updatedCount?: number; skippedCount?: number },
+  ) {
+    await this.prisma.companyImportPartition.update({
+      where: { id: partitionId },
+      data: {
+        status: CompanyImportPartitionStatus.COMPLETED,
+        completedAt: new Date(),
+        ...(stats?.cursor != null ? { cursor: stats.cursor } : {}),
+        ...(stats?.processedCount != null ? { processedCount: stats.processedCount } : {}),
+        ...(stats?.createdCount != null ? { createdCount: stats.createdCount } : {}),
+        ...(stats?.updatedCount != null ? { updatedCount: stats.updatedCount } : {}),
+        ...(stats?.skippedCount != null ? { skippedCount: stats.skippedCount } : {}),
+      },
     });
   }
 

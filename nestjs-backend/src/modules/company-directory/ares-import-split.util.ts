@@ -65,6 +65,10 @@ export type AresSearchCheckpoint = {
   duplicatesSkipped: number;
   stopped: boolean;
   needsResplit: boolean;
+  aresDiagnostics?: import('./ares-import-diagnostics.util').AresRequestDiagnostic[];
+  resultFingerprints?: Record<string, string>;
+  currentRegion?: string | null;
+  currentRegionOrder?: number | null;
 };
 
 export type AresPartitionContext = {
@@ -141,6 +145,23 @@ export function isPragueFilter(sidlo?: AresSearchFilter['sidlo']): boolean {
   if (sidlo.kodKraje === 19) return true;
   const obec = (sidlo.nazevObce ?? '').toLowerCase();
   return obec === 'praha' || obec.startsWith('praha ');
+}
+
+export function buildPartitionKeyWithoutPage(
+  filter: AresSearchFilter,
+  ctx: AresPartitionContext,
+): string {
+  const sidlo = filter.sidlo ?? {};
+  return [
+    ctx.category ?? '',
+    (filter.czNace ?? []).join(','),
+    sidlo.kodKraje ?? '',
+    sidlo.kodOkresu ?? '',
+    sidlo.nazevOkresu ?? '',
+    sidlo.kodObce ?? '',
+    sidlo.nazevObce ?? '',
+    sidlo.textovaAdresa ?? '',
+  ].join('|');
 }
 
 export function pragueDistrictFilters(): Array<NonNullable<AresSearchFilter['sidlo']>> {
@@ -228,7 +249,7 @@ export function buildInitialPartitions(
         }
       }
     }
-    return dedupePartitionSpecs(out);
+    return dedupePartitionSpecs(out, ctx);
   }
 
   if (isPragueLocation(ctx.city, ctx.region)) {
@@ -243,7 +264,7 @@ export function buildInitialPartitions(
         });
       }
     }
-    return dedupePartitionSpecs(out);
+    return dedupePartitionSpecs(out, ctx);
   }
 
   return [
@@ -284,7 +305,7 @@ export function splitPartitionFurther(
         out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
       }
     }
-    return dedupePartitionSpecs(out);
+    return dedupePartitionSpecs(out, ctx);
   }
 
   if (sidlo.kodKraje && !sidlo.nazevOkresu && !sidlo.nazevObce) {
@@ -300,7 +321,7 @@ export function splitPartitionFurther(
           out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
         }
       }
-      return dedupePartitionSpecs(out);
+      return dedupePartitionSpecs(out, ctx);
     }
   }
 
@@ -314,7 +335,7 @@ export function splitPartitionFurther(
       const child = buildPartition(filter, nace, sidlo);
       out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
     }
-    return dedupePartitionSpecs(out);
+    return dedupePartitionSpecs(out, ctx);
   }
 
   if (filter.czNace?.length === 1) {
@@ -325,7 +346,7 @@ export function splitPartitionFurther(
         const child = buildPartition(filter, nace, sidlo);
         out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
       }
-      return dedupePartitionSpecs(out);
+      return dedupePartitionSpecs(out, ctx);
     }
   }
 
@@ -335,7 +356,7 @@ export function splitPartitionFurther(
       const child = buildPartition(filter, nace, { ...sidlo, textovaAdresa: sidlo.nazevOkresu });
       out.push({ filter: child, label: partitionLabel(child, ctx), depth: depth + 1 });
     }
-    if (out.length) return dedupePartitionSpecs(out);
+    if (out.length) return dedupePartitionSpecs(out, ctx);
   }
 
   return [];
@@ -343,14 +364,12 @@ export function splitPartitionFurther(
 
 function dedupePartitionSpecs(
   specs: Array<{ filter: AresSearchFilter; label: string; depth: number }>,
+  ctx: AresPartitionContext = {},
 ): Array<{ filter: AresSearchFilter; label: string; depth: number }> {
   const seen = new Set<string>();
   const out: typeof specs = [];
   for (const spec of specs) {
-    const key = JSON.stringify({
-      czNace: spec.filter.czNace ?? [],
-      sidlo: spec.filter.sidlo ?? {},
-    });
+    const key = buildPartitionKeyWithoutPage(spec.filter, ctx);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(spec);
@@ -424,7 +443,10 @@ export function parseSearchCheckpoint(raw: unknown): AresSearchCheckpoint | null
       ? (c.subQueryLabels as string[])
       : (c.subQueries as AresSearchFilter[]).map((_, i) => `partition-${i + 1}`),
     subQueryIndex: Number(c.subQueryIndex ?? 0) || 0,
-    subQueryStart: Number(c.subQueryStart ?? 0) || 0,
+    subQueryStart:
+      typeof c.subQueryStart === 'number' && Number.isFinite(c.subQueryStart)
+        ? c.subQueryStart
+        : Number(c.subQueryStart ?? 0) || 0,
     subQueryTotals: Array.isArray(c.subQueryTotals)
       ? (c.subQueryTotals as Array<number | null>)
       : [],
@@ -443,6 +465,18 @@ export function parseSearchCheckpoint(raw: unknown): AresSearchCheckpoint | null
     duplicatesSkipped: Number(c.duplicatesSkipped ?? 0) || 0,
     stopped: c.stopped === true,
     needsResplit: c.needsResplit === true,
+    aresDiagnostics: Array.isArray(c.aresDiagnostics)
+      ? (c.aresDiagnostics as import('./ares-import-diagnostics.util').AresRequestDiagnostic[])
+      : [],
+    resultFingerprints:
+      c.resultFingerprints && typeof c.resultFingerprints === 'object'
+        ? (c.resultFingerprints as Record<string, string>)
+        : {},
+    currentRegion: typeof c.currentRegion === 'string' ? c.currentRegion : null,
+    currentRegionOrder:
+      c.currentRegionOrder != null && Number.isFinite(Number(c.currentRegionOrder))
+        ? Number(c.currentRegionOrder)
+        : null,
   };
 }
 
