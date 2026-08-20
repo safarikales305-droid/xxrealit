@@ -21,6 +21,11 @@ import {
   nestAdminRegenerateNewsArticle,
   nestAdminRejectNewsArticle,
   nestAdminRunNewsFetch,
+  nestAdminTestNewsImportOne,
+  nestAdminTestNewsPipeline,
+  nestAdminTestNewsRss,
+  nestAdminSyncNewsPortalPost,
+  nestAdminRepublishNewsFacebook,
   nestAdminUpdateNewsArticle,
   nestAdminUpdateNewsSettings,
   nestAdminUpdateNewsSource,
@@ -33,6 +38,8 @@ import {
   type NewsSourceRow,
   type NewsSourceType,
   type NewsWorkerStatus,
+  type NewsRssTestResponse,
+  type NewsRssImportTestResponse,
 } from '@/lib/news-editorial-client';
 
 type Tab =
@@ -113,6 +120,10 @@ export default function AdminAktualityPage() {
   const [importUrl, setImportUrl] = useState('');
   const [rejectModal, setRejectModal] = useState<{ id: string; title: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('Nerelevantní pro portál');
+  const [rssTestResult, setRssTestResult] = useState<
+    (NewsRssTestResponse | NewsRssImportTestResponse) | null
+  >(null);
+  const [rssTestSourceName, setRssTestSourceName] = useState<string | null>(null);
 
   const refreshDashboard = useCallback(async () => {
     if (!token) return;
@@ -582,6 +593,72 @@ export default function AdminAktualityPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
+                        {(source.type === 'RSS' || source.type === 'ATOM') ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                setErrMsg(null);
+                                const res = await nestAdminTestNewsRss(token, source.id);
+                                setBusy(false);
+                                if (!res.ok) {
+                                  setErrMsg(res.message);
+                                  return;
+                                }
+                                setRssTestSourceName(source.name);
+                                setRssTestResult(res.data);
+                              }}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                            >
+                              Otestovat RSS ze serveru
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                setErrMsg(null);
+                                const res = await nestAdminTestNewsImportOne(token, source.id);
+                                setBusy(false);
+                                if (!res.ok) {
+                                  setErrMsg(res.message);
+                                  return;
+                                }
+                                setRssTestSourceName(source.name);
+                                setRssTestResult(res.data);
+                                void refreshArticles();
+                              }}
+                              className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800"
+                            >
+                              Test + import 1
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                setErrMsg(null);
+                                const res = await nestAdminTestNewsPipeline(token, source.id);
+                                setBusy(false);
+                                if (!res.ok) {
+                                  setErrMsg(res.message);
+                                  return;
+                                }
+                                setRssTestSourceName(source.name);
+                                setRssTestResult(res.data);
+                                void refreshArticles();
+                              }}
+                              className="rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-800"
+                            >
+                              Test pipeline
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           disabled={busy}
@@ -613,6 +690,83 @@ export default function AdminAktualityPage() {
               </tbody>
             </table>
           </section>
+
+          {rssTestResult && rssTestSourceName ? (
+            <section className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-lg font-semibold text-blue-950">
+                  RSS TEST – {rssTestSourceName}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRssTestResult(null);
+                    setRssTestSourceName(null);
+                  }}
+                  className="text-xs font-semibold text-blue-800 hover:underline"
+                >
+                  Zavřít
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm text-blue-950 sm:grid-cols-2">
+                <p>
+                  Stav:{' '}
+                  <strong>{rssTestResult.diagnostics.ok ? '✅ FUNGUJE' : '❌ CHYBA'}</strong>
+                </p>
+                <p>HTTP: {rssTestResult.diagnostics.httpStatus ?? '—'}</p>
+                <p className="break-all">Final URL: {rssTestResult.diagnostics.finalUrl}</p>
+                <p>Content-Type: {rssTestResult.diagnostics.contentType ?? '—'}</p>
+                <p>Response time: {rssTestResult.diagnostics.responseTimeMs} ms</p>
+                <p>Feed title: {rssTestResult.diagnostics.feedTitle ?? '—'}</p>
+                <p>Položek: {rssTestResult.diagnostics.itemCount}</p>
+                <p>Parser: {rssTestResult.diagnostics.parserOk ? 'OK' : 'FAIL'}</p>
+                <p>Encoding: {rssTestResult.diagnostics.encoding ?? '—'}</p>
+                {rssTestResult.diagnostics.errorCode ? (
+                  <p className="text-red-700 sm:col-span-2">
+                    {rssTestResult.diagnostics.errorCode}: {rssTestResult.diagnostics.errorMessage}
+                  </p>
+                ) : null}
+                {'draftCreated' in rssTestResult ? (
+                  <p className="sm:col-span-2">
+                    Import:{' '}
+                    {rssTestResult.sourceItemCreated ? 'Source item vytvořen' : 'Duplicita / existuje'}{' '}
+                    · Relevance: {rssTestResult.relevanceScore ?? '—'} · Draft:{' '}
+                    {rssTestResult.draftCreated ? 'vytvořen' : 'ne'}
+                    {rssTestResult.articleId ? (
+                      <>
+                        {' '}
+                        ·{' '}
+                        <Link
+                          href={`/admin/aktuality?tab=ai`}
+                          className="font-semibold text-orange-700 hover:underline"
+                        >
+                          Otevřít návrh
+                        </Link>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
+              {rssTestResult.diagnostics.previewItems?.length ? (
+                <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
+                  {rssTestResult.diagnostics.previewItems.map((item, idx) => (
+                    <li key={`${item.url}-${idx}`}>
+                      <p className="font-medium">{item.title}</p>
+                      <p className="text-xs text-zinc-600">{formatDate(item.publishedAt)}</p>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-orange-700 hover:underline"
+                      >
+                        {item.url}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+            </section>
+          ) : null}
         </div>
       ) : null}
 
@@ -863,7 +1017,41 @@ export default function AdminAktualityPage() {
                   setSettings((s) => s && { ...s, createFacebookPost: e.target.checked })
                 }
               />
-              Publikovat na Facebook
+              Publikovat tento příspěvek na Facebook
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              Systémový profil (popisek ve feedu)
+              <input
+                type="text"
+                value={settings.portalPostAuthorLabel ?? 'Redakce XXREALIT'}
+                onChange={(e) =>
+                  setSettings((s) => s && { ...s, portalPostAuthorLabel: e.target.value })
+                }
+                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.addHashtags !== false}
+                onChange={(e) =>
+                  setSettings((s) => s && { ...s, addHashtags: e.target.checked })
+                }
+              />
+              Přidat hashtagy na Facebook
+            </label>
+            <label className="block text-sm">
+              Max délka teaseru
+              <input
+                type="number"
+                min={120}
+                max={500}
+                value={settings.maxTeaserLength ?? 280}
+                onChange={(e) =>
+                  setSettings((s) => s && { ...s, maxTeaserLength: Number(e.target.value) })
+                }
+                className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+              />
             </label>
             <button
               type="submit"

@@ -10,6 +10,9 @@ export type NewsAutomationSettings = {
   autoPublishMinQuality: number;
   createPortalPost: boolean;
   createFacebookPost: boolean;
+  portalPostAuthorLabel: string;
+  addHashtags: boolean;
+  maxTeaserLength: number;
   defaultOgImageUrl?: string;
 };
 
@@ -23,6 +26,9 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   autoPublishMinQuality: 80,
   createPortalPost: true,
   createFacebookPost: false,
+  portalPostAuthorLabel: 'Redakce XXREALIT',
+  addHashtags: true,
+  maxTeaserLength: 280,
   defaultOgImageUrl: '/images/aktuality-default-og.jpg',
 };
 

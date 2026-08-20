@@ -3,12 +3,13 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { NewsArticleStatus, NewsPublishMode, Prisma } from '@prisma/client';
+import { NewsArticleStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { buildArticleSchema, runQualityGate } from './news-editorial.util';
 import { NewsAuditService } from './news-audit.service';
 import { NewsArticleService } from './news-article.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
+import { NewsPortalPostService } from './news-portal-post.service';
 
 @Injectable()
 export class NewsPublishService {
@@ -19,11 +20,15 @@ export class NewsPublishService {
     private readonly audit: NewsAuditService,
     private readonly articles: NewsArticleService,
     private readonly settings: NewsEditorialSettingsService,
+    private readonly portalPosts: NewsPortalPostService,
   ) {}
 
   async publish(id: string, options?: { force?: boolean }) {
     const article = await this.articles.getArticle(id);
     if (article.status === NewsArticleStatus.PUBLISHED) {
+      await this.portalPosts.syncFromArticle(id, {
+        enqueueFacebook: this.settings.getCached().createFacebookPost,
+      });
       return article;
     }
 
@@ -36,7 +41,7 @@ export class NewsPublishService {
           `Kvalita ${gate.qualityScore} je pod minimem ${cfg.autoPublishMinQuality}.`,
         );
       }
-      if (!gate.passed && cfg.publishMode !== NewsPublishMode.MANUAL) {
+      if (!gate.passed && cfg.publishMode !== 'MANUAL') {
         throw new BadRequestException(`Quality gate: ${gate.issues.join(' ')}`);
       }
     }
@@ -68,22 +73,13 @@ export class NewsPublishService {
       },
     });
 
-    if (cfg.createPortalPost) {
-      await this.createPortalPost(updated.id);
-    }
-    if (cfg.createFacebookPost) {
-      await this.audit.log('FACEBOOK_POST_QUEUED', 'Facebook publikace zatím pouze audit flag', {
-        articleId: id,
-        metadata: { queued: true },
-      });
-      await this.prisma.newsArticle.update({
-        where: { id },
-        data: { facebookQueued: true },
-      });
-    }
+    const portalResult = await this.portalPosts.syncFromArticle(updated.id, {
+      enqueueFacebook: cfg.createFacebookPost,
+    });
 
     await this.audit.log('ARTICLE_PUBLISHED', `Publikován článek: ${updated.title}`, {
       articleId: id,
+      metadata: { portalResult: portalResult as object },
     });
 
     return this.articles.getArticle(id);
@@ -128,45 +124,15 @@ export class NewsPublishService {
     return { count: published.length };
   }
 
-  private async createPortalPost(articleId: string) {
-    const article = await this.articles.getArticle(articleId);
-    if (article.portalPostId) return;
+  async syncPortalPost(articleId: string) {
+    return this.portalPosts.syncFromArticle(articleId, { enqueueFacebook: false });
+  }
 
-    const systemUserId = process.env.PORTAL_SYSTEM_USER_ID?.trim();
-    if (!systemUserId) {
-      await this.audit.log('PORTAL_POST_SKIPPED', 'PORTAL_SYSTEM_USER_ID není nastaveno', {
-        articleId,
-      });
-      return;
-    }
+  async hidePortalPost(articleId: string) {
+    return this.portalPosts.hideFromArticle(articleId);
+  }
 
-    const teaser = article.perex.slice(0, 280);
-    const path = article.canonicalPath ?? `/aktuality/${article.slug}`;
-    const post = await this.prisma.post.create({
-      data: {
-        userId: systemUserId,
-        content: `📰 Novinka z realitního trhu\n\n${teaser}\n\n👉 Přečíst celý článek: ${path}`,
-        seoTitle: article.seoTitle,
-        seoDescription: article.seoDescription,
-        slug: `${article.slug}-novinka`.slice(0, 80),
-        source: 'INTERNAL',
-        publishedAt: new Date(),
-        externalUrl: path,
-        previewTitle: article.title,
-        previewDescription: article.perex.slice(0, 200),
-        previewImage: article.ogImageUrl,
-        previewSiteName: 'XXREALIT',
-      },
-    });
-
-    await this.prisma.newsArticle.update({
-      where: { id: articleId },
-      data: { portalPostId: post.id },
-    });
-
-    await this.audit.log('PORTAL_POST_CREATED', `Vytvořen portálový příspěvek ${post.id}`, {
-      articleId,
-      metadata: { postId: post.id },
-    });
+  async republishFacebook(articleId: string, adminUserId?: string) {
+    return this.portalPosts.republishFacebook(articleId, adminUserId);
   }
 }

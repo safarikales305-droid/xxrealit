@@ -22,6 +22,7 @@ import { NewsAuditService } from './news-audit.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
 import { NewsFetchService } from './news-fetch.service';
 import { NewsPublishService } from './news-publish.service';
+import { NewsRssTestService } from './news-rss-test.service';
 import { NewsSourceService } from './news-source.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
@@ -35,6 +36,7 @@ export class NewsEditorialAdminController {
     private readonly settings: NewsEditorialSettingsService,
     private readonly fetchService: NewsFetchService,
     private readonly publish: NewsPublishService,
+    private readonly rssTest: NewsRssTestService,
     private readonly worker: NewsEditorialWorkerService,
     private readonly audit: NewsAuditService,
   ) {}
@@ -126,7 +128,7 @@ export class NewsEditorialAdminController {
   }
 
   @Patch('articles/:id')
-  updateArticle(
+  async updateArticle(
     @Param('id') id: string,
     @Body()
     body: Partial<{
@@ -145,7 +147,7 @@ export class NewsEditorialAdminController {
     }>,
   ) {
     const { scheduledAt, ...rest } = body;
-    return this.articles.updateArticle(id, {
+    const updated = await this.articles.updateArticle(id, {
       ...rest,
       scheduledAt:
         scheduledAt === undefined
@@ -154,6 +156,10 @@ export class NewsEditorialAdminController {
             ? new Date(scheduledAt)
             : null,
     });
+    if (updated.status === NewsArticleStatus.PUBLISHED) {
+      await this.publish.syncPortalPost(id);
+    }
+    return this.articles.getArticle(id);
   }
 
   @Post('articles/:id/publish')
@@ -172,8 +178,35 @@ export class NewsEditorialAdminController {
   }
 
   @Post('articles/:id/reject')
-  rejectArticle(@Param('id') id: string, @Body() body: { reason: string }) {
-    return this.articles.reject(id, body.reason ?? 'Zamítnuto redakcí');
+  async rejectArticle(@Param('id') id: string, @Body() body: { reason: string }) {
+    const updated = await this.articles.reject(id, body.reason ?? 'Zamítnuto redakcí');
+    await this.publish.hidePortalPost(id);
+    return updated;
+  }
+
+  @Post('articles/:id/sync-portal-post')
+  syncPortalPost(@Param('id') id: string) {
+    return this.publish.syncPortalPost(id);
+  }
+
+  @Post('articles/:id/republish-facebook')
+  republishFacebook(@Param('id') id: string) {
+    return this.publish.republishFacebook(id);
+  }
+
+  @Post('sources/:id/test-rss')
+  testRss(@Param('id') id: string) {
+    return this.rssTest.testSource(id);
+  }
+
+  @Post('sources/:id/test-import-one')
+  testImportOne(@Param('id') id: string) {
+    return this.rssTest.testImportOne(id);
+  }
+
+  @Post('sources/:id/test-pipeline')
+  testPipeline(@Param('id') id: string) {
+    return this.rssTest.testPipeline(id);
   }
 
   @Post('articles/:id/quality')

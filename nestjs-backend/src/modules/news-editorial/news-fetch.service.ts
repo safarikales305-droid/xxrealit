@@ -128,6 +128,55 @@ export class NewsFetchService {
     return { sourceId: source.id, ok: false, error: lastError };
   }
 
+  async importSingleItem(
+    sourceId: string,
+    item: Awaited<ReturnType<typeof parseFeedXml>>[number],
+  ) {
+    const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
+    if (!source) throw new Error('Zdroj nenalezen');
+
+    const normalizedTitle = normalizeNewsText(item.title);
+    const canonicalUrl = canonicalizeUrl(item.link);
+    const hash = newsContentHash(item.title, canonicalUrl, item.publishedAt);
+    const fingerprint = newsTitleFingerprint(item.title);
+
+    const existingHash = await this.prisma.newsSourceItem.findUnique({
+      where: { sourceId_contentHash: { sourceId: source.id, contentHash: hash } },
+    });
+    if (existingHash) {
+      return {
+        created: false,
+        itemId: existingHash.id,
+        relevanceScore: existingHash.relevanceScore,
+      };
+    }
+
+    const relevanceScore = scoreNewsRelevance(item.title, item.summary);
+    const row = await this.prisma.newsSourceItem.create({
+      data: {
+        sourceId: source.id,
+        externalId: item.externalId,
+        sourceUrl: item.link,
+        canonicalUrl,
+        title: item.title.trim(),
+        summary: item.summary,
+        publishedAt: item.publishedAt,
+        author: item.author,
+        imageUrl: null,
+        contentHash: hash,
+        titleFingerprint: fingerprint,
+        status: NewsSourceItemStatus.NEW,
+        relevanceScore,
+        trustScore: source.trustScore,
+        editorialDecision:
+          relevanceScore >= 50 ? NewsEditorialDecision.HIGH_PRIORITY : NewsEditorialDecision.WATCH,
+        rawMetadata: { manualImport: true, fetchedFrom: source.url },
+      },
+    });
+
+    return { created: true, itemId: row.id, relevanceScore };
+  }
+
   private async persistFeedItems(
     source: NewsSource,
     items: Awaited<ReturnType<typeof parseFeedXml>>,

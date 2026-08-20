@@ -90,6 +90,9 @@ export class NewsEditorialSettingsService implements OnModuleInit {
       autoPublishMinQuality: this.num(o.autoPublishMinQuality, d.autoPublishMinQuality, 0, 100),
       createPortalPost: this.bool(o.createPortalPost, d.createPortalPost),
       createFacebookPost: this.bool(o.createFacebookPost, d.createFacebookPost),
+      portalPostAuthorLabel: this.str(o.portalPostAuthorLabel, d.portalPostAuthorLabel),
+      addHashtags: this.bool(o.addHashtags, d.addHashtags),
+      maxTeaserLength: this.num(o.maxTeaserLength, d.maxTeaserLength, 120, 500),
       defaultOgImageUrl: this.str(o.defaultOgImageUrl ?? '', d.defaultOgImageUrl ?? ''),
     };
 

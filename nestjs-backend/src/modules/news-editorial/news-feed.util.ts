@@ -158,15 +158,203 @@ export async function parseFeedXml(xml: string): Promise<ParsedFeedItem[]> {
   return [];
 }
 
+export const NEWS_FETCH_USER_AGENT =
+  'XXREALIT-NewsBot/1.0 (+https://www.xxrealit.cz)';
+
+export type FeedFetchErrorCode =
+  | 'DNS_ERROR'
+  | 'TIMEOUT'
+  | 'HTTP_403'
+  | 'HTTP_404'
+  | 'HTTP_500'
+  | 'HTTP_ERROR'
+  | 'INVALID_XML'
+  | 'INVALID_RSS'
+  | 'EMPTY_FEED'
+  | 'UNSUPPORTED_ENCODING'
+  | 'REDIRECT_LOOP'
+  | 'UNKNOWN';
+
+export type FeedFetchDiagnostics = {
+  ok: boolean;
+  errorCode?: FeedFetchErrorCode;
+  errorMessage?: string;
+  requestedUrl: string;
+  finalUrl: string;
+  httpStatus?: number;
+  contentType?: string | null;
+  responseTimeMs: number;
+  encoding?: string | null;
+  feedTitle?: string | null;
+  itemCount: number;
+  latestItem?: {
+    title: string;
+    url: string;
+    publishedAt: string | null;
+  } | null;
+  parserOk: boolean;
+  items: ParsedFeedItem[];
+  previewItems: Array<{
+    title: string;
+    url: string;
+    publishedAt: string | null;
+  }>;
+};
+
+function classifyFetchError(err: unknown, httpStatus?: number): FeedFetchErrorCode {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (lower.includes('abort') || lower.includes('timeout')) return 'TIMEOUT';
+  if (lower.includes('enotfound') || lower.includes('getaddrinfo')) return 'DNS_ERROR';
+  if (lower.includes('redirect loop')) return 'REDIRECT_LOOP';
+  if (lower.includes('invalid xml') || lower.includes('non-whitespace')) return 'INVALID_XML';
+  if (httpStatus === 403) return 'HTTP_403';
+  if (httpStatus === 404) return 'HTTP_404';
+  if (httpStatus != null && httpStatus >= 500) return 'HTTP_500';
+  if (httpStatus != null && httpStatus >= 400) return 'HTTP_ERROR';
+  return 'UNKNOWN';
+}
+
+function extractFeedTitle(xml: string): string | null {
+  const match =
+    /<title[^>]*>([^<]+)<\/title>/i.exec(xml) ??
+    /<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i.exec(xml);
+  return match?.[1]?.trim() || null;
+}
+
+export async function fetchFeedDiagnostics(
+  url: string,
+  timeoutMs = NEWS_FETCH_TIMEOUT_MS,
+): Promise<FeedFetchDiagnostics> {
+  const requestedUrl = url.trim();
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(requestedUrl, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+        'User-Agent': NEWS_FETCH_USER_AGENT,
+      },
+    });
+    const finalUrl = res.url || requestedUrl;
+    const contentType = res.headers.get('content-type');
+    const responseTimeMs = Date.now() - started;
+
+    if (!res.ok) {
+      const code = classifyFetchError(new Error(`HTTP ${res.status}`), res.status);
+      return {
+        ok: false,
+        errorCode: code,
+        errorMessage: `Server dostal HTTP ${res.status} od zdroje.`,
+        requestedUrl,
+        finalUrl,
+        httpStatus: res.status,
+        contentType,
+        responseTimeMs,
+        itemCount: 0,
+        parserOk: false,
+        items: [],
+        previewItems: [],
+      };
+    }
+
+    const xml = await res.text();
+    const feedTitle = extractFeedTitle(xml);
+    let items: ParsedFeedItem[] = [];
+    let parserOk = true;
+    let errorCode: FeedFetchErrorCode | undefined;
+    let errorMessage: string | undefined;
+
+    try {
+      items = await parseFeedXml(xml);
+      if (!items.length) {
+        errorCode = 'EMPTY_FEED';
+        errorMessage = 'Feed neobsahuje žádné položky.';
+        parserOk = true;
+      }
+    } catch (err) {
+      parserOk = false;
+      errorCode = 'INVALID_RSS';
+      errorMessage = err instanceof Error ? err.message : 'Parser selhal.';
+    }
+
+    const sorted = [...items].sort((a, b) => {
+      const ta = a.publishedAt?.getTime() ?? 0;
+      const tb = b.publishedAt?.getTime() ?? 0;
+      return tb - ta;
+    });
+    const latest = sorted[0];
+    const previewItems = sorted.slice(0, 5).map((item) => ({
+      title: item.title,
+      url: item.link,
+      publishedAt: item.publishedAt?.toISOString() ?? null,
+    }));
+
+    return {
+      ok: parserOk && items.length > 0,
+      errorCode: items.length ? errorCode : errorCode ?? 'EMPTY_FEED',
+      errorMessage,
+      requestedUrl,
+      finalUrl,
+      httpStatus: res.status,
+      contentType,
+      responseTimeMs,
+      encoding: 'UTF-8',
+      feedTitle,
+      itemCount: items.length,
+      latestItem: latest
+        ? {
+            title: latest.title,
+            url: latest.link,
+            publishedAt: latest.publishedAt?.toISOString() ?? null,
+          }
+        : null,
+      parserOk,
+      items,
+      previewItems,
+    };
+  } catch (err) {
+    const responseTimeMs = Date.now() - started;
+    const errorCode = classifyFetchError(err);
+    const errorMessage =
+      errorCode === 'TIMEOUT'
+        ? 'Vypršel timeout při stahování RSS.'
+        : errorCode === 'DNS_ERROR'
+          ? 'DNS lookup selhal — server nedokázal najít hostitele.'
+          : err instanceof Error
+            ? err.message
+            : String(err);
+    return {
+      ok: false,
+      errorCode,
+      errorMessage,
+      requestedUrl,
+      finalUrl: requestedUrl,
+      responseTimeMs,
+      itemCount: 0,
+      parserOk: false,
+      items: [],
+      previewItems: [],
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchFeedText(url: string, timeoutMs = NEWS_FETCH_TIMEOUT_MS): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: controller.signal,
+      redirect: 'follow',
       headers: {
         Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
-        'User-Agent': 'XXREALIT-NewsBot/1.0',
+        'User-Agent': NEWS_FETCH_USER_AGENT,
       },
     });
     if (!res.ok) {

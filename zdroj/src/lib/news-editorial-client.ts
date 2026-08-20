@@ -63,6 +63,9 @@ export type NewsAutomationSettings = {
   autoPublishMinQuality: number;
   createPortalPost: boolean;
   createFacebookPost: boolean;
+  portalPostAuthorLabel: string;
+  addHashtags: boolean;
+  maxTeaserLength: number;
   defaultOgImageUrl?: string;
 };
 
@@ -500,6 +503,93 @@ export async function nestPublicNewsRelated(slug: string): Promise<NewsRelatedRe
   );
   if (!res.ok) return null;
   return (await res.json()) as NewsRelatedResponse;
+}
+
+export type NewsRssDiagnostics = {
+  ok: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+  requestedUrl: string;
+  finalUrl: string;
+  httpStatus?: number;
+  contentType?: string | null;
+  responseTimeMs: number;
+  encoding?: string | null;
+  feedTitle?: string | null;
+  itemCount: number;
+  latestItem?: { title: string; url: string; publishedAt: string | null } | null;
+  parserOk: boolean;
+  previewItems: Array<{ title: string; url: string; publishedAt: string | null }>;
+};
+
+export type NewsRssTestResponse = {
+  source: { id: string; name: string; url: string; type: string };
+  diagnostics: NewsRssDiagnostics;
+};
+
+export type NewsRssImportTestResponse = NewsRssTestResponse & {
+  sourceItemCreated?: boolean;
+  sourceItemId?: string;
+  duplicate?: boolean;
+  relevanceScore?: number | null;
+  draftCreated?: boolean;
+  articleId?: string | null;
+  pipelineOk?: boolean;
+  previewPath?: string | null;
+  reason?: string;
+};
+
+export async function nestAdminTestNewsRss(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<NewsRssTestResponse>> {
+  return adminFetchResult<NewsRssTestResponse>(token, `/sources/${encodeURIComponent(sourceId)}/test-rss`, {
+    method: 'POST',
+  });
+}
+
+export async function nestAdminTestNewsImportOne(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<NewsRssImportTestResponse>> {
+  return adminFetchResult<NewsRssImportTestResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/test-import-one`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminTestNewsPipeline(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<NewsRssImportTestResponse>> {
+  return adminFetchResult<NewsRssImportTestResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/test-pipeline`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminSyncNewsPortalPost(
+  token: string,
+  articleId: string,
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult<Record<string, unknown>>(
+    token,
+    `/articles/${encodeURIComponent(articleId)}/sync-portal-post`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminRepublishNewsFacebook(
+  token: string,
+  articleId: string,
+): Promise<AdminFetchResult<Record<string, unknown>>> {
+  return adminFetchResult<Record<string, unknown>>(
+    token,
+    `/articles/${encodeURIComponent(articleId)}/republish-facebook`,
+    { method: 'POST' },
+  );
 }
 
 export function newsCategoryLabel(category: string): string {

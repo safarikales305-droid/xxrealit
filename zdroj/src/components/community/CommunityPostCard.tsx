@@ -129,6 +129,10 @@ export function CommunityPostCard({
   }
 
   const isFacebookImport = isFacebookImportPost(p);
+  const isNewsArticle =
+    String(p.type ?? '') === 'NEWS_ARTICLE' ||
+    String(p.previewSiteName ?? '').toLowerCase().includes('aktualit');
+  const articleUrl = isNewsArticle ? externalUrl : '';
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
   const hasFeedMedia = resolvedMedia.mode !== 'none';
   const hasPostSound = Boolean(p.soundTrack?.fileUrl || p.soundTrack?.previewUrl);
@@ -238,6 +242,11 @@ export function CommunityPostCard({
                 Facebook
               </span>
             ) : null}
+            {isNewsArticle ? (
+              <span className="ml-2 inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-800">
+                Aktualita
+              </span>
+            ) : null}
             {p.isFollowedAuthor && isAuthenticated ? (
               <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                 ⭐ Sledujete tohoto autora
@@ -311,20 +320,38 @@ export function CommunityPostCard({
 
       {hasFeedMedia ? (
         <>
-          <FacebookPostMediaBlock
-            media={resolvedMedia}
-            facebookPostType={p.facebookPostType ?? null}
-            postId={id}
-            feedAutoplay
-            compact
-            blurred={false}
-            muted={hasPostSound ? true : muted}
-            showMuteToggle={showMuteForVideo}
-            onToggleMute={onToggleMute}
-            onOpenDetail={onOpenDetail}
-            edgeToEdge
-            className="mt-0"
-          />
+          {isNewsArticle && articleUrl ? (
+            <a href={articleUrl} className="block">
+              <FacebookPostMediaBlock
+                media={resolvedMedia}
+                facebookPostType={p.facebookPostType ?? null}
+                postId={id}
+                feedAutoplay
+                compact
+                blurred={false}
+                muted={hasPostSound ? true : muted}
+                showMuteToggle={showMuteForVideo}
+                onToggleMute={onToggleMute}
+                edgeToEdge
+                className="mt-0"
+              />
+            </a>
+          ) : (
+            <FacebookPostMediaBlock
+              media={resolvedMedia}
+              facebookPostType={p.facebookPostType ?? null}
+              postId={id}
+              feedAutoplay
+              compact
+              blurred={false}
+              muted={hasPostSound ? true : muted}
+              showMuteToggle={showMuteForVideo}
+              onToggleMute={onToggleMute}
+              onOpenDetail={onOpenDetail}
+              edgeToEdge
+              className="mt-0"
+            />
+          )}
           {hasPostSound ? <PostSoundAudio soundTrack={p.soundTrack} /> : null}
         </>
       ) : null}

@@ -1037,6 +1037,8 @@ model Post {
   companyDirectory   CompanyDirectoryEntry? @relation(fields: [companyDirectoryId], references: [id], onDelete: SetNull)
   companyReviewId    String? @unique
   companyReview      CompanyReview? @relation(fields: [companyReviewId], references: [id], onDelete: SetNull)
+  newsArticleId      String? @unique
+  newsArticle        NewsArticle? @relation(fields: [newsArticleId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -7611,6 +7613,10 @@ model NewsArticle {
   topicId            String?           @unique
   topic              NewsTopic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
   portalPostId       String?
+  portalPost         Post?
+  socialTitle        String?
+  socialExcerpt      String?           @db.Text
+  socialImageUrl     String?
   facebookQueued     Boolean           @default(false)
   authorLabel        String            @default("Redakce XXREALIT")
   aiGenerated        Boolean           @default(true)

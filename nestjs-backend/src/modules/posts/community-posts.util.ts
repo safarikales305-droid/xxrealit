@@ -85,7 +85,7 @@ export function buildCommunityPostsWhere(authorRole?: import('@prisma/client').U
 
   return {
     type: { not: 'short' },
-    OR: [{ type: 'COMPANY_REVIEW' }, professionalAuthor],
+    OR: [{ type: 'COMPANY_REVIEW' }, { type: 'NEWS_ARTICLE' }, professionalAuthor],
   };
 }
 
