@@ -7471,3 +7471,250 @@ model CompanyAuditLog {
   @@index([companyId, createdAt])
   @@index([action, createdAt])
 }
+
+// ─── Realitní aktuality / AI redakce ─────────────────────────────────────────
+
+enum NewsSourceType {
+  RSS
+  ATOM
+  API
+  OPEN_DATA
+  WEB_SOURCE
+}
+
+enum NewsSourceItemStatus {
+  NEW
+  ANALYZED
+  IGNORED
+  DUPLICATE
+  MERGED
+  ERROR
+}
+
+enum NewsEditorialDecision {
+  IGNORE
+  WATCH
+  CREATE_DRAFT
+  HIGH_PRIORITY
+}
+
+enum NewsArticleStatus {
+  DRAFT
+  REVIEW
+  SCHEDULED
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum NewsPublishMode {
+  MANUAL
+  AFTER_APPROVAL
+  AUTOMATIC
+}
+
+enum NewsWorkerJobType {
+  SOURCE_FETCH
+  NEWS_ANALYSIS
+  ARTICLE_GENERATION
+  ARTICLE_QA
+  PUBLISH
+  SOCIAL_PUBLISH
+}
+
+enum NewsWorkerJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum NewsSourceHealth {
+  ACTIVE
+  DEGRADED
+  DISABLED
+}
+
+model NewsSource {
+  id                   String           @id @default(cuid())
+  name                 String
+  url                  String
+  type                 NewsSourceType
+  category             String?
+  enabled              Boolean          @default(true)
+  trustScore           Int              @default(80)
+  priority             Int              @default(50)
+  language             String           @default("cs")
+  checkIntervalMinutes Int              @default(30)
+  note                 String?          @db.Text
+  health               NewsSourceHealth @default(ACTIVE)
+  lastCheckedAt        DateTime?
+  lastSuccessAt        DateTime?
+  lastError            String?          @db.Text
+  itemsFoundTotal      Int              @default(0)
+  failureCount         Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  items                NewsSourceItem[]
+  @@unique([url])
+  @@index([enabled, priority])
+}
+
+model NewsTopic {
+  id                  String   @id @default(cuid())
+  slug                String   @unique
+  title               String
+  summary             String?  @db.Text
+  trendScore          Int      @default(0)
+  mergedSourceItemIds String[] @default([])
+  status              String   @default("OPEN")
+  region              String?
+  category            String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  sourceItems         NewsSourceItem[]
+  article             NewsArticle?
+  @@index([status, trendScore])
+}
+
+model NewsArticle {
+  id                 String            @id @default(cuid())
+  slug               String            @unique
+  title              String
+  seoTitle           String
+  seoDescription     String            @db.Text
+  perex              String            @db.Text
+  bodyMarkdown       String            @db.Text
+  bodyHtml           String?           @db.Text
+  canonicalPath      String?
+  ogImageUrl         String?
+  ogImageAlt         String?
+  category           String            @default("reality")
+  region             String?
+  status             NewsArticleStatus @default(DRAFT)
+  qualityScore       Int?
+  relevanceScore     Int?
+  seoScore           Int?
+  publishMode        NewsPublishMode?
+  scheduledAt        DateTime?
+  publishedAt        DateTime?
+  sourcePublishedAt  DateTime?
+  indexable          Boolean           @default(false)
+  robots             String            @default("noindex,nofollow")
+  schemaJson         Json?
+  internalLinksJson  Json?
+  factClaimsJson     Json?
+  sourcesFooterHtml  String?           @db.Text
+  views              Int               @default(0)
+  uniqueViews        Int               @default(0)
+  topicId            String?           @unique
+  topic              NewsTopic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  portalPostId       String?
+  facebookQueued     Boolean           @default(false)
+  authorLabel        String            @default("Redakce XXREALIT")
+  aiGenerated        Boolean           @default(true)
+  editorNotes        String?           @db.Text
+  rejectedReason     String?           @db.Text
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  sources            NewsArticleSource[]
+  analytics          NewsArticleAnalytics?
+  auditLogs          NewsAuditLog[]
+  @@index([status, publishedAt])
+  @@index([category, status])
+  @@index([indexable, publishedAt])
+}
+
+model NewsSourceItem {
+  id                String                 @id @default(cuid())
+  sourceId          String
+  source            NewsSource             @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  externalId        String?
+  sourceUrl         String
+  canonicalUrl      String?
+  title             String
+  summary           String?                @db.Text
+  publishedAt       DateTime?
+  fetchedAt         DateTime               @default(now())
+  author            String?
+  imageUrl          String?
+  rawMetadata       Json?
+  contentHash       String
+  titleFingerprint  String?
+  status            NewsSourceItemStatus   @default(NEW)
+  relevanceScore    Int?
+  seoPotential      Int?
+  userInterest      Int?
+  freshnessScore    Int?
+  trustScore        Int?
+  trendScore        Int                    @default(0)
+  editorialDecision NewsEditorialDecision?
+  topicId           String?
+  topic             NewsTopic?             @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  duplicateOfId     String?
+  errorMessage      String?                @db.Text
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  articleSources    NewsArticleSource[]
+  @@unique([sourceId, contentHash])
+  @@index([sourceId, externalId])
+  @@index([status, fetchedAt])
+  @@index([topicId])
+  @@index([canonicalUrl])
+}
+
+model NewsArticleSource {
+  id                String          @id @default(cuid())
+  articleId         String
+  article           NewsArticle     @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  sourceId          String?
+  sourceItemId      String?
+  sourceItem        NewsSourceItem? @relation(fields: [sourceItemId], references: [id], onDelete: SetNull)
+  sourceName        String
+  sourceUrl         String
+  sourcePublishedAt DateTime?
+  @@index([articleId])
+}
+
+model NewsArticleAnalytics {
+  articleId       String      @id
+  article         NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  views           Int         @default(0)
+  uniqueViews     Int         @default(0)
+  ctrListings     Int         @default(0)
+  ctrCompanies    Int         @default(0)
+  ctrRegistration Int         @default(0)
+  shares          Int         @default(0)
+  avgReadSeconds  Int?
+  organicVisits   Int         @default(0)
+  updatedAt       DateTime    @updatedAt
+}
+
+model NewsWorkerJob {
+  id          String              @id @default(cuid())
+  type        NewsWorkerJobType
+  status      NewsWorkerJobStatus @default(PENDING)
+  payload     Json?
+  progress    Int                 @default(0)
+  result      Json?
+  error       String?             @db.Text
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  heartbeatAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  @@index([type, status, createdAt])
+}
+
+model NewsAuditLog {
+  id        String       @id @default(cuid())
+  articleId String?
+  article   NewsArticle? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  event     String
+  message   String       @db.Text
+  metadata  Json?
+  createdAt DateTime     @default(now())
+  @@index([event, createdAt])
+  @@index([articleId, createdAt])
+}

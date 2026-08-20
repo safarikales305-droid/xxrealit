@@ -40,6 +40,7 @@ import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
 import { PortalProfilesCarousel } from './PortalProfilesCarousel';
 import { FeedSkeletonRows } from '@/components/ui/page-loading';
+import { NewsHomeBlock } from '@/components/news/NewsHomeBlock';
 import type { CommunityCategoryKey } from '@/lib/community-category-roles';
 
 function buildListingFilterQuery(
@@ -1072,6 +1073,7 @@ export function HomeLayout({
             </div>
           ) : null}
           <SidebarFilters className="mt-0 w-full max-w-full flex-col md:mt-2 md:mb-2 lg:mt-4 lg:mb-4" />
+          <NewsHomeBlock limit={4} compact className="mt-3 hidden md:block" />
         </div>
 
         <main
@@ -1479,6 +1481,7 @@ export function HomeLayout({
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block ${viewMode === 'posts' ? 'xl:hidden' : ''}`}>
           <div className="relative z-0 mb-4 mt-4 space-y-4 xl:sticky xl:top-5">
             {renderDesktopSidebarAd()}
+            <NewsHomeBlock limit={5} compact className="hidden xl:block" />
             <RightSidebar className="w-full max-w-full flex-col" />
           </div>
         </div>

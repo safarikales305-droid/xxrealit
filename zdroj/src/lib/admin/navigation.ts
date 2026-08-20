@@ -124,6 +124,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'reel-intro-videos', label: 'Úvodní videa k Reelům', href: '/admin/marketing/uvodni-videa-reels', icon: '🎬' },
       { id: 'emails', label: 'E-mail centrum', href: '/admin/marketing/emaily', icon: '✉' },
       { id: 'seo', label: 'SEO', href: '/admin/seo', icon: '🔍', tone: 'blue' },
+      { id: 'aktuality', label: 'Aktuality', href: '/admin/aktuality', icon: '📰', tone: 'purple' },
       { id: 'registration-gate', label: 'Registrace a výzvy', href: '/admin/registrace-a-vyzvy', icon: '📝' },
     ],
   },

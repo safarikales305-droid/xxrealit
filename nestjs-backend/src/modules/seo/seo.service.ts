@@ -341,7 +341,7 @@ export class SeoService {
   }
 
   private async getArticleSitemapEntries(base: string): Promise<SitemapEntry[]> {
-    const [articles, posts] = await Promise.all([
+    const [articles, posts, newsArticles] = await Promise.all([
       this.prisma.purchaseAdviceArticle.findMany({
         where: { isPublished: true },
         select: { id: true, updatedAt: true },
@@ -363,6 +363,16 @@ export class SeoService {
         take: 50000,
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.newsArticle.findMany({
+        where: {
+          status: 'PUBLISHED',
+          indexable: true,
+          slug: { not: '' },
+        },
+        select: { slug: true, updatedAt: true, publishedAt: true },
+        take: 5000,
+        orderBy: { publishedAt: 'desc' },
+      }),
     ]);
 
     const articleEntries: SitemapEntry[] = articles.map((a) => ({
@@ -370,6 +380,13 @@ export class SeoService {
       lastmod: a.updatedAt.toISOString(),
       changefreq: 'monthly' as const,
       priority: 0.5,
+    }));
+
+    const newsEntries: SitemapEntry[] = newsArticles.map((a) => ({
+      loc: `${base}/aktuality/${a.slug}`,
+      lastmod: (a.publishedAt ?? a.updatedAt).toISOString(),
+      changefreq: 'weekly' as const,
+      priority: 0.55,
     }));
 
     const postEntries: SitemapEntry[] = posts
@@ -385,7 +402,7 @@ export class SeoService {
         };
       });
 
-    return [...articleEntries, ...postEntries];
+    return [...articleEntries, ...newsEntries, ...postEntries];
   }
 
   private async getVideoSitemapEntries(base: string): Promise<SitemapEntry[]> {

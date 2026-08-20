@@ -1,0 +1,537 @@
+import { API_BASE_URL } from './api';
+
+export type NewsArticleCategory =
+  | 'reality'
+  | 'hypoteky'
+  | 'bydleni'
+  | 'ceny-nemovitosti'
+  | 'najmy'
+  | 'stavebnictvi'
+  | 'development'
+  | 'katastr'
+  | 'legislativa'
+  | 'energetika'
+  | 'rekonstrukce'
+  | 'investice'
+  | 'trh'
+  | 'regiony'
+  | 'ubytovani';
+
+export type NewsArticleStatus =
+  | 'DRAFT'
+  | 'REVIEW'
+  | 'SCHEDULED'
+  | 'PUBLISHED'
+  | 'REJECTED'
+  | 'ARCHIVED';
+
+export type NewsPublishMode = 'MANUAL' | 'AFTER_APPROVAL' | 'AUTOMATIC';
+
+export type NewsSourceType = 'RSS' | 'ATOM' | 'API' | 'OPEN_DATA' | 'WEB_SOURCE';
+
+export type NewsSourceHealth = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+
+export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
+  reality: 'Reality',
+  hypoteky: 'Hypotéky',
+  bydleni: 'Bydlení',
+  'ceny-nemovitosti': 'Ceny nemovitostí',
+  najmy: 'Nájmy',
+  stavebnictvi: 'Stavebnictví',
+  development: 'Development',
+  katastr: 'Katastr nemovitostí',
+  legislativa: 'Legislativa',
+  energetika: 'Energetika',
+  rekonstrukce: 'Rekonstrukce',
+  investice: 'Investice',
+  trh: 'Realitní trh',
+  regiony: 'Regionální informace',
+  ubytovani: 'Ubytování',
+};
+
+export const NEWS_ARTICLE_CATEGORIES = Object.entries(NEWS_CATEGORY_LABELS).map(
+  ([value, label]) => ({ value: value as NewsArticleCategory, label }),
+);
+
+export type NewsAutomationSettings = {
+  enabled: boolean;
+  fetchIntervalMinutes: number;
+  publishMode: NewsPublishMode;
+  minArticlesPerDay: number;
+  maxArticlesPerDay: number;
+  publishTimes: string[];
+  autoPublishMinQuality: number;
+  createPortalPost: boolean;
+  createFacebookPost: boolean;
+  defaultOgImageUrl?: string;
+};
+
+export type NewsDashboardStats = {
+  foundToday: number;
+  relevantToday: number;
+  aiDrafts: number;
+  pendingReview: number;
+  publishedToday: number;
+  ignoredToday: number;
+  duplicateToday: number;
+  publishedTotal: number;
+};
+
+export type NewsAdminDashboard = {
+  enabled: boolean;
+  stats: NewsDashboardStats;
+  sources: number;
+  settings: NewsAutomationSettings;
+  categories: Array<{ value: string; label: string }>;
+};
+
+export type NewsSourceRow = {
+  id: string;
+  name: string;
+  url: string;
+  type: NewsSourceType;
+  category: string | null;
+  enabled: boolean;
+  trustScore: number;
+  priority: number;
+  language: string;
+  checkIntervalMinutes: number;
+  note: string | null;
+  health: NewsSourceHealth;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  itemsFoundTotal: number;
+  failureCount: number;
+  stats: {
+    itemsToday: number;
+    itemsTotal: number;
+    duplicatesToday: number;
+  };
+};
+
+export type NewsArticleSourceLink = {
+  id: string;
+  sourceName: string;
+  sourceUrl: string;
+  sourcePublishedAt?: string | null;
+  sourceItemId?: string | null;
+};
+
+export type NewsArticleRow = {
+  id: string;
+  slug: string;
+  title: string;
+  seoTitle: string;
+  seoDescription: string;
+  perex: string;
+  bodyMarkdown?: string;
+  bodyHtml?: string | null;
+  category: string;
+  region?: string | null;
+  status: NewsArticleStatus;
+  qualityScore?: number | null;
+  relevanceScore?: number | null;
+  seoScore?: number | null;
+  indexable?: boolean;
+  robots?: string;
+  publishedAt?: string | null;
+  scheduledAt?: string | null;
+  updatedAt?: string;
+  createdAt?: string;
+  authorLabel?: string;
+  ogImageUrl?: string | null;
+  ogImageAlt?: string | null;
+  sourcesFooterHtml?: string | null;
+  sources?: NewsArticleSourceLink[];
+  editorNotes?: string | null;
+  rejectedReason?: string | null;
+  schemaJson?: Record<string, unknown> | null;
+  topic?: { id: string; title: string; trendScore?: number | null } | null;
+};
+
+export type NewsArticleListResponse = {
+  items: NewsArticleRow[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export type NewsPublicArticleCard = {
+  id: string;
+  slug: string;
+  title: string;
+  perex: string;
+  category: string;
+  region?: string | null;
+  publishedAt: string | null;
+  ogImageUrl?: string | null;
+  ogImageAlt?: string | null;
+  authorLabel: string;
+};
+
+export type NewsPublicListResponse = {
+  items: NewsPublicArticleCard[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export type NewsRelatedResponse = {
+  listings: Array<{
+    id: string;
+    slug: string | null;
+    title: string;
+    city: string | null;
+    price: number | null;
+    mainImage: string | null;
+  }>;
+  posts: Array<{
+    id: string;
+    slug: string | null;
+    seoTitle: string | null;
+    content: string | null;
+    createdAt: string;
+  }>;
+  companies: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    city: string | null;
+    categories: string[];
+  }>;
+};
+
+export type NewsWorkerStatus = {
+  enabled: boolean;
+  online: boolean;
+  lastHeartbeatAt: string | null;
+  lastError: string | null;
+  processing: boolean;
+  settings: NewsAutomationSettings;
+};
+
+export type NewsAuditLogRow = {
+  id: string;
+  articleId?: string | null;
+  event: string;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type AdminFetchResult<T> =
+  | { ok: true; data: T; status: number }
+  | { ok: false; status: number; message: string };
+
+async function adminFetch<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  if (!API_BASE_URL) return null;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (init?.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/news-editorial${path}`, {
+    ...init,
+    headers,
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as T;
+}
+
+async function adminFetchResult<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<AdminFetchResult<T>> {
+  if (!API_BASE_URL) {
+    return { ok: false, status: 0, message: 'API není nakonfigurováno.' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/news-editorial${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    cache: 'no-store',
+  });
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = (await res.json()) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+  if (!res.ok) {
+    const rawMessage = payload?.message;
+    const message =
+      (typeof rawMessage === 'string' && rawMessage) ||
+      (Array.isArray(rawMessage) && rawMessage.map(String).join(', ')) ||
+      (typeof payload?.error === 'string' && payload.error) ||
+      `HTTP ${res.status}`;
+    return { ok: false, status: res.status, message };
+  }
+  return { ok: true, data: (payload ?? {}) as T, status: res.status };
+}
+
+export async function nestAdminNewsDashboard(token: string): Promise<NewsAdminDashboard | null> {
+  return adminFetch<NewsAdminDashboard>(token, '/dashboard');
+}
+
+export async function nestAdminNewsSources(token: string): Promise<NewsSourceRow[] | null> {
+  return adminFetch<NewsSourceRow[]>(token, '/sources');
+}
+
+export async function nestAdminCreateNewsSource(
+  token: string,
+  body: {
+    name: string;
+    url: string;
+    type: NewsSourceType;
+    category?: string;
+    enabled?: boolean;
+    trustScore?: number;
+    priority?: number;
+    checkIntervalMinutes?: number;
+    note?: string;
+  },
+): Promise<NewsSourceRow | null> {
+  return adminFetch<NewsSourceRow>(token, '/sources', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminUpdateNewsSource(
+  token: string,
+  id: string,
+  body: Partial<{
+    name: string;
+    url: string;
+    type: NewsSourceType;
+    category: string | null;
+    enabled: boolean;
+    trustScore: number;
+    priority: number;
+    checkIntervalMinutes: number;
+    note: string | null;
+  }>,
+): Promise<NewsSourceRow | null> {
+  return adminFetch<NewsSourceRow>(token, `/sources/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminDeleteNewsSource(token: string, id: string): Promise<boolean> {
+  if (!API_BASE_URL) return false;
+  const res = await fetch(`${API_BASE_URL}/admin/news-editorial/sources/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  return res.ok;
+}
+
+export async function nestAdminNewsSettings(token: string): Promise<NewsAutomationSettings | null> {
+  return adminFetch<NewsAutomationSettings>(token, '/settings');
+}
+
+export async function nestAdminUpdateNewsSettings(
+  token: string,
+  body: Partial<NewsAutomationSettings>,
+): Promise<NewsAutomationSettings | null> {
+  return adminFetch<NewsAutomationSettings>(token, '/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminNewsArticles(
+  token: string,
+  query?: Record<string, string | number | undefined>,
+): Promise<NewsArticleListResponse | null> {
+  const params = new URLSearchParams();
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value != null && String(value).length > 0) params.set(key, String(value));
+    }
+  }
+  const qs = params.toString();
+  return adminFetch<NewsArticleListResponse>(token, `/articles${qs ? `?${qs}` : ''}`);
+}
+
+export async function nestAdminGetNewsArticle(
+  token: string,
+  id: string,
+): Promise<NewsArticleRow | null> {
+  return adminFetch<NewsArticleRow>(token, `/articles/${encodeURIComponent(id)}`);
+}
+
+export async function nestAdminPublishNewsArticle(
+  token: string,
+  id: string,
+  body?: { force?: boolean },
+): Promise<AdminFetchResult<NewsArticleRow>> {
+  return adminFetchResult<NewsArticleRow>(token, `/articles/${encodeURIComponent(id)}/publish`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function nestAdminRejectNewsArticle(
+  token: string,
+  id: string,
+  reason: string,
+): Promise<NewsArticleRow | null> {
+  return adminFetch<NewsArticleRow>(token, `/articles/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function nestAdminRegenerateNewsArticle(
+  token: string,
+  id: string,
+): Promise<NewsArticleRow | null> {
+  return adminFetch<NewsArticleRow>(token, `/articles/${encodeURIComponent(id)}/regenerate`, {
+    method: 'POST',
+  });
+}
+
+export async function nestAdminRunNewsFetch(
+  token: string,
+): Promise<{ results: unknown[] } | null> {
+  return adminFetch<{ results: unknown[] }>(token, '/worker/run-fetch', { method: 'POST' });
+}
+
+export async function nestAdminNewsWorker(token: string): Promise<NewsWorkerStatus | null> {
+  return adminFetch<NewsWorkerStatus>(token, '/worker');
+}
+
+export async function nestAdminCreateNewsFromUrl(
+  token: string,
+  url: string,
+): Promise<AdminFetchResult<NewsArticleRow>> {
+  return adminFetchResult<NewsArticleRow>(token, '/articles/from-url', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
+export async function nestAdminUpdateNewsArticle(
+  token: string,
+  id: string,
+  body: Partial<{
+    title: string;
+    seoTitle: string;
+    seoDescription: string;
+    perex: string;
+    bodyMarkdown: string;
+    category: string;
+    region: string | null;
+    status: NewsArticleStatus;
+    editorNotes: string | null;
+    scheduledAt: string | null;
+    indexable: boolean;
+    robots: string;
+  }>,
+): Promise<NewsArticleRow | null> {
+  return adminFetch<NewsArticleRow>(token, `/articles/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function nestAdminNewsAuditLog(
+  token: string,
+  query?: { limit?: number; articleId?: string },
+): Promise<NewsAuditLogRow[] | null> {
+  const params = new URLSearchParams();
+  if (query?.limit) params.set('limit', String(query.limit));
+  if (query?.articleId) params.set('articleId', query.articleId);
+  const qs = params.toString();
+  return adminFetch<NewsAuditLogRow[]>(token, `/audit-log${qs ? `?${qs}` : ''}`);
+}
+
+export async function nestPublicNewsArticles(
+  query?: Record<string, string | number | undefined>,
+): Promise<NewsPublicListResponse | null> {
+  if (!API_BASE_URL) return null;
+  const params = new URLSearchParams();
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value != null && String(value).length > 0) params.set(key, String(value));
+    }
+  }
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE_URL}/news-editorial/articles${qs ? `?${qs}` : ''}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as NewsPublicListResponse;
+}
+
+export async function nestPublicNewsArticle(slug: string): Promise<NewsArticleRow | null> {
+  if (!API_BASE_URL || !slug.trim()) return null;
+  const res = await fetch(`${API_BASE_URL}/news-editorial/articles/${encodeURIComponent(slug.trim())}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as NewsArticleRow;
+}
+
+export async function nestPublicNewsRelated(slug: string): Promise<NewsRelatedResponse | null> {
+  if (!API_BASE_URL || !slug.trim()) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/news-editorial/articles/${encodeURIComponent(slug.trim())}/related`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as NewsRelatedResponse;
+}
+
+export function newsCategoryLabel(category: string): string {
+  return NEWS_CATEGORY_LABELS[category as NewsArticleCategory] ?? category;
+}
+
+export function newsStatusLabel(status: NewsArticleStatus): string {
+  switch (status) {
+    case 'DRAFT':
+      return 'Koncept';
+    case 'REVIEW':
+      return 'Ke schválení';
+    case 'SCHEDULED':
+      return 'Naplánováno';
+    case 'PUBLISHED':
+      return 'Publikováno';
+    case 'REJECTED':
+      return 'Zamítnuto';
+    case 'ARCHIVED':
+      return 'Archiv';
+    default:
+      return status;
+  }
+}
+
+export const DASHBOARD_STAT_LABELS: Record<keyof NewsDashboardStats, string> = {
+  foundToday: 'Nalezeno dnes',
+  relevantToday: 'Relevantní dnes',
+  aiDrafts: 'AI koncepty',
+  pendingReview: 'Čeká na schválení',
+  publishedToday: 'Publikováno dnes',
+  ignoredToday: 'Ignorováno dnes',
+  duplicateToday: 'Duplicity dnes',
+  publishedTotal: 'Publikováno celkem',
+};

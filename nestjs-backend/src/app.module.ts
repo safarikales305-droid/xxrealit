@@ -64,6 +64,7 @@ import { AiSalesModule } from './modules/ai-sales/ai-sales.module';
 import { AccommodationModule } from './modules/accommodation/accommodation.module';
 import { HotelbedsModule } from './modules/integrations/hotelbeds/hotelbeds.module';
 import { CompanyDirectoryModule } from './modules/company-directory/company-directory.module';
+import { NewsEditorialModule } from './modules/news-editorial/news-editorial.module';
 
 @Module({
   imports: [
@@ -134,6 +135,7 @@ import { CompanyDirectoryModule } from './modules/company-directory/company-dire
     AccommodationModule,
     HotelbedsModule,
     CompanyDirectoryModule,
+    NewsEditorialModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -1,0 +1,122 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { NewsPublishMode } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { NEWS_SETTINGS_KEY } from './news-editorial.constants';
+import {
+  DEFAULT_NEWS_AUTOMATION_SETTINGS,
+  NEWS_ARTICLES_PER_DAY_MAX,
+  NEWS_ARTICLES_PER_DAY_MIN,
+  type NewsAutomationSettings,
+} from './news-editorial-settings.types';
+import { parsePublishTimeSlot } from './news-editorial.util';
+
+@Injectable()
+export class NewsEditorialSettingsService implements OnModuleInit {
+  private readonly log = new Logger(NewsEditorialSettingsService.name);
+  private cached: NewsAutomationSettings = { ...DEFAULT_NEWS_AUTOMATION_SETTINGS };
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.reload();
+  }
+
+  async reload() {
+    this.cached = await this.getSettings();
+  }
+
+  getCached(): NewsAutomationSettings {
+    return this.cached;
+  }
+
+  private bool(v: unknown, fallback: boolean): boolean {
+    return typeof v === 'boolean' ? v : fallback;
+  }
+
+  private num(v: unknown, fallback: number, min: number, max: number): number {
+    const n = typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, Math.trunc(n)));
+  }
+
+  private str(v: unknown, fallback: string): string {
+    return typeof v === 'string' && v.trim() ? v.trim() : fallback;
+  }
+
+  private strArray(v: unknown, fallback: string[]): string[] {
+    if (!Array.isArray(v)) return fallback;
+    const items = v
+      .map((x) => (typeof x === 'string' ? x.trim() : ''))
+      .filter(Boolean);
+    return items.length ? items : fallback;
+  }
+
+  normalize(raw: unknown): NewsAutomationSettings {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const d = DEFAULT_NEWS_AUTOMATION_SETTINGS;
+
+    const publishModeRaw = this.str(o.publishMode, d.publishMode);
+    const publishMode: NewsPublishMode =
+      publishModeRaw === NewsPublishMode.MANUAL ||
+      publishModeRaw === NewsPublishMode.AFTER_APPROVAL ||
+      publishModeRaw === NewsPublishMode.AUTOMATIC
+        ? publishModeRaw
+        : d.publishMode;
+
+    const minArticlesPerDay = this.num(
+      o.minArticlesPerDay,
+      d.minArticlesPerDay,
+      NEWS_ARTICLES_PER_DAY_MIN,
+      NEWS_ARTICLES_PER_DAY_MAX,
+    );
+    const maxArticlesPerDay = this.num(
+      o.maxArticlesPerDay,
+      d.maxArticlesPerDay,
+      NEWS_ARTICLES_PER_DAY_MIN,
+      NEWS_ARTICLES_PER_DAY_MAX,
+    );
+
+    const publishTimes = this.strArray(o.publishTimes, d.publishTimes).filter(
+      (slot) => parsePublishTimeSlot(slot) != null,
+    );
+
+    const settings: NewsAutomationSettings = {
+      enabled: this.bool(o.enabled, d.enabled),
+      fetchIntervalMinutes: this.num(o.fetchIntervalMinutes, d.fetchIntervalMinutes, 5, 720),
+      publishMode,
+      minArticlesPerDay: Math.min(minArticlesPerDay, maxArticlesPerDay),
+      maxArticlesPerDay: Math.max(minArticlesPerDay, maxArticlesPerDay),
+      publishTimes: publishTimes.length ? publishTimes : d.publishTimes,
+      autoPublishMinQuality: this.num(o.autoPublishMinQuality, d.autoPublishMinQuality, 0, 100),
+      createPortalPost: this.bool(o.createPortalPost, d.createPortalPost),
+      createFacebookPost: this.bool(o.createFacebookPost, d.createFacebookPost),
+      defaultOgImageUrl: this.str(o.defaultOgImageUrl ?? '', d.defaultOgImageUrl ?? ''),
+    };
+
+    return settings;
+  }
+
+  async getSettings(): Promise<NewsAutomationSettings> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: NEWS_SETTINGS_KEY } });
+    if (!row?.valueJson) return { ...DEFAULT_NEWS_AUTOMATION_SETTINGS };
+    return this.normalize(row.valueJson);
+  }
+
+  async updateSettings(patch: Partial<NewsAutomationSettings>) {
+    const current = await this.getSettings();
+    const merged = this.normalize({ ...current, ...patch });
+
+    if (merged.minArticlesPerDay > merged.maxArticlesPerDay) {
+      throw new Error('Minimální počet článků za den nemůže být vyšší než maximum.');
+    }
+
+    await this.prisma.appSetting.upsert({
+      where: { key: NEWS_SETTINGS_KEY },
+      create: { key: NEWS_SETTINGS_KEY, valueJson: merged as object },
+      update: { valueJson: merged as object },
+    });
+    this.cached = merged;
+    this.log.log('News automation settings updated');
+    return merged;
+  }
+}
