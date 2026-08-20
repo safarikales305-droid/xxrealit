@@ -4,19 +4,19 @@ import { getPublicPortalUrl } from '../social/autopost/social-publish-format.uti
 import { toAbsoluteMediaUrl } from '../social/autopost/social-publish-format.util';
 
 export const NEWS_CATEGORY_FALLBACK_IMAGES: Partial<Record<NewsArticleCategory, string>> = {
-  hypoteky: '/images/news/hypoteky.jpg',
-  reality: '/images/news/reality.jpg',
-  bydleni: '/images/news/bydleni.jpg',
-  'ceny-nemovitosti': '/images/news/ceny-nemovitosti.jpg',
-  stavebnictvi: '/images/news/stavebnictvi.jpg',
-  development: '/images/news/development.jpg',
-  katastr: '/images/news/katastr.jpg',
-  legislativa: '/images/news/legislativa.jpg',
-  investice: '/images/news/investice.jpg',
-  trh: '/images/news/trh.jpg',
+  hypoteky: '/images/news/hypoteky.svg',
+  reality: '/images/news/reality.svg',
+  bydleni: '/images/news/bydleni.svg',
+  'ceny-nemovitosti': '/images/news/ceny-nemovitosti.svg',
+  stavebnictvi: '/images/news/stavebnictvi.svg',
+  development: '/images/news/development.svg',
+  katastr: '/images/news/katastr.svg',
+  legislativa: '/images/news/legislativa.svg',
+  investice: '/images/news/investice.svg',
+  trh: '/images/news/trh.svg',
 };
 
-const DEFAULT_NEWS_IMAGE = '/images/aktuality-default-og.jpg';
+const DEFAULT_NEWS_IMAGE = '/images/aktuality-default-og.svg';
 
 function isOwnedMediaUrl(url: string | null | undefined): boolean {
   const v = (url ?? '').trim().toLowerCase();

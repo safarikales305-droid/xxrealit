@@ -13,6 +13,7 @@ import {
 } from './news-editorial.util';
 import { NewsAuditService } from './news-audit.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
+import { NewsImageService } from './news-image.service';
 
 type DraftPayload = {
   title: string;
@@ -35,6 +36,7 @@ export class NewsAiService {
     private readonly openai: OpenAiService,
     private readonly audit: NewsAuditService,
     private readonly settings: NewsEditorialSettingsService,
+    private readonly images: NewsImageService,
   ) {}
 
   async analyzeNewItems(limit = 20) {
@@ -219,12 +221,34 @@ export class NewsAiService {
       },
     });
 
-    await this.audit.log('ARTICLE_DRAFT_CREATED', `Vytvořen draft: ${article.title}`, {
+    const hero = await this.images.resolveHeroForArticle({
       articleId: article.id,
-      metadata: { sourceItemId: item.id },
+      slug: article.slug,
+      title: article.title,
+      category: article.category,
+      rssImageUrl: item.imageUrl,
+      articlePageUrl: item.sourceUrl,
+      imageSource: (item.rawMetadata as { imageSource?: string } | null)?.imageSource as
+        | 'enclosure'
+        | 'media:content'
+        | undefined,
     });
 
-    return article;
+    const withImage = await this.prisma.newsArticle.update({
+      where: { id: article.id },
+      data: {
+        ogImageUrl: hero.storedUrl,
+        ogImageAlt: hero.alt,
+        imageDiagnosticsJson: hero.diagnostics as object,
+      },
+    });
+
+    await this.audit.log('NEWS_ARTICLE_CREATED', `Vytvořen draft: ${withImage.title}`, {
+      articleId: withImage.id,
+      metadata: { sourceItemId: item.id, image: hero.diagnostics },
+    });
+
+    return withImage;
   }
 
   private async generateWithAi(

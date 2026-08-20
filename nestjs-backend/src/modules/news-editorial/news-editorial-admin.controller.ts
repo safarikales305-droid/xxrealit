@@ -25,6 +25,7 @@ import { NewsPublishService } from './news-publish.service';
 import { NewsRssTestService } from './news-rss-test.service';
 import { NewsSourceService } from './news-source.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
+import { NewsBackfillService } from './news-backfill.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
 
 @Controller('admin/news-editorial')
@@ -39,6 +40,7 @@ export class NewsEditorialAdminController {
     private readonly rssTest: NewsRssTestService,
     private readonly worker: NewsEditorialWorkerService,
     private readonly audit: NewsAuditService,
+    private readonly backfill: NewsBackfillService,
   ) {}
 
   @Get('dashboard')
@@ -235,6 +237,46 @@ export class NewsEditorialAdminController {
   pulseWorker() {
     this.worker.pulse();
     return { ok: true };
+  }
+
+  @Post('worker/pause')
+  pauseWorker() {
+    return this.worker.pause();
+  }
+
+  @Post('worker/resume')
+  resumeWorker() {
+    return this.worker.resume();
+  }
+
+  @Post('backfill/images')
+  backfillImages() {
+    return this.backfill.startBackfillImages();
+  }
+
+  @Post('backfill/posts')
+  backfillPosts() {
+    return this.backfill.startBackfillPosts();
+  }
+
+  @Get('jobs/:id')
+  getJob(@Param('id') id: string) {
+    return this.backfill.getJob(id);
+  }
+
+  @Post('jobs/:id/pause')
+  pauseJob(@Param('id') id: string) {
+    return this.backfill.pauseJob(id);
+  }
+
+  @Post('jobs/:id/resume')
+  resumeJob(@Param('id') id: string) {
+    return this.backfill.resumeJob(id);
+  }
+
+  @Post('jobs/:id/cancel')
+  cancelJob(@Param('id') id: string) {
+    return this.backfill.cancelJob(id);
   }
 
   @Get('audit-log')

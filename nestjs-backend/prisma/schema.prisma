@@ -7527,6 +7527,7 @@ enum NewsWorkerJobType {
 enum NewsWorkerJobStatus {
   PENDING
   RUNNING
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED
@@ -7535,6 +7536,7 @@ enum NewsWorkerJobStatus {
 enum NewsSourceHealth {
   ACTIVE
   DEGRADED
+  ERROR
   DISABLED
 }
 
@@ -7553,6 +7555,9 @@ model NewsSource {
   health               NewsSourceHealth @default(ACTIVE)
   lastCheckedAt        DateTime?
   lastSuccessAt        DateTime?
+  lastHttpStatus       Int?
+  lastItemCount        Int?
+  lastContentType      String?
   lastError            String?          @db.Text
   itemsFoundTotal      Int              @default(0)
   failureCount         Int              @default(0)
@@ -7592,6 +7597,7 @@ model NewsArticle {
   canonicalPath      String?
   ogImageUrl         String?
   ogImageAlt         String?
+  imageDiagnosticsJson Json?
   category           String            @default("reality")
   region             String?
   status             NewsArticleStatus @default(DRAFT)

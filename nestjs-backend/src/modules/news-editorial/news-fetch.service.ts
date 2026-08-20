@@ -12,7 +12,7 @@ import {
   NEWS_MAX_FETCH_FAILURES,
   NEWS_TITLE_SIMILARITY_THRESHOLD,
 } from './news-editorial.constants';
-import { fetchFeedText, parseFeedXml } from './news-feed.util';
+import { fetchFeedDiagnostics, type ParsedFeedItem } from './news-feed.util';
 import {
   newsContentHash,
   newsTitleFingerprint,
@@ -49,7 +49,7 @@ export class NewsFetchService {
     const sources = await this.prisma.newsSource.findMany({
       where: {
         enabled: true,
-        health: { not: NewsSourceHealth.DISABLED },
+        health: { notIn: [NewsSourceHealth.DISABLED, NewsSourceHealth.ERROR] },
       },
       orderBy: [{ priority: 'desc' }, { lastCheckedAt: 'asc' }],
       take: limit * 3,
@@ -77,23 +77,33 @@ export class NewsFetchService {
     });
 
     let lastError: string | null = null;
+    let lastDiagnostics: Awaited<ReturnType<typeof fetchFeedDiagnostics>> | null = null;
+
     for (let attempt = 0; attempt < NEWS_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
       try {
-        const xml = await fetchFeedText(source.url);
-        const items = await parseFeedXml(xml);
-        const inserted = await this.persistFeedItems(source, items);
+        const diagnostics = await fetchFeedDiagnostics(source.url);
+        lastDiagnostics = diagnostics;
+        if (!diagnostics.ok) {
+          throw new Error(
+            diagnostics.errorMessage ?? `HTTP ${diagnostics.httpStatus ?? '?'} — ${diagnostics.errorCode}`,
+          );
+        }
+        const inserted = await this.persistFeedItems(source, diagnostics.items);
         await this.prisma.newsSource.update({
           where: { id: source.id },
           data: {
             lastSuccessAt: new Date(),
             lastError: null,
+            lastHttpStatus: diagnostics.httpStatus ?? null,
+            lastItemCount: diagnostics.itemCount,
+            lastContentType: diagnostics.contentType ?? null,
             failureCount: 0,
             health: NewsSourceHealth.ACTIVE,
             itemsFoundTotal: { increment: inserted.newCount },
           },
         });
-        await this.audit.log('SOURCE_FETCH_OK', `Zdroj ${source.name}: ${inserted.newCount} nových položek`, {
-          metadata: { sourceId: source.id, total: items.length, ...inserted },
+        await this.audit.log('NEWS_FETCH_SUCCESS', `Zdroj ${source.name}: ${inserted.newCount} nových položek`, {
+          metadata: { sourceId: source.id, total: diagnostics.items.length, ...inserted },
         });
         return { sourceId: source.id, ok: true, ...inserted };
       } catch (err) {
@@ -106,32 +116,46 @@ export class NewsFetchService {
       }
     }
 
+    if (!lastDiagnostics) {
+      lastDiagnostics = await fetchFeedDiagnostics(source.url).catch(() => null);
+    }
+    const httpStatus = lastDiagnostics?.httpStatus;
+    const isPermanent =
+      httpStatus === 404 ||
+      httpStatus === 410 ||
+      lastDiagnostics?.errorCode === 'INVALID_RSS';
+
     const updated = await this.prisma.newsSource.update({
       where: { id: source.id },
       data: {
         lastError,
+        lastHttpStatus: httpStatus ?? null,
+        lastItemCount: lastDiagnostics?.itemCount ?? 0,
+        lastContentType: lastDiagnostics?.contentType ?? null,
         failureCount: { increment: 1 },
       },
     });
 
-    if (updated.failureCount >= NEWS_MAX_FETCH_FAILURES) {
+    if (isPermanent) {
+      await this.prisma.newsSource.update({
+        where: { id: source.id },
+        data: { health: NewsSourceHealth.ERROR },
+      });
+    } else if (updated.failureCount >= NEWS_MAX_FETCH_FAILURES) {
       await this.prisma.newsSource.update({
         where: { id: source.id },
         data: { health: NewsSourceHealth.DEGRADED },
       });
     }
 
-    await this.audit.log('SOURCE_FETCH_FAIL', `Zdroj ${source.name}: ${lastError}`, {
-      metadata: { sourceId: source.id },
+    await this.audit.log('NEWS_FETCH_FAILED', `Zdroj ${source.name}: ${lastError}`, {
+      metadata: { sourceId: source.id, httpStatus },
     });
 
     return { sourceId: source.id, ok: false, error: lastError };
   }
 
-  async importSingleItem(
-    sourceId: string,
-    item: Awaited<ReturnType<typeof parseFeedXml>>[number],
-  ) {
+  async importSingleItem(sourceId: string, item: ParsedFeedItem) {
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source) throw new Error('Zdroj nenalezen');
 
@@ -162,7 +186,7 @@ export class NewsFetchService {
         summary: item.summary,
         publishedAt: item.publishedAt,
         author: item.author,
-        imageUrl: null,
+        imageUrl: item.imageUrl,
         contentHash: hash,
         titleFingerprint: fingerprint,
         status: NewsSourceItemStatus.NEW,
@@ -170,17 +194,18 @@ export class NewsFetchService {
         trustScore: source.trustScore,
         editorialDecision:
           relevanceScore >= 50 ? NewsEditorialDecision.HIGH_PRIORITY : NewsEditorialDecision.WATCH,
-        rawMetadata: { manualImport: true, fetchedFrom: source.url },
+        rawMetadata: {
+          manualImport: true,
+          fetchedFrom: source.url,
+          imageSource: item.imageSource,
+        },
       },
     });
 
     return { created: true, itemId: row.id, relevanceScore };
   }
 
-  private async persistFeedItems(
-    source: NewsSource,
-    items: Awaited<ReturnType<typeof parseFeedXml>>,
-  ) {
+  private async persistFeedItems(source: NewsSource, items: ParsedFeedItem[]) {
     let newCount = 0;
     let duplicateCount = 0;
     let ignoredCount = 0;
@@ -259,6 +284,7 @@ export class NewsFetchService {
               : NewsEditorialDecision.IGNORE,
           rawMetadata: {
             fetchedFrom: source.url,
+            imageSource: item.imageSource,
           },
         },
       });

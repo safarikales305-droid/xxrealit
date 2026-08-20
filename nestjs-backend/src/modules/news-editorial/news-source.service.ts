@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { NewsSourceHealth, NewsSourceType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { DEFAULT_NEWS_SOURCES } from './news-editorial.constants';
+import { DEFAULT_NEWS_SOURCES, LEGACY_NEWS_SOURCE_URL_FIXES } from './news-editorial.constants';
 
 export type NewsSourceListRow = {
   id: string;
@@ -36,6 +36,32 @@ export class NewsSourceService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedDefaults();
+    await this.fixLegacySourceUrls();
+  }
+
+  async fixLegacySourceUrls() {
+    for (const [oldUrl, newUrl] of Object.entries(LEGACY_NEWS_SOURCE_URL_FIXES)) {
+      const existing = await this.prisma.newsSource.findUnique({ where: { url: oldUrl } });
+      if (!existing) continue;
+      const targetTaken = await this.prisma.newsSource.findUnique({ where: { url: newUrl } });
+      if (targetTaken && targetTaken.id !== existing.id) {
+        await this.prisma.newsSource.update({
+          where: { id: existing.id },
+          data: { enabled: false, health: 'DISABLED', lastError: `URL zastaralá — použijte ${newUrl}` },
+        });
+        continue;
+      }
+      await this.prisma.newsSource.update({
+        where: { id: existing.id },
+        data: {
+          url: newUrl,
+          health: 'ACTIVE',
+          failureCount: 0,
+          lastError: null,
+        },
+      });
+      this.log.log(`Migrated news source URL ${oldUrl} → ${newUrl}`);
+    }
   }
 
   async seedDefaults() {
@@ -53,7 +79,11 @@ export class NewsSourceService implements OnModuleInit {
           checkIntervalMinutes: seed.checkIntervalMinutes,
           note: seed.note,
         },
-        update: {},
+        update: {
+          name: seed.name,
+          note: seed.note,
+          category: seed.category,
+        },
       });
     }
     this.log.log(`Seeded ${DEFAULT_NEWS_SOURCES.length} default news sources`);
@@ -166,7 +196,7 @@ export class NewsSourceService implements OnModuleInit {
     const sources = await this.prisma.newsSource.findMany({
       where: {
         enabled: true,
-        health: { not: NewsSourceHealth.DISABLED },
+        health: { notIn: ['DISABLED', 'ERROR'] },
       },
       orderBy: [{ priority: 'desc' }, { lastCheckedAt: 'asc' }],
       take: limit * 3,

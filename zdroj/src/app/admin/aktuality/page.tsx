@@ -8,6 +8,8 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   DASHBOARD_STAT_LABELS,
   NEWS_ARTICLE_CATEGORIES,
+  nestAdminBackfillNewsImages,
+  nestAdminBackfillNewsPosts,
   nestAdminCreateNewsFromUrl,
   nestAdminCreateNewsSource,
   nestAdminDeleteNewsSource,
@@ -714,12 +716,14 @@ export default function AdminAktualityPage() {
                   <strong>{rssTestResult.diagnostics.ok ? '✅ FUNGUJE' : '❌ CHYBA'}</strong>
                 </p>
                 <p>HTTP: {rssTestResult.diagnostics.httpStatus ?? '—'}</p>
+                <p className="break-all">Original URL: {rssTestResult.diagnostics.requestedUrl}</p>
                 <p className="break-all">Final URL: {rssTestResult.diagnostics.finalUrl}</p>
+                <p>Redirectů: {rssTestResult.diagnostics.redirectCount ?? 0}</p>
                 <p>Content-Type: {rssTestResult.diagnostics.contentType ?? '—'}</p>
                 <p>Response time: {rssTestResult.diagnostics.responseTimeMs} ms</p>
                 <p>Feed title: {rssTestResult.diagnostics.feedTitle ?? '—'}</p>
                 <p>Položek: {rssTestResult.diagnostics.itemCount}</p>
-                <p>Parser: {rssTestResult.diagnostics.parserOk ? 'OK' : 'FAIL'}</p>
+                <p>Parser: {rssTestResult.diagnostics.parserOk ? 'OK' : 'FAIL'} ({rssTestResult.diagnostics.parser ?? '—'})</p>
                 <p>Encoding: {rssTestResult.diagnostics.encoding ?? '—'}</p>
                 {rssTestResult.diagnostics.errorCode ? (
                   <p className="text-red-700 sm:col-span-2">
@@ -746,6 +750,22 @@ export default function AdminAktualityPage() {
                     ) : null}
                   </p>
                 ) : null}
+                {'steps' in rssTestResult && rssTestResult.steps?.length ? (
+                  <div className="sm:col-span-2 mt-2 rounded-lg border border-blue-100 bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-900">
+                      Pipeline kroky
+                    </p>
+                    <ul className="space-y-1 text-xs">
+                      {rssTestResult.steps.map((step) => (
+                        <li key={step.step}>
+                          <strong>{step.step}</strong>: {step.status}
+                          {step.detail ? ` — ${step.detail}` : ''}
+                          {step.durationMs != null ? ` (${step.durationMs} ms)` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               {rssTestResult.diagnostics.previewItems?.length ? (
                 <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
@@ -753,6 +773,13 @@ export default function AdminAktualityPage() {
                     <li key={`${item.url}-${idx}`}>
                       <p className="font-medium">{item.title}</p>
                       <p className="text-xs text-zinc-600">{formatDate(item.publishedAt)}</p>
+                      {item.description ? (
+                        <p className="text-xs text-zinc-700">{item.description}</p>
+                      ) : null}
+                      <p className="text-xs text-zinc-600">
+                        Image: {item.imageDetected ? 'ANO' : 'NE'}
+                        {item.imageSource ? ` (${item.imageSource})` : ''}
+                      </p>
                       <a
                         href={item.url}
                         target="_blank"
@@ -879,6 +906,43 @@ export default function AdminAktualityPage() {
                 </div>
               </div>
             ) : null}
+          </section>
+
+          <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
+            <h3 className="text-lg font-semibold text-amber-950">Oprava existujících dat</h3>
+            <p className="mt-1 text-sm text-amber-900/80">
+              Backfill běží na serveru — můžete zavřít stránku.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const res = await nestAdminBackfillNewsImages(token);
+                  setBusy(false);
+                  setMsg(res.ok ? `Backfill obrázků spuštěn (job ${res.data.jobId})` : res.message);
+                }}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                Doplnit obrázky chybějícím Aktualitám
+              </button>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const res = await nestAdminBackfillNewsPosts(token);
+                  setBusy(false);
+                  setMsg(res.ok ? `Backfill postů spuštěn (job ${res.data.jobId})` : res.message);
+                }}
+                className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                Doplnit Aktuality do Příspěvků
+              </button>
+            </div>
           </section>
         </div>
       ) : null}

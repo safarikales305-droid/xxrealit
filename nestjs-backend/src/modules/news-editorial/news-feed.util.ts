@@ -1,14 +1,18 @@
 import { parseStringPromise } from 'xml2js';
 import { NEWS_FETCH_TIMEOUT_MS } from './news-editorial.constants';
+import { guardedFetchFollow, NewsFetchGuardError } from './news-fetch-guard.util';
 
 export type ParsedFeedItem = {
   externalId: string | null;
   title: string;
   link: string;
   summary: string | null;
+  content: string | null;
   publishedAt: Date | null;
   author: string | null;
   imageUrl: string | null;
+  imageSource: string | null;
+  sourceId: string | null;
 };
 
 function firstString(v: unknown): string | null {
@@ -59,7 +63,19 @@ function itemSummary(item: Record<string, unknown>): string | null {
   );
 }
 
-function itemImage(item: Record<string, unknown>): string | null {
+function itemImage(item: Record<string, unknown>): { url: string | null; source: string | null } {
+  const mediaContent = item['media:content'];
+  if (Array.isArray(mediaContent) && mediaContent[0] && typeof mediaContent[0] === 'object') {
+    const attrs = (mediaContent[0] as Record<string, unknown>).$ as Record<string, unknown> | undefined;
+    const url = attrs?.url;
+    if (typeof url === 'string' && url.trim()) return { url: url.trim(), source: 'media:content' };
+  }
+  const mediaThumb = item['media:thumbnail'];
+  if (Array.isArray(mediaThumb) && mediaThumb[0] && typeof mediaThumb[0] === 'object') {
+    const attrs = (mediaThumb[0] as Record<string, unknown>).$ as Record<string, unknown> | undefined;
+    const url = attrs?.url;
+    if (typeof url === 'string' && url.trim()) return { url: url.trim(), source: 'media:thumbnail' };
+  }
   const enclosure = item.enclosure;
   if (Array.isArray(enclosure)) {
     for (const enc of enclosure) {
@@ -67,22 +83,19 @@ function itemImage(item: Record<string, unknown>): string | null {
         const rec = enc as Record<string, unknown>;
         const attrs = rec.$ as Record<string, unknown> | undefined;
         const url = attrs?.url;
-        if (typeof url === 'string' && url.trim()) return url.trim();
+        const type = String(attrs?.type ?? '');
+        if (typeof url === 'string' && url.trim() && type.toLowerCase().startsWith('image/')) {
+          return { url: url.trim(), source: 'enclosure' };
+        }
       }
     }
   } else if (enclosure && typeof enclosure === 'object') {
     const rec = enclosure as Record<string, unknown>;
     const attrs = rec.$ as Record<string, unknown> | undefined;
     const url = attrs?.url;
-    if (typeof url === 'string' && url.trim()) return url.trim();
+    if (typeof url === 'string' && url.trim()) return { url: url.trim(), source: 'enclosure' };
   }
-  const media = item['media:content'] ?? item['media:thumbnail'];
-  if (Array.isArray(media) && media[0] && typeof media[0] === 'object') {
-    const attrs = (media[0] as Record<string, unknown>).$ as Record<string, unknown> | undefined;
-    const url = attrs?.url;
-    if (typeof url === 'string' && url.trim()) return url.trim();
-  }
-  return null;
+  return { url: null, source: null };
 }
 
 function parseRssItems(channel: Record<string, unknown>): ParsedFeedItem[] {
@@ -95,14 +108,18 @@ function parseRssItems(channel: Record<string, unknown>): ParsedFeedItem[] {
       const title = firstString(item.title);
       const link = itemLink(item);
       if (!title || !link) return null;
+      const img = itemImage(item);
       return {
         externalId: firstString(item.guid) ?? firstString(item.id),
         title,
         link,
         summary: itemSummary(item),
+        content: firstString(item['content:encoded']) ?? itemSummary(item),
         publishedAt: parseDate(firstString(item.pubDate) ?? firstString(item.published)),
         author: firstString(item.author) ?? firstString(item['dc:creator']),
-        imageUrl: itemImage(item),
+        imageUrl: img.url,
+        imageSource: img.source,
+        sourceId: firstString(item.guid) ?? firstString(item.id),
       } satisfies ParsedFeedItem;
     })
     .filter((x) => x != null) as ParsedFeedItem[];
@@ -118,16 +135,20 @@ function parseAtomEntries(feed: Record<string, unknown>): ParsedFeedItem[] {
       const title = firstString(entry.title);
       const link = itemLink(entry);
       if (!title || !link) return null;
+      const img = itemImage(entry);
       return {
         externalId: firstString(entry.id),
         title,
         link,
         summary: itemSummary(entry),
+        content: itemSummary(entry),
         publishedAt: parseDate(
           firstString(entry.updated) ?? firstString(entry.published),
         ),
         author: firstString(entry.author),
-        imageUrl: itemImage(entry),
+        imageUrl: img.url,
+        imageSource: img.source,
+        sourceId: firstString(entry.id),
       } satisfies ParsedFeedItem;
     })
     .filter((x) => x != null) as ParsedFeedItem[];
@@ -181,10 +202,12 @@ export type FeedFetchDiagnostics = {
   errorMessage?: string;
   requestedUrl: string;
   finalUrl: string;
+  redirectCount: number;
   httpStatus?: number;
   contentType?: string | null;
   responseTimeMs: number;
   encoding?: string | null;
+  parser: 'RSS_2' | 'ATOM' | 'UNKNOWN';
   feedTitle?: string | null;
   itemCount: number;
   latestItem?: {
@@ -198,6 +221,10 @@ export type FeedFetchDiagnostics = {
     title: string;
     url: string;
     publishedAt: string | null;
+    description: string | null;
+    imageUrl: string | null;
+    imageDetected: boolean;
+    imageSource: string | null;
   }>;
 };
 
@@ -222,27 +249,54 @@ function extractFeedTitle(xml: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
+function detectParser(xml: string): 'RSS_2' | 'ATOM' | 'UNKNOWN' {
+  if (/<rss[\s>]/i.test(xml)) return 'RSS_2';
+  if (/<feed[\s>]/i.test(xml)) return 'ATOM';
+  return 'UNKNOWN';
+}
+
+function isHtmlResponse(contentType: string | null, xml: string): boolean {
+  const ct = (contentType ?? '').toLowerCase();
+  if (ct.includes('text/html')) return true;
+  return xml.trim().toLowerCase().startsWith('<!doctype html') || xml.trim().toLowerCase().startsWith('<html');
+}
+
 export async function fetchFeedDiagnostics(
   url: string,
   timeoutMs = NEWS_FETCH_TIMEOUT_MS,
 ): Promise<FeedFetchDiagnostics> {
   const requestedUrl = url.trim();
   const started = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(requestedUrl, {
-      signal: controller.signal,
-      redirect: 'follow',
+    const { response: res, finalUrl, redirectCount } = await guardedFetchFollow(requestedUrl, {
+      timeoutMs,
       headers: {
         Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
         'User-Agent': NEWS_FETCH_USER_AGENT,
       },
     });
-    const finalUrl = res.url || requestedUrl;
     const contentType = res.headers.get('content-type');
     const responseTimeMs = Date.now() - started;
+
+    if (res.status === 410) {
+      return {
+        ok: false,
+        errorCode: 'HTTP_ERROR',
+        errorMessage: 'Zdroj vrátil HTTP 410 Gone — feed byl trvale odstraněn.',
+        requestedUrl,
+        finalUrl,
+        redirectCount,
+        httpStatus: res.status,
+        contentType,
+        responseTimeMs,
+        parser: 'UNKNOWN',
+        itemCount: 0,
+        parserOk: false,
+        items: [],
+        previewItems: [],
+      };
+    }
 
     if (!res.ok) {
       const code = classifyFetchError(new Error(`HTTP ${res.status}`), res.status);
@@ -252,9 +306,11 @@ export async function fetchFeedDiagnostics(
         errorMessage: `Server dostal HTTP ${res.status} od zdroje.`,
         requestedUrl,
         finalUrl,
+        redirectCount,
         httpStatus: res.status,
         contentType,
         responseTimeMs,
+        parser: 'UNKNOWN',
         itemCount: 0,
         parserOk: false,
         items: [],
@@ -263,7 +319,27 @@ export async function fetchFeedDiagnostics(
     }
 
     const xml = await res.text();
+    if (isHtmlResponse(contentType, xml)) {
+      return {
+        ok: false,
+        errorCode: 'INVALID_RSS',
+        errorMessage: 'Odpověď je HTML stránka, ne RSS/Atom feed.',
+        requestedUrl,
+        finalUrl,
+        redirectCount,
+        httpStatus: res.status,
+        contentType,
+        responseTimeMs,
+        parser: 'UNKNOWN',
+        itemCount: 0,
+        parserOk: false,
+        items: [],
+        previewItems: [],
+      };
+    }
+
     const feedTitle = extractFeedTitle(xml);
+    const parser = detectParser(xml);
     let items: ParsedFeedItem[] = [];
     let parserOk = true;
     let errorCode: FeedFetchErrorCode | undefined;
@@ -292,6 +368,10 @@ export async function fetchFeedDiagnostics(
       title: item.title,
       url: item.link,
       publishedAt: item.publishedAt?.toISOString() ?? null,
+      description: item.summary?.slice(0, 280) ?? null,
+      imageUrl: item.imageUrl,
+      imageDetected: Boolean(item.imageUrl),
+      imageSource: item.imageSource,
     }));
 
     return {
@@ -300,10 +380,12 @@ export async function fetchFeedDiagnostics(
       errorMessage,
       requestedUrl,
       finalUrl,
+      redirectCount,
       httpStatus: res.status,
       contentType,
       responseTimeMs,
       encoding: 'UTF-8',
+      parser,
       feedTitle,
       itemCount: items.length,
       latestItem: latest
@@ -319,9 +401,11 @@ export async function fetchFeedDiagnostics(
     };
   } catch (err) {
     const responseTimeMs = Date.now() - started;
-    const errorCode = classifyFetchError(err);
-    const errorMessage =
-      errorCode === 'TIMEOUT'
+    const isGuard = err instanceof NewsFetchGuardError;
+    const errorCode = isGuard ? 'HTTP_ERROR' : classifyFetchError(err);
+    const errorMessage = isGuard
+      ? err.message
+      : errorCode === 'TIMEOUT'
         ? 'Vypršel timeout při stahování RSS.'
         : errorCode === 'DNS_ERROR'
           ? 'DNS lookup selhal — server nedokázal najít hostitele.'
@@ -334,34 +418,28 @@ export async function fetchFeedDiagnostics(
       errorMessage,
       requestedUrl,
       finalUrl: requestedUrl,
+      redirectCount: 0,
       responseTimeMs,
+      parser: 'UNKNOWN',
       itemCount: 0,
       parserOk: false,
       items: [],
       previewItems: [],
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
 export async function fetchFeedText(url: string, timeoutMs = NEWS_FETCH_TIMEOUT_MS): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
-        'User-Agent': NEWS_FETCH_USER_AGENT,
-      },
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    }
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
+  const diagnostics = await fetchFeedDiagnostics(url, timeoutMs);
+  if (!diagnostics.ok) {
+    throw new Error(diagnostics.errorMessage ?? diagnostics.errorCode ?? 'Fetch selhal');
   }
+  const { response } = await guardedFetchFollow(url, {
+    timeoutMs,
+    headers: {
+      Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+      'User-Agent': NEWS_FETCH_USER_AGENT,
+    },
+  });
+  return await response.text();
 }

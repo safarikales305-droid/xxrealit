@@ -29,7 +29,29 @@ export type NewsPublishMode = 'MANUAL' | 'AFTER_APPROVAL' | 'AUTOMATIC';
 
 export type NewsSourceType = 'RSS' | 'ATOM' | 'API' | 'OPEN_DATA' | 'WEB_SOURCE';
 
-export type NewsSourceHealth = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+export type NewsSourceHealth = 'ACTIVE' | 'DEGRADED' | 'ERROR' | 'DISABLED';
+
+export type NewsAutomationSettings = {
+  enabled: boolean;
+  autoFetchSources: boolean;
+  autoAiProcessing: boolean;
+  autoPublishArticles: boolean;
+  fetchIntervalMinutes: number;
+  publishMode: NewsPublishMode;
+  minArticlesPerDay: number;
+  maxArticlesPerDay: number;
+  maxArticlesPerSourcePerDay: number;
+  minRelevanceScore: number;
+  publishTimes: string[];
+  minMinutesBetweenArticles: number;
+  autoPublishMinQuality: number;
+  createPortalPost: boolean;
+  createFacebookPost: boolean;
+  portalPostAuthorLabel: string;
+  addHashtags: boolean;
+  maxTeaserLength: number;
+  defaultOgImageUrl?: string;
+};
 
 export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
   reality: 'Reality',
@@ -52,22 +74,6 @@ export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
 export const NEWS_ARTICLE_CATEGORIES = Object.entries(NEWS_CATEGORY_LABELS).map(
   ([value, label]) => ({ value: value as NewsArticleCategory, label }),
 );
-
-export type NewsAutomationSettings = {
-  enabled: boolean;
-  fetchIntervalMinutes: number;
-  publishMode: NewsPublishMode;
-  minArticlesPerDay: number;
-  maxArticlesPerDay: number;
-  publishTimes: string[];
-  autoPublishMinQuality: number;
-  createPortalPost: boolean;
-  createFacebookPost: boolean;
-  portalPostAuthorLabel: string;
-  addHashtags: boolean;
-  maxTeaserLength: number;
-  defaultOgImageUrl?: string;
-};
 
 export type NewsDashboardStats = {
   foundToday: number;
@@ -207,6 +213,7 @@ export type NewsRelatedResponse = {
 
 export type NewsWorkerStatus = {
   enabled: boolean;
+  paused?: boolean;
   online: boolean;
   lastHeartbeatAt: string | null;
   lastError: string | null;
@@ -511,15 +518,32 @@ export type NewsRssDiagnostics = {
   errorMessage?: string;
   requestedUrl: string;
   finalUrl: string;
+  redirectCount?: number;
   httpStatus?: number;
   contentType?: string | null;
   responseTimeMs: number;
   encoding?: string | null;
+  parser?: string;
   feedTitle?: string | null;
   itemCount: number;
   latestItem?: { title: string; url: string; publishedAt: string | null } | null;
   parserOk: boolean;
-  previewItems: Array<{ title: string; url: string; publishedAt: string | null }>;
+  previewItems: Array<{
+    title: string;
+    url: string;
+    publishedAt: string | null;
+    description?: string | null;
+    imageUrl?: string | null;
+    imageDetected?: boolean;
+    imageSource?: string | null;
+  }>;
+};
+
+export type NewsPipelineStep = {
+  step: string;
+  status: 'OK' | 'FAIL' | 'SKIP' | 'PENDING';
+  durationMs?: number;
+  detail?: string;
 };
 
 export type NewsRssTestResponse = {
@@ -528,6 +552,8 @@ export type NewsRssTestResponse = {
 };
 
 export type NewsRssImportTestResponse = NewsRssTestResponse & {
+  steps?: NewsPipelineStep[];
+  durationMs?: number;
   sourceItemCreated?: boolean;
   sourceItemId?: string;
   duplicate?: boolean;
@@ -590,6 +616,18 @@ export async function nestAdminRepublishNewsFacebook(
     `/articles/${encodeURIComponent(articleId)}/republish-facebook`,
     { method: 'POST' },
   );
+}
+
+export async function nestAdminBackfillNewsImages(
+  token: string,
+): Promise<AdminFetchResult<{ jobId: string }>> {
+  return adminFetchResult<{ jobId: string }>(token, '/backfill/images', { method: 'POST' });
+}
+
+export async function nestAdminBackfillNewsPosts(
+  token: string,
+): Promise<AdminFetchResult<{ jobId: string }>> {
+  return adminFetchResult<{ jobId: string }>(token, '/backfill/posts', { method: 'POST' });
 }
 
 export function newsCategoryLabel(category: string): string {

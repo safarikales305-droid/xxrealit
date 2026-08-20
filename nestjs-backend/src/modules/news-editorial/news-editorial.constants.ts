@@ -87,38 +87,45 @@ export type DefaultNewsSourceSeed = {
   note?: string;
 };
 
+export const LEGACY_NEWS_SOURCE_URL_FIXES: Record<string, string> = {
+  'https://www.cnb.cz/cs/novinky-a-media/rss/':
+    'https://www.cnb.cz/cs/.content/rss-feed/rss-feed_tz.rss',
+  'https://www.czso.cz/csu/czso/rss': 'https://www.hypoindex.cz/feed',
+  'https://mmr.gov.cz/rss': 'https://www.e15.cz/rss/bydleni',
+};
+
 export const DEFAULT_NEWS_SOURCES: DefaultNewsSourceSeed[] = [
   {
-    name: 'ČNB – Novinky',
-    url: 'https://www.cnb.cz/cs/novinky-a-media/rss/',
+    name: 'ČNB – Tiskové zprávy',
+    url: 'https://www.cnb.cz/cs/.content/rss-feed/rss-feed_tz.rss',
     type: NewsSourceType.RSS,
     category: 'hypoteky',
     enabled: true,
     trustScore: 95,
     priority: 90,
     checkIntervalMinutes: 30,
-    note: 'Úrokové sazby, makroekonomické zprávy',
+    note: 'Úrokové sazby, měnová politika — oficiální RSS ČNB',
   },
   {
-    name: 'ČSÚ – Tiskové zprávy',
-    url: 'https://www.czso.cz/csu/czso/rss',
+    name: 'Hypoindex',
+    url: 'https://www.hypoindex.cz/feed',
     type: NewsSourceType.RSS,
-    category: 'ceny-nemovitosti',
-    enabled: false,
-    trustScore: 90,
-    priority: 70,
-    checkIntervalMinutes: 60,
-    note: 'Statistiky cen a bydlení',
-  },
-  {
-    name: 'MMR – Aktuality',
-    url: 'https://mmr.gov.cz/rss',
-    type: NewsSourceType.RSS,
-    category: 'legislativa',
-    enabled: false,
+    category: 'hypoteky',
+    enabled: true,
     trustScore: 85,
-    priority: 60,
+    priority: 75,
     checkIntervalMinutes: 60,
-    note: 'Stavební legislativa a bydlení',
+    note: 'Hypoteční sazby a trh',
+  },
+  {
+    name: 'E15 – Bydlení',
+    url: 'https://www.e15.cz/rss/bydleni',
+    type: NewsSourceType.RSS,
+    category: 'bydleni',
+    enabled: true,
+    trustScore: 80,
+    priority: 65,
+    checkIntervalMinutes: 60,
+    note: 'Bydlení, reality a stavebnictví',
   },
 ];

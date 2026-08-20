@@ -1,5 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { NewsEditorialDecision, NewsSourceItemStatus } from '@prisma/client';
+import {
+  NewsArticleStatus,
+  NewsEditorialDecision,
+  NewsPublishMode,
+  NewsSourceItemStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { NEWS_EDITORIAL_ENABLED, NEWS_WORKER_TICK_MS } from './news-editorial.constants';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
@@ -10,6 +15,8 @@ import { NewsPublishService } from './news-publish.service';
 let workerHeartbeat: Date | null = null;
 let workerLastError: string | null = null;
 let workerProcessing = false;
+
+let workerPaused = false;
 
 export function getNewsWorkerHeartbeat() {
   return workerHeartbeat;
@@ -49,6 +56,7 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
   getStatus() {
     return {
       enabled: NEWS_EDITORIAL_ENABLED,
+      paused: workerPaused,
       online: workerHeartbeat != null && Date.now() - workerHeartbeat.getTime() < NEWS_WORKER_TICK_MS * 3,
       lastHeartbeatAt: workerHeartbeat?.toISOString() ?? null,
       lastError: workerLastError,
@@ -57,8 +65,19 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
     };
   }
 
+  pause() {
+    workerPaused = true;
+    return { paused: true };
+  }
+
+  resume() {
+    workerPaused = false;
+    void this.tick();
+    return { paused: false };
+  }
+
   private async tick() {
-    if (!NEWS_EDITORIAL_ENABLED || workerProcessing) return;
+    if (!NEWS_EDITORIAL_ENABLED || workerProcessing || workerPaused) return;
     workerProcessing = true;
     workerHeartbeat = new Date();
 
@@ -66,9 +85,16 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
       const cfg = this.settings.getCached();
       if (!cfg.enabled) return;
 
-      await this.fetchService.fetchDueSources(3);
-      await this.ai.analyzeNewItems(15);
-      await this.generateDraftsWithinDailyLimit(cfg.maxArticlesPerDay);
+      if (cfg.autoFetchSources) {
+        await this.fetchService.fetchDueSources(3);
+      }
+      if (cfg.autoAiProcessing) {
+        await this.ai.analyzeNewItems(15);
+        await this.generateDraftsWithinDailyLimit(cfg);
+      }
+      if (cfg.autoPublishArticles && cfg.publishMode === NewsPublishMode.AUTOMATIC) {
+        await this.autoPublishReadyDrafts(cfg);
+      }
       await this.publish.publishScheduledDue(3);
     } catch (err) {
       workerLastError = err instanceof Error ? err.message : String(err);
@@ -78,7 +104,8 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private async generateDraftsWithinDailyLimit(maxPerDay: number) {
+  private async generateDraftsWithinDailyLimit(cfg: ReturnType<NewsEditorialSettingsService['getCached']>) {
+    const maxPerDay = cfg.maxArticlesPerDay;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -94,6 +121,7 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
         editorialDecision: {
           in: [NewsEditorialDecision.CREATE_DRAFT, NewsEditorialDecision.HIGH_PRIORITY],
         },
+        relevanceScore: { gte: cfg.minRelevanceScore },
         articleSources: { none: {} },
       },
       orderBy: [{ editorialDecision: 'desc' }, { trendScore: 'desc' }],
@@ -102,6 +130,31 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
 
     for (const item of items) {
       await this.ai.generateDraftFromItem(item.id);
+    }
+  }
+
+  private async autoPublishReadyDrafts(cfg: ReturnType<NewsEditorialSettingsService['getCached']>) {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const publishedToday = await this.prisma.newsArticle.count({
+      where: { status: NewsArticleStatus.PUBLISHED, publishedAt: { gte: todayStart } },
+    });
+    if (publishedToday >= cfg.maxArticlesPerDay) return;
+
+    const drafts = await this.prisma.newsArticle.findMany({
+      where: { status: NewsArticleStatus.DRAFT },
+      orderBy: [{ relevanceScore: 'desc' }, { createdAt: 'asc' }],
+      take: Math.max(0, cfg.maxArticlesPerDay - publishedToday),
+    });
+
+    for (const draft of drafts) {
+      try {
+        await this.publish.publish(draft.id);
+      } catch (err) {
+        this.log.warn(
+          `Auto publish skipped ${draft.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
   }
 }
