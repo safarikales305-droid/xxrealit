@@ -9227,8 +9227,12 @@ export type ListingPost = {
   facebookVideoSourceUrl?: string | null;
   facebookVideoHasAudio?: boolean | null;
   facebookVideoMimeType?: string | null;
-  source?: 'INTERNAL' | 'FACEBOOK' | string;
+  source?: 'INTERNAL' | 'FACEBOOK' | 'YOUTUBE' | string;
   publishedAt?: string | null;
+  youtubeVideoId?: string | null;
+  youtubeChannelTitle?: string | null;
+  youtubeThumbnailUrl?: string | null;
+  youtubeEmbeddable?: boolean | null;
   soundTrack?: {
     id: string;
     title: string;

@@ -656,7 +656,7 @@ export class PostsService {
       orderedIds
         .map((id) => rowById.get(id))
         .filter((row): row is NonNullable<typeof row> => Boolean(row))
-        .filter((row) => row.type === 'COMPANY_REVIEW' || row.type === 'NEWS_ARTICLE' || isCommunityPostAuthorVisibleUser(row.user))
+        .filter((row) => row.type === 'COMPANY_REVIEW' || row.type === 'NEWS_ARTICLE' || row.type === 'YOUTUBE_VIDEO' || isCommunityPostAuthorVisibleUser(row.user))
         .map((row) => ({
           ...row,
           media: row.media.filter((m) => isPublicMediaUrl(m.url)),
@@ -744,6 +744,7 @@ export class PostsService {
         AND (
           (p.type = 'COMPANY_REVIEW')
           OR (p.type = 'NEWS_ARTICLE')
+          OR (p.type = 'YOUTUBE_VIDEO')
           OR (
             u."accountLimited" = false
             AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')

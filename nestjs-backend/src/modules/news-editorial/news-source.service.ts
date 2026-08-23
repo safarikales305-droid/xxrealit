@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { NewsSourceHealth, NewsSourceType, Prisma } from '@prisma/client';
+import { NewsSourceHealth, NewsSourceType, NewsYoutubePublishMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { DEFAULT_NEWS_SOURCES, LEGACY_NEWS_SOURCE_URL_FIXES } from './news-editorial.constants';
 
@@ -15,6 +15,14 @@ export type NewsSourceListRow = {
   language: string;
   checkIntervalMinutes: number;
   note: string | null;
+  channelId: string | null;
+  youtubePublishMode: string;
+  youtubeCreatePost: boolean;
+  youtubeFacebookPost: boolean;
+  minRelevanceScore: number | null;
+  lastVideoPublishedAt: Date | null;
+  lastVideoId: string | null;
+  youtubeImportedCount: number;
   health: NewsSourceHealth;
   lastCheckedAt: Date | null;
   lastSuccessAt: Date | null;
@@ -138,6 +146,11 @@ export class NewsSourceService implements OnModuleInit {
     priority?: number;
     checkIntervalMinutes?: number;
     note?: string;
+    channelId?: string;
+    youtubePublishMode?: NewsYoutubePublishMode;
+    youtubeCreatePost?: boolean;
+    youtubeFacebookPost?: boolean;
+    minRelevanceScore?: number;
   }) {
     return this.prisma.newsSource.create({
       data: {
@@ -150,6 +163,11 @@ export class NewsSourceService implements OnModuleInit {
         priority: data.priority ?? 50,
         checkIntervalMinutes: data.checkIntervalMinutes ?? 30,
         note: data.note?.trim() || null,
+        channelId: data.channelId?.trim() || null,
+        youtubePublishMode: data.youtubePublishMode ?? NewsYoutubePublishMode.RELEVANT_ONLY,
+        youtubeCreatePost: data.youtubeCreatePost ?? true,
+        youtubeFacebookPost: data.youtubeFacebookPost ?? false,
+        minRelevanceScore: data.minRelevanceScore ?? null,
       },
     });
   }
@@ -167,6 +185,11 @@ export class NewsSourceService implements OnModuleInit {
       checkIntervalMinutes: number;
       note: string | null;
       health: NewsSourceHealth;
+      channelId: string | null;
+      youtubePublishMode: NewsYoutubePublishMode;
+      youtubeCreatePost: boolean;
+      youtubeFacebookPost: boolean;
+      minRelevanceScore: number | null;
     }>,
   ) {
     await this.getById(id);
@@ -181,6 +204,11 @@ export class NewsSourceService implements OnModuleInit {
     if (patch.checkIntervalMinutes != null) data.checkIntervalMinutes = patch.checkIntervalMinutes;
     if (patch.note !== undefined) data.note = patch.note;
     if (patch.health != null) data.health = patch.health;
+    if (patch.channelId !== undefined) data.channelId = patch.channelId;
+    if (patch.youtubePublishMode != null) data.youtubePublishMode = patch.youtubePublishMode;
+    if (patch.youtubeCreatePost != null) data.youtubeCreatePost = patch.youtubeCreatePost;
+    if (patch.youtubeFacebookPost != null) data.youtubeFacebookPost = patch.youtubeFacebookPost;
+    if (patch.minRelevanceScore !== undefined) data.minRelevanceScore = patch.minRelevanceScore;
 
     return this.prisma.newsSource.update({ where: { id }, data });
   }

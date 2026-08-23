@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { NewsArticleStatus, NewsSourceType } from '@prisma/client';
+import { NewsArticleStatus, NewsSourceType, NewsYoutubePublishMode } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import {
@@ -26,6 +26,7 @@ import { NewsRssTestService } from './news-rss-test.service';
 import { NewsSourceService } from './news-source.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
+import { NewsYoutubeService } from './news-youtube.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
 
 @Controller('admin/news-editorial')
@@ -41,6 +42,7 @@ export class NewsEditorialAdminController {
     private readonly worker: NewsEditorialWorkerService,
     private readonly audit: NewsAuditService,
     private readonly backfill: NewsBackfillService,
+    private readonly youtube: NewsYoutubeService,
   ) {}
 
   @Get('dashboard')
@@ -80,6 +82,11 @@ export class NewsEditorialAdminController {
       priority?: number;
       checkIntervalMinutes?: number;
       note?: string;
+      channelId?: string;
+      youtubePublishMode?: NewsYoutubePublishMode;
+      youtubeCreatePost?: boolean;
+      youtubeFacebookPost?: boolean;
+      minRelevanceScore?: number;
     },
   ) {
     return this.sources.create(body);
@@ -99,6 +106,11 @@ export class NewsEditorialAdminController {
       priority: number;
       checkIntervalMinutes: number;
       note: string | null;
+      channelId: string | null;
+      youtubePublishMode: NewsYoutubePublishMode;
+      youtubeCreatePost: boolean;
+      youtubeFacebookPost: boolean;
+      minRelevanceScore: number | null;
     }>,
   ) {
     return this.sources.update(id, body);
@@ -209,6 +221,26 @@ export class NewsEditorialAdminController {
   @Post('sources/:id/test-pipeline')
   testPipeline(@Param('id') id: string) {
     return this.rssTest.testPipeline(id);
+  }
+
+  @Post('sources/:id/test-youtube')
+  testYoutube(@Param('id') id: string) {
+    return this.youtube.testChannel(id);
+  }
+
+  @Post('sources/:id/test-youtube-import-one')
+  testYoutubeImportOne(@Param('id') id: string) {
+    return this.youtube.testImportOne(id);
+  }
+
+  @Post('sources/:id/test-youtube-pipeline')
+  testYoutubePipeline(@Param('id') id: string) {
+    return this.youtube.testPipeline(id);
+  }
+
+  @Post('sources/:id/youtube-backfill')
+  youtubeBackfill(@Param('id') id: string, @Body() body?: { count?: number }) {
+    return this.youtube.backfillRecent(id, body?.count ?? 5);
   }
 
   @Post('articles/:id/quality')

@@ -193,7 +193,7 @@ export function resolvePostSocialText(post: {
   description?: string | null;
   content?: string | null;
 }): string {
-  if (post.type === 'COMPANY_REVIEW' || post.type === 'NEWS_ARTICLE') {
+  if (post.type === 'COMPANY_REVIEW' || post.type === 'NEWS_ARTICLE' || post.type === 'YOUTUBE_VIDEO') {
     return (post.description ?? post.content ?? post.title ?? '').trim();
   }
   return (post.content ?? post.description ?? post.title ?? '').trim();

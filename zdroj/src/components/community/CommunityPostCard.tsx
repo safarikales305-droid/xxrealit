@@ -9,6 +9,7 @@ import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import { YoutubeLazyPlayer } from '@/components/community/YoutubeLazyPlayer';
 import { PostSoundAudio } from '@/components/community/PostSoundAudio';
 import { UserAvatar } from '@/components/user/UserAvatar';
 import {
@@ -132,12 +133,20 @@ export function CommunityPostCard({
   const isNewsArticle =
     String(p.type ?? '') === 'NEWS_ARTICLE' ||
     String(p.previewSiteName ?? '').toLowerCase().includes('aktualit');
+  const youtubeVideoId = String((p as { youtubeVideoId?: string }).youtubeVideoId ?? '').trim();
+  const isYoutubeVideo = String(p.type ?? '') === 'YOUTUBE_VIDEO' || Boolean(youtubeVideoId);
   const articleUrl = isNewsArticle ? externalUrl : '';
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
   const hasFeedMedia = resolvedMedia.mode !== 'none';
   const hasPostSound = Boolean(p.soundTrack?.fileUrl || p.soundTrack?.previewUrl);
   const showMuteForVideo = resolvedMedia.mode === 'video' && !hasPostSound;
-  const postText = String(p.description ?? '').trim();
+  const postText = isYoutubeVideo
+    ? String(p.previewDescription ?? p.description ?? '').trim()
+    : String(p.description ?? '').trim();
+  const youtubeTitle = String(p.previewTitle ?? p.title ?? '').trim();
+  const youtubeChannel = String(
+    (p as { youtubeChannelTitle?: string }).youtubeChannelTitle ?? p.previewSiteName ?? '',
+  ).trim();
 
   const actionRow = (
     <div className="flex flex-wrap items-center gap-2 px-3 py-3 md:px-4">
@@ -247,6 +256,11 @@ export function CommunityPostCard({
                 Aktualita
               </span>
             ) : null}
+            {isYoutubeVideo ? (
+              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800">
+                Video
+              </span>
+            ) : null}
             {p.isFollowedAuthor && isAuthenticated ? (
               <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                 ⭐ Sledujete tohoto autora
@@ -304,7 +318,16 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {editingPostId !== id && postText ? (
+      {editingPostId !== id && isYoutubeVideo && youtubeTitle ? (
+        <div className="px-3 pb-2 md:px-4">
+          <p className="text-base font-semibold text-zinc-900">{youtubeTitle}</p>
+          {postText ? (
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{postText}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {editingPostId !== id && !isYoutubeVideo && postText ? (
         <div className="px-3 pb-2 md:px-4">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
             {postText}
@@ -312,13 +335,42 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {editingPostId !== id && linkPreview && !hasFeedMedia && !isFacebookImport ? (
+      {editingPostId !== id && isYoutubeVideo && youtubeVideoId ? (
+        <div className="px-3 pb-2 md:px-4">
+          <YoutubeLazyPlayer
+            videoId={youtubeVideoId}
+            title={youtubeTitle}
+            thumbnailUrl={
+              (p as { youtubeThumbnailUrl?: string }).youtubeThumbnailUrl ??
+              p.previewImage ??
+              p.imageUrl
+            }
+            embeddable={(p as { youtubeEmbeddable?: boolean }).youtubeEmbeddable !== false}
+            watchUrl={externalUrl}
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            {youtubeChannel ? <span>Kanál: {youtubeChannel}</span> : null}
+            {externalUrl ? (
+              <a
+                href={externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-red-700 hover:underline"
+              >
+                Otevřít na YouTube
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {editingPostId !== id && linkPreview && !hasFeedMedia && !isFacebookImport && !isYoutubeVideo ? (
         <div className="px-3 pb-2 md:px-4">
           <LinkPreviewCard preview={linkPreview} compact />
         </div>
       ) : null}
 
-      {hasFeedMedia ? (
+      {hasFeedMedia && !isYoutubeVideo ? (
         <>
           {isNewsArticle && articleUrl ? (
             <a href={articleUrl} className="block">

@@ -3,6 +3,7 @@ import {
   NewsEditorialDecision,
   NewsSourceHealth,
   NewsSourceItemStatus,
+  NewsSourceType,
   type NewsSource,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -50,6 +51,7 @@ export class NewsFetchService {
       where: {
         enabled: true,
         health: { notIn: [NewsSourceHealth.DISABLED, NewsSourceHealth.ERROR] },
+        type: { not: NewsSourceType.YOUTUBE_CHANNEL },
       },
       orderBy: [{ priority: 'desc' }, { lastCheckedAt: 'asc' }],
       take: limit * 3,

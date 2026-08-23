@@ -21,6 +21,12 @@ export type NewsAutomationSettings = {
   addHashtags: boolean;
   maxTeaserLength: number;
   defaultOgImageUrl?: string;
+  youtubeMonitoringEnabled: boolean;
+  youtubeCheckIntervalMinutes: number;
+  youtubeMaxPostsPerDay: number;
+  youtubeMinRelevance: number;
+  youtubeCreatePortalPost: boolean;
+  youtubeCreateFacebookPost: boolean;
 };
 
 export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
@@ -44,6 +50,12 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   addHashtags: true,
   maxTeaserLength: 280,
   defaultOgImageUrl: '/images/aktuality-default-og.svg',
+  youtubeMonitoringEnabled: true,
+  youtubeCheckIntervalMinutes: 30,
+  youtubeMaxPostsPerDay: 5,
+  youtubeMinRelevance: 70,
+  youtubeCreatePortalPost: true,
+  youtubeCreateFacebookPost: false,
 };
 
 export const NEWS_ARTICLES_PER_DAY_MIN = 0;

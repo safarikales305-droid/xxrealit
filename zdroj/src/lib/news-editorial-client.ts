@@ -27,7 +27,9 @@ export type NewsArticleStatus =
 
 export type NewsPublishMode = 'MANUAL' | 'AFTER_APPROVAL' | 'AUTOMATIC';
 
-export type NewsSourceType = 'RSS' | 'ATOM' | 'API' | 'OPEN_DATA' | 'WEB_SOURCE';
+export type NewsSourceType = 'RSS' | 'ATOM' | 'API' | 'OPEN_DATA' | 'WEB_SOURCE' | 'YOUTUBE_CHANNEL';
+
+export type NewsYoutubePublishMode = 'RELEVANT_ONLY' | 'ALL';
 
 export type NewsSourceHealth = 'ACTIVE' | 'DEGRADED' | 'ERROR' | 'DISABLED';
 
@@ -52,6 +54,12 @@ export type NewsAutomationSettings = {
   addHashtags: boolean;
   maxTeaserLength: number;
   defaultOgImageUrl?: string;
+  youtubeMonitoringEnabled: boolean;
+  youtubeCheckIntervalMinutes: number;
+  youtubeMaxPostsPerDay: number;
+  youtubeMinRelevance: number;
+  youtubeCreatePortalPost: boolean;
+  youtubeCreateFacebookPost: boolean;
 };
 
 export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
@@ -107,6 +115,14 @@ export type NewsSourceRow = {
   language: string;
   checkIntervalMinutes: number;
   note: string | null;
+  channelId?: string | null;
+  youtubePublishMode?: NewsYoutubePublishMode;
+  youtubeCreatePost?: boolean;
+  youtubeFacebookPost?: boolean;
+  minRelevanceScore?: number | null;
+  lastVideoPublishedAt?: string | null;
+  lastVideoId?: string | null;
+  youtubeImportedCount?: number;
   health: NewsSourceHealth;
   lastCheckedAt: string | null;
   lastSuccessAt: string | null;
@@ -317,6 +333,11 @@ export async function nestAdminCreateNewsSource(
     priority?: number;
     checkIntervalMinutes?: number;
     note?: string;
+    channelId?: string;
+    youtubePublishMode?: NewsYoutubePublishMode;
+    youtubeCreatePost?: boolean;
+    youtubeFacebookPost?: boolean;
+    minRelevanceScore?: number;
   },
 ): Promise<NewsSourceRow | null> {
   return adminFetch<NewsSourceRow>(token, '/sources', {
@@ -338,6 +359,11 @@ export async function nestAdminUpdateNewsSource(
     priority: number;
     checkIntervalMinutes: number;
     note: string | null;
+    channelId: string | null;
+    youtubePublishMode: NewsYoutubePublishMode;
+    youtubeCreatePost: boolean;
+    youtubeFacebookPost: boolean;
+    minRelevanceScore: number | null;
   }>,
 ): Promise<NewsSourceRow | null> {
   return adminFetch<NewsSourceRow>(token, `/sources/${encodeURIComponent(id)}`, {
@@ -597,6 +623,81 @@ export async function nestAdminTestNewsPipeline(
     token,
     `/sources/${encodeURIComponent(sourceId)}/test-pipeline`,
     { method: 'POST' },
+  );
+}
+
+export type YoutubeChannelTestResponse = {
+  ok: boolean;
+  api: 'OK' | 'FAIL';
+  error?: string;
+  channel?: { id: string; title: string; url: string };
+  channelId?: string;
+  recentVideos?: Array<{
+    videoId: string;
+    title: string;
+    publishedAt: string;
+    thumbnailOk: boolean;
+  }>;
+  latestVideo?: {
+    videoId: string;
+    title: string;
+    publishedAt: string;
+    thumbnailUrl: string;
+  } | null;
+};
+
+export type YoutubeImportTestResponse = {
+  ok: boolean;
+  videoFound: boolean;
+  duplicate: boolean;
+  relevanceScore?: number;
+  portalPostId?: string;
+  postId?: string;
+  steps: Array<{ step: string; status: 'PASS' | 'FAIL' | 'SKIP'; detail?: string }>;
+};
+
+export async function nestAdminTestYoutubeChannel(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<YoutubeChannelTestResponse>> {
+  return adminFetchResult<YoutubeChannelTestResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/test-youtube`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminTestYoutubeImportOne(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<YoutubeImportTestResponse>> {
+  return adminFetchResult<YoutubeImportTestResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/test-youtube-import-one`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminTestYoutubePipeline(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<YoutubeImportTestResponse>> {
+  return adminFetchResult<YoutubeImportTestResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/test-youtube-pipeline`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminYoutubeBackfill(
+  token: string,
+  sourceId: string,
+  count = 5,
+): Promise<AdminFetchResult<{ created: number; skipped: number; total: number }>> {
+  return adminFetchResult<{ created: number; skipped: number; total: number }>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/youtube-backfill`,
+    { method: 'POST', body: JSON.stringify({ count }) },
   );
 }
 

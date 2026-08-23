@@ -36,11 +36,13 @@ export type CommunityPostRow = {
   isFacebookPagePost?: boolean | null;
   facebookExternalId?: string | null;
   facebookPermalink?: string | null;
+  youtubeVideoId?: string | null;
   publishedAt?: Date | null;
   createdAt: Date;
 };
 
 export function postHasFeedVisibility(row: CommunityPostRow): boolean {
+  if (row.youtubeVideoId?.trim()) return true;
   if (row.facebookEmbedUrl?.trim()) return true;
   if (row.media.length > 0) return true;
   if (row.imageUrl?.trim() || row.videoUrl?.trim()) return true;

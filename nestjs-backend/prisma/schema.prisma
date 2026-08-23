@@ -136,6 +136,7 @@ enum ReactionType {
 enum PostSource {
   INTERNAL
   FACEBOOK
+  YOUTUBE
 }
 
 enum FacebookImportStatus {
@@ -998,6 +999,12 @@ model Post {
   facebookVideoMimeType    String?
   /// Stabilní Facebook video ID (Graph API) — primární identifikátor média.
   facebookVideoId          String?
+  /// YouTube video ID (11 znaků) — primární identifikátor YouTube příspěvku.
+  youtubeVideoId           String?  @unique
+  youtubeChannelId         String?
+  youtubeChannelTitle      String?
+  youtubeThumbnailUrl        String?
+  youtubeEmbeddable          Boolean  @default(true)
   /// Facebook page ID zdrojové stránky.
   facebookPageId           String?
   /// Poslední obnova cached video/thumbnail URL z Graph API.
@@ -7482,6 +7489,12 @@ enum NewsSourceType {
   API
   OPEN_DATA
   WEB_SOURCE
+  YOUTUBE_CHANNEL
+}
+
+enum NewsYoutubePublishMode {
+  RELEVANT_ONLY
+  ALL
 }
 
 enum NewsSourceItemStatus {
@@ -7561,6 +7574,15 @@ model NewsSource {
   lastError            String?          @db.Text
   itemsFoundTotal      Int              @default(0)
   failureCount         Int              @default(0)
+  /// YouTube: kanálové ID (UC…)
+  channelId            String?
+  youtubePublishMode   NewsYoutubePublishMode @default(RELEVANT_ONLY)
+  youtubeCreatePost    Boolean          @default(true)
+  youtubeFacebookPost  Boolean          @default(false)
+  minRelevanceScore    Int?
+  lastVideoPublishedAt DateTime?
+  lastVideoId          String?
+  youtubeImportedCount Int              @default(0)
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
   items                NewsSourceItem[]
