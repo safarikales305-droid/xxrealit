@@ -23,6 +23,8 @@ import {
   nestAdminNewsSources,
   nestAdminNewsWorker,
   nestAdminNewsAutomationDiagnostics,
+  nestAdminDistributionDiagnostics,
+  nestAdminRepairDistribution,
   nestAdminTestAutoPublish,
   nestAdminPublishNewsArticle,
   nestAdminRegenerateNewsArticle,
@@ -52,6 +54,8 @@ import {
   type NewsArticleRow,
   type NewsAuditLogRow,
   type NewsAutomationDiagnostics,
+  type EditorialDistributionDiagnostics,
+  type EditorialRepairResult,
   type NewsAutomationSettings,
   type NewsDashboardStats,
   type NewsSourceRow,
@@ -147,6 +151,8 @@ export default function AdminAktualityPage() {
   const [settings, setSettings] = useState<NewsAutomationSettings | null>(null);
   const [worker, setWorker] = useState<NewsWorkerStatus | null>(null);
   const [automationDiag, setAutomationDiag] = useState<NewsAutomationDiagnostics | null>(null);
+  const [distributionDiag, setDistributionDiag] = useState<EditorialDistributionDiagnostics | null>(null);
+  const [distributionRepair, setDistributionRepair] = useState<EditorialRepairResult | null>(null);
   const [autoPublishTest, setAutoPublishTest] = useState<string | null>(null);
   const [draftArticles, setDraftArticles] = useState<NewsArticleRow[]>([]);
   const [pendingArticles, setPendingArticles] = useState<NewsArticleRow[]>([]);
@@ -226,12 +232,14 @@ export default function AdminAktualityPage() {
 
   const refreshWorker = useCallback(async () => {
     if (!token) return;
-    const [w, diag] = await Promise.all([
+    const [w, diag, dist] = await Promise.all([
       nestAdminNewsWorker(token),
       nestAdminNewsAutomationDiagnostics(token),
+      nestAdminDistributionDiagnostics(token),
     ]);
     setWorker(w);
     setAutomationDiag(diag);
+    setDistributionDiag(dist);
   }, [token]);
 
   const refreshArticles = useCallback(async () => {
@@ -1521,6 +1529,85 @@ export default function AdminAktualityPage() {
             {autoPublishTest ? (
               <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
                 {autoPublishTest}
+              </pre>
+            ) : null}
+          </section>
+
+          <section className="rounded-2xl border border-violet-200 bg-violet-50/40 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-violet-950">NEWS DISTRIBUTION</h3>
+                <p className="mt-1 text-sm text-violet-900/80">
+                  Propojení publikovaných článků a YouTube videí s hlavním feedem příspěvků.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  setDistributionRepair(null);
+                  const res = await nestAdminRepairDistribution(token);
+                  setBusy(false);
+                  if (!res.ok) {
+                    setErrMsg(res.message);
+                    return;
+                  }
+                  setDistributionRepair(res.data);
+                  setMsg(
+                    `Články: ${res.data.articles.created}/${res.data.articles.found} vytvořeno · YouTube: ${res.data.youtube.message}`,
+                  );
+                  void refreshWorker();
+                }}
+                className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
+              >
+                Opravit chybějící příspěvky
+              </button>
+            </div>
+            {distributionDiag ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Publikované články</p>
+                  <p className="font-bold">{distributionDiag.publishedArticles}</p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Články s Portal Post</p>
+                  <p className="font-bold text-emerald-700">{distributionDiag.articlesWithPortalPost}</p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Články bez Post</p>
+                  <p className={`font-bold ${distributionDiag.articlesMissingPost > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {distributionDiag.articlesMissingPost}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Feed-visible News Posts</p>
+                  <p className="font-bold">{distributionDiag.feedVisibleNewsPosts}</p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Importovaná YouTube videa</p>
+                  <p className="font-bold">{distributionDiag.importedYoutubeVideos}</p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">YouTube s Portal Post</p>
+                  <p className="font-bold text-emerald-700">{distributionDiag.youtubePostsTotal}</p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">YouTube bez Post</p>
+                  <p className={`font-bold ${distributionDiag.youtubeMissingPost > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {distributionDiag.youtubeMissingPost}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-violet-100 bg-white p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Feed-visible YouTube Posts</p>
+                  <p className="font-bold">{distributionDiag.feedVisibleYoutubePosts}</p>
+                </div>
+              </div>
+            ) : null}
+            {distributionRepair ? (
+              <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-violet-200 bg-white p-3 text-xs text-violet-950">
+                {JSON.stringify(distributionRepair, null, 2)}
               </pre>
             ) : null}
           </section>

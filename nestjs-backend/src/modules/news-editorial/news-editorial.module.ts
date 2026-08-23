@@ -17,6 +17,7 @@ import { NewsPortalPostService } from './news-portal-post.service';
 import { NewsRssTestService } from './news-rss-test.service';
 import { NewsYoutubeService } from './news-youtube.service';
 import { NewsSystemUserService } from './news-system-user.service';
+import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsEditorialAdminController } from './news-editorial-admin.controller';
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
@@ -34,6 +35,7 @@ import { NewsEditorialPublicController } from './news-editorial-public.controlle
     NewsAiService,
     NewsArticleService,
     NewsPortalPostService,
+    EditorialPortalPostService,
     NewsPublishService,
     NewsRssTestService,
     NewsYoutubeService,
@@ -45,6 +47,7 @@ import { NewsEditorialPublicController } from './news-editorial-public.controlle
     NewsEditorialSettingsService,
     NewsPublishService,
     NewsPortalPostService,
+    EditorialPortalPostService,
     NewsSystemUserService,
   ],
 })

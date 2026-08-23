@@ -989,6 +989,43 @@ export async function nestAdminNewsAutomationDiagnostics(
   return adminFetch<NewsAutomationDiagnostics>(token, '/automation/diagnostics');
 }
 
+export type EditorialDistributionDiagnostics = {
+  publishedArticles: number;
+  articlesWithPortalPost: number;
+  articlesMissingPost: number;
+  importedYoutubeVideos: number;
+  youtubePostsTotal: number;
+  youtubeMissingPost: number;
+  feedVisibleNewsPosts: number;
+  feedVisibleYoutubePosts: number;
+};
+
+export type EditorialRepairResult = {
+  articles: { found: number; created: number; errors: number };
+  youtube: {
+    imported: number;
+    alreadyHadPost: number;
+    published: number;
+    created: number;
+    errors: number;
+    message: string;
+  };
+};
+
+export async function nestAdminDistributionDiagnostics(
+  token: string,
+): Promise<EditorialDistributionDiagnostics | null> {
+  return adminFetch<EditorialDistributionDiagnostics>(token, '/distribution/diagnostics');
+}
+
+export async function nestAdminRepairDistribution(
+  token: string,
+): Promise<AdminFetchResult<EditorialRepairResult>> {
+  return adminFetchResult<EditorialRepairResult>(token, '/distribution/repair', {
+    method: 'POST',
+  });
+}
+
 export async function nestAdminTestAutoPublish(
   token: string,
   body?: { articleId?: string; bypassSchedule?: boolean },

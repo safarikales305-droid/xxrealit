@@ -28,6 +28,7 @@ import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsYoutubeService } from './news-youtube.service';
 import { NewsSystemUserService } from './news-system-user.service';
+import { EditorialPortalPostService } from './editorial-portal-post.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
 import type { SystemAuthorProfilePatch } from './news-system-user.service';
 
@@ -46,6 +47,7 @@ export class NewsEditorialAdminController {
     private readonly backfill: NewsBackfillService,
     private readonly youtube: NewsYoutubeService,
     private readonly systemUser: NewsSystemUserService,
+    private readonly editorialPosts: EditorialPortalPostService,
   ) {}
 
   @Get('dashboard')
@@ -334,12 +336,7 @@ export class NewsEditorialAdminController {
 
   @Post('backfill/youtube-posts')
   backfillYoutubePosts() {
-    return this.backfill.backfillYoutubePosts();
-  }
-
-  @Post('test-portal-post-feed')
-  testPortalPostFeed(@Body() body?: { articleId?: string; youtubeVideoId?: string }) {
-    return this.backfill.testPortalPostFeed(body);
+    return this.editorialPosts.repairMissingPosts().then((r) => r.youtube);
   }
 
   @Get('jobs/:id')
@@ -370,6 +367,42 @@ export class NewsEditorialAdminController {
   @Get('automation/diagnostics')
   automationDiagnostics() {
     return this.publish.getAutomationDiagnostics();
+  }
+
+  @Get('distribution/diagnostics')
+  distributionDiagnostics() {
+    return this.editorialPosts.getDistributionDiagnostics();
+  }
+
+  @Post('distribution/repair')
+  repairDistribution() {
+    return this.editorialPosts.repairMissingPosts();
+  }
+
+  @Post('test-portal-post-feed')
+  testPortalPostFeed(@Body() body?: { articleId?: string; youtubeVideoId?: string; postId?: string }) {
+    if (body?.postId?.trim()) {
+      return this.editorialPosts.testFeedVisibility(body.postId.trim());
+    }
+    if (body?.articleId?.trim()) {
+      return this.editorialPosts.createPostFromArticle(body.articleId.trim()).then(async (res) => ({
+        ...res,
+        feedQueryFound: res.postId
+          ? await this.editorialPosts.testFeedVisibility(res.postId)
+          : null,
+      }));
+    }
+    if (body?.youtubeVideoId?.trim()) {
+      return this.editorialPosts
+        .createPostFromYoutubeVideoId(body.youtubeVideoId.trim(), { forcePublish: true })
+        .then(async (res) => ({
+          ...res,
+          feedQueryFound: res.postId
+            ? await this.editorialPosts.testFeedVisibility(res.postId)
+            : null,
+        }));
+    }
+    return this.backfill.testPortalPostFeed(body);
   }
 
   @Post('test-auto-publish')

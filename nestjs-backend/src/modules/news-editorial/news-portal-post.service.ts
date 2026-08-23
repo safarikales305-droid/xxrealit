@@ -1,27 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  NewsArticleStatus,
-  PostCategory,
-  PostSource,
-} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { PostsService } from '../posts/posts.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { NewsAuditService } from './news-audit.service';
 import { NewsArticleService } from './news-article.service';
-import { NewsEditorialSettingsService } from './news-editorial-settings.service';
-import { NewsSystemUserService } from './news-system-user.service';
-import {
-  buildNewsArticleCanonicalUrl,
-  buildNewsFacebookPostText,
-  buildNewsPortalPostContent,
-  buildNewsPortalPostSlug,
-  buildNewsSocialExcerpt,
-  buildNewsSocialTitle,
-  mapNewsCategoryToPostCategory,
-  resolveNewsArticleImageUrl,
-} from './news-portal-post.util';
+import { EditorialPortalPostService } from './editorial-portal-post.service';
 
+/** Thin wrapper — canonical logic lives in EditorialPortalPostService. */
 @Injectable()
 export class NewsPortalPostService {
   private readonly log = new Logger(NewsPortalPostService.name);
@@ -30,171 +14,24 @@ export class NewsPortalPostService {
     private readonly prisma: PrismaService,
     private readonly audit: NewsAuditService,
     private readonly articles: NewsArticleService,
-    private readonly settings: NewsEditorialSettingsService,
+    private readonly editorial: EditorialPortalPostService,
     private readonly socialPublish: SocialPublishEnqueueService,
-    private readonly systemUser: NewsSystemUserService,
-    private readonly posts: PostsService,
   ) {}
-
-  private async resolveSystemUserId(): Promise<string> {
-    return this.systemUser.getSystemUserId();
-  }
 
   async syncFromArticle(
     articleId: string,
     opts?: { enqueueFacebook?: boolean; forceFacebook?: boolean },
   ) {
-    const article = await this.articles.getArticle(articleId);
-    if (article.status !== NewsArticleStatus.PUBLISHED) {
-      return { ok: false, reason: 'Článek není publikovaný' };
+    const result = await this.editorial.createPostFromArticle(articleId, opts);
+    if (!result.ok) {
+      return { ok: false, reason: result.reason, postId: result.postId };
     }
-
-    const cfg = this.settings.getCached();
-    if (!cfg.createPortalPost) {
-      await this.audit.log('PORTAL_POST_SKIPPED', 'Vytváření portálového příspěvku je vypnuto', {
-        articleId,
-      });
-      return { ok: false, reason: 'createPortalPost vypnuto' };
-    }
-
-    const systemUserId = await this.resolveSystemUserId();
-    if (!systemUserId) {
-      await this.audit.log('PORTAL_POST_SKIPPED', 'Systémový autor AI redakce není dostupný', {
-        articleId,
-      });
-      return { ok: false, reason: 'SYSTEM_USER_NOT_FOUND' };
-    }
-
-    const articleUrl = buildNewsArticleCanonicalUrl(article);
-    const socialTitle = buildNewsSocialTitle(article);
-    const socialExcerpt = buildNewsSocialExcerpt(article, cfg.maxTeaserLength ?? 280);
-    const imageUrl = resolveNewsArticleImageUrl(article, cfg.defaultOgImageUrl);
-    const portalContent = buildNewsPortalPostContent({
-      socialTitle,
-      socialExcerpt,
-      category: article.category,
-      articleUrl,
-    });
-    const facebookText = buildNewsFacebookPostText({
-      socialTitle,
-      socialExcerpt,
-      articleUrl,
-      addHashtags: cfg.addHashtags !== false,
-    });
-    const systemUser = await this.systemUser.getSystemUser();
-    const primarySource = article.sources?.[0];
-    const postSlug = buildNewsPortalPostSlug(article.slug);
-    const postCategory = mapNewsCategoryToPostCategory(article.category);
-
-    const payload = {
-      title: socialTitle.slice(0, 200),
-      description: facebookText,
-      content: portalContent,
-      imageUrl,
-      previewImage: imageUrl,
-      previewTitle: socialTitle,
-      previewDescription: socialExcerpt,
-      previewSiteName: systemUser.name || cfg.portalPostAuthorLabel || 'AI redakce XXrealit',
-      externalUrl: articleUrl,
-      seoTitle: article.seoTitle,
-      seoDescription: article.seoDescription,
-      slug: postSlug,
-      category: postCategory as PostCategory,
-      city: article.region ?? '',
-      publishedAt: article.publishedAt ?? new Date(),
-      ...(primarySource
-        ? {
-            newsSourceId: primarySource.sourceId ?? undefined,
-            editorialSourceName: primarySource.sourceName,
-            editorialSourceUrl: primarySource.sourceUrl,
-            editorialExternalId: primarySource.sourceItemId ?? undefined,
-          }
-        : {}),
+    return {
+      ok: true,
+      postId: result.postId,
+      feedVisible: result.feedVisible,
+      facebook: null,
     };
-
-    let postId = article.portalPostId;
-    if (postId) {
-      const existing = await this.prisma.post.findUnique({ where: { id: postId } });
-      if (existing) {
-        await this.prisma.post.update({
-          where: { id: postId },
-          data: {
-            ...payload,
-            newsArticleId: article.id,
-          },
-        });
-        await this.prisma.media.deleteMany({ where: { postId } });
-        await this.prisma.media.create({
-          data: { postId, url: imageUrl, type: 'image', order: 0 },
-        });
-      } else {
-        postId = null;
-      }
-    }
-
-    if (!postId) {
-      const byArticle = await this.prisma.post.findFirst({
-        where: { newsArticleId: article.id },
-        select: { id: true },
-      });
-      postId = byArticle?.id ?? null;
-    }
-
-    if (postId) {
-      await this.prisma.post.update({
-        where: { id: postId },
-        data: { ...payload, newsArticleId: article.id },
-      });
-      await this.prisma.media.deleteMany({ where: { postId } });
-      await this.prisma.media.create({
-        data: { postId, url: imageUrl, type: 'image', order: 0 },
-      });
-    } else {
-      const post = await this.prisma.post.create({
-        data: {
-          userId: systemUserId,
-          type: 'NEWS_ARTICLE',
-          source: PostSource.INTERNAL,
-          likesAutopilotEnabled: true,
-          lastAutopilotLikesAt: new Date(),
-          newsArticleId: article.id,
-          ...payload,
-          media: {
-            create: [{ url: imageUrl, type: 'image', order: 0 }],
-          },
-        },
-      });
-      postId = post.id;
-    }
-
-    await this.prisma.newsArticle.update({
-      where: { id: articleId },
-      data: {
-        portalPostId: postId,
-        socialTitle,
-        socialExcerpt,
-        socialImageUrl: imageUrl,
-      },
-    });
-
-    await this.audit.log('PORTAL_POST_SYNCED', `Portálový příspěvek ${postId}`, {
-      articleId,
-      metadata: { postId, imageUrl },
-    });
-
-    if (payload.publishedAt) {
-      this.posts.finalizeEditorialPost(systemUserId, postId);
-    }
-
-    let facebookResult: Record<string, unknown> | null = null;
-    if (opts?.enqueueFacebook && cfg.createFacebookPost) {
-      facebookResult = await this.enqueueFacebook(postId, {
-        force: opts.forceFacebook,
-        triggeredByUserId: undefined,
-      });
-    }
-
-    return { ok: true, postId, imageUrl, facebook: facebookResult };
   }
 
   async hideFromArticle(articleId: string) {

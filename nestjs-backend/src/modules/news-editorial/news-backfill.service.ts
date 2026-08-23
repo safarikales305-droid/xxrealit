@@ -5,6 +5,7 @@ import { NewsAuditService } from './news-audit.service';
 import { NewsAiService } from './news-ai.service';
 import { NewsImageService } from './news-image.service';
 import { NewsPortalPostService } from './news-portal-post.service';
+import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { PostsService } from '../posts/posts.service';
 
 export type NewsBackfillProgress = {
@@ -28,6 +29,7 @@ export class NewsBackfillService {
     private readonly images: NewsImageService,
     private readonly ai: NewsAiService,
     private readonly portalPosts: NewsPortalPostService,
+    private readonly editorialPosts: EditorialPortalPostService,
     private readonly audit: NewsAuditService,
     private readonly posts: PostsService,
   ) {}
@@ -237,7 +239,7 @@ export class NewsBackfillService {
 
         if (resolved.diagnostics.imageSource === 'fallback') fallback += 1;
         done += 1;
-        await this.portalPosts.syncFromArticle(article.id, { enqueueFacebook: false });
+        await this.editorialPosts.createPostFromArticle(article.id, { enqueueFacebook: false });
       } catch (err) {
         errors += 1;
         this.log.warn(`Image backfill ${article.id}: ${err instanceof Error ? err.message : err}`);
@@ -304,7 +306,7 @@ export class NewsBackfillService {
             data: { portalPostId: existing.id },
           });
         } else {
-          await this.portalPosts.syncFromArticle(article.id, { enqueueFacebook: false });
+          await this.editorialPosts.createPostFromArticle(article.id, { enqueueFacebook: false });
         }
         done += 1;
       } catch (err) {
@@ -338,65 +340,10 @@ export class NewsBackfillService {
     });
   }
 
-  /** Zpětně publikuje YouTube příspěvky bez publishedAt do hlavního feedu. */
-  async backfillYoutubePosts(): Promise<{
-    importedVideos: number;
-    postsExisting: number;
-    postsPublished: number;
-    postsCreated: number;
-    errors: number;
-    message: string;
-  }> {
-    const [importedTotal, draftPosts, existingPublished] = await Promise.all([
-      this.prisma.newsSource.aggregate({
-        _sum: { youtubeImportedCount: true },
-        where: { type: 'YOUTUBE_CHANNEL' },
-      }),
-      this.prisma.post.findMany({
-        where: { type: 'YOUTUBE_VIDEO', publishedAt: null },
-        select: { id: true, userId: true, youtubeVideoId: true, createdAt: true },
-      }),
-      this.prisma.post.count({
-        where: { type: 'YOUTUBE_VIDEO', publishedAt: { not: null } },
-      }),
-    ]);
-
-    let postsPublished = 0;
-    let errors = 0;
-
-    for (const post of draftPosts) {
-      try {
-        const publishedAt = post.createdAt ?? new Date();
-        await this.prisma.post.update({
-          where: { id: post.id },
-          data: { publishedAt },
-        });
-        this.posts.finalizeEditorialPost(post.userId, post.id);
-        postsPublished += 1;
-      } catch (err) {
-        errors += 1;
-        this.log.warn(
-          `YouTube backfill ${post.id}: ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    }
-
-    const importedVideos = importedTotal._sum.youtubeImportedCount ?? 0;
-    const postsExisting = existingPublished + draftPosts.length;
-    const message = `Importovaných videí: ${importedVideos}, Post existuje: ${postsExisting}, Nově publikováno: ${postsPublished}, Chyby: ${errors}`;
-
-    await this.audit.log('YOUTUBE_BACKFILL_POSTS', message, {
-      metadata: { importedVideos, postsExisting, postsPublished, errors },
-    });
-
-    return {
-      importedVideos,
-      postsExisting,
-      postsPublished,
-      postsCreated: 0,
-      errors,
-      message,
-    };
+  /** @deprecated Use EditorialPortalPostService.repairMissingPosts */
+  async backfillYoutubePosts() {
+    const result = await this.editorialPosts.repairMissingPosts();
+    return result.youtube;
   }
 
   async testPortalPostFeed(input?: {

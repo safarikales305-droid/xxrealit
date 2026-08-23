@@ -10,6 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { OpenAiService } from '../openai/openai.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { PostsService } from '../posts/posts.service';
+import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { NewsAuditService } from './news-audit.service';
 import { NewsPublishMode } from '@prisma/client';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
@@ -155,6 +156,7 @@ export class NewsYoutubeService {
     private readonly socialPublish: SocialPublishEnqueueService,
     private readonly systemUser: NewsSystemUserService,
     private readonly posts: PostsService,
+    private readonly editorialPosts: EditorialPortalPostService,
   ) {}
 
   private editorialError(code: string, message: string): Error {
@@ -466,14 +468,23 @@ export class NewsYoutubeService {
     const teaser = await this.generateTeaser(video);
     let postId: string;
     try {
-      postId = await this.createYoutubePost({
+      const bodyText = await this.generateVideoBody(video, teaser);
+      const created = await this.editorialPosts.createPostFromYoutubeVideo({
         video,
         channelTitle,
         teaser,
-        category: source.category,
+        bodyText,
         source,
         forcePublish: opts.forceImportForTest,
       });
+      if (!created.ok || !created.postId) {
+        return {
+          created: false,
+          reason: created.reason ?? 'ARTICLE_CREATE_FAILED',
+          relevanceScore,
+        };
+      }
+      postId = created.postId;
     } catch (err) {
       const code = (err as Error & { code?: string }).code ?? 'ARTICLE_CREATE_FAILED';
       return { created: false, reason: code, relevanceScore };
@@ -560,105 +571,6 @@ export class NewsYoutubeService {
     }
 
     return [teaser, description.slice(0, 600)].filter(Boolean).join('\n\n');
-  }
-
-  private async createYoutubePost(input: {
-    video: YoutubeVideoMeta;
-    channelTitle: string;
-    teaser: string;
-    category?: string | null;
-    source: NewsSource;
-    forcePublish?: boolean;
-  }): Promise<string> {
-    let systemUserId: string;
-    try {
-      systemUserId = await this.systemUser.getSystemUserId();
-    } catch (err) {
-      throw this.editorialError(
-        'SYSTEM_USER_NOT_FOUND',
-        err instanceof Error ? err.message : 'Systémový autor AI redakce není dostupný.',
-      );
-    }
-
-    const systemUser = await this.systemUser.getSystemUser();
-    const cfg = this.settings.getCached();
-    const siteBase = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '') ?? 'https://xxrealit.cz';
-    const postSlug = `video-${input.video.videoId}`;
-    const bodyText = await this.generateVideoBody(input.video, input.teaser);
-    const autoPublish =
-      input.forcePublish ||
-      cfg.publishMode === NewsPublishMode.AUTOMATIC ||
-      cfg.autoPublishArticles ||
-      input.source.youtubePublishMode === NewsYoutubePublishMode.ALL;
-    const publishedAt = autoPublish ? input.video.publishedAt ?? new Date() : null;
-
-    const portalContent = [
-      input.teaser,
-      '',
-      bodyText,
-      '',
-      `Zdroj: ${input.source.name}`,
-      `Kanál: ${input.channelTitle}`,
-      `Originál: ${input.video.videoUrl}`,
-    ].join('\n');
-
-    const post = await this.prisma.post.create({
-      data: {
-        userId: systemUserId,
-        type: 'YOUTUBE_VIDEO',
-        source: PostSource.YOUTUBE,
-        title: input.video.title.slice(0, 200),
-        description: input.teaser,
-        content: portalContent,
-        externalUrl: input.video.videoUrl,
-        previewTitle: input.video.title,
-        previewDescription: input.teaser,
-        previewImage: input.video.thumbnailUrl,
-        previewSiteName: systemUser.name || cfg.portalPostAuthorLabel,
-        imageUrl: input.video.thumbnailUrl,
-        youtubeVideoId: input.video.videoId,
-        youtubeChannelId: input.video.channelId,
-        youtubeChannelTitle: input.channelTitle,
-        youtubeThumbnailUrl: input.video.thumbnailUrl,
-        youtubeEmbeddable: input.video.embeddable,
-        publishedAt,
-        slug: postSlug,
-        newsSourceId: input.source.id,
-        editorialSourceName: input.source.name,
-        editorialSourceUrl: input.source.url,
-        editorialExternalId: input.video.videoId,
-        likesAutopilotEnabled: true,
-        lastAutopilotLikesAt: new Date(),
-      },
-    });
-
-    const facebookText = [
-      '🎥 Nové video k tématu bydlení a realit',
-      '',
-      input.video.title,
-      '',
-      input.teaser,
-      '',
-      'Podívejte se na video na XXREALIT:',
-      `${siteBase}/prispevky/${post.id}`,
-      '',
-      '#XXREALIT #reality #bydleni',
-    ].join('\n');
-
-    await this.prisma.post.update({
-      where: { id: post.id },
-      data: { description: facebookText },
-    });
-
-    if (publishedAt) {
-      this.posts.finalizeEditorialPost(systemUserId, post.id);
-    }
-
-    await this.audit.log('YOUTUBE_POST_CREATED', `YouTube post ${post.id} — ${input.video.title}`, {
-      metadata: { postId: post.id, videoId: input.video.videoId },
-    });
-
-    return post.id;
   }
 
   private async markSourceConfigError(sourceId: string, message: string) {
