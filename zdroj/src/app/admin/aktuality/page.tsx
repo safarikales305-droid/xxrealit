@@ -63,6 +63,7 @@ import {
   type YoutubeDiagnoseResponse,
   type YoutubeBackfillResponse,
   type YoutubeAdminStatus,
+  type YoutubeApiTestResponse,
   type SystemAuthorProfile,
 } from '@/lib/news-editorial-client';
 
