@@ -10,6 +10,7 @@ import {
   NEWS_ARTICLE_CATEGORIES,
   nestAdminBackfillNewsImages,
   nestAdminBackfillNewsPosts,
+  nestAdminBackfillBadArticles,
   nestAdminCreateNewsFromUrl,
   nestAdminCreateNewsSource,
   nestAdminDeleteNewsSource,
@@ -19,6 +20,8 @@ import {
   nestAdminNewsSettings,
   nestAdminNewsSources,
   nestAdminNewsWorker,
+  nestAdminNewsAutomationDiagnostics,
+  nestAdminTestAutoPublish,
   nestAdminPublishNewsArticle,
   nestAdminRegenerateNewsArticle,
   nestAdminRejectNewsArticle,
@@ -33,8 +36,10 @@ import {
   nestAdminUpdateNewsSource,
   newsCategoryLabel,
   newsStatusLabel,
+  newsWaitReasonLabel,
   type NewsArticleRow,
   type NewsAuditLogRow,
+  type NewsAutomationDiagnostics,
   type NewsAutomationSettings,
   type NewsDashboardStats,
   type NewsSourceRow,
@@ -102,6 +107,8 @@ export default function AdminAktualityPage() {
   const [sources, setSources] = useState<NewsSourceRow[]>([]);
   const [settings, setSettings] = useState<NewsAutomationSettings | null>(null);
   const [worker, setWorker] = useState<NewsWorkerStatus | null>(null);
+  const [automationDiag, setAutomationDiag] = useState<NewsAutomationDiagnostics | null>(null);
+  const [autoPublishTest, setAutoPublishTest] = useState<string | null>(null);
   const [draftArticles, setDraftArticles] = useState<NewsArticleRow[]>([]);
   const [pendingArticles, setPendingArticles] = useState<NewsArticleRow[]>([]);
   const [publishedArticles, setPublishedArticles] = useState<NewsArticleRow[]>([]);
@@ -151,8 +158,12 @@ export default function AdminAktualityPage() {
 
   const refreshWorker = useCallback(async () => {
     if (!token) return;
-    const w = await nestAdminNewsWorker(token);
+    const [w, diag] = await Promise.all([
+      nestAdminNewsWorker(token),
+      nestAdminNewsAutomationDiagnostics(token),
+    ]);
     setWorker(w);
+    setAutomationDiag(diag);
   }, [token]);
 
   const refreshArticles = useCallback(async () => {
@@ -317,14 +328,17 @@ export default function AdminAktualityPage() {
     if (items.length === 0) {
       return <p className="text-sm text-zinc-500">Žádné články k zobrazení.</p>;
     }
+    const pendingCols = actions === 'pending';
     return (
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[960px] text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-100 text-xs uppercase tracking-wide text-zinc-500">
               <th className="px-4 py-3">Titulek</th>
               <th className="px-4 py-3">Kategorie</th>
               <th className="px-4 py-3">Skóre</th>
+              {pendingCols ? <th className="px-4 py-3">Obrázek</th> : null}
+              {pendingCols ? <th className="px-4 py-3">Důvod čekání</th> : null}
               <th className="px-4 py-3">Stav</th>
               <th className="px-4 py-3">Aktualizováno</th>
               <th className="px-4 py-3">Akce</th>
@@ -343,8 +357,23 @@ export default function AdminAktualityPage() {
                     <ScoreBadge value={article.qualityScore} label="Kvalita" />
                     <ScoreBadge value={article.seoScore} label="SEO" />
                     <ScoreBadge value={article.relevanceScore} label="Relevance" />
+                    {pendingCols ? (
+                      <ScoreBadge value={article.languageQualityScore} label="Jazyk" />
+                    ) : null}
                   </div>
                 </td>
+                {pendingCols ? (
+                  <td className="px-4 py-3 text-center text-lg">
+                    {article.ogImageUrl ? '✅' : '❌'}
+                  </td>
+                ) : null}
+                {pendingCols ? (
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                      {newsWaitReasonLabel(article.waitReason)}
+                    </span>
+                  </td>
+                ) : null}
                 <td className="px-4 py-3">
                   <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
                     {newsStatusLabel(article.status)}
@@ -887,9 +916,22 @@ export default function AdminAktualityPage() {
             {worker ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-                  <p className="text-xs text-zinc-500">Online</p>
+                  <p className="text-xs text-zinc-500">Worker</p>
                   <p className={`font-bold ${worker.online ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {worker.online ? 'Ano' : 'Ne'}
+                    {worker.online ? 'ONLINE' : 'OFFLINE'}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <p className="text-xs text-zinc-500">Scheduler</p>
+                  <p
+                    className={`font-bold ${
+                      automationDiag?.scheduleWindowOpen ? 'text-emerald-600' : 'text-amber-600'
+                    }`}
+                  >
+                    {automationDiag?.scheduleWindowOpen ? 'OKNO OTEVŘENO' : 'ČEKÁ'}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    Další slot: {automationDiag?.nextPublishSlot ?? '—'}
                   </p>
                 </div>
                 <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
@@ -897,14 +939,68 @@ export default function AdminAktualityPage() {
                   <p className="text-sm font-medium">{formatDate(worker.lastHeartbeatAt)}</p>
                 </div>
                 <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-                  <p className="text-xs text-zinc-500">Zpracování</p>
-                  <p className="font-medium">{worker.processing ? 'Běží' : 'Neaktivní'}</p>
-                </div>
-                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-                  <p className="text-xs text-zinc-500">Poslední chyba</p>
-                  <p className="text-sm text-red-700">{worker.lastError ?? '—'}</p>
+                  <p className="text-xs text-zinc-500">AUTO připraveno</p>
+                  <p className="text-2xl font-bold text-emerald-700">
+                    {automationDiag?.eligibleForAuto ?? '—'}
+                  </p>
                 </div>
               </div>
+            ) : null}
+            {automationDiag ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Čeká na obrázek</p>
+                  <p className="font-bold">{automationDiag.waitingImage}</p>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Čeká na kvalitu</p>
+                  <p className="font-bold">{automationDiag.waitingQuality}</p>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Čeká na jazyk</p>
+                  <p className="font-bold">{automationDiag.waitingLanguage}</p>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Čeká na čas</p>
+                  <p className="font-bold">{automationDiag.waitingSchedule}</p>
+                </div>
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs text-zinc-500">Post fronta</p>
+                  <p className="font-bold">{automationDiag.portalPostQueue}</p>
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  setAutoPublishTest(null);
+                  const res = await nestAdminTestAutoPublish(token, { bypassSchedule: true });
+                  setBusy(false);
+                  if (!res.ok) {
+                    setErrMsg(res.message);
+                    return;
+                  }
+                  const lines = res.data.steps
+                    .map((s) => `${s.step}: ${s.status}${s.detail ? ` (${s.detail})` : ''}`)
+                    .join('\n');
+                  setAutoPublishTest(
+                    `Publikováno: ${res.data.published ? 'ANO' : 'NE'}\n${lines}`,
+                  );
+                  void refreshAll();
+                }}
+                className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                Otestovat automatickou publikaci
+              </button>
+            </div>
+            {autoPublishTest ? (
+              <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+                {autoPublishTest}
+              </pre>
             ) : null}
           </section>
 
@@ -941,6 +1037,20 @@ export default function AdminAktualityPage() {
                 className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
               >
                 Doplnit Aktuality do Příspěvků
+              </button>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const res = await nestAdminBackfillBadArticles(token);
+                  setBusy(false);
+                  setMsg(res.ok ? `Oprava článků spuštěna (job ${res.data.jobId})` : res.message);
+                }}
+                className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                Opravit nekvalitní AI články
               </button>
             </div>
           </section>

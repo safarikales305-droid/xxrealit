@@ -11,12 +11,13 @@ import { NewsEditorialSettingsService } from './news-editorial-settings.service'
 import { NewsFetchService } from './news-fetch.service';
 import { NewsAiService } from './news-ai.service';
 import { NewsPublishService } from './news-publish.service';
+import { isWithinPublishWindow, pragueDayKey } from './news-publish-scheduler.util';
 
 let workerHeartbeat: Date | null = null;
 let workerLastError: string | null = null;
 let workerProcessing = false;
-
 let workerPaused = false;
+const publishedSlotsToday = new Set<string>();
 
 export function getNewsWorkerHeartbeat() {
   return workerHeartbeat;
@@ -26,6 +27,7 @@ export function getNewsWorkerHeartbeat() {
 export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(NewsEditorialWorkerService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
+  private lastPragueDay = pragueDayKey();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -81,6 +83,12 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
     workerProcessing = true;
     workerHeartbeat = new Date();
 
+    const today = pragueDayKey();
+    if (today !== this.lastPragueDay) {
+      publishedSlotsToday.clear();
+      this.lastPragueDay = today;
+    }
+
     try {
       const cfg = this.settings.getCached();
       if (!cfg.enabled) return;
@@ -92,7 +100,10 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
         await this.ai.analyzeNewItems(15);
         await this.generateDraftsWithinDailyLimit(cfg);
       }
-      if (cfg.autoPublishArticles && cfg.publishMode === NewsPublishMode.AUTOMATIC) {
+
+      const autoEnabled =
+        cfg.publishMode === NewsPublishMode.AUTOMATIC || cfg.autoPublishArticles;
+      if (autoEnabled) {
         await this.autoPublishReadyDrafts(cfg);
       }
       await this.publish.publishScheduledDue(3);
@@ -141,19 +152,28 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
     });
     if (publishedToday >= cfg.maxArticlesPerDay) return;
 
-    const drafts = await this.prisma.newsArticle.findMany({
-      where: { status: NewsArticleStatus.DRAFT },
-      orderBy: [{ relevanceScore: 'desc' }, { createdAt: 'asc' }],
+    const schedule = isWithinPublishWindow(cfg.publishTimes);
+    if (!schedule.due) return;
+
+    const slotKey = `${pragueDayKey()}:${schedule.slot?.label ?? 'any'}`;
+    if (publishedSlotsToday.has(slotKey)) return;
+
+    const candidates = await this.prisma.newsArticle.findMany({
+      where: {
+        status: { in: [NewsArticleStatus.DRAFT, NewsArticleStatus.REVIEW] },
+        OR: [{ waitReason: 'AUTO_READY' }, { waitReason: null }],
+      },
+      orderBy: [{ languageQualityScore: 'desc' }, { qualityScore: 'desc' }, { createdAt: 'asc' }],
       take: Math.max(0, cfg.maxArticlesPerDay - publishedToday),
     });
 
-    for (const draft of drafts) {
-      try {
-        await this.publish.publish(draft.id);
-      } catch (err) {
-        this.log.warn(
-          `Auto publish skipped ${draft.id}: ${err instanceof Error ? err.message : err}`,
-        );
+    let publishedInSlot = 0;
+    for (const draft of candidates) {
+      if (publishedToday + publishedInSlot >= cfg.maxArticlesPerDay) break;
+      const result = await this.publish.tryAutoPublish(draft.id);
+      if (result.published) {
+        publishedInSlot += 1;
+        publishedSlotsToday.add(slotKey);
       }
     }
   }

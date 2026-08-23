@@ -63,6 +63,11 @@ export class NewsEditorialSettingsService implements OnModuleInit {
         ? publishModeRaw
         : d.publishMode;
 
+    const autoPublishArticles =
+      publishMode === NewsPublishMode.AUTOMATIC
+        ? true
+        : this.bool(o.autoPublishArticles, d.autoPublishArticles);
+
     const minArticlesPerDay = this.num(
       o.minArticlesPerDay,
       d.minArticlesPerDay,
@@ -84,7 +89,7 @@ export class NewsEditorialSettingsService implements OnModuleInit {
       enabled: this.bool(o.enabled, d.enabled),
       autoFetchSources: this.bool(o.autoFetchSources, d.autoFetchSources),
       autoAiProcessing: this.bool(o.autoAiProcessing, d.autoAiProcessing),
-      autoPublishArticles: this.bool(o.autoPublishArticles, d.autoPublishArticles),
+      autoPublishArticles,
       fetchIntervalMinutes: this.num(o.fetchIntervalMinutes, d.fetchIntervalMinutes, 5, 720),
       publishMode,
       minArticlesPerDay: Math.min(minArticlesPerDay, maxArticlesPerDay),
@@ -104,6 +109,7 @@ export class NewsEditorialSettingsService implements OnModuleInit {
         24 * 60,
       ),
       autoPublishMinQuality: this.num(o.autoPublishMinQuality, d.autoPublishMinQuality, 0, 100),
+      minLanguageQuality: this.num(o.minLanguageQuality, d.minLanguageQuality, 0, 100),
       createPortalPost: this.bool(o.createPortalPost, d.createPortalPost),
       createFacebookPost: this.bool(o.createFacebookPost, d.createFacebookPost),
       portalPostAuthorLabel: this.str(o.portalPostAuthorLabel, d.portalPostAuthorLabel),

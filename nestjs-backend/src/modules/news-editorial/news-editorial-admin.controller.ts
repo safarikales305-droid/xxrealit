@@ -279,6 +279,28 @@ export class NewsEditorialAdminController {
     return this.backfill.cancelJob(id);
   }
 
+  @Post('backfill/bad-articles')
+  backfillBadArticles() {
+    return this.backfill.startBackfillBadArticles();
+  }
+
+  @Get('automation/diagnostics')
+  automationDiagnostics() {
+    return this.publish.getAutomationDiagnostics();
+  }
+
+  @Post('test-auto-publish')
+  async testAutoPublish(@Body() body?: { articleId?: string; bypassSchedule?: boolean }) {
+    const opts = { bypassSchedule: body?.bypassSchedule !== false };
+    if (body?.articleId) {
+      return this.publish.tryAutoPublish(body.articleId, opts);
+    }
+    const candidate = await this.articles.listArticles({ status: 'REVIEW', limit: '1' });
+    const article = candidate.items[0] ?? (await this.articles.listArticles({ status: 'DRAFT', limit: '1' })).items[0];
+    if (!article) return { ok: false, reason: 'Žádný kandidát' };
+    return this.publish.tryAutoPublish(article.id, opts);
+  }
+
   @Get('audit-log')
   auditLog(
     @Query('limit') limit?: string,

@@ -1,0 +1,3 @@
+ALTER TABLE "NewsArticle"
+  ADD COLUMN IF NOT EXISTS "languageQualityScore" INTEGER,
+  ADD COLUMN IF NOT EXISTS "waitReason" TEXT;

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { NewsArticle } from '@prisma/client';
 import { NEWS_IGNORE_KEYWORDS } from './news-editorial.constants';
+import { scoreLanguageQuality } from './news-text-sanitizer.util';
 
 const RELEVANCE_KEYWORDS: Array<{ pattern: RegExp; weight: number }> = [
   { pattern: /nemovitost|byt|dům|dom/i, weight: 12 },
@@ -136,6 +137,49 @@ function inlineMarkdown(text: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" rel="noopener noreferrer" target="_blank">$1</a>');
 }
 
+export type NewsWaitReason =
+  | 'AUTO_READY'
+  | 'QUALITY_LOW'
+  | 'LANGUAGE_QUALITY_LOW'
+  | 'IMAGE_REQUIRED'
+  | 'SOURCE_ERROR'
+  | 'DUPLICATE'
+  | 'WAITING_SCHEDULE'
+  | 'MANUAL_REVIEW';
+
+export function evaluateArticleReadiness(
+  article: Pick<
+    NewsArticle,
+    | 'title'
+    | 'seoTitle'
+    | 'seoDescription'
+    | 'perex'
+    | 'bodyMarkdown'
+    | 'sourcesFooterHtml'
+    | 'ogImageUrl'
+    | 'languageQualityScore'
+  >,
+  thresholds: { minQuality: number; minLanguage: number },
+): { ready: boolean; waitReason: NewsWaitReason; quality: QualityGateResult; languageScore: number } {
+  const quality = runQualityGate(article);
+  const lang = scoreLanguageQuality(
+    `${article.perex}\n${article.bodyMarkdown}`,
+    article.title,
+  );
+  const languageScore = article.languageQualityScore ?? lang.score;
+
+  if (!article.ogImageUrl?.trim()) {
+    return { ready: false, waitReason: 'IMAGE_REQUIRED', quality, languageScore };
+  }
+  if (languageScore < thresholds.minLanguage) {
+    return { ready: false, waitReason: 'LANGUAGE_QUALITY_LOW', quality, languageScore };
+  }
+  if (quality.qualityScore < thresholds.minQuality || !quality.passed) {
+    return { ready: false, waitReason: 'QUALITY_LOW', quality, languageScore };
+  }
+  return { ready: true, waitReason: 'AUTO_READY', quality, languageScore };
+}
+
 export type QualityGateResult = {
   passed: boolean;
   qualityScore: number;
@@ -179,7 +223,13 @@ export function runQualityGate(
   }
   if (!article.sourcesFooterHtml?.includes('<a ')) {
     issues.push('Chybí uvedení zdrojů s odkazy.');
-    qualityScore -= 15;
+    qualityScore -= 10;
+  }
+
+  const lang = scoreLanguageQuality(`${article.perex}\n${article.bodyMarkdown}`, article.title);
+  if (lang.score < 70) {
+    issues.push(`Nízká jazyková kvalita (${lang.score}).`);
+    qualityScore -= Math.min(30, 100 - lang.score);
   }
 
   qualityScore = Math.max(0, Math.min(100, qualityScore));
@@ -187,7 +237,7 @@ export function runQualityGate(
   const combined = Math.round((qualityScore + seoScore) / 2);
 
   return {
-    passed: issues.length === 0 && combined >= 70,
+    passed: issues.length === 0 && combined >= 70 && lang.score >= 70,
     qualityScore: combined,
     seoScore,
     issues,

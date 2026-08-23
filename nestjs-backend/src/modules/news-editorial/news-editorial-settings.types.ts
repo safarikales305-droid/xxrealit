@@ -14,6 +14,7 @@ export type NewsAutomationSettings = {
   publishTimes: string[];
   minMinutesBetweenArticles: number;
   autoPublishMinQuality: number;
+  minLanguageQuality: number;
   createPortalPost: boolean;
   createFacebookPost: boolean;
   portalPostAuthorLabel: string;
@@ -36,6 +37,7 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   publishTimes: ['09:00', '12:00', '17:00'],
   minMinutesBetweenArticles: 120,
   autoPublishMinQuality: 80,
+  minLanguageQuality: 80,
   createPortalPost: true,
   createFacebookPost: false,
   portalPostAuthorLabel: 'Redakce XXREALIT',

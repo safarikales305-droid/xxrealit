@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { NewsArticleStatus, NewsWorkerJobStatus, NewsWorkerJobType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { NewsAuditService } from './news-audit.service';
+import { NewsAiService } from './news-ai.service';
 import { NewsImageService } from './news-image.service';
 import { NewsPortalPostService } from './news-portal-post.service';
 
@@ -24,6 +25,7 @@ export class NewsBackfillService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly images: NewsImageService,
+    private readonly ai: NewsAiService,
     private readonly portalPosts: NewsPortalPostService,
     private readonly audit: NewsAuditService,
   ) {}
@@ -67,6 +69,66 @@ export class NewsBackfillService {
       where: { id: jobId },
       data: { status: 'CANCELLED', finishedAt: new Date() },
     });
+  }
+
+  async startBackfillBadArticles(): Promise<{ jobId: string }> {
+    const articles = await this.prisma.newsArticle.findMany({
+      where: {
+        status: { in: ['DRAFT', 'REVIEW'] },
+        OR: [
+          { languageQualityScore: { lt: 70 } },
+          { waitReason: 'LANGUAGE_QUALITY_LOW' },
+          { title: { contains: 'http' } },
+          { perex: { contains: '.jpg' } },
+        ],
+      },
+      select: { id: true, title: true },
+      take: 200,
+    });
+
+    const job = await this.prisma.newsWorkerJob.create({
+      data: {
+        type: 'ARTICLE_QA',
+        status: 'RUNNING',
+        startedAt: new Date(),
+        payload: { kind: 'BACKFILL_BAD_ARTICLES' },
+        result: { total: articles.length, done: 0, fallback: 0, errors: 0 },
+      },
+    });
+
+    this.running.set(job.id, { cancel: false, pause: false });
+    void this.runBadArticleBackfill(job.id, articles);
+    return { jobId: job.id };
+  }
+
+  private async runBadArticleBackfill(
+    jobId: string,
+    articles: Array<{ id: string; title: string }>,
+  ) {
+    let done = 0;
+    let errors = 0;
+    for (const article of articles) {
+      const state = this.running.get(jobId);
+      if (!state || state.cancel) break;
+      try {
+        await this.ai.regenerateArticleInPlace(article.id);
+        done += 1;
+      } catch {
+        errors += 1;
+      }
+      await this.prisma.newsWorkerJob.update({
+        where: { id: jobId },
+        data: {
+          progress: Math.round((done / Math.max(articles.length, 1)) * 100),
+          result: { total: articles.length, done, fallback: 0, errors, current: article.title },
+        },
+      });
+    }
+    await this.prisma.newsWorkerJob.update({
+      where: { id: jobId },
+      data: { status: 'COMPLETED', finishedAt: new Date(), progress: 100 },
+    });
+    this.running.delete(jobId);
   }
 
   async startBackfillImages(): Promise<{ jobId: string }> {

@@ -7603,7 +7603,9 @@ model NewsArticle {
   status             NewsArticleStatus @default(DRAFT)
   qualityScore       Int?
   relevanceScore     Int?
+  languageQualityScore Int?
   seoScore           Int?
+  waitReason         String?
   publishMode        NewsPublishMode?
   scheduledAt        DateTime?
   publishedAt        DateTime?

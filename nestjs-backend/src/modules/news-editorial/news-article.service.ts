@@ -192,32 +192,9 @@ export class NewsArticleService {
   }
 
   async regenerate(id: string) {
-    const article = await this.getArticle(id);
-    const sourceLink = article.sources[0];
-    if (!sourceLink?.sourceItemId) {
-      throw new BadRequestException('Článek nemá vazbu na zdrojovou položku.');
-    }
-
-    const draft = await this.ai.generateDraftFromItem(sourceLink.sourceItemId);
+    await this.getArticle(id);
+    const draft = await this.ai.regenerateArticleInPlace(id);
     if (!draft) throw new BadRequestException('Regenerace selhala.');
-
-    await this.prisma.newsArticle.update({
-      where: { id },
-      data: {
-        title: draft.title,
-        seoTitle: draft.seoTitle,
-        seoDescription: draft.seoDescription,
-        perex: draft.perex,
-        bodyMarkdown: draft.bodyMarkdown,
-        bodyHtml: draft.bodyHtml,
-        sourcesFooterHtml: draft.sourcesFooterHtml,
-        aiGenerated: true,
-      },
-    });
-
-    await this.audit.log('ARTICLE_REGENERATED', `Regenerován článek: ${draft.title}`, {
-      articleId: id,
-    });
     return this.getArticle(id);
   }
 

@@ -7,10 +7,19 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { OpenAiService } from '../openai/openai.service';
 import {
+  evaluateArticleReadiness,
   markdownToBasicHtml,
+  runQualityGate,
   scoreNewsRelevance,
   slugifyNewsTitle,
 } from './news-editorial.util';
+import {
+  sanitizeAiArticleFields,
+  sanitizeNewsSourceText,
+  scoreLanguageQuality,
+  stripTrackingFromUrl,
+  validateAiArticleOutput,
+} from './news-text-sanitizer.util';
 import { NewsAuditService } from './news-audit.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
 import { NewsImageService } from './news-image.service';
@@ -176,17 +185,11 @@ export class NewsAiService {
 
     const category = item.source.category ?? 'reality';
     const region = item.topic?.region ?? null;
-
-    let payload: DraftPayload;
-    try {
-      payload = await this.generateWithAi(item, category, region);
-    } catch (err) {
-      this.log.warn(`AI draft fallback for ${itemId}: ${err instanceof Error ? err.message : err}`);
-      payload = this.generateRuleBasedDraft(item, category, region);
-    }
-
+    const payload = await this.buildPayloadFromItem(item, category, region);
     const slug = slugifyNewsTitle(payload.title);
     const bodyHtml = markdownToBasicHtml(payload.bodyMarkdown);
+    const langScore = scoreLanguageQuality(`${payload.perex}\n${payload.bodyMarkdown}`, payload.title).score;
+    const gate = runQualityGate(payload);
 
     const article = await this.prisma.newsArticle.create({
       data: {
@@ -200,7 +203,9 @@ export class NewsAiService {
         category: payload.category,
         region: payload.region,
         canonicalPath: `/aktuality/${slug}`,
-        qualityScore: null,
+        qualityScore: gate.qualityScore,
+        seoScore: gate.seoScore,
+        languageQualityScore: langScore,
         relevanceScore: item.relevanceScore,
         publishMode: this.settings.getCached().publishMode,
         sourcePublishedAt: item.publishedAt,
@@ -208,18 +213,80 @@ export class NewsAiService {
         factClaimsJson: payload.factClaimsJson,
         topicId: item.topicId,
         aiGenerated: true,
+        status: 'REVIEW',
         sources: {
           create: {
             sourceId: item.sourceId,
             sourceItemId: item.id,
             sourceName: item.source.name,
-            sourceUrl: item.sourceUrl,
+            sourceUrl: stripTrackingFromUrl(item.sourceUrl),
             sourcePublishedAt: item.publishedAt,
           },
         },
         analytics: { create: {} },
       },
     });
+
+    return this.finalizeArticleMediaAndReadiness(article.id, item);
+  }
+
+  async regenerateArticleInPlace(articleId: string) {
+    const article = await this.prisma.newsArticle.findUnique({
+      where: { id: articleId },
+      include: { sources: true },
+    });
+    if (!article) return null;
+    const sourceLink = article.sources[0];
+    if (!sourceLink?.sourceItemId) {
+      throw new Error('Článek nemá vazbu na zdrojovou položku.');
+    }
+
+    const item = await this.prisma.newsSourceItem.findUnique({
+      where: { id: sourceLink.sourceItemId },
+      include: { source: true, topic: true },
+    });
+    if (!item) throw new Error('Zdrojová položka nenalezena.');
+
+    const category = article.category || item.source.category || 'reality';
+    const region = article.region ?? item.topic?.region ?? null;
+    const payload = await this.buildPayloadFromItem(item, category, region);
+    const bodyHtml = markdownToBasicHtml(payload.bodyMarkdown);
+    const langScore = scoreLanguageQuality(`${payload.perex}\n${payload.bodyMarkdown}`, payload.title).score;
+    const gate = runQualityGate(payload);
+
+    await this.prisma.newsArticle.update({
+      where: { id: articleId },
+      data: {
+        title: payload.title,
+        seoTitle: payload.seoTitle,
+        seoDescription: payload.seoDescription,
+        perex: payload.perex,
+        bodyMarkdown: payload.bodyMarkdown,
+        bodyHtml,
+        sourcesFooterHtml: payload.sourcesFooterHtml,
+        factClaimsJson: payload.factClaimsJson,
+        qualityScore: gate.qualityScore,
+        seoScore: gate.seoScore,
+        languageQualityScore: langScore,
+        aiGenerated: true,
+        status: article.status === 'PUBLISHED' ? 'PUBLISHED' : 'REVIEW',
+      },
+    });
+
+    await this.audit.log('ARTICLE_REGENERATED', `Regenerován článek ze zdroje: ${payload.title}`, {
+      articleId,
+      metadata: { sourceItemId: item.id },
+    });
+
+    return this.finalizeArticleMediaAndReadiness(articleId, item);
+  }
+
+  private async finalizeArticleMediaAndReadiness(
+    articleId: string,
+    item: Prisma.NewsSourceItemGetPayload<{ include: { source: true } }>,
+  ) {
+    const article = await this.prisma.newsArticle.findUnique({ where: { id: articleId } });
+    if (!article) return null;
 
     const hero = await this.images.resolveHeroForArticle({
       articleId: article.id,
@@ -234,21 +301,55 @@ export class NewsAiService {
         | undefined,
     });
 
+    const cfg = this.settings.getCached();
+    const readiness = evaluateArticleReadiness(
+      { ...article, ogImageUrl: hero.storedUrl },
+      { minQuality: cfg.autoPublishMinQuality, minLanguage: cfg.minLanguageQuality },
+    );
+
     const withImage = await this.prisma.newsArticle.update({
-      where: { id: article.id },
+      where: { id: articleId },
       data: {
         ogImageUrl: hero.storedUrl,
         ogImageAlt: hero.alt,
         imageDiagnosticsJson: hero.diagnostics as object,
+        qualityScore: readiness.quality.qualityScore,
+        seoScore: readiness.quality.seoScore,
+        languageQualityScore: readiness.languageScore,
+        waitReason: readiness.waitReason,
+        status: readiness.ready ? 'REVIEW' : 'REVIEW',
       },
     });
 
-    await this.audit.log('NEWS_ARTICLE_CREATED', `Vytvořen draft: ${withImage.title}`, {
+    await this.audit.log('NEWS_ARTICLE_CREATED', `Draft připraven: ${withImage.title}`, {
       articleId: withImage.id,
-      metadata: { sourceItemId: item.id, image: hero.diagnostics },
+      metadata: { waitReason: readiness.waitReason, image: hero.diagnostics },
     });
 
     return withImage;
+  }
+
+  private async buildPayloadFromItem(
+    item: Prisma.NewsSourceItemGetPayload<{ include: { source: true } }>,
+    category: string,
+    region: string | null,
+  ): Promise<DraftPayload> {
+    let payload: DraftPayload;
+    try {
+      payload = await this.generateWithAi(item, category, region);
+    } catch (err) {
+      this.log.warn(`AI draft fallback for ${item.id}: ${err instanceof Error ? err.message : err}`);
+      payload = this.generateRuleBasedDraft(item, category, region);
+    }
+
+    payload = sanitizeAiArticleFields(payload);
+    const validation = validateAiArticleOutput(payload);
+    if (!validation.valid) {
+      this.log.warn(`AI output validation failed for ${item.id}: ${validation.issues.join(', ')}`);
+      payload = this.generateRuleBasedDraft(item, category, region);
+      payload = sanitizeAiArticleFields(payload);
+    }
+    return payload;
   }
 
   private async generateWithAi(
@@ -256,20 +357,29 @@ export class NewsAiService {
     category: string,
     region: string | null,
   ): Promise<DraftPayload> {
+    const cleaned = sanitizeNewsSourceText(item.title, item.summary);
+    const sourceUrl = stripTrackingFromUrl(item.sourceUrl);
+
     const ai = await this.openai.complete({
       feature: 'editorial_news',
-      systemPrompt: `Jsi redaktor portálu XXREALIT. Vytvoř ORIGINÁLNÍ článek v češtině o realitním trhu.
+      systemPrompt: `Jsi redaktor českého realitního portálu XXREALIT.
+
+Z ověřených podkladů napiš samostatný, plynulý, originální článek v češtině.
+
 Pravidla:
-- NIKDY nekopíruj větu po větě
-- Nevymýšlej čísla, sazby, procenta ani statistiky, které nejsou ve zdroji
-- Vrať pouze JSON dle schématu
-- Přidej praktický kontext pro kupující, prodávající, investory
-- Uveď sekci Zdroje jako HTML seznam s odkazy`,
+- Nevkládej URL do těla článku (kromě sekce Zdroje v sourcesFooterHtml).
+- Odstraň technické informace, tracking parametry, kód a RSS artefakty.
+- Neopakuj nadpis v prvním odstavci.
+- Nevymýšlej čísla, sazby, statistiky ani citace, které nejsou ve zdroji.
+- Zaměř se na dopad pro kupující, prodávající, majitele, investory a realitní trh.
+- Text musí působit jako redakční článek, ne jako strojový přepis RSS.
+- Vrať pouze JSON dle schématu.`,
       userPrompt: JSON.stringify({
         sourceName: item.source.name,
-        sourceUrl: item.sourceUrl,
-        title: item.title,
-        summary: item.summary,
+        sourceUrl,
+        title: cleaned.title,
+        summary: cleaned.summary,
+        bodyHint: cleaned.bodyHint,
         publishedAt: item.publishedAt,
         category,
         region,
@@ -289,16 +399,16 @@ Pravidla:
 
     const parsed = JSON.parse(ai.text) as Record<string, unknown>;
     return {
-      title: String(parsed.title ?? item.title),
-      seoTitle: String(parsed.seoTitle ?? `${item.title} | XXREALIT`),
-      seoDescription: String(parsed.seoDescription ?? item.summary ?? item.title),
-      perex: String(parsed.perex ?? item.summary ?? ''),
+      title: String(parsed.title ?? cleaned.title),
+      seoTitle: String(parsed.seoTitle ?? `${cleaned.title} | XXREALIT`),
+      seoDescription: String(parsed.seoDescription ?? cleaned.summary ?? cleaned.title).slice(0, 170),
+      perex: String(parsed.perex ?? cleaned.summary ?? ''),
       bodyMarkdown: String(parsed.bodyMarkdown ?? ''),
       category,
       region,
       sourcesFooterHtml: String(
         parsed.sourcesFooterHtml ??
-          `<ul><li><a href="${item.sourceUrl}" rel="noopener noreferrer" target="_blank">${item.source.name}</a></li></ul>`,
+          `<ul><li><a href="${sourceUrl}" rel="noopener noreferrer" target="_blank">${item.source.name}</a></li></ul>`,
       ),
       factClaimsJson: (parsed.factClaims as Prisma.InputJsonValue) ?? [],
     };
@@ -309,32 +419,39 @@ Pravidla:
     category: string,
     region: string | null,
   ): DraftPayload {
+    const cleaned = sanitizeNewsSourceText(item.title, item.summary);
+    const sourceUrl = stripTrackingFromUrl(item.sourceUrl);
     const perex =
-      item.summary?.trim() ||
-      `${item.title} — přehled pro čtenáře XXREALIT s dopadem na realitní trh a bydlení.`;
+      cleaned.summary ||
+      `${cleaned.title} — přehled pro čtenáře XXREALIT s dopadem na realitní trh a bydlení.`;
     const bodyMarkdown = [
-      `## ${item.title}`,
+      '## Co se děje',
       '',
       perex,
       '',
-      '### Co to znamená pro trh',
+      '## Co to znamená pro realitní trh',
       'Informace může ovlivnit rozhodování kupujících, prodávajících i investorů. Sledujte další vývoj a ověřte si detaily u primárního zdroje.',
       '',
-      '### Praktické tipy',
+      '## Co to znamená pro kupující, prodávající a investory',
+      '- Kupující by měli zvážit dopad na dostupnost financování a ceny.',
+      '- Prodávající mohou upravit strategii podle aktuální poptávky.',
+      '- Investoři sledují rizika i příležitosti v daném segmentu trhu.',
+      '',
+      '## Praktické shrnutí',
       '- Porovnejte nabídku nemovitostí ve svém regionu na XXREALIT.',
-      '- U hypoték a financování sledujte oficiální sazby a podmínky bank.',
+      '- U hypoték sledujte oficiální sazby a podmínky bank.',
       '- U větších rozhodnutí konzultujte odborníky.',
     ].join('\n');
 
     return {
-      title: item.title,
-      seoTitle: `${item.title} | XXREALIT`,
+      title: cleaned.title,
+      seoTitle: `${cleaned.title} — dopad na realitní trh | XXREALIT`,
       seoDescription: perex.slice(0, 160),
       perex,
       bodyMarkdown,
       category,
       region,
-      sourcesFooterHtml: `<ul><li><a href="${item.sourceUrl}" rel="noopener noreferrer" target="_blank">${item.source.name}</a></li></ul>`,
+      sourcesFooterHtml: `<ul><li><a href="${sourceUrl}" rel="noopener noreferrer" target="_blank">${item.source.name}</a></li></ul>`,
       factClaimsJson: [],
     };
   }

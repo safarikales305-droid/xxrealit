@@ -45,6 +45,7 @@ export type NewsAutomationSettings = {
   publishTimes: string[];
   minMinutesBetweenArticles: number;
   autoPublishMinQuality: number;
+  minLanguageQuality: number;
   createPortalPost: boolean;
   createFacebookPost: boolean;
   portalPostAuthorLabel: string;
@@ -155,6 +156,9 @@ export type NewsArticleRow = {
   sources?: NewsArticleSourceLink[];
   editorNotes?: string | null;
   rejectedReason?: string | null;
+  languageQualityScore?: number | null;
+  waitReason?: string | null;
+  portalPostId?: string | null;
   schemaJson?: Record<string, unknown> | null;
   topic?: { id: string; title: string; trendScore?: number | null } | null;
 };
@@ -628,6 +632,71 @@ export async function nestAdminBackfillNewsPosts(
   token: string,
 ): Promise<AdminFetchResult<{ jobId: string }>> {
   return adminFetchResult<{ jobId: string }>(token, '/backfill/posts', { method: 'POST' });
+}
+
+export type NewsAutomationDiagnostics = {
+  settings: NewsAutomationSettings;
+  autoPublishEnabled: boolean;
+  scheduleWindowOpen: boolean;
+  nextPublishSlot: string | null;
+  workerOnline: boolean;
+  workerLastHeartbeat: string | null;
+  eligibleForAuto: number;
+  waitingImage: number;
+  waitingQuality: number;
+  waitingLanguage: number;
+  waitingSchedule: number;
+  portalPostQueue: number;
+};
+
+export type NewsAutoPublishTestResult = {
+  published: boolean;
+  waitReason?: string;
+  steps: Array<{ step: string; status: 'PASS' | 'FAIL' | 'SKIP'; detail?: string }>;
+  articleId: string;
+};
+
+export async function nestAdminNewsAutomationDiagnostics(
+  token: string,
+): Promise<NewsAutomationDiagnostics | null> {
+  return adminFetch<NewsAutomationDiagnostics>(token, '/automation/diagnostics');
+}
+
+export async function nestAdminTestAutoPublish(
+  token: string,
+  body?: { articleId?: string; bypassSchedule?: boolean },
+): Promise<AdminFetchResult<NewsAutoPublishTestResult>> {
+  return adminFetchResult<NewsAutoPublishTestResult>(token, '/test-auto-publish', {
+    method: 'POST',
+    body: JSON.stringify(body ?? { bypassSchedule: true }),
+  });
+}
+
+export async function nestAdminBackfillBadArticles(
+  token: string,
+): Promise<AdminFetchResult<{ jobId: string }>> {
+  return adminFetchResult<{ jobId: string }>(token, '/backfill/bad-articles', { method: 'POST' });
+}
+
+export function newsWaitReasonLabel(reason?: string | null): string {
+  switch (reason) {
+    case 'AUTO_READY':
+      return 'Připraveno k AUTO';
+    case 'QUALITY_LOW':
+      return 'Nízká kvalita';
+    case 'LANGUAGE_QUALITY_LOW':
+      return 'Nízká jazyková kvalita';
+    case 'IMAGE_REQUIRED':
+      return 'Chybí obrázek';
+    case 'WAITING_SCHEDULE':
+      return 'Čeká na čas publikace';
+    case 'SOURCE_ERROR':
+      return 'Chyba zdroje';
+    case 'DUPLICATE':
+      return 'Duplicita';
+    default:
+      return reason?.trim() || '—';
+  }
 }
 
 export function newsCategoryLabel(category: string): string {
