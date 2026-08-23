@@ -20,10 +20,23 @@ import {
   getYouTubeApiKey,
   isValidYoutubeVideoId,
   resolveYoutubeChannel,
+  testYouTubeApiConnection,
   YoutubeApiError,
   type YoutubeVideoMeta,
 } from './news-youtube-api.util';
-import { getNewsWorkerHeartbeat } from './news-editorial-worker.state';
+import {
+  getLastYoutubeApiTest,
+  getNewsWorkerHeartbeat,
+  getNewsWorkerLastError,
+  isNewsWorkerProcessing,
+  setLastYoutubeApiTest,
+  setNewsWorkerLastError,
+} from './news-editorial-worker.state';
+
+export function isStaleYoutubeApiKeyError(message: string | null | undefined): boolean {
+  if (!message?.trim()) return false;
+  return /YOUTUBE_API_KEY|API key chybí|API key není|api key chybí/i.test(message);
+}
 
 export type YoutubeVideoDecision = {
   videoId: string;
@@ -85,11 +98,14 @@ export type YoutubeImportResult = {
 
 export type YoutubeBackfillResult = {
   loaded: number;
+  found: number;
   duplicates: number;
   lowRelevance: number;
   notEmbeddable: number;
   dailyLimit: number;
   created: number;
+  new: number;
+  imported: number;
   skipped: number;
   total: number;
   errors: number;
@@ -148,12 +164,87 @@ export class NewsYoutubeService {
     return getYouTubeApiKey() ? 'OK' : 'MISSING_KEY';
   }
 
+  async clearStaleYoutubeSourceErrors(): Promise<{ cleared: number; historicalErrors: string[] }> {
+    if (!getYouTubeApiKey()) return { cleared: 0, historicalErrors: [] };
+
+    const sources = await this.prisma.newsSource.findMany({
+      where: {
+        type: NewsSourceType.YOUTUBE_CHANNEL,
+        lastError: { not: null },
+      },
+      select: { id: true, lastError: true },
+    });
+
+    const historicalErrors: string[] = [];
+    let cleared = 0;
+    for (const source of sources) {
+      if (!isStaleYoutubeApiKeyError(source.lastError)) continue;
+      historicalErrors.push(source.lastError!);
+      await this.prisma.newsSource.update({
+        where: { id: source.id },
+        data: {
+          lastError: null,
+          health: NewsSourceHealth.ACTIVE,
+          failureCount: 0,
+        },
+      });
+      cleared += 1;
+    }
+
+    const workerErr = getNewsWorkerLastError();
+    if (workerErr && isStaleYoutubeApiKeyError(workerErr)) {
+      historicalErrors.push(workerErr);
+      setNewsWorkerLastError(null);
+    }
+
+    return { cleared, historicalErrors };
+  }
+
+  async testApiConnection() {
+    const result = await testYouTubeApiConnection();
+    const snapshot = {
+      ok: result.ok,
+      httpStatus: result.httpStatus,
+      responseTimeMs: result.responseTimeMs,
+      testedAt: new Date().toISOString(),
+      error: result.error,
+    };
+    setLastYoutubeApiTest(snapshot);
+
+    if (result.ok) {
+      await this.clearStaleYoutubeSourceErrors();
+    }
+
+    return {
+      ...snapshot,
+      apiConfigured: Boolean(getYouTubeApiKey()),
+      apiKey: 'configured',
+    };
+  }
+
+  private isSourceDueForPoll(
+    source: NewsSource,
+    intervalMs: number,
+    now: number,
+    apiConfigured: boolean,
+  ): boolean {
+    if (apiConfigured && isStaleYoutubeApiKeyError(source.lastError)) return true;
+    if (source.youtubeImportedCount === 0 && !source.lastSuccessAt) return true;
+    if (!source.lastCheckedAt) return true;
+    return now - source.lastCheckedAt.getTime() >= intervalMs;
+  }
+
   async pollDueSources(limit = 3) {
     const cfg = this.settings.getCached();
     if (!cfg.youtubeMonitoringEnabled) return { polled: 0 };
 
     const intervalMs = (cfg.youtubeCheckIntervalMinutes ?? 30) * 60_000;
     const now = Date.now();
+    const apiConfigured = Boolean(getYouTubeApiKey());
+    if (apiConfigured) {
+      await this.clearStaleYoutubeSourceErrors();
+    }
+
     const sources = await this.prisma.newsSource.findMany({
       where: {
         type: NewsSourceType.YOUTUBE_CHANNEL,
@@ -165,7 +256,7 @@ export class NewsYoutubeService {
     });
 
     const due = sources
-      .filter((s) => !s.lastCheckedAt || now - s.lastCheckedAt.getTime() >= intervalMs)
+      .filter((s) => this.isSourceDueForPoll(s, intervalMs, now, apiConfigured))
       .slice(0, limit);
 
     let processed = 0;
@@ -179,22 +270,31 @@ export class NewsYoutubeService {
         );
       }
     }
-    return { polled: processed };
+    return { polled: processed, due: due.length };
+  }
+
+  async pollSourceNow(sourceId: string, opts?: { maxVideos?: number; ignoreRelevance?: boolean }) {
+    return this.pollSource(sourceId, {
+      enqueueFacebook: true,
+      maxVideos: opts?.maxVideos,
+      forceAll: opts?.ignoreRelevance ?? false,
+      forcePoll: true,
+    });
   }
 
   async pollSource(
     sourceId: string,
-    opts?: { enqueueFacebook?: boolean; maxVideos?: number; forceAll?: boolean },
+    opts?: {
+      enqueueFacebook?: boolean;
+      maxVideos?: number;
+      forceAll?: boolean;
+      forcePoll?: boolean;
+    },
   ) {
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
       throw new Error('Zdroj není YouTube kanál.');
     }
-
-    await this.prisma.newsSource.update({
-      where: { id: sourceId },
-      data: { lastCheckedAt: new Date() },
-    });
 
     if (!getYouTubeApiKey()) {
       await this.markSourceConfigError(sourceId, 'YOUTUBE_API_KEY chybí nebo není platný.');
@@ -257,8 +357,20 @@ export class NewsYoutubeService {
       await this.prisma.newsSource.update({
         where: { id: sourceId },
         data: {
+          lastCheckedAt: new Date(),
           lastSuccessAt: new Date(),
           lastError: null,
+          health: NewsSourceHealth.ACTIVE,
+        },
+      });
+    } else {
+      await this.prisma.newsSource.update({
+        where: { id: sourceId },
+        data: {
+          lastCheckedAt: new Date(),
+          lastSuccessAt: new Date(),
+          lastError: null,
+          failureCount: 0,
           health: NewsSourceHealth.ACTIVE,
         },
       });
@@ -861,11 +973,14 @@ export class NewsYoutubeService {
 
     return {
       loaded: videos.length,
+      found: videos.length,
       duplicates,
       lowRelevance,
       notEmbeddable,
       dailyLimit,
       created,
+      new: created,
+      imported: created,
       skipped,
       total: videos.length,
       errors,
@@ -953,7 +1068,14 @@ export class NewsYoutubeService {
 
   async getAdminStatus() {
     const apiConfigured = Boolean(getYouTubeApiKey());
+    const { historicalErrors } = apiConfigured
+      ? await this.clearStaleYoutubeSourceErrors()
+      : { historicalErrors: [] as string[] };
+
     const heartbeat = getNewsWorkerHeartbeat();
+    const cfg = this.settings.getCached();
+    const now = Date.now();
+
     const sources = await this.prisma.newsSource.findMany({
       where: { type: NewsSourceType.YOUTUBE_CHANNEL },
       select: {
@@ -962,31 +1084,74 @@ export class NewsYoutubeService {
         enabled: true,
         health: true,
         lastCheckedAt: true,
+        lastSuccessAt: true,
         lastError: true,
         youtubeImportedCount: true,
+        checkIntervalMinutes: true,
       },
     });
+
     const active = sources.filter((s) => s.enabled);
+    const dueForPoll = active.filter((s) =>
+      this.isSourceDueForPoll(
+        s as NewsSource,
+        (s.checkIntervalMinutes ?? 30) * 60_000,
+        now,
+        apiConfigured,
+      ),
+    );
+
     const lastChecked = sources
       .map((s) => s.lastCheckedAt)
       .filter((d): d is Date => d != null)
       .sort((a, b) => b.getTime() - a.getTime())[0];
 
+    const lastSuccessfulCheck = sources
+      .map((s) => s.lastSuccessAt)
+      .filter((d): d is Date => d != null)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    const currentErrorSource = sources
+      .filter((s) => s.lastError && !isStaleYoutubeApiKeyError(s.lastError))
+      .sort((a, b) => (b.lastCheckedAt?.getTime() ?? 0) - (a.lastCheckedAt?.getTime() ?? 0))[0];
+
+    const workerErr = getNewsWorkerLastError();
+    const currentError =
+      currentErrorSource?.lastError ??
+      (workerErr && !isStaleYoutubeApiKeyError(workerErr) ? workerErr : null);
+
+    const lastHistoricalError = historicalErrors[0] ?? null;
+    const apiTest = getLastYoutubeApiTest();
+
     return {
       apiConfigured,
       apiStatus: apiConfigured ? 'Configured' : 'Missing',
+      apiTestStatus: apiTest?.ok ? 'OK' : apiTest ? 'ERROR' : null,
+      apiTestHttp: apiTest?.httpStatus ?? null,
+      apiTestResponseTimeMs: apiTest?.responseTimeMs ?? null,
+      apiTestedAt: apiTest?.testedAt ?? null,
       workerRunning: heartbeat != null && Date.now() - heartbeat.getTime() < 5 * 60_000,
       workerLastHeartbeat: heartbeat?.toISOString() ?? null,
-      queueCount: active.length,
-      youtubeSources: sources.length,
       activeSources: active.length,
+      sourcesDueForPoll: dueForPoll.length,
+      queueCount: dueForPoll.length,
+      queueStatus: {
+        waiting: dueForPoll.length,
+        active: isNewsWorkerProcessing() ? 1 : 0,
+        completed: sources.filter((s) => s.lastSuccessAt).length,
+        failed: sources.filter(
+          (s) => s.health === NewsSourceHealth.ERROR || s.health === NewsSourceHealth.DEGRADED,
+        ).length,
+        retrying: 0,
+      },
+      youtubeSources: sources.length,
       lastCheck: lastChecked?.toISOString() ?? null,
-      lastError:
-        sources
-          .filter((s) => s.lastError)
-          .sort((a, b) => (b.lastCheckedAt?.getTime() ?? 0) - (a.lastCheckedAt?.getTime() ?? 0))[0]
-          ?.lastError ?? null,
+      lastSuccessfulCheck: lastSuccessfulCheck?.toISOString() ?? null,
+      currentError,
+      lastHistoricalError,
+      lastError: currentError,
       totalImported: sources.reduce((sum, s) => sum + s.youtubeImportedCount, 0),
+      pollingIntervalMinutes: cfg.youtubeCheckIntervalMinutes ?? 30,
     };
   }
 

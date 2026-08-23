@@ -351,6 +351,40 @@ export async function fetchPlaylistVideos(
   return details.filter((v) => v.publishedAt.getTime() > publishedAfter.getTime());
 }
 
+/** Lightweight live probe — never logs or returns the API key. */
+export async function testYouTubeApiConnection(): Promise<{
+  ok: boolean;
+  httpStatus: number;
+  responseTimeMs: number;
+  error?: string;
+}> {
+  const started = Date.now();
+  if (!getYouTubeApiKey()) {
+    return {
+      ok: false,
+      httpStatus: 0,
+      responseTimeMs: Date.now() - started,
+      error: 'YOUTUBE_API_KEY není nastaveno na serveru.',
+    };
+  }
+
+  try {
+    await youtubeGet<{ items?: unknown[] }>('/channels', {
+      part: 'snippet',
+      id: 'UC_x5XG1OV2P6uZZ5FSM9Ttw',
+    });
+    return { ok: true, httpStatus: 200, responseTimeMs: Date.now() - started };
+  } catch (err) {
+    const httpStatus = err instanceof YoutubeApiError ? err.httpStatus : 0;
+    return {
+      ok: false,
+      httpStatus,
+      responseTimeMs: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export async function fetchVideoDetails(videoIds: string[]): Promise<YoutubeVideoMeta[]> {
   const ids = videoIds.filter(isValidYoutubeVideoId);
   if (!ids.length) return [];

@@ -35,6 +35,8 @@ import {
   nestAdminYoutubeBackfill,
   nestAdminYoutubeDiagnose,
   nestAdminYoutubeStatus,
+  nestAdminTestYoutubeApi,
+  nestAdminYoutubePollNow,
   nestAdminSyncNewsPortalPost,
   nestAdminRepublishNewsFacebook,
   nestAdminUpdateNewsArticle,
@@ -59,6 +61,7 @@ import {
   type YoutubeDiagnoseResponse,
   type YoutubeBackfillResponse,
   type YoutubeAdminStatus,
+  type YoutubeApiTestResponse,
 } from '@/lib/news-editorial-client';
 
 type Tab =
@@ -100,6 +103,11 @@ const SOURCE_TYPES: NewsSourceType[] = ['RSS', 'ATOM', 'API', 'OPEN_DATA', 'WEB_
 function sourceTypeLabel(type: NewsSourceType): string {
   if (type === 'YOUTUBE_CHANNEL') return 'YOUTUBE';
   return SOURCE_TYPE_LABELS[type] ?? type;
+}
+
+function isStaleYoutubeApiKeyError(message?: string | null): boolean {
+  if (!message?.trim()) return false;
+  return /YOUTUBE_API_KEY|API key chybí|API key není/i.test(message);
 }
 
 function formatDate(value?: string | null): string {
@@ -165,8 +173,9 @@ export default function AdminAktualityPage() {
   >(null);
   const [rssTestSourceName, setRssTestSourceName] = useState<string | null>(null);
   const [youtubeStatus, setYoutubeStatus] = useState<YoutubeAdminStatus | null>(null);
+  const [youtubeApiTest, setYoutubeApiTest] = useState<YoutubeApiTestResponse | null>(null);
   const [backfillModal, setBackfillModal] = useState<{ sourceId: string; name: string } | null>(null);
-  const [backfillCount, setBackfillCount] = useState(5);
+  const [backfillCount, setBackfillCount] = useState(10);
   const [backfillIgnoreRelevance, setBackfillIgnoreRelevance] = useState(false);
 
   const refreshDashboard = useCallback(async () => {
@@ -548,7 +557,29 @@ export default function AdminAktualityPage() {
       {tab === 'sources' ? (
         <div className="space-y-6">
           <section className="rounded-2xl border border-red-200 bg-red-50/50 p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-red-950">YouTube API</h2>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="text-lg font-semibold text-red-950">YouTube API</h2>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  setErrMsg(null);
+                  const res = await nestAdminTestYoutubeApi(token);
+                  setBusy(false);
+                  if (!res.ok) {
+                    setErrMsg(res.message);
+                    return;
+                  }
+                  setYoutubeApiTest(res.data);
+                  void refreshSources();
+                }}
+                className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-100"
+              >
+                Otestovat YouTube API
+              </button>
+            </div>
             {youtubeStatus ? (
               <div className="mt-3 grid gap-2 text-sm text-red-950 sm:grid-cols-2 lg:grid-cols-4">
                 <p>
@@ -558,15 +589,38 @@ export default function AdminAktualityPage() {
                   </strong>
                 </p>
                 <p>
+                  API test:{' '}
+                  <strong>
+                    {youtubeApiTest?.ok
+                      ? 'OK'
+                      : youtubeStatus.apiTestStatus === 'OK'
+                        ? 'OK'
+                        : youtubeApiTest
+                          ? 'ERROR'
+                          : '—'}
+                  </strong>
+                </p>
+                <p>
                   Worker:{' '}
                   <strong>{youtubeStatus.workerRunning ? 'Running' : 'Stopped'}</strong>
                 </p>
-                <p>Queue: {youtubeStatus.queueCount}</p>
+                <p>Čeká na kontrolu: {youtubeStatus.sourcesDueForPoll ?? youtubeStatus.queueCount}</p>
+                <p>Aktivní zdroje: {youtubeStatus.activeSources}</p>
                 <p>Last check: {formatDate(youtubeStatus.lastCheck)}</p>
+                <p>Last successful check: {formatDate(youtubeStatus.lastSuccessfulCheck)}</p>
                 <p>Importováno celkem: {youtubeStatus.totalImported}</p>
-                {youtubeStatus.lastError ? (
+                {youtubeApiTest ? (
+                  <>
+                    <p>HTTP: {youtubeApiTest.httpStatus}</p>
+                    <p>Response time: {youtubeApiTest.responseTimeMs} ms</p>
+                    {youtubeApiTest.error ? (
+                      <p className="text-red-800 sm:col-span-2">{youtubeApiTest.error}</p>
+                    ) : null}
+                  </>
+                ) : null}
+                {youtubeStatus.currentError ? (
                   <p className="text-red-800 sm:col-span-2 lg:col-span-4">
-                    Last error: {youtubeStatus.lastError}
+                    Aktuální chyba: {youtubeStatus.currentError}
                   </p>
                 ) : null}
                 {!youtubeStatus.apiConfigured ? (
@@ -747,7 +801,8 @@ export default function AdminAktualityPage() {
                         {source.enabled ? 'Aktivní' : 'Vypnuto'}
                       </span>
                       <p className="mt-1 text-xs text-zinc-500">{source.health}</p>
-                      {source.lastError ? (
+                      {source.lastError &&
+                      !(youtubeStatus?.apiConfigured && isStaleYoutubeApiKeyError(source.lastError)) ? (
                         <p className="mt-1 text-xs text-red-700">{source.lastError}</p>
                       ) : null}
                       {source.channelId ? (
@@ -869,6 +924,32 @@ export default function AdminAktualityPage() {
                                 if (!token) return;
                                 setBusy(true);
                                 setErrMsg(null);
+                                const res = await nestAdminYoutubePollNow(token, source.id, {
+                                  maxVideos: 5,
+                                  ignoreRelevance: true,
+                                });
+                                setBusy(false);
+                                if (!res.ok) {
+                                  setErrMsg(res.message);
+                                  return;
+                                }
+                                setMsg(
+                                  `Kontrola: ${res.data.created} importováno, ${res.data.skipped} přeskočeno`,
+                                );
+                                void refreshSources();
+                                void refreshArticles();
+                              }}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900"
+                            >
+                              Spustit kontrolu nyní
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                setErrMsg(null);
                                 const res = await nestAdminTestYoutubeImportOne(token, source.id);
                                 setBusy(false);
                                 if (!res.ok) {
@@ -881,7 +962,7 @@ export default function AdminAktualityPage() {
                               }}
                               className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800"
                             >
-                              Test + import 1 video
+                              Importovat poslední 1 video
                             </button>
                             <button
                               type="button"
@@ -928,7 +1009,7 @@ export default function AdminAktualityPage() {
                               disabled={busy}
                               onClick={() => {
                                 setBackfillModal({ sourceId: source.id, name: source.name });
-                                setBackfillCount(5);
+                                setBackfillCount(10);
                                 setBackfillIgnoreRelevance(false);
                               }}
                               className="rounded-lg border border-zinc-200 px-2 py-1 text-xs font-semibold"
@@ -1123,12 +1204,11 @@ export default function AdminAktualityPage() {
                   ) : null}
                   {'loaded' in rssTestResult ? (
                     <div className="space-y-1">
-                      <p>Načteno: {rssTestResult.loaded}</p>
+                      <p>Nalezeno: {rssTestResult.found ?? rssTestResult.loaded}</p>
+                      <p>Nových: {rssTestResult.new ?? rssTestResult.created}</p>
                       <p>Duplicit: {rssTestResult.duplicates}</p>
-                      <p>Nízká relevance: {rssTestResult.lowRelevance}</p>
-                      <p>Importováno: {rssTestResult.created}</p>
-                      <p>Post vytvořen: {rssTestResult.postsCreated.length}</p>
-                      <p>Chyby: {rssTestResult.errors}</p>
+                      <p>Importováno: {rssTestResult.imported ?? rssTestResult.created}</p>
+                      <p>Chyb: {rssTestResult.errors}</p>
                       {rssTestResult.decisions?.length ? (
                         <ul className="space-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs">
                           {rssTestResult.decisions.map((d) => (
@@ -1223,7 +1303,7 @@ export default function AdminAktualityPage() {
                     }}
                     className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
                   >
-                    Importovat
+                    Importovat nyní
                   </button>
                 </div>
               </div>

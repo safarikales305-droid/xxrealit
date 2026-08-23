@@ -672,11 +672,14 @@ export type YoutubeImportTestResponse = {
 
 export type YoutubeBackfillResponse = {
   loaded: number;
+  found: number;
   duplicates: number;
   lowRelevance: number;
   notEmbeddable: number;
   dailyLimit: number;
   created: number;
+  new: number;
+  imported: number;
   skipped: number;
   total: number;
   errors: number;
@@ -721,14 +724,40 @@ export type YoutubeDiagnoseResponse = {
 export type YoutubeAdminStatus = {
   apiConfigured: boolean;
   apiStatus: 'Configured' | 'Missing';
+  apiTestStatus?: 'OK' | 'ERROR' | null;
+  apiTestHttp?: number | null;
+  apiTestResponseTimeMs?: number | null;
+  apiTestedAt?: string | null;
   workerRunning: boolean;
   workerLastHeartbeat: string | null;
   queueCount: number;
+  sourcesDueForPoll?: number;
+  queueStatus?: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    retrying: number;
+  };
   youtubeSources: number;
   activeSources: number;
   lastCheck: string | null;
+  lastSuccessfulCheck?: string | null;
+  currentError?: string | null;
+  lastHistoricalError?: string | null;
   lastError: string | null;
   totalImported: number;
+  pollingIntervalMinutes?: number;
+};
+
+export type YoutubeApiTestResponse = {
+  ok: boolean;
+  httpStatus: number;
+  responseTimeMs: number;
+  testedAt: string;
+  apiConfigured: boolean;
+  apiKey: string;
+  error?: string;
 };
 
 export async function nestAdminTestYoutubeChannel(
@@ -792,6 +821,23 @@ export async function nestAdminYoutubeStatus(
   token: string,
 ): Promise<YoutubeAdminStatus | null> {
   return adminFetch<YoutubeAdminStatus>(token, '/youtube/status');
+}
+
+export async function nestAdminTestYoutubeApi(
+  token: string,
+): Promise<AdminFetchResult<YoutubeApiTestResponse>> {
+  return adminFetchResult<YoutubeApiTestResponse>(token, '/youtube/test-api', { method: 'POST' });
+}
+
+export async function nestAdminYoutubePollNow(
+  token: string,
+  sourceId: string,
+  opts?: { maxVideos?: number; ignoreRelevance?: boolean },
+): Promise<AdminFetchResult<{ sourceId: string; created: number; skipped: number; checked: number }>> {
+  return adminFetchResult(token, `/sources/${encodeURIComponent(sourceId)}/youtube-poll-now`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  });
 }
 
 export async function nestAdminSyncNewsPortalPost(

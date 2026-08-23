@@ -258,6 +258,19 @@ export class NewsEditorialAdminController {
     return this.youtube.getAdminStatus();
   }
 
+  @Post('youtube/test-api')
+  testYoutubeApi() {
+    return this.youtube.testApiConnection();
+  }
+
+  @Post('sources/:id/youtube-poll-now')
+  youtubePollNow(
+    @Param('id') id: string,
+    @Body() body?: { maxVideos?: number; ignoreRelevance?: boolean },
+  ) {
+    return this.youtube.pollSourceNow(id, body);
+  }
+
   @Post('articles/:id/quality')
   async qualityGate(@Param('id') id: string) {
     return this.articles.runQualityGateForId(id);

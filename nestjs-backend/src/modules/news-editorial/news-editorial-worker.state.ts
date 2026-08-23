@@ -5,6 +5,16 @@ let workerLastError: string | null = null;
 let workerProcessing = false;
 let workerPaused = false;
 
+export type YoutubeApiTestSnapshot = {
+  ok: boolean;
+  httpStatus: number;
+  responseTimeMs: number;
+  testedAt: string;
+  error?: string;
+};
+
+let lastYoutubeApiTest: YoutubeApiTestSnapshot | null = null;
+
 export function getNewsWorkerHeartbeat(): Date | null {
   return workerHeartbeat;
 }
@@ -35,4 +45,12 @@ export function setNewsWorkerProcessing(processing: boolean): void {
 
 export function setNewsWorkerPaused(paused: boolean): void {
   workerPaused = paused;
+}
+
+export function getLastYoutubeApiTest(): YoutubeApiTestSnapshot | null {
+  return lastYoutubeApiTest;
+}
+
+export function setLastYoutubeApiTest(snapshot: YoutubeApiTestSnapshot | null): void {
+  lastYoutubeApiTest = snapshot;
 }
