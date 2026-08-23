@@ -38,6 +38,7 @@ import {
   resolvePostShareVideo,
   resolvePostSocialText,
 } from './social-publish-format.util';
+import { verifyPublicPostResolvable } from '../../posts/public-post-resolve.util';
 
 export type FacebookPublishPayload = {
   message: string;
@@ -991,14 +992,33 @@ export class SocialPublisherService {
   ): Promise<FacebookPublishResult | { skipped: true; reason: string }> {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
-      include: { media: { orderBy: { order: 'asc' } } },
+      include: {
+        media: { orderBy: { order: 'asc' } },
+        user: {
+          select: {
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
+      },
     });
     if (!post) throw new Error('Příspěvek nenalezen.');
+
+    const publicCheck = await verifyPublicPostResolvable(this.prisma, post);
+    if (!publicCheck.ok) {
+      this.logger.warn(
+        `BLOCKED_PUBLIC_URL postId=${postId} slug=${post.slug ?? 'null'} generatedUrl=${publicCheck.generatedUrl} reason=${publicCheck.reason}`,
+      );
+      return { skipped: true, reason: 'BLOCKED_PUBLIC_URL' };
+    }
 
     const videoUrl = resolvePostShareVideo(post);
     const imageUrl = resolvePostShareImage(post);
     const text = resolvePostSocialText(post);
-    const publicUrl = buildPostDetailUrl(post.id, post);
+    const publicUrl = publicCheck.generatedUrl;
     const publishType = videoUrl ? PostSocialPublishType.REEL : PostSocialPublishType.POST;
 
     await this.postSocialPublish.markStatus(postId, platform, {

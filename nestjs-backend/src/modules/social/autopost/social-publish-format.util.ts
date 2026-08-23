@@ -15,7 +15,13 @@ export function getPublicPortalUrl(): string {
 
 export function buildPostDetailUrl(
   postId: string,
-  post?: { slug?: string | null; videoUrl?: string | null; media?: Array<{ type?: string | null }> },
+  post?: {
+    slug?: string | null;
+    type?: string | null;
+    videoUrl?: string | null;
+    youtubeVideoId?: string | null;
+    media?: Array<{ type?: string | null }>;
+  },
 ): string {
   if (post?.slug) {
     return buildPostPublicUrl(getPublicPortalUrl(), { id: postId, ...post });

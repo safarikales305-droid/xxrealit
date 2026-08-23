@@ -31,6 +31,7 @@ import {
   postHasFeedVisibility,
   sortCommunityPostsWithFollowPriority,
 } from './community-posts.util';
+import { resolvePublicPostBySlug } from './public-post-resolve.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 
@@ -150,13 +151,15 @@ export class PostsService {
         `[post-push] notify failed post=${postId}: ${err instanceof Error ? err.message : err}`,
       );
     });
-    this.socialPublishEnqueue.firePostCreated(postId);
     void this.seoService
       .ensurePostSeoFields(postId)
-      .then(() => this.seoIndexQueue.enqueuePost(postId))
+      .then(() => {
+        this.socialPublishEnqueue.firePostCreated(postId);
+        return this.seoIndexQueue.enqueuePost(postId);
+      })
       .catch((err) => {
         this.log.warn(
-          `[post-seo] slug/index failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+          `[post-seo] slug/index/fb-enqueue failed post=${postId}: ${err instanceof Error ? err.message : err}`,
         );
       });
   }
@@ -571,12 +574,9 @@ export class PostsService {
   }
 
   async getPostDetailBySlug(slug: string) {
-    const row = await this.prisma.post.findFirst({
-      where: { slug, user: communityPostAuthorUserWhere() },
-      select: { id: true },
-    });
-    if (!row) return null;
-    return this.getPostDetail(row.id);
+    const resolved = await resolvePublicPostBySlug(this.prisma, slug);
+    if (!resolved) return null;
+    return this.getPostDetail(resolved.id);
   }
 
   async listCommunityPosts(

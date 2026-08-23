@@ -19,16 +19,16 @@ export default function NotFound() {
       </p>
       <div className="flex flex-wrap justify-center gap-3">
         <Link
-          href="/ubytovani"
+          href="/"
           className="rounded-full bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-700"
         >
-          Zpět na ubytování
+          Zpět na hlavní stránku
         </Link>
         <Link
-          href="/"
+          href="/?tab=posts"
           className="rounded-full border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
         >
-          Domů
+          Přejít na příspěvky
         </Link>
       </div>
     </div>

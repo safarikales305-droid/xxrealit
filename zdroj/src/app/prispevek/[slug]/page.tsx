@@ -37,6 +37,10 @@ export default async function PrispevekSeoPage({ params }: Props) {
   const meta = await loadMeta(slug, false);
   if (!meta) notFound();
 
+  if (meta.canonicalPath !== `/prispevek/${slug}`) {
+    permanentRedirect(meta.canonicalPath);
+  }
+
   const article = articleJsonLd({
     title: meta.seoTitle,
     description: meta.seoDescription,

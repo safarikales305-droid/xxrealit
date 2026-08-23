@@ -19,9 +19,13 @@ import {
   postHasVideo,
   postSeoPath,
   listingSeoPath,
+  resolvePublicPostCanonicalPath,
 } from './post-seo.util';
 import { communityPostAuthorUserWhere } from '../posts/community-posts.util';
-import { isCommunityPostAuthorVisible } from '../../common/public-visibility.util';
+import {
+  isPublicPostDetailVisible,
+  resolvePublicPostBySlug,
+} from '../posts/public-post-resolve.util';
 import { ProgrammaticSeoService } from './programmatic-seo.service';
 
 export type SitemapEntry = {
@@ -573,16 +577,20 @@ export class SeoService {
   }
 
   async findPostBySlug(slug: string) {
-    const post = await this.prisma.post.findFirst({
-      where: { slug, user: communityPostAuthorUserWhere() },
-      select: { id: true, slug: true, videoUrl: true, media: { select: { type: true } } },
+    const resolved = await resolvePublicPostBySlug(this.prisma, slug);
+    if (!resolved) throw new NotFoundException('Příspěvek nenalezen.');
+
+    const post = await this.prisma.post.findUnique({
+      where: { id: resolved.id },
+      select: { id: true, slug: true, type: true, videoUrl: true, youtubeVideoId: true, media: { select: { type: true } } },
     });
     if (!post?.slug) throw new NotFoundException('Příspěvek nenalezen.');
+
     return {
       id: post.id,
       slug: post.slug,
       hasVideo: postHasVideo(post),
-      canonicalPath: postSeoPath(post.slug, postHasVideo(post)),
+      canonicalPath: resolvePublicPostCanonicalPath({ ...post, slug: post.slug }),
     };
   }
 
@@ -603,7 +611,7 @@ export class SeoService {
         },
       },
     });
-    if (!post || !isCommunityPostAuthorVisible(post.user)) throw new NotFoundException('Příspěvek není veřejný.');
+    if (!post || !isPublicPostDetailVisible(post)) throw new NotFoundException('Příspěvek není veřejný.');
     if (!post.slug) {
       await this.ensurePostSeoFields(postId);
       post = await this.prisma.post.findUnique({
@@ -627,7 +635,7 @@ export class SeoService {
 
     const hasVideo = postHasVideo(post);
     const origin = getSiteOriginForOg();
-    const canonicalPath = postSeoPath(post.slug, hasVideo);
+    const canonicalPath = resolvePublicPostCanonicalPath({ ...post, slug: post.slug });
     const image =
       post.previewImage ??
       post.imageUrl ??
@@ -681,14 +689,21 @@ export class SeoService {
         },
       },
     });
-    if (!post || !isCommunityPostAuthorVisible(post.user)) return null;
+    if (!post || !isPublicPostDetailVisible(post)) return null;
 
     const hasVideo = postHasVideo(post);
-    const baseSlug = generatePostSlug(
-      post.title?.trim() || post.description?.trim() || post.content?.trim() || 'prispevek',
-      post.id,
-    );
-    const slug = post.slug ?? (await ensureUniquePostSlug(this.prisma, baseSlug, post.id));
+    const slug =
+      post.slug ??
+      (post.type === 'YOUTUBE_VIDEO' && post.youtubeVideoId
+        ? `video-${post.youtubeVideoId}`
+        : await ensureUniquePostSlug(
+            this.prisma,
+            generatePostSlug(
+              post.title?.trim() || post.description?.trim() || post.content?.trim() || 'prispevek',
+              post.id,
+            ),
+            post.id,
+          ));
 
     const updated = await this.prisma.post.update({
       where: { id: postId },

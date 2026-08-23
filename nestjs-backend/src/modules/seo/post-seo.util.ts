@@ -64,11 +64,28 @@ export async function ensureUniquePostSlug(
 }
 
 export function postHasVideo(post: {
+  type?: string | null;
   videoUrl?: string | null;
+  youtubeVideoId?: string | null;
   media?: Array<{ type?: string | null }>;
 }): boolean {
+  if (post.type === 'YOUTUBE_VIDEO') return false;
   if (post.videoUrl?.trim()) return true;
   return (post.media ?? []).some((m) => String(m.type ?? '').toLowerCase() === 'video');
+}
+
+/** Veřejná URL cesta — redakční příspěvky vždy /prispevek/{slug}. */
+export function resolvePublicPostCanonicalPath(post: {
+  slug: string;
+  type?: string | null;
+  videoUrl?: string | null;
+  youtubeVideoId?: string | null;
+  media?: Array<{ type?: string | null }>;
+}): string {
+  if (post.type === 'YOUTUBE_VIDEO' || post.type === 'NEWS_ARTICLE' || post.type === 'COMPANY_REVIEW') {
+    return `/prispevek/${post.slug}`;
+  }
+  return postSeoPath(post.slug, postHasVideo(post));
 }
 
 export function postSeoPath(slug: string, hasVideo: boolean): string {
@@ -81,11 +98,18 @@ export function listingSeoPath(slug: string, contentType: 'classic' | 'shorts'):
 
 export function buildPostPublicUrl(
   origin: string,
-  post: { id: string; slug?: string | null; videoUrl?: string | null; media?: Array<{ type?: string | null }> },
+  post: {
+    id: string;
+    slug?: string | null;
+    type?: string | null;
+    videoUrl?: string | null;
+    youtubeVideoId?: string | null;
+    media?: Array<{ type?: string | null }>;
+  },
 ): string {
   const base = origin.replace(/\/+$/, '');
   if (post.slug) {
-    return `${base}${postSeoPath(post.slug, postHasVideo(post))}`;
+    return `${base}${resolvePublicPostCanonicalPath({ ...post, slug: post.slug })}`;
   }
   return `${base}/prispevky/${encodeURIComponent(post.id)}`;
 }

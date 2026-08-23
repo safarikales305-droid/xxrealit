@@ -22,6 +22,7 @@ import {
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
+import { verifyPublicPostResolvable } from '../../posts/public-post-resolve.util';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES, type FacebookPublishResult } from './social-autopost.types';
 import { SocialIntroPropertyType } from '@prisma/client';
@@ -321,11 +322,16 @@ export class SocialPublishEnqueueService {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
       include: {
-        user: { select: { id: true, role: true, accountLimited: true, name: true } },
+        user: { select: { id: true, role: true, accountLimited: true, name: true, publicProfile: true, canPublishPosts: true, portalWorkerStatus: true } },
         media: { orderBy: { order: 'asc' } },
       },
     });
     if (!post) return { ok: false, error: 'Příspěvek nenalezen' };
+
+    const publicUrlBlock = await this.verifyPublicPostUrl(post);
+    if (publicUrlBlock) {
+      return { ok: false, skipped: true, reason: publicUrlBlock };
+    }
 
     const text = resolvePostSocialText(post);
     const imageUrl = resolvePostShareImage(post);
@@ -411,6 +417,24 @@ export class SocialPublishEnqueueService {
           },
     });
     return { ok: true, queueId: row.id };
+  }
+
+  private async verifyPublicPostUrl(post: {
+    id: string;
+    slug?: string | null;
+    type?: string | null;
+    publishedAt?: Date | null;
+    videoUrl?: string | null;
+    youtubeVideoId?: string | null;
+    media?: Array<{ type?: string | null }>;
+    user: Parameters<typeof verifyPublicPostResolvable>[1]['user'];
+  }): Promise<string | null> {
+    const check = await verifyPublicPostResolvable(this.prisma, post);
+    if (check.ok) return null;
+    this.logger.warn(
+      `BLOCKED_PUBLIC_URL postId=${post.id} slug=${post.slug ?? 'null'} generatedUrl=${check.generatedUrl} reason=${check.reason}`,
+    );
+    return 'BLOCKED_PUBLIC_URL';
   }
 
   private async shouldSkipContent(
