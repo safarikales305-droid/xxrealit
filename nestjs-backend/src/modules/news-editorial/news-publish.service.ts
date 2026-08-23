@@ -10,6 +10,7 @@ import {
   evaluateArticleReadiness,
   runQualityGate,
 } from './news-editorial.util';
+import { isValidNewsHeroImageUrl } from './news-hero-image.util';
 import { NewsAuditService } from './news-audit.service';
 import { NewsArticleService } from './news-article.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
@@ -122,7 +123,7 @@ export class NewsPublishService {
     const ensured = await this.ensureHeroImage(articleId);
     steps.push({
       step: 'IMAGE',
-      status: ensured.ogImageUrl ? 'PASS' : 'FAIL',
+      status: isValidNewsHeroImageUrl(ensured.ogImageUrl) ? 'PASS' : 'FAIL',
       detail: ensured.ogImageUrl ?? 'missing',
     });
 
@@ -179,7 +180,7 @@ export class NewsPublishService {
 
   async ensureHeroImage(articleId: string) {
     const article = await this.articles.getArticle(articleId);
-    if (article.ogImageUrl?.trim()) return article;
+    if (isValidNewsHeroImageUrl(article.ogImageUrl)) return article;
 
     const sourceLink = article.sources[0];
     const sourceItem = sourceLink?.sourceItemId
@@ -195,13 +196,20 @@ export class NewsPublishService {
       articlePageUrl: sourceLink?.sourceUrl ?? sourceItem?.sourceUrl,
     });
 
+    const valid = isValidNewsHeroImageUrl(hero.storedUrl);
+
     return this.prisma.newsArticle.update({
       where: { id: articleId },
       data: {
         ogImageUrl: hero.storedUrl,
         ogImageAlt: hero.alt,
-        imageDiagnosticsJson: hero.diagnostics as object,
-        waitReason: hero.storedUrl ? article.waitReason : 'IMAGE_REQUIRED',
+        socialImageUrl: valid ? hero.storedUrl : article.socialImageUrl,
+        imageDiagnosticsJson: {
+          ...(hero.diagnostics as object),
+          valid,
+          fallbackUsed: hero.diagnostics.imageSource === 'fallback',
+        },
+        waitReason: valid ? article.waitReason : 'IMAGE_REQUIRED',
       },
     });
   }

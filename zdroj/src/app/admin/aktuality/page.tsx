@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import {
   DASHBOARD_STAT_LABELS,
@@ -43,6 +44,9 @@ import {
   nestAdminYoutubePollNow,
   nestAdminSystemAuthor,
   nestAdminUpdateSystemAuthor,
+  nestAdminUploadSystemAuthorAvatar,
+  nestAdminClearSystemAuthorAvatar,
+  nestAdminRepairNewsMedia,
   nestAdminSyncNewsPortalPost,
   nestAdminRepublishNewsFacebook,
   nestAdminUpdateNewsArticle,
@@ -191,6 +195,7 @@ export default function AdminAktualityPage() {
     bio: '',
     avatar: '',
   });
+  const avatarFileRef = useRef<HTMLInputElement>(null);
   const [backfillModal, setBackfillModal] = useState<{ sourceId: string; name: string } | null>(null);
   const [backfillCount, setBackfillCount] = useState(10);
   const [backfillIgnoreRelevance, setBackfillIgnoreRelevance] = useState(false);
@@ -1638,6 +1643,26 @@ export default function AdminAktualityPage() {
                 onClick={async () => {
                   if (!token) return;
                   setBusy(true);
+                  const res = await nestAdminRepairNewsMedia(token);
+                  setBusy(false);
+                  if (!res.ok) {
+                    setErrMsg(res.message);
+                    return;
+                  }
+                  setMsg(
+                    `Média: zkontrolováno ${res.data.checked}, bez obrázku ${res.data.missingImage}, source ${res.data.sourceImageAdded}, fallback ${res.data.fallbackAdded}, post opraveno ${res.data.postMediaFixed}, chyby ${res.data.errors}`,
+                  );
+                }}
+                className="rounded-xl border border-orange-400 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-950 hover:bg-orange-100 disabled:opacity-50"
+              >
+                Opravit média Aktualit
+              </button>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
                   const res = await nestAdminBackfillNewsPosts(token);
                   setBusy(false);
                   setMsg(res.ok ? `Backfill postů spuštěn (job ${res.data.jobId})` : res.message);
@@ -1752,14 +1777,88 @@ export default function AdminAktualityPage() {
                   />
                 </label>
                 <label className="block text-sm sm:col-span-2">
-                  Avatar URL
-                  <input
-                    value={systemAuthorForm.avatar}
-                    onChange={(e) =>
-                      setSystemAuthorForm((f) => ({ ...f, avatar: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded-xl border border-violet-200 bg-white px-3 py-2"
-                  />
+                  Aktuální avatar
+                  <div className="mt-2 flex flex-wrap items-center gap-4">
+                    <div className="size-20 overflow-hidden rounded-full border border-violet-200 bg-white ring-2 ring-violet-100">
+                      {systemAuthor.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={nestAbsoluteAssetUrl(systemAuthor.avatar)}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-full items-center justify-center bg-gradient-to-br from-orange-400 to-rose-500 text-lg font-bold text-white">
+                          RX
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        ref={avatarFileRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file || !token) return;
+                          setBusy(true);
+                          const res = await nestAdminUploadSystemAuthorAvatar(token, file);
+                          setBusy(false);
+                          e.target.value = '';
+                          if (!res.ok) {
+                            setErrMsg(res.message);
+                            return;
+                          }
+                          setSystemAuthor(res.data);
+                          setSystemAuthorForm((f) => ({
+                            ...f,
+                            avatar: res.data.avatar ?? '',
+                          }));
+                          setMsg('Avatar AI redakce nahrán.');
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => avatarFileRef.current?.click()}
+                        className="rounded-xl border border-violet-300 bg-white px-3 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        Nahrát avatar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => avatarFileRef.current?.click()}
+                        className="rounded-xl border border-violet-300 bg-white px-3 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        Změnit avatar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !token}
+                        onClick={async () => {
+                          if (!token) return;
+                          setBusy(true);
+                          const updated = await nestAdminClearSystemAuthorAvatar(token);
+                          setBusy(false);
+                          if (updated) {
+                            setSystemAuthor(updated);
+                            setSystemAuthorForm((f) => ({ ...f, avatar: updated.avatar ?? '' }));
+                            setMsg('Avatar odebrán — použit výchozí.');
+                          }
+                        }}
+                        className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        Odebrat
+                      </button>
+                    </div>
+                  </div>
+                  {systemAuthor.avatar ? (
+                    <p className="mt-2 break-all text-xs text-violet-800/70">
+                      URL: {systemAuthor.avatar}
+                    </p>
+                  ) : null}
                 </label>
                 <label className="block text-sm sm:col-span-2">
                   Popis profilu
@@ -1778,7 +1877,10 @@ export default function AdminAktualityPage() {
                   onClick={async () => {
                     if (!token) return;
                     setBusy(true);
-                    const updated = await nestAdminUpdateSystemAuthor(token, systemAuthorForm);
+                    const updated = await nestAdminUpdateSystemAuthor(token, {
+                      name: systemAuthorForm.name,
+                      bio: systemAuthorForm.bio,
+                    });
                     setBusy(false);
                     if (updated) {
                       setSystemAuthor(updated);

@@ -1,15 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import sharp from '../../lib/sharp-instance';
 import { getUploadsPath } from '../../lib/uploads-path';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { isProfileRemoteStorageConfigured } from '../upload/profile-media-storage.service';
 import { guardedFetchFollow, NewsFetchGuardError } from './news-fetch-guard.util';
-import {
-  NEWS_CATEGORY_FALLBACK_IMAGES,
-} from './news-portal-post.util';
+import { pickCategoryFallbackImage } from './news-hero-image.util';
 import type { NewsArticleCategory } from './news-editorial.constants';
 import { NEWS_FETCH_USER_AGENT } from './news-feed.util';
 import { NewsAuditService } from './news-audit.service';
@@ -68,24 +65,6 @@ function isMirrorAllowed(url: string): boolean {
   return MIRROR_ALLOWED_HOSTS.has(h) || h.endsWith('.xxrealit.cz');
 }
 
-function pickFallbackPath(category: string, seed: string): string {
-  const cat = category as NewsArticleCategory;
-  const pool =
-    NEWS_CATEGORY_FALLBACK_IMAGES[cat] != null
-      ? [NEWS_CATEGORY_FALLBACK_IMAGES[cat]!]
-      : [];
-  const defaults = [
-    '/images/news/reality.svg',
-    '/images/news/hypoteky.svg',
-    '/images/news/bydleni.svg',
-    '/images/news/investice.svg',
-    '/images/news/trh.svg',
-  ];
-  const choices = [...pool, ...defaults];
-  const hash = createHash('sha256').update(seed).digest();
-  const idx = hash[0]! % choices.length;
-  return choices[idx]!;
-}
 
 function extFromBuffer(metaFormat: string | undefined, contentType: string | null): string {
   const ct = (contentType ?? '').toLowerCase();
@@ -212,7 +191,7 @@ export class NewsImageService {
       baseDiag.error = 'Zdrojový obrázek nelze bezpečně použít — použit fallback';
     }
 
-    const fallback = pickFallbackPath(input.category, input.slug);
+    const fallback = pickCategoryFallbackImage(input.category, input.slug);
     const diag: NewsImageDiagnostics = {
       ...baseDiag,
       imageSource: 'fallback',

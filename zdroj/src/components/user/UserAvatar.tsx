@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 
 function initialsFromName(name: string): string {
@@ -24,18 +25,25 @@ const sizeClass = {
 
 export function UserAvatar({ name, avatarUrl, href, size = 'sm', className = '' }: Props) {
   const label = name.trim() || 'Uživatel';
+  const [broken, setBroken] = useState(false);
   const avatarSrc = avatarUrl?.trim() ? nestAbsoluteAssetUrl(avatarUrl) : '';
-  const body = avatarSrc ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={avatarSrc} alt="" className="size-full rounded-full object-cover" />
-  ) : (
-    <span
-      className="flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-rose-500 font-semibold text-white"
-      aria-hidden
-    >
-      {initialsFromName(label)}
-    </span>
-  );
+  const body =
+    avatarSrc && !broken ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={avatarSrc}
+        alt=""
+        className="size-full rounded-full object-cover"
+        onError={() => setBroken(true)}
+      />
+    ) : (
+      <span
+        className="flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-rose-500 font-semibold text-white"
+        aria-hidden
+      >
+        {initialsFromName(label)}
+      </span>
+    );
 
   const shell = (
     <span

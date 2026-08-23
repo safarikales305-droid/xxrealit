@@ -24,6 +24,7 @@ import {
   mapNewsCategoryToPostCategory,
   resolveNewsArticleImageUrl,
 } from './news-portal-post.util';
+import { isValidNewsHeroImageUrl } from './news-hero-image.util';
 import { NewsSystemUserService } from './news-system-user.service';
 import type { YoutubeVideoMeta } from './news-youtube-api.util';
 
@@ -98,6 +99,10 @@ export class EditorialPortalPostService {
       return { ok: false, reason: 'Článek není publikovaný' };
     }
 
+    if (!isValidNewsHeroImageUrl(article.ogImageUrl) && !isValidNewsHeroImageUrl(article.socialImageUrl)) {
+      return { ok: false, reason: 'IMAGE_REQUIRED' };
+    }
+
     const cfg = this.settings.getCached();
     if (!cfg.createPortalPost) {
       await this.audit.log('PORTAL_POST_SKIPPED', 'Vytváření portálového příspěvku je vypnuto', {
@@ -148,6 +153,7 @@ export class EditorialPortalPostService {
       previewDescription: socialExcerpt,
       previewSiteName: systemUser.name || cfg.portalPostAuthorLabel || 'AI redakce XXrealit',
       externalUrl: articleUrl,
+      videoUrl: null,
       seoTitle: article.seoTitle,
       seoDescription: article.seoDescription,
       slug: postSlug,

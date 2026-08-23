@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,11 +8,16 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { NewsArticleStatus, NewsSourceType, NewsYoutubePublishMode } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
+import { PROFILE_UPLOAD_MAX_BYTES } from '../upload/profile-images.service';
 import {
   NEWS_ARTICLE_CATEGORIES,
   NEWS_CATEGORY_LABELS,
@@ -276,6 +282,28 @@ export class NewsEditorialAdminController {
   @Patch('system-author')
   updateSystemAuthor(@Body() body: SystemAuthorProfilePatch) {
     return this.systemUser.updateSystemAuthorProfile(body);
+  }
+
+  @Post('system-author/avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: PROFILE_UPLOAD_MAX_BYTES },
+    }),
+  )
+  uploadSystemAuthorAvatar(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Soubor nebyl přijat.');
+    return this.systemUser.uploadSystemAuthorAvatar(file);
+  }
+
+  @Delete('system-author/avatar')
+  clearSystemAuthorAvatar() {
+    return this.systemUser.clearSystemAuthorAvatar();
+  }
+
+  @Post('backfill/repair-media')
+  repairArticleMedia() {
+    return this.backfill.repairArticleMedia();
   }
 
   @Post('sources/:id/youtube-poll-now')

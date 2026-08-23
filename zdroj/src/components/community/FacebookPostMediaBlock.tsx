@@ -96,11 +96,11 @@ export function FacebookPostMediaBlock({
 
   if (media.mode === 'image' && media.imageUrl) {
     const body = (
-      <div className={`relative w-full overflow-hidden bg-black ${edgeToEdge ? '' : 'rounded-2xl'}`}>
+      <div className={`relative w-full overflow-hidden bg-zinc-100 ${edgeToEdge ? '' : 'rounded-2xl'}`}>
         <img
           src={nestAbsoluteAssetUrl(media.imageUrl)}
           alt=""
-          className={`aspect-square w-full object-cover ${blurred ? 'blur-sm' : ''}`}
+          className={`aspect-[16/9] w-full object-cover ${blurred ? 'blur-sm' : ''}`}
         />
       </div>
     );

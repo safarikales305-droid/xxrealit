@@ -1,7 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { User, UserRole } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { ProfileImagesService } from '../upload/profile-images.service';
+import { ProfileMediaStorageService } from '../upload/profile-media-storage.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -44,6 +46,8 @@ export class NewsSystemUserService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: NewsEditorialSettingsService,
+    private readonly profileImages: ProfileImagesService,
+    private readonly profileMediaStorage: ProfileMediaStorageService,
   ) {}
 
   async onModuleInit() {
@@ -208,8 +212,46 @@ export class NewsSystemUserService implements OnModuleInit {
       data: {
         ...(patch.name != null ? { name: patch.name.trim() } : {}),
         ...(patch.bio !== undefined ? { bio: patch.bio } : {}),
-        ...(patch.avatar !== undefined ? { avatar: patch.avatar } : {}),
+        ...(patch.avatar !== undefined ? { avatar: patch.avatar || AI_EDITOR_DEFAULT_AVATAR } : {}),
       },
+    });
+    return this.getSystemAuthorStatus();
+  }
+
+  async uploadSystemAuthorAvatar(
+    file: Express.Multer.File,
+  ): Promise<SystemAuthorStatus> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Soubor nebyl přijat.');
+    }
+    const user = await this.getSystemUser();
+    await this.profileImages.validateRasterInput(file.buffer, file.mimetype, file.originalname);
+    const { buffer, ext } = await this.profileImages.processAvatarForUpload(file.buffer);
+    let avatarUrl: string;
+    if (this.profileMediaStorage.isRemotePersistent()) {
+      avatarUrl = await this.profileMediaStorage.uploadAvatar(user.id, buffer);
+    } else {
+      const { writeFileSync, mkdirSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { getUploadsPath } = await import('../../lib/uploads-path');
+      const dir = join(getUploadsPath(), 'avatars');
+      mkdirSync(dir, { recursive: true });
+      const name = `system-${user.id}-${Date.now()}${ext}`;
+      writeFileSync(join(dir, name), buffer);
+      avatarUrl = `/uploads/avatars/${name}`;
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { avatar: avatarUrl },
+    });
+    return this.getSystemAuthorStatus();
+  }
+
+  async clearSystemAuthorAvatar(): Promise<SystemAuthorStatus> {
+    const user = await this.getSystemUser();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { avatar: AI_EDITOR_DEFAULT_AVATAR },
     });
     return this.getSystemAuthorStatus();
   }

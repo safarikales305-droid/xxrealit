@@ -10,6 +10,7 @@ import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import { YoutubeLazyPlayer } from '@/components/community/YoutubeLazyPlayer';
+import { NewsArticleHeroImage } from '@/components/community/NewsArticleHeroImage';
 import { PostSoundAudio } from '@/components/community/PostSoundAudio';
 import { UserAvatar } from '@/components/user/UserAvatar';
 import {
@@ -137,7 +138,8 @@ export function CommunityPostCard({
   const isYoutubeVideo = String(p.type ?? '') === 'YOUTUBE_VIDEO' || Boolean(youtubeVideoId);
   const articleUrl = isNewsArticle ? externalUrl : '';
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
-  const hasFeedMedia = resolvedMedia.mode !== 'none';
+  const hasFeedMedia =
+    !isNewsArticle && !isYoutubeVideo && resolvedMedia.mode !== 'none';
   const hasPostSound = Boolean(p.soundTrack?.fileUrl || p.soundTrack?.previewUrl);
   const showMuteForVideo = resolvedMedia.mode === 'video' && !hasPostSound;
   const postText = isYoutubeVideo
@@ -387,51 +389,44 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
+      {editingPostId !== id && isNewsArticle && articleUrl ? (
+        <div className="px-3 pb-2 md:px-4">
+          <NewsArticleHeroImage
+            imageUrl={p.imageUrl}
+            previewImage={p.previewImage}
+            category={(p as { category?: string }).category}
+            seed={id}
+            alt={newsTitle}
+            href={articleUrl}
+          />
+          <div className="mt-3">
+            <a
+              href={articleUrl}
+              className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+            >
+              Přečíst celý článek
+            </a>
+          </div>
+        </div>
+      ) : null}
+
       {hasFeedMedia && !isYoutubeVideo ? (
         <>
-          {isNewsArticle && articleUrl ? (
-            <a href={articleUrl} className="block">
-              <FacebookPostMediaBlock
-                media={resolvedMedia}
-                facebookPostType={p.facebookPostType ?? null}
-                postId={id}
-                feedAutoplay
-                compact
-                blurred={false}
-                muted={hasPostSound ? true : muted}
-                showMuteToggle={showMuteForVideo}
-                onToggleMute={onToggleMute}
-                edgeToEdge
-                className="mt-0"
-              />
-            </a>
-          ) : (
-            <FacebookPostMediaBlock
-              media={resolvedMedia}
-              facebookPostType={p.facebookPostType ?? null}
-              postId={id}
-              feedAutoplay
-              compact
-              blurred={false}
-              muted={hasPostSound ? true : muted}
-              showMuteToggle={showMuteForVideo}
-              onToggleMute={onToggleMute}
-              onOpenDetail={onOpenDetail}
-              edgeToEdge
-              className="mt-0"
-            />
-          )}
+          <FacebookPostMediaBlock
+            media={resolvedMedia}
+            facebookPostType={p.facebookPostType ?? null}
+            postId={id}
+            feedAutoplay
+            compact
+            blurred={false}
+            muted={hasPostSound ? true : muted}
+            showMuteToggle={showMuteForVideo}
+            onToggleMute={onToggleMute}
+            onOpenDetail={onOpenDetail}
+            edgeToEdge
+            className="mt-0"
+          />
           {hasPostSound ? <PostSoundAudio soundTrack={p.soundTrack} /> : null}
-          {isNewsArticle && articleUrl ? (
-            <div className="px-3 pb-3 md:px-4">
-              <a
-                href={articleUrl}
-                className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
-              >
-                Přečíst celý článek
-              </a>
-            </div>
-          ) : null}
         </>
       ) : null}
 

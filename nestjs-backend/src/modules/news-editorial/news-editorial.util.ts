@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { NewsArticle } from '@prisma/client';
 import { NEWS_IGNORE_KEYWORDS } from './news-editorial.constants';
+import { isValidNewsHeroImageUrl } from './news-hero-image.util';
 import { scoreLanguageQuality } from './news-text-sanitizer.util';
 
 const RELEVANCE_KEYWORDS: Array<{ pattern: RegExp; weight: number }> = [
@@ -168,7 +169,7 @@ export function evaluateArticleReadiness(
   );
   const languageScore = article.languageQualityScore ?? lang.score;
 
-  if (!article.ogImageUrl?.trim()) {
+  if (!isValidNewsHeroImageUrl(article.ogImageUrl)) {
     return { ready: false, waitReason: 'IMAGE_REQUIRED', quality, languageScore };
   }
   if (languageScore < thresholds.minLanguage) {

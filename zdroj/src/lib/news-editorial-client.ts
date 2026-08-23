@@ -889,6 +889,55 @@ export async function nestAdminUpdateSystemAuthor(
   });
 }
 
+export async function nestAdminUploadSystemAuthorAvatar(
+  token: string,
+  file: File,
+): Promise<AdminFetchResult<SystemAuthorProfile>> {
+  if (!API_BASE_URL) {
+    return { ok: false, status: 0, message: 'API není nakonfigurováno.' };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/admin/news-editorial/system-author/avatar`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    body: fd,
+    cache: 'no-store',
+  });
+  const data = (await res.json().catch(() => null)) as SystemAuthorProfile | null;
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      message: (data as { message?: string } | null)?.message ?? `Upload selhal (HTTP ${res.status})`,
+    };
+  }
+  return { ok: true, data: data as SystemAuthorProfile, status: res.status };
+}
+
+export async function nestAdminClearSystemAuthorAvatar(
+  token: string,
+): Promise<SystemAuthorProfile | null> {
+  return adminFetch<SystemAuthorProfile>(token, '/system-author/avatar', { method: 'DELETE' });
+}
+
+export type NewsMediaRepairResult = {
+  checked: number;
+  missingImage: number;
+  sourceImageAdded: number;
+  fallbackAdded: number;
+  postMediaFixed: number;
+  errors: number;
+};
+
+export async function nestAdminRepairNewsMedia(
+  token: string,
+): Promise<AdminFetchResult<NewsMediaRepairResult>> {
+  return adminFetchResult<NewsMediaRepairResult>(token, '/backfill/repair-media', {
+    method: 'POST',
+  });
+}
+
 export async function nestAdminSyncNewsPortalPost(
   token: string,
   articleId: string,

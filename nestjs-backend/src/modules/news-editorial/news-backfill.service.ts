@@ -7,6 +7,8 @@ import { NewsImageService } from './news-image.service';
 import { NewsPortalPostService } from './news-portal-post.service';
 import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { PostsService } from '../posts/posts.service';
+import { isValidNewsHeroImageUrl } from './news-hero-image.util';
+import { resolveNewsArticleImageUrl } from './news-portal-post.util';
 
 export type NewsBackfillProgress = {
   jobId: string;
@@ -344,6 +346,129 @@ export class NewsBackfillService {
   async backfillYoutubePosts() {
     const result = await this.editorialPosts.repairMissingPosts();
     return result.youtube;
+  }
+
+  async repairArticleMedia(): Promise<{
+    checked: number;
+    missingImage: number;
+    sourceImageAdded: number;
+    fallbackAdded: number;
+    postMediaFixed: number;
+    errors: number;
+  }> {
+    const articles = await this.prisma.newsArticle.findMany({
+      where: { status: NewsArticleStatus.PUBLISHED },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        category: true,
+        ogImageUrl: true,
+        socialImageUrl: true,
+        portalPostId: true,
+      },
+    });
+
+    let missingImage = 0;
+    let sourceImageAdded = 0;
+    let fallbackAdded = 0;
+    let postMediaFixed = 0;
+    let errors = 0;
+
+    for (const article of articles) {
+      try {
+        const hadValid = isValidNewsHeroImageUrl(article.ogImageUrl);
+        if (!hadValid) missingImage += 1;
+
+        const sourceLink = await this.prisma.newsArticleSource.findFirst({
+          where: { articleId: article.id },
+          include: { sourceItem: true },
+        });
+
+        const resolved = await this.images.resolveHeroForArticle({
+          articleId: article.id,
+          slug: article.slug,
+          title: article.title,
+          category: article.category,
+          rssImageUrl: sourceLink?.sourceItem?.imageUrl,
+          articlePageUrl: sourceLink?.sourceUrl,
+        });
+
+        const valid = isValidNewsHeroImageUrl(resolved.storedUrl);
+        if (!valid) {
+          errors += 1;
+          continue;
+        }
+
+        if (!hadValid) {
+          if (resolved.diagnostics.imageSource === 'fallback') fallbackAdded += 1;
+          else sourceImageAdded += 1;
+        }
+
+        await this.prisma.newsArticle.update({
+          where: { id: article.id },
+          data: {
+            ogImageUrl: resolved.storedUrl,
+            ogImageAlt: resolved.alt,
+            socialImageUrl: resolved.storedUrl,
+            imageDiagnosticsJson: resolved.diagnostics as object,
+          },
+        });
+
+        const imageUrl = resolveNewsArticleImageUrl({
+          ogImageUrl: resolved.storedUrl,
+          socialImageUrl: resolved.storedUrl,
+          category: article.category,
+          slug: article.slug,
+        });
+
+        const postId =
+          article.portalPostId ??
+          (
+            await this.prisma.post.findFirst({
+              where: { newsArticleId: article.id },
+              select: { id: true },
+            })
+          )?.id;
+
+        if (postId) {
+          await this.prisma.post.update({
+            where: { id: postId },
+            data: {
+              imageUrl,
+              previewImage: imageUrl,
+              videoUrl: null,
+            },
+          });
+          await this.prisma.media.deleteMany({ where: { postId } });
+          await this.prisma.media.create({
+            data: { postId, url: imageUrl, type: 'image', order: 0 },
+          });
+          postMediaFixed += 1;
+        } else {
+          await this.editorialPosts.createPostFromArticle(article.id, { enqueueFacebook: false });
+          postMediaFixed += 1;
+        }
+      } catch (err) {
+        errors += 1;
+        this.log.warn(
+          `repairArticleMedia ${article.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    await this.audit.log('NEWS_MEDIA_REPAIR', `Opraveno ${postMediaFixed}/${articles.length}`, {
+      metadata: { checked: articles.length, missingImage, sourceImageAdded, fallbackAdded, postMediaFixed, errors },
+    });
+
+    return {
+      checked: articles.length,
+      missingImage,
+      sourceImageAdded,
+      fallbackAdded,
+      postMediaFixed,
+      errors,
+    };
   }
 
   async testPortalPostFeed(input?: {

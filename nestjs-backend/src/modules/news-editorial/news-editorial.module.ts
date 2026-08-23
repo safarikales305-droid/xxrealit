@@ -4,6 +4,7 @@ import { OpenAiModule } from '../openai/openai.module';
 import { PostsModule } from '../posts/posts.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
+import { UploadModule } from '../upload/upload.module';
 import { NewsAuditService } from './news-audit.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
@@ -23,7 +24,7 @@ import { NewsEditorialAdminController } from './news-editorial-admin.controller'
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
 
 @Module({
-  imports: [OpenAiModule, PropertiesModule, PostsModule, SocialModule, forwardRef(() => AuthModule)],
+  imports: [OpenAiModule, PropertiesModule, PostsModule, SocialModule, UploadModule, forwardRef(() => AuthModule)],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [
     NewsAuditService,

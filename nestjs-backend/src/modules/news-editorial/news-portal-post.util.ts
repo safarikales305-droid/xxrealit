@@ -18,31 +18,22 @@ export const NEWS_CATEGORY_FALLBACK_IMAGES: Partial<Record<NewsArticleCategory, 
 
 const DEFAULT_NEWS_IMAGE = '/images/aktuality-default-og.svg';
 
-function isOwnedMediaUrl(url: string | null | undefined): boolean {
-  const v = (url ?? '').trim().toLowerCase();
-  if (!v) return false;
-  if (v.startsWith('/uploads/')) return true;
-  if (v.includes('res.cloudinary.com') && v.includes('xxrealit')) return true;
-  if (v.includes('/images/news/') || v.includes('/images/aktuality')) return true;
-  return false;
-}
+import {
+  isValidNewsHeroImageUrl,
+  pickCategoryFallbackImage,
+  resolveValidNewsHeroUrl,
+} from './news-hero-image.util';
+
+export { isValidNewsHeroImageUrl, pickCategoryFallbackImage } from './news-hero-image.util';
 
 export function resolveNewsArticleImageUrl(
-  article: Pick<NewsArticle, 'ogImageUrl' | 'socialImageUrl' | 'category'>,
+  article: Pick<NewsArticle, 'ogImageUrl' | 'socialImageUrl' | 'category' | 'slug'>,
   defaultOgImageUrl?: string | null,
 ): string {
-  const candidates = [
-    article.socialImageUrl,
-    isOwnedMediaUrl(article.ogImageUrl) ? article.ogImageUrl : null,
-    defaultOgImageUrl,
-    NEWS_CATEGORY_FALLBACK_IMAGES[article.category as NewsArticleCategory],
-    DEFAULT_NEWS_IMAGE,
-  ];
-  for (const raw of candidates) {
-    const abs = toAbsoluteMediaUrl(raw) ?? (raw?.startsWith('/') ? `${getPublicPortalUrl()}${raw}` : null);
-    if (abs) return abs;
-  }
-  return `${getPublicPortalUrl()}${DEFAULT_NEWS_IMAGE}`;
+  const rel = resolveValidNewsHeroUrl(article, defaultOgImageUrl);
+  const abs =
+    toAbsoluteMediaUrl(rel) ?? (rel.startsWith('/') ? `${getPublicPortalUrl()}${rel}` : rel);
+  return abs;
 }
 
 export function buildNewsSocialTitle(article: Pick<NewsArticle, 'title' | 'socialTitle'>): string {
