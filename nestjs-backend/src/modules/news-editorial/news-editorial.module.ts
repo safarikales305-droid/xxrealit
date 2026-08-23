@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { OpenAiModule } from '../openai/openai.module';
+import { PostsModule } from '../posts/posts.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
 import { NewsAuditService } from './news-audit.service';
@@ -21,7 +22,7 @@ import { NewsEditorialAdminController } from './news-editorial-admin.controller'
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
 
 @Module({
-  imports: [OpenAiModule, PropertiesModule, SocialModule, forwardRef(() => AuthModule)],
+  imports: [OpenAiModule, PropertiesModule, PostsModule, SocialModule, forwardRef(() => AuthModule)],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [
     NewsAuditService,

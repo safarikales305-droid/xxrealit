@@ -332,6 +332,16 @@ export class NewsEditorialAdminController {
     return this.backfill.startBackfillPosts();
   }
 
+  @Post('backfill/youtube-posts')
+  backfillYoutubePosts() {
+    return this.backfill.backfillYoutubePosts();
+  }
+
+  @Post('test-portal-post-feed')
+  testPortalPostFeed(@Body() body?: { articleId?: string; youtubeVideoId?: string }) {
+    return this.backfill.testPortalPostFeed(body);
+  }
+
   @Get('jobs/:id')
   getJob(@Param('id') id: string) {
     return this.backfill.getJob(id);

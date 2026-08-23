@@ -5,6 +5,7 @@ import { NewsAuditService } from './news-audit.service';
 import { NewsAiService } from './news-ai.service';
 import { NewsImageService } from './news-image.service';
 import { NewsPortalPostService } from './news-portal-post.service';
+import { PostsService } from '../posts/posts.service';
 
 export type NewsBackfillProgress = {
   jobId: string;
@@ -28,6 +29,7 @@ export class NewsBackfillService {
     private readonly ai: NewsAiService,
     private readonly portalPosts: NewsPortalPostService,
     private readonly audit: NewsAuditService,
+    private readonly posts: PostsService,
   ) {}
 
   async getJob(id: string): Promise<NewsBackfillProgress | null> {
@@ -334,5 +336,154 @@ export class NewsBackfillService {
     await this.audit.log('NEWS_BACKFILL_POSTS', `Hotovo ${done}/${articles.length}`, {
       metadata: { jobId, done, errors },
     });
+  }
+
+  /** Zpětně publikuje YouTube příspěvky bez publishedAt do hlavního feedu. */
+  async backfillYoutubePosts(): Promise<{
+    importedVideos: number;
+    postsExisting: number;
+    postsPublished: number;
+    postsCreated: number;
+    errors: number;
+    message: string;
+  }> {
+    const [importedTotal, draftPosts, existingPublished] = await Promise.all([
+      this.prisma.newsSource.aggregate({
+        _sum: { youtubeImportedCount: true },
+        where: { type: 'YOUTUBE_CHANNEL' },
+      }),
+      this.prisma.post.findMany({
+        where: { type: 'YOUTUBE_VIDEO', publishedAt: null },
+        select: { id: true, userId: true, youtubeVideoId: true, createdAt: true },
+      }),
+      this.prisma.post.count({
+        where: { type: 'YOUTUBE_VIDEO', publishedAt: { not: null } },
+      }),
+    ]);
+
+    let postsPublished = 0;
+    let errors = 0;
+
+    for (const post of draftPosts) {
+      try {
+        const publishedAt = post.createdAt ?? new Date();
+        await this.prisma.post.update({
+          where: { id: post.id },
+          data: { publishedAt },
+        });
+        this.posts.finalizeEditorialPost(post.userId, post.id);
+        postsPublished += 1;
+      } catch (err) {
+        errors += 1;
+        this.log.warn(
+          `YouTube backfill ${post.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    const importedVideos = importedTotal._sum.youtubeImportedCount ?? 0;
+    const postsExisting = existingPublished + draftPosts.length;
+    const message = `Importovaných videí: ${importedVideos}, Post existuje: ${postsExisting}, Nově publikováno: ${postsPublished}, Chyby: ${errors}`;
+
+    await this.audit.log('YOUTUBE_BACKFILL_POSTS', message, {
+      metadata: { importedVideos, postsExisting, postsPublished, errors },
+    });
+
+    return {
+      importedVideos,
+      postsExisting,
+      postsPublished,
+      postsCreated: 0,
+      errors,
+      message,
+    };
+  }
+
+  async testPortalPostFeed(input?: {
+    articleId?: string;
+    youtubeVideoId?: string;
+  }): Promise<Record<string, unknown>> {
+    const result: Record<string, unknown> = {
+      entityFound: false,
+      postCreated: false,
+      postId: null as string | null,
+      feedQueryFound: false,
+      publishedAt: null as string | null,
+    };
+
+    if (input?.articleId?.trim()) {
+      const article = await this.prisma.newsArticle.findUnique({
+        where: { id: input.articleId.trim() },
+        select: { id: true, status: true, portalPostId: true, title: true },
+      });
+      if (!article) {
+        return { ...result, error: 'ARTICLE_NOT_FOUND' };
+      }
+      result.entityFound = true;
+      result.entityType = 'NEWS_ARTICLE';
+      result.articleStatus = article.status;
+
+      const sync = await this.portalPosts.syncFromArticle(article.id, { enqueueFacebook: false });
+      result.postCreated = Boolean(sync.ok);
+      result.postId = sync.postId ?? article.portalPostId ?? null;
+    } else if (input?.youtubeVideoId?.trim()) {
+      const videoId = input.youtubeVideoId.trim();
+      const post = await this.prisma.post.findUnique({
+        where: { youtubeVideoId: videoId },
+        select: { id: true, userId: true, publishedAt: true, type: true },
+      });
+      if (!post) {
+        return { ...result, error: 'YOUTUBE_POST_NOT_FOUND', youtubeVideoId: videoId };
+      }
+      result.entityFound = true;
+      result.entityType = 'YOUTUBE_VIDEO';
+      result.postId = post.id;
+
+      if (!post.publishedAt) {
+        await this.prisma.post.update({
+          where: { id: post.id },
+          data: { publishedAt: new Date() },
+        });
+        this.posts.finalizeEditorialPost(post.userId, post.id);
+        result.postCreated = true;
+      } else {
+        result.postCreated = true;
+      }
+      const refreshed = await this.prisma.post.findUnique({
+        where: { id: post.id },
+        select: { publishedAt: true },
+      });
+      result.publishedAt = refreshed?.publishedAt?.toISOString() ?? null;
+    } else {
+      const article = await this.prisma.newsArticle.findFirst({
+        where: { status: 'PUBLISHED' },
+        orderBy: { publishedAt: 'desc' },
+        select: { id: true },
+      });
+      const ytPost = await this.prisma.post.findFirst({
+        where: { type: 'YOUTUBE_VIDEO' },
+        orderBy: { createdAt: 'desc' },
+        select: { youtubeVideoId: true },
+      });
+      if (article) {
+        return this.testPortalPostFeed({ articleId: article.id });
+      }
+      if (ytPost?.youtubeVideoId) {
+        return this.testPortalPostFeed({ youtubeVideoId: ytPost.youtubeVideoId });
+      }
+      return { ...result, error: 'NO_TEST_CANDIDATE' };
+    }
+
+    const postId = String(result.postId ?? '');
+    if (postId) {
+      const post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        select: { publishedAt: true },
+      });
+      result.publishedAt = post?.publishedAt?.toISOString() ?? null;
+      result.feedQueryFound = await this.posts.isPostVisibleInCommunityFeed(postId);
+    }
+
+    return result;
   }
 }

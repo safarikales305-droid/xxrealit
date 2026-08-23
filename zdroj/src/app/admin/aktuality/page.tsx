@@ -10,6 +10,8 @@ import {
   NEWS_ARTICLE_CATEGORIES,
   nestAdminBackfillNewsImages,
   nestAdminBackfillNewsPosts,
+  nestAdminBackfillYoutubePosts,
+  nestAdminTestPortalPostFeed,
   nestAdminBackfillBadArticles,
   nestAdminCreateNewsFromUrl,
   nestAdminCreateNewsSource,
@@ -1556,6 +1558,49 @@ export default function AdminAktualityPage() {
                 className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
               >
                 Doplnit Aktuality do Příspěvků
+              </button>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const res = await nestAdminBackfillYoutubePosts(token);
+                  setBusy(false);
+                  setMsg(
+                    res.ok
+                      ? res.data.message ?? 'YouTube backfill dokončen'
+                      : res.message,
+                  );
+                }}
+                className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-900 hover:bg-red-50 disabled:opacity-50"
+              >
+                Doplnit YouTube videa do Příspěvků
+              </button>
+              <button
+                type="button"
+                disabled={busy || !token}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const res = await nestAdminTestPortalPostFeed(token);
+                  setBusy(false);
+                  if (!res.ok) {
+                    setMsg('message' in res ? res.message : 'Test feedu selhal');
+                    return;
+                  }
+                  if (!res.data) {
+                    setMsg('Test feedu nevrátil data');
+                    return;
+                  }
+                  const d = res.data;
+                  setMsg(
+                    `ENTITY FOUND: ${d.entityFound ? 'YES' : 'NO'} · POST CREATED: ${d.postCreated ? 'YES' : 'NO'} · POST ID: ${d.postId ?? '—'} · FEED QUERY FOUND: ${d.feedQueryFound ? 'YES' : 'NO'}`,
+                  );
+                }}
+                className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-50 disabled:opacity-50"
+              >
+                Otestovat vytvoření Postu ve feedu
               </button>
               <button
                 type="button"

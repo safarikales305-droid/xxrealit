@@ -6,6 +6,18 @@ import {
   type PublicVisibilityUser,
 } from '../../common/public-visibility.util';
 
+export const EDITORIAL_FEED_POST_TYPES = [
+  'COMPANY_REVIEW',
+  'NEWS_ARTICLE',
+  'YOUTUBE_VIDEO',
+] as const;
+
+export type EditorialFeedPostType = (typeof EDITORIAL_FEED_POST_TYPES)[number];
+
+export function isEditorialFeedPostType(type: string | null | undefined): boolean {
+  return EDITORIAL_FEED_POST_TYPES.includes(type as EditorialFeedPostType);
+}
+
 export const PROFESSIONAL_POST_ROLES = [
   'AGENT',
   'COMPANY',
@@ -87,7 +99,12 @@ export function buildCommunityPostsWhere(authorRole?: import('@prisma/client').U
 
   return {
     type: { not: 'short' },
-    OR: [{ type: 'COMPANY_REVIEW' }, { type: 'NEWS_ARTICLE' }, professionalAuthor],
+    OR: [
+      { type: 'COMPANY_REVIEW' },
+      { type: 'NEWS_ARTICLE' },
+      { type: 'YOUTUBE_VIDEO' },
+      professionalAuthor,
+    ],
   };
 }
 

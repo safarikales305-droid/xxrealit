@@ -143,6 +143,10 @@ export function CommunityPostCard({
   const postText = isYoutubeVideo
     ? String(p.previewDescription ?? p.description ?? '').trim()
     : String(p.description ?? '').trim();
+  const newsTitle = String(p.previewTitle ?? p.title ?? '').trim();
+  const newsTeaser = isNewsArticle
+    ? String(p.previewDescription ?? '').trim() || postText.slice(0, 280)
+    : '';
   const youtubeTitle = String(p.previewTitle ?? p.title ?? '').trim();
   const youtubeChannel = String(
     (p as { youtubeChannelTitle?: string }).youtubeChannelTitle ?? p.previewSiteName ?? '',
@@ -261,7 +265,7 @@ export function CommunityPostCard({
             ) : null}
             {isYoutubeVideo ? (
               <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800">
-                Video
+                🎥 YouTube{youtubeChannel ? ` • ${youtubeChannel}` : ''}
               </span>
             ) : null}
             {p.isFollowedAuthor && isAuthenticated ? (
@@ -321,6 +325,15 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
+      {editingPostId !== id && isNewsArticle && newsTitle ? (
+        <div className="px-3 pb-2 md:px-4">
+          <p className="text-base font-semibold text-zinc-900">{newsTitle}</p>
+          {newsTeaser ? (
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{newsTeaser}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {editingPostId !== id && isYoutubeVideo && youtubeTitle ? (
         <div className="px-3 pb-2 md:px-4">
           <p className="text-base font-semibold text-zinc-900">{youtubeTitle}</p>
@@ -330,7 +343,7 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {editingPostId !== id && !isYoutubeVideo && postText ? (
+      {editingPostId !== id && !isYoutubeVideo && !isNewsArticle && postText ? (
         <div className="px-3 pb-2 md:px-4">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
             {postText}
@@ -409,6 +422,16 @@ export function CommunityPostCard({
             />
           )}
           {hasPostSound ? <PostSoundAudio soundTrack={p.soundTrack} /> : null}
+          {isNewsArticle && articleUrl ? (
+            <div className="px-3 pb-3 md:px-4">
+              <a
+                href={articleUrl}
+                className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+              >
+                Přečíst celý článek
+              </a>
+            </div>
+          ) : null}
         </>
       ) : null}
 

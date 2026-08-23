@@ -5,6 +5,7 @@ import {
   PostSource,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { PostsService } from '../posts/posts.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { NewsAuditService } from './news-audit.service';
 import { NewsArticleService } from './news-article.service';
@@ -32,6 +33,7 @@ export class NewsPortalPostService {
     private readonly settings: NewsEditorialSettingsService,
     private readonly socialPublish: SocialPublishEnqueueService,
     private readonly systemUser: NewsSystemUserService,
+    private readonly posts: PostsService,
   ) {}
 
   private async resolveSystemUserId(): Promise<string> {
@@ -179,6 +181,10 @@ export class NewsPortalPostService {
       articleId,
       metadata: { postId, imageUrl },
     });
+
+    if (payload.publishedAt) {
+      this.posts.finalizeEditorialPost(systemUserId, postId);
+    }
 
     let facebookResult: Record<string, unknown> | null = null;
     if (opts?.enqueueFacebook && cfg.createFacebookPost) {

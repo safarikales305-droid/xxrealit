@@ -134,6 +134,11 @@ export class PostsService {
     }
   }
 
+  /** Po vytvoření redakčního příspěvku (Aktuality / YouTube) — stejná pipeline jako běžný post. */
+  finalizeEditorialPost(userId: string, postId: string) {
+    this.firePostPublishedNotify(userId, postId);
+  }
+
   private firePostPublishedNotify(userId: string, postId: string) {
     void this.postWhatsAppNotify.onPostPublished(userId, postId).catch((err) => {
       this.log.warn(
@@ -740,19 +745,20 @@ export class PostsService {
       FROM "Post" p
       INNER JOIN "User" u ON u.id = p."userId"
       WHERE p.type <> 'short'
-        AND p."publishedAt" IS NOT NULL
         AND (
-          (p.type = 'COMPANY_REVIEW')
-          OR (p.type = 'NEWS_ARTICLE')
-          OR (p.type = 'YOUTUBE_VIDEO')
+          (
+            p.type IN ('COMPANY_REVIEW', 'NEWS_ARTICLE', 'YOUTUBE_VIDEO')
+            AND p."publishedAt" IS NOT NULL
+          )
           OR (
-            u."accountLimited" = false
+            p."publishedAt" IS NOT NULL
+            AND u."accountLimited" = false
             AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
             AND u."publicProfile" = true
             AND u.role IN (${roleInClause})
+            ${authorRoleClause}
           )
         )
-        ${authorRoleClause}
         ${followedOnlyClause}
         ${excludeClause}
       ORDER BY
@@ -763,6 +769,18 @@ export class PostsService {
     `;
 
     return idRows.map((r) => r.id);
+  }
+
+  async isPostVisibleInCommunityFeed(postId: string): Promise<boolean> {
+    for (let page = 0; page < 10; page++) {
+      const ids = await this.queryCommunityFeedPostIds({
+        limit: 100,
+        offset: page * 100,
+      });
+      if (ids.includes(postId)) return true;
+      if (ids.length < 100) break;
+    }
+    return false;
   }
 
   async toggleReaction(postId: string, userId: string, type: ReactionType) {

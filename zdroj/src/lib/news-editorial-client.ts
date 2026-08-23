@@ -923,6 +923,44 @@ export async function nestAdminBackfillNewsPosts(
   return adminFetchResult<{ jobId: string }>(token, '/backfill/posts', { method: 'POST' });
 }
 
+export type YoutubePostsBackfillResult = {
+  importedVideos: number;
+  postsExisting: number;
+  postsPublished: number;
+  postsCreated: number;
+  errors: number;
+  message: string;
+};
+
+export async function nestAdminBackfillYoutubePosts(
+  token: string,
+): Promise<AdminFetchResult<YoutubePostsBackfillResult>> {
+  return adminFetchResult<YoutubePostsBackfillResult>(token, '/backfill/youtube-posts', {
+    method: 'POST',
+  });
+}
+
+export type PortalPostFeedTestResult = {
+  entityFound: boolean;
+  entityType?: string;
+  postCreated: boolean;
+  postId: string | null;
+  feedQueryFound: boolean;
+  publishedAt: string | null;
+  articleStatus?: string;
+  error?: string;
+};
+
+export async function nestAdminTestPortalPostFeed(
+  token: string,
+  body?: { articleId?: string; youtubeVideoId?: string },
+): Promise<AdminFetchResult<PortalPostFeedTestResult>> {
+  return adminFetchResult<PortalPostFeedTestResult>(token, '/test-portal-post-feed', {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 export type NewsAutomationDiagnostics = {
   settings: NewsAutomationSettings;
   autoPublishEnabled: boolean;

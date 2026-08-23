@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { OpenAiService } from '../openai/openai.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { PostsService } from '../posts/posts.service';
 import { NewsAuditService } from './news-audit.service';
 import { NewsPublishMode } from '@prisma/client';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
@@ -153,6 +154,7 @@ export class NewsYoutubeService {
     private readonly openai: OpenAiService,
     private readonly socialPublish: SocialPublishEnqueueService,
     private readonly systemUser: NewsSystemUserService,
+    private readonly posts: PostsService,
   ) {}
 
   private editorialError(code: string, message: string): Error {
@@ -470,6 +472,7 @@ export class NewsYoutubeService {
         teaser,
         category: source.category,
         source,
+        forcePublish: opts.forceImportForTest,
       });
     } catch (err) {
       const code = (err as Error & { code?: string }).code ?? 'ARTICLE_CREATE_FAILED';
@@ -565,6 +568,7 @@ export class NewsYoutubeService {
     teaser: string;
     category?: string | null;
     source: NewsSource;
+    forcePublish?: boolean;
   }): Promise<string> {
     let systemUserId: string;
     try {
@@ -582,6 +586,7 @@ export class NewsYoutubeService {
     const postSlug = `video-${input.video.videoId}`;
     const bodyText = await this.generateVideoBody(input.video, input.teaser);
     const autoPublish =
+      input.forcePublish ||
       cfg.publishMode === NewsPublishMode.AUTOMATIC ||
       cfg.autoPublishArticles ||
       input.source.youtubePublishMode === NewsYoutubePublishMode.ALL;
@@ -644,6 +649,10 @@ export class NewsYoutubeService {
       where: { id: post.id },
       data: { description: facebookText },
     });
+
+    if (publishedAt) {
+      this.posts.finalizeEditorialPost(systemUserId, post.id);
+    }
 
     await this.audit.log('YOUTUBE_POST_CREATED', `YouTube post ${post.id} — ${input.video.title}`, {
       metadata: { postId: post.id, videoId: input.video.videoId },
