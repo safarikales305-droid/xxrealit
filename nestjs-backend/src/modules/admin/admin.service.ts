@@ -1887,6 +1887,9 @@ export class AdminService {
     if (!target) {
       throw new NotFoundException('Uživatel nenalezen');
     }
+    if (target.isSystemUser) {
+      throw new BadRequestException('Systémový uživatel AI redakce nelze smazat');
+    }
     if (target.role === UserRole.ADMIN) {
       const adminCount = await this.prisma.user.count({
         where: { role: UserRole.ADMIN },

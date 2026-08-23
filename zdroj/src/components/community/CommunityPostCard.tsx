@@ -147,6 +147,9 @@ export function CommunityPostCard({
   const youtubeChannel = String(
     (p as { youtubeChannelTitle?: string }).youtubeChannelTitle ?? p.previewSiteName ?? '',
   ).trim();
+  const editorialSourceName = String(
+    (p as { editorialSourceName?: string }).editorialSourceName ?? '',
+  ).trim();
 
   const actionRow = (
     <div className="flex flex-wrap items-center gap-2 px-3 py-3 md:px-4">
@@ -349,6 +352,7 @@ export function CommunityPostCard({
             watchUrl={externalUrl}
           />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            {editorialSourceName ? <span>Zdroj: {editorialSourceName}</span> : null}
             {youtubeChannel ? <span>Kanál: {youtubeChannel}</span> : null}
             {externalUrl ? (
               <a

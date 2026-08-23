@@ -10,6 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { OpenAiService } from '../openai/openai.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { NewsAuditService } from './news-audit.service';
+import { NewsPublishMode } from '@prisma/client';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
 import { scoreNewsRelevance } from './news-editorial.util';
 import { sanitizeNewsSourceText } from './news-text-sanitizer.util';
@@ -32,6 +33,7 @@ import {
   setLastYoutubeApiTest,
   setNewsWorkerLastError,
 } from './news-editorial-worker.state';
+import { NewsSystemUserService } from './news-system-user.service';
 
 export function isStaleYoutubeApiKeyError(message: string | null | undefined): boolean {
   if (!message?.trim()) return false;
@@ -150,10 +152,13 @@ export class NewsYoutubeService {
     private readonly settings: NewsEditorialSettingsService,
     private readonly openai: OpenAiService,
     private readonly socialPublish: SocialPublishEnqueueService,
+    private readonly systemUser: NewsSystemUserService,
   ) {}
 
-  private resolveSystemUserId(): string | null {
-    return process.env.PORTAL_SYSTEM_USER_ID?.trim() || null;
+  private editorialError(code: string, message: string): Error {
+    const err = new Error(message);
+    (err as Error & { code: string }).code = code;
+    return err;
   }
 
   private sourceMinRelevance(source: NewsSource): number {
@@ -328,6 +333,7 @@ export class NewsYoutubeService {
 
     let created = 0;
     let skipped = 0;
+    let duplicates = 0;
 
     for (const video of videos.sort(
       (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
@@ -338,7 +344,10 @@ export class NewsYoutubeService {
         forceImportForTest: false,
       });
       if (result.created) created += 1;
-      else skipped += 1;
+      else {
+        skipped += 1;
+        if (result.reason === 'SKIP_DUPLICATE') duplicates += 1;
+      }
 
       await this.prisma.newsSource.update({
         where: { id: sourceId },
@@ -380,7 +389,17 @@ export class NewsYoutubeService {
       metadata: { sourceId, created, skipped, dailyLimit: cfg.youtubeMaxPostsPerDay, videosFound: videos.length },
     });
 
-    return { sourceId, created, skipped, checked: videos.length };
+    return {
+      sourceId,
+      created,
+      skipped,
+      checked: videos.length,
+      found: videos.length,
+      new: created,
+      duplicates,
+      alreadyExisted: duplicates,
+      message: `Kontrola dokončena: nalezeno ${videos.length} videí, ${created} nových importováno, ${duplicates} již existovalo, ${skipped - duplicates} přeskočeno.`,
+    };
   }
 
   private mapSkipReason(reason?: string): YoutubeVideoDecision['decision'] {
@@ -443,13 +462,19 @@ export class NewsYoutubeService {
     }
 
     const teaser = await this.generateTeaser(video);
-    const postId = await this.createYoutubePost({
-      video,
-      channelTitle,
-      teaser,
-      category: source.category,
-      sourceName: source.name,
-    });
+    let postId: string;
+    try {
+      postId = await this.createYoutubePost({
+        video,
+        channelTitle,
+        teaser,
+        category: source.category,
+        source,
+      });
+    } catch (err) {
+      const code = (err as Error & { code?: string }).code ?? 'ARTICLE_CREATE_FAILED';
+      return { created: false, reason: code, relevanceScore };
+    }
 
     const enqueueFb =
       opts.enqueueFacebook &&
@@ -513,28 +538,63 @@ export class NewsYoutubeService {
     return `Nové video „${title}“ na kanálu ${video.channelTitle}.`;
   }
 
+  async generateVideoBody(video: YoutubeVideoMeta, teaser: string): Promise<string> {
+    const cleaned = sanitizeNewsSourceText(video.title, video.description);
+    const description = cleaned.summary.slice(0, 2000);
+
+    try {
+      const ai = await this.openai.complete({
+        feature: 'editorial_news',
+        systemPrompt:
+          'Jsi redaktor českého realitního portálu XXREALIT. Napiš 2–4 odstavce českého doprovodného textu k YouTube videu. Používej pouze fakta z metadat. Bez URL, hashtagů a technického JSON. Text musí být čitelný a věcný.',
+        userPrompt: `Kanál: ${video.channelTitle}\nTitulek: ${cleaned.title}\nPerex: ${teaser}\nPopis videa:\n${description}`,
+        maxOutputTokens: 600,
+      });
+      const text = ai.text?.trim();
+      if (text && text.length >= 80) return text.slice(0, 2500);
+    } catch (err) {
+      this.log.warn(`YouTube body AI failed: ${err instanceof Error ? err.message : err}`);
+    }
+
+    return [teaser, description.slice(0, 600)].filter(Boolean).join('\n\n');
+  }
+
   private async createYoutubePost(input: {
     video: YoutubeVideoMeta;
     channelTitle: string;
     teaser: string;
     category?: string | null;
-    sourceName: string;
+    source: NewsSource;
   }): Promise<string> {
-    const systemUserId = this.resolveSystemUserId();
-    if (!systemUserId) throw new Error('PORTAL_SYSTEM_USER_ID chybí');
+    let systemUserId: string;
+    try {
+      systemUserId = await this.systemUser.getSystemUserId();
+    } catch (err) {
+      throw this.editorialError(
+        'SYSTEM_USER_NOT_FOUND',
+        err instanceof Error ? err.message : 'Systémový autor AI redakce není dostupný.',
+      );
+    }
 
+    const systemUser = await this.systemUser.getSystemUser();
     const cfg = this.settings.getCached();
     const siteBase = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '') ?? 'https://xxrealit.cz';
     const postSlug = `video-${input.video.videoId}`;
+    const bodyText = await this.generateVideoBody(input.video, input.teaser);
+    const autoPublish =
+      cfg.publishMode === NewsPublishMode.AUTOMATIC ||
+      cfg.autoPublishArticles ||
+      input.source.youtubePublishMode === NewsYoutubePublishMode.ALL;
+    const publishedAt = autoPublish ? input.video.publishedAt ?? new Date() : null;
+
     const portalContent = [
-      '🎥 YOUTUBE',
-      '',
-      input.video.title,
-      '',
       input.teaser,
       '',
+      bodyText,
+      '',
+      `Zdroj: ${input.source.name}`,
       `Kanál: ${input.channelTitle}`,
-      `Zdroj: YouTube — ${input.sourceName}`,
+      `Originál: ${input.video.videoUrl}`,
     ].join('\n');
 
     const post = await this.prisma.post.create({
@@ -543,21 +603,25 @@ export class NewsYoutubeService {
         type: 'YOUTUBE_VIDEO',
         source: PostSource.YOUTUBE,
         title: input.video.title.slice(0, 200),
-        description: '',
+        description: input.teaser,
         content: portalContent,
         externalUrl: input.video.videoUrl,
         previewTitle: input.video.title,
         previewDescription: input.teaser,
         previewImage: input.video.thumbnailUrl,
-        previewSiteName: cfg.portalPostAuthorLabel ?? 'Redakce XXREALIT',
+        previewSiteName: systemUser.name || cfg.portalPostAuthorLabel,
         imageUrl: input.video.thumbnailUrl,
         youtubeVideoId: input.video.videoId,
         youtubeChannelId: input.video.channelId,
         youtubeChannelTitle: input.channelTitle,
         youtubeThumbnailUrl: input.video.thumbnailUrl,
         youtubeEmbeddable: input.video.embeddable,
-        publishedAt: input.video.publishedAt,
+        publishedAt,
         slug: postSlug,
+        newsSourceId: input.source.id,
+        editorialSourceName: input.source.name,
+        editorialSourceUrl: input.source.url,
+        editorialExternalId: input.video.videoId,
         likesAutopilotEnabled: true,
         lastAutopilotLikesAt: new Date(),
       },
@@ -1122,6 +1186,7 @@ export class NewsYoutubeService {
 
     const lastHistoricalError = historicalErrors[0] ?? null;
     const apiTest = getLastYoutubeApiTest();
+    const systemAuthor = await this.systemUser.getSystemAuthorStatus();
 
     return {
       apiConfigured,
@@ -1152,6 +1217,14 @@ export class NewsYoutubeService {
       lastError: currentError,
       totalImported: sources.reduce((sum, s) => sum + s.youtubeImportedCount, 0),
       pollingIntervalMinutes: cfg.youtubeCheckIntervalMinutes ?? 30,
+      systemAuthor: {
+        ok: systemAuthor.ok,
+        status: systemAuthor.ok ? 'OK' : 'ERROR',
+        name: systemAuthor.name,
+        userId: systemAuthor.userId,
+        error: systemAuthor.error ?? null,
+        errorCode: systemAuthor.errorCode ?? null,
+      },
     };
   }
 

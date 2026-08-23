@@ -27,7 +27,9 @@ import { NewsSourceService } from './news-source.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsYoutubeService } from './news-youtube.service';
+import { NewsSystemUserService } from './news-system-user.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
+import type { SystemAuthorProfilePatch } from './news-system-user.service';
 
 @Controller('admin/news-editorial')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -43,6 +45,7 @@ export class NewsEditorialAdminController {
     private readonly audit: NewsAuditService,
     private readonly backfill: NewsBackfillService,
     private readonly youtube: NewsYoutubeService,
+    private readonly systemUser: NewsSystemUserService,
   ) {}
 
   @Get('dashboard')
@@ -261,6 +264,16 @@ export class NewsEditorialAdminController {
   @Post('youtube/test-api')
   testYoutubeApi() {
     return this.youtube.testApiConnection();
+  }
+
+  @Get('system-author')
+  systemAuthor() {
+    return this.systemUser.getSystemAuthorStatus();
+  }
+
+  @Patch('system-author')
+  updateSystemAuthor(@Body() body: SystemAuthorProfilePatch) {
+    return this.systemUser.updateSystemAuthorProfile(body);
   }
 
   @Post('sources/:id/youtube-poll-now')

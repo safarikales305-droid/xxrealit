@@ -426,6 +426,10 @@ model User {
 
   /// Adminem vytvořený promo profil (zaplnění portálu).
   isPromoProfile     Boolean @default(false)
+  /// Systémový účet (AI redakce) — nelze běžně přihlásit ani smazat.
+  isSystemUser       Boolean @default(false)
+  /// Např. AI_EDITOR pro AI redakci XXrealit.
+  systemRole         String?
   /// Aktivní promo profil — neaktivní se veřejně nezobrazuje.
   promoProfileActive Boolean @default(true)
   promoFirstName     String  @default("")
@@ -1046,6 +1050,11 @@ model Post {
   companyReview      CompanyReview? @relation(fields: [companyReviewId], references: [id], onDelete: SetNull)
   newsArticleId      String? @unique
   newsArticle        NewsArticle? @relation(fields: [newsArticleId], references: [id], onDelete: SetNull)
+  newsSourceId       String?
+  newsSource         NewsSource? @relation(fields: [newsSourceId], references: [id], onDelete: SetNull)
+  editorialSourceName String?
+  editorialSourceUrl  String?
+  editorialExternalId String?
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -7586,6 +7595,7 @@ model NewsSource {
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
   items                NewsSourceItem[]
+  posts                Post[]
   @@unique([url])
   @@index([enabled, priority])
 }

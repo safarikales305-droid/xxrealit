@@ -9,6 +9,7 @@ import { SocialPublishEnqueueService } from '../social/autopost/social-publish-e
 import { NewsAuditService } from './news-audit.service';
 import { NewsArticleService } from './news-article.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
+import { NewsSystemUserService } from './news-system-user.service';
 import {
   buildNewsArticleCanonicalUrl,
   buildNewsFacebookPostText,
@@ -30,10 +31,11 @@ export class NewsPortalPostService {
     private readonly articles: NewsArticleService,
     private readonly settings: NewsEditorialSettingsService,
     private readonly socialPublish: SocialPublishEnqueueService,
+    private readonly systemUser: NewsSystemUserService,
   ) {}
 
-  private resolveSystemUserId(): string | null {
-    return process.env.PORTAL_SYSTEM_USER_ID?.trim() || null;
+  private async resolveSystemUserId(): Promise<string> {
+    return this.systemUser.getSystemUserId();
   }
 
   async syncFromArticle(
@@ -53,12 +55,12 @@ export class NewsPortalPostService {
       return { ok: false, reason: 'createPortalPost vypnuto' };
     }
 
-    const systemUserId = this.resolveSystemUserId();
+    const systemUserId = await this.resolveSystemUserId();
     if (!systemUserId) {
-      await this.audit.log('PORTAL_POST_SKIPPED', 'PORTAL_SYSTEM_USER_ID není nastaveno', {
+      await this.audit.log('PORTAL_POST_SKIPPED', 'Systémový autor AI redakce není dostupný', {
         articleId,
       });
-      return { ok: false, reason: 'PORTAL_SYSTEM_USER_ID chybí' };
+      return { ok: false, reason: 'SYSTEM_USER_NOT_FOUND' };
     }
 
     const articleUrl = buildNewsArticleCanonicalUrl(article);
@@ -77,6 +79,8 @@ export class NewsPortalPostService {
       articleUrl,
       addHashtags: cfg.addHashtags !== false,
     });
+    const systemUser = await this.systemUser.getSystemUser();
+    const primarySource = article.sources?.[0];
     const postSlug = buildNewsPortalPostSlug(article.slug);
     const postCategory = mapNewsCategoryToPostCategory(article.category);
 
@@ -88,7 +92,7 @@ export class NewsPortalPostService {
       previewImage: imageUrl,
       previewTitle: socialTitle,
       previewDescription: socialExcerpt,
-      previewSiteName: cfg.portalPostAuthorLabel ?? 'XXREALIT Aktuality',
+      previewSiteName: systemUser.name || cfg.portalPostAuthorLabel || 'AI redakce XXrealit',
       externalUrl: articleUrl,
       seoTitle: article.seoTitle,
       seoDescription: article.seoDescription,
@@ -96,6 +100,14 @@ export class NewsPortalPostService {
       category: postCategory as PostCategory,
       city: article.region ?? '',
       publishedAt: article.publishedAt ?? new Date(),
+      ...(primarySource
+        ? {
+            newsSourceId: primarySource.sourceId ?? undefined,
+            editorialSourceName: primarySource.sourceName,
+            editorialSourceUrl: primarySource.sourceUrl,
+            editorialExternalId: primarySource.sourceItemId ?? undefined,
+          }
+        : {}),
     };
 
     let postId = article.portalPostId;

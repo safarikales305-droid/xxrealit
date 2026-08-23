@@ -748,6 +748,30 @@ export type YoutubeAdminStatus = {
   lastError: string | null;
   totalImported: number;
   pollingIntervalMinutes?: number;
+  systemAuthor?: {
+    ok: boolean;
+    status: 'OK' | 'ERROR';
+    name: string | null;
+    userId: string | null;
+    error: string | null;
+    errorCode: string | null;
+  };
+};
+
+export type SystemAuthorProfile = {
+  ok: boolean;
+  errorCode?: string;
+  error?: string;
+  userId: string | null;
+  name: string | null;
+  email: string | null;
+  avatar: string | null;
+  bio: string | null;
+  publicProfile: boolean;
+  publishedArticles: number;
+  publishedVideos: number;
+  publishedPosts: number;
+  lastPublishedAt: string | null;
 };
 
 export type YoutubeApiTestResponse = {
@@ -833,10 +857,35 @@ export async function nestAdminYoutubePollNow(
   token: string,
   sourceId: string,
   opts?: { maxVideos?: number; ignoreRelevance?: boolean },
-): Promise<AdminFetchResult<{ sourceId: string; created: number; skipped: number; checked: number }>> {
+): Promise<
+  AdminFetchResult<{
+    sourceId: string;
+    created: number;
+    skipped: number;
+    checked: number;
+    found?: number;
+    new?: number;
+    duplicates?: number;
+    message?: string;
+  }>
+> {
   return adminFetchResult(token, `/sources/${encodeURIComponent(sourceId)}/youtube-poll-now`, {
     method: 'POST',
     body: JSON.stringify(opts ?? {}),
+  });
+}
+
+export async function nestAdminSystemAuthor(token: string): Promise<SystemAuthorProfile | null> {
+  return adminFetch<SystemAuthorProfile>(token, '/system-author');
+}
+
+export async function nestAdminUpdateSystemAuthor(
+  token: string,
+  body: { name?: string; bio?: string | null; avatar?: string | null },
+): Promise<SystemAuthorProfile | null> {
+  return adminFetch<SystemAuthorProfile>(token, '/system-author', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   });
 }
 

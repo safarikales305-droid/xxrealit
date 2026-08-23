@@ -49,7 +49,7 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   minLanguageQuality: 80,
   createPortalPost: true,
   createFacebookPost: false,
-  portalPostAuthorLabel: 'Redakce XXREALIT',
+  portalPostAuthorLabel: 'AI redakce XXrealit',
   addHashtags: true,
   maxTeaserLength: 280,
   defaultOgImageUrl: '/images/aktuality-default-og.svg',

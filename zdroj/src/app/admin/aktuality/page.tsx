@@ -37,6 +37,8 @@ import {
   nestAdminYoutubeStatus,
   nestAdminTestYoutubeApi,
   nestAdminYoutubePollNow,
+  nestAdminSystemAuthor,
+  nestAdminUpdateSystemAuthor,
   nestAdminSyncNewsPortalPost,
   nestAdminRepublishNewsFacebook,
   nestAdminUpdateNewsArticle,
@@ -61,7 +63,7 @@ import {
   type YoutubeDiagnoseResponse,
   type YoutubeBackfillResponse,
   type YoutubeAdminStatus,
-  type YoutubeApiTestResponse,
+  type SystemAuthorProfile,
 } from '@/lib/news-editorial-client';
 
 type Tab =
@@ -174,6 +176,12 @@ export default function AdminAktualityPage() {
   const [rssTestSourceName, setRssTestSourceName] = useState<string | null>(null);
   const [youtubeStatus, setYoutubeStatus] = useState<YoutubeAdminStatus | null>(null);
   const [youtubeApiTest, setYoutubeApiTest] = useState<YoutubeApiTestResponse | null>(null);
+  const [systemAuthor, setSystemAuthor] = useState<SystemAuthorProfile | null>(null);
+  const [systemAuthorForm, setSystemAuthorForm] = useState({
+    name: 'AI redakce XXrealit',
+    bio: '',
+    avatar: '',
+  });
   const [backfillModal, setBackfillModal] = useState<{ sourceId: string; name: string } | null>(null);
   const [backfillCount, setBackfillCount] = useState(10);
   const [backfillIgnoreRelevance, setBackfillIgnoreRelevance] = useState(false);
@@ -190,12 +198,21 @@ export default function AdminAktualityPage() {
 
   const refreshSources = useCallback(async () => {
     if (!token) return;
-    const [rows, ytStatus] = await Promise.all([
+    const [rows, ytStatus, author] = await Promise.all([
       nestAdminNewsSources(token),
       nestAdminYoutubeStatus(token),
+      nestAdminSystemAuthor(token),
     ]);
     setSources(rows ?? []);
     setYoutubeStatus(ytStatus);
+    if (author) {
+      setSystemAuthor(author);
+      setSystemAuthorForm({
+        name: author.name ?? 'AI redakce XXrealit',
+        bio: author.bio ?? '',
+        avatar: author.avatar ?? '',
+      });
+    }
   }, [token]);
 
   const refreshSettings = useCallback(async () => {
@@ -609,6 +626,18 @@ export default function AdminAktualityPage() {
                 <p>Last check: {formatDate(youtubeStatus.lastCheck)}</p>
                 <p>Last successful check: {formatDate(youtubeStatus.lastSuccessfulCheck)}</p>
                 <p>Importováno celkem: {youtubeStatus.totalImported}</p>
+                <p>
+                  System author:{' '}
+                  <strong>
+                    {youtubeStatus.systemAuthor?.ok || systemAuthor?.ok ? 'OK' : 'ERROR'}
+                  </strong>
+                </p>
+                <p>
+                  Autor: {youtubeStatus.systemAuthor?.name ?? systemAuthor?.name ?? '—'}
+                </p>
+                <p className="break-all">
+                  System user ID: {youtubeStatus.systemAuthor?.userId ?? systemAuthor?.userId ?? '—'}
+                </p>
                 {youtubeApiTest ? (
                   <>
                     <p>HTTP: {youtubeApiTest.httpStatus}</p>
@@ -617,6 +646,11 @@ export default function AdminAktualityPage() {
                       <p className="text-red-800 sm:col-span-2">{youtubeApiTest.error}</p>
                     ) : null}
                   </>
+                ) : null}
+                {youtubeStatus.systemAuthor?.error && !youtubeStatus.systemAuthor.ok ? (
+                  <p className="text-red-800 sm:col-span-2 lg:col-span-4">
+                    System author: {youtubeStatus.systemAuthor.error}
+                  </p>
                 ) : null}
                 {youtubeStatus.currentError ? (
                   <p className="text-red-800 sm:col-span-2 lg:col-span-4">
@@ -933,9 +967,7 @@ export default function AdminAktualityPage() {
                                   setErrMsg(res.message);
                                   return;
                                 }
-                                setMsg(
-                                  `Kontrola: ${res.data.created} importováno, ${res.data.skipped} přeskočeno`,
-                                );
+                                setMsg(res.data.message ?? `Kontrola: ${res.data.created} importováno`);
                                 void refreshSources();
                                 void refreshArticles();
                               }}
@@ -1561,6 +1593,75 @@ export default function AdminAktualityPage() {
       ) : null}
 
       {tab === 'settings' && settings ? (
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-violet-200 bg-violet-50/40 p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-violet-950">Profil AI redakce</h2>
+            {systemAuthor ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <p className="text-sm text-violet-950">
+                  Stav: <strong>{systemAuthor.ok ? 'Aktivní' : 'Chyba'}</strong>
+                </p>
+                <p className="text-sm text-violet-950 break-all">ID: {systemAuthor.userId ?? '—'}</p>
+                <p className="text-sm text-violet-950">
+                  Publikováno: {systemAuthor.publishedPosts} příspěvků · {systemAuthor.publishedVideos} videí
+                </p>
+                <p className="text-sm text-violet-950">
+                  Poslední publikace: {formatDate(systemAuthor.lastPublishedAt)}
+                </p>
+                <label className="block text-sm sm:col-span-2">
+                  Veřejný název
+                  <input
+                    value={systemAuthorForm.name}
+                    onChange={(e) =>
+                      setSystemAuthorForm((f) => ({ ...f, name: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-violet-200 bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  Avatar URL
+                  <input
+                    value={systemAuthorForm.avatar}
+                    onChange={(e) =>
+                      setSystemAuthorForm((f) => ({ ...f, avatar: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-violet-200 bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  Popis profilu
+                  <textarea
+                    rows={3}
+                    value={systemAuthorForm.bio}
+                    onChange={(e) =>
+                      setSystemAuthorForm((f) => ({ ...f, bio: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-violet-200 bg-white px-3 py-2"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (!token) return;
+                    setBusy(true);
+                    const updated = await nestAdminUpdateSystemAuthor(token, systemAuthorForm);
+                    setBusy(false);
+                    if (updated) {
+                      setSystemAuthor(updated);
+                      setMsg('Profil AI redakce uložen.');
+                    }
+                  }}
+                  className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white sm:col-span-2"
+                >
+                  Uložit profil AI redakce
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-violet-900">Načítám profil…</p>
+            )}
+          </section>
+
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Nastavení automatizace</h2>
           <form onSubmit={(e) => void handleSaveSettings(e)} className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1800,6 +1901,7 @@ export default function AdminAktualityPage() {
             </button>
           </form>
         </section>
+        </div>
       ) : null}
 
       {tab === 'history' ? (
