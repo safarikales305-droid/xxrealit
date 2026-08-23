@@ -16,7 +16,7 @@ import { NewsEditorialSettingsService } from './news-editorial-settings.service'
 import { NewsImageService } from './news-image.service';
 import { NewsPortalPostService } from './news-portal-post.service';
 import { isWithinPublishWindow, nextPublishSlotLabel } from './news-publish-scheduler.util';
-import { getNewsWorkerHeartbeat } from './news-editorial-worker.service';
+import { getNewsWorkerHeartbeat } from './news-editorial-worker.state';
 
 export type AutoPublishStepResult = {
   step: string;

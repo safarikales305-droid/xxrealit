@@ -13,16 +13,20 @@ import { NewsAiService } from './news-ai.service';
 import { NewsPublishService } from './news-publish.service';
 import { NewsYoutubeService } from './news-youtube.service';
 import { isWithinPublishWindow, pragueDayKey } from './news-publish-scheduler.util';
+import {
+  getNewsWorkerHeartbeat,
+  getNewsWorkerLastError,
+  isNewsWorkerPaused,
+  isNewsWorkerProcessing,
+  setNewsWorkerHeartbeat,
+  setNewsWorkerLastError,
+  setNewsWorkerPaused,
+  setNewsWorkerProcessing,
+} from './news-editorial-worker.state';
 
-let workerHeartbeat: Date | null = null;
-let workerLastError: string | null = null;
-let workerProcessing = false;
-let workerPaused = false;
 const publishedSlotsToday = new Set<string>();
 
-export function getNewsWorkerHeartbeat() {
-  return workerHeartbeat;
-}
+export { getNewsWorkerHeartbeat } from './news-editorial-worker.state';
 
 @Injectable()
 export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -58,32 +62,33 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
   }
 
   getStatus() {
+    const heartbeat = getNewsWorkerHeartbeat();
     return {
       enabled: NEWS_EDITORIAL_ENABLED,
-      paused: workerPaused,
-      online: workerHeartbeat != null && Date.now() - workerHeartbeat.getTime() < NEWS_WORKER_TICK_MS * 3,
-      lastHeartbeatAt: workerHeartbeat?.toISOString() ?? null,
-      lastError: workerLastError,
-      processing: workerProcessing,
+      paused: isNewsWorkerPaused(),
+      online: heartbeat != null && Date.now() - heartbeat.getTime() < NEWS_WORKER_TICK_MS * 3,
+      lastHeartbeatAt: heartbeat?.toISOString() ?? null,
+      lastError: getNewsWorkerLastError(),
+      processing: isNewsWorkerProcessing(),
       settings: this.settings.getCached(),
     };
   }
 
   pause() {
-    workerPaused = true;
+    setNewsWorkerPaused(true);
     return { paused: true };
   }
 
   resume() {
-    workerPaused = false;
+    setNewsWorkerPaused(false);
     void this.tick();
     return { paused: false };
   }
 
   private async tick() {
-    if (!NEWS_EDITORIAL_ENABLED || workerProcessing || workerPaused) return;
-    workerProcessing = true;
-    workerHeartbeat = new Date();
+    if (!NEWS_EDITORIAL_ENABLED || isNewsWorkerProcessing() || isNewsWorkerPaused()) return;
+    setNewsWorkerProcessing(true);
+    setNewsWorkerHeartbeat(new Date());
 
     const today = pragueDayKey();
     if (today !== this.lastPragueDay) {
@@ -113,10 +118,11 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
       }
       await this.publish.publishScheduledDue(3);
     } catch (err) {
-      workerLastError = err instanceof Error ? err.message : String(err);
-      this.log.error(`Worker tick failed: ${workerLastError}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      setNewsWorkerLastError(msg);
+      this.log.error(`Worker tick failed: ${msg}`);
     } finally {
-      workerProcessing = false;
+      setNewsWorkerProcessing(false);
     }
   }
 
