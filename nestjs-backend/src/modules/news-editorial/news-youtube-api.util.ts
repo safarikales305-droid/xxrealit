@@ -1,6 +1,50 @@
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
+const YOUTUBE_RESERVED_SEGMENTS = new Set([
+  'watch',
+  'playlist',
+  'channel',
+  'user',
+  'c',
+  'feed',
+  'results',
+  'gaming',
+  'shorts',
+  'embed',
+  'live',
+  'premium',
+  'kids',
+  'music',
+  'trending',
+  'about',
+  'account',
+  'creator',
+  'studio',
+  'post',
+  'hashtag',
+  'youtube',
+  'redirect',
+  'log_in',
+  'logout',
+  'signup',
+  'reporthistory',
+  'new',
+  'favicon.ico',
+  'attribution_link',
+  'howyoutubeworks',
+  'yt',
+  'jobs',
+  'press',
+  'branding',
+  'copyright',
+  'terms',
+  'privacy',
+  'policies',
+  'ads',
+  'upload',
+]);
+
 export type YoutubeVideoMeta = {
   videoId: string;
   channelId: string;
@@ -19,7 +63,19 @@ export type YoutubeChannelResolve = {
   channelId: string;
   channelTitle: string;
   uploadsPlaylistId: string;
+  resolvedVia?: 'channel_id' | 'handle' | 'username' | 'vanity' | 'search' | 'redirect';
 };
+
+export class YoutubeApiError extends Error {
+  constructor(
+    message: string,
+    readonly httpStatus: number,
+    readonly apiBody?: string,
+  ) {
+    super(message);
+    this.name = 'YoutubeApiError';
+  }
+}
 
 export function getYouTubeApiKey(): string | null {
   const key = process.env.YOUTUBE_API_KEY?.trim();
@@ -35,7 +91,7 @@ export function buildYoutubeWatchUrl(videoId: string): string {
 }
 
 export function buildYoutubeEmbedUrl(videoId: string): string {
-  return `https://www.youtube.com/embed/${videoId}`;
+  return `https://www.youtube-nocookie.com/embed/${videoId}`;
 }
 
 function pickThumbnail(thumbnails: Record<string, { url?: string }> | undefined): string {
@@ -49,38 +105,155 @@ function pickThumbnail(thumbnails: Record<string, { url?: string }> | undefined)
   );
 }
 
+type ChannelListItem = {
+  id: string;
+  snippet?: { title?: string; customUrl?: string };
+  contentDetails?: { relatedPlaylists?: { uploads?: string } };
+};
+
 async function youtubeGet<T>(path: string, params: Record<string, string>): Promise<T> {
   const apiKey = getYouTubeApiKey();
-  if (!apiKey) throw new Error('YOUTUBE_API_KEY není nastaveno na serveru.');
+  if (!apiKey) throw new YoutubeApiError('YOUTUBE_API_KEY není nastaveno na serveru.', 0);
 
   const qs = new URLSearchParams({ ...params, key: apiKey });
   const res = await fetch(`${YOUTUBE_API_BASE}${path}?${qs.toString()}`, {
     headers: { Accept: 'application/json' },
   });
+  const body = await res.text().catch(() => '');
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`YouTube API ${res.status}: ${body.slice(0, 200)}`);
+    throw new YoutubeApiError(`YouTube API ${res.status}: ${body.slice(0, 400)}`, res.status, body);
   }
-  return (await res.json()) as T;
+  return JSON.parse(body) as T;
 }
 
-export function extractYoutubeChannelHint(url: string): { handle?: string; channelId?: string } {
+function channelFromListItem(
+  item: ChannelListItem | undefined,
+  resolvedVia: YoutubeChannelResolve['resolvedVia'],
+): YoutubeChannelResolve | null {
+  const uploads = item?.contentDetails?.relatedPlaylists?.uploads;
+  if (!item?.id || !uploads) return null;
+  return {
+    channelId: item.id,
+    channelTitle: item.snippet?.title ?? 'YouTube kanál',
+    uploadsPlaylistId: uploads,
+    resolvedVia,
+  };
+}
+
+export function extractYoutubeChannelHint(url: string): {
+  handle?: string;
+  channelId?: string;
+  vanity?: string;
+} {
   const raw = url.trim();
   if (!raw) return {};
   try {
     const u = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
     const path = u.pathname.replace(/\/+$/, '');
+
     const channelMatch = path.match(/\/channel\/(UC[\w-]+)/i);
     if (channelMatch) return { channelId: channelMatch[1] };
+
     const handleMatch = path.match(/\/@([\w.-]+)/);
     if (handleMatch) return { handle: handleMatch[1] };
+
     const userMatch = path.match(/\/user\/([\w.-]+)/i);
     if (userMatch) return { handle: userMatch[1] };
+
+    const cMatch = path.match(/\/c\/([\w.-]+)/i);
+    if (cMatch) return { vanity: cMatch[1] };
+
+    const vanityMatch = path.match(/^\/([a-zA-Z0-9._-]+)$/);
+    if (vanityMatch) {
+      const seg = vanityMatch[1];
+      if (!YOUTUBE_RESERVED_SEGMENTS.has(seg.toLowerCase())) {
+        return { vanity: seg };
+      }
+    }
   } catch {
     if (/^UC[\w-]{20,}$/i.test(raw)) return { channelId: raw };
     if (raw.startsWith('@')) return { handle: raw.slice(1) };
+    if (/^[\w.-]+$/.test(raw)) return { vanity: raw };
   }
   return {};
+}
+
+async function lookupChannelByHandle(handle: string): Promise<YoutubeChannelResolve | null> {
+  const clean = handle.replace(/^@/, '');
+  const data = await youtubeGet<{ items?: ChannelListItem[] }>('/channels', {
+    part: 'snippet,contentDetails',
+    forHandle: clean,
+  });
+  return channelFromListItem(data.items?.[0], 'handle');
+}
+
+async function lookupChannelByUsername(username: string): Promise<YoutubeChannelResolve | null> {
+  const data = await youtubeGet<{ items?: ChannelListItem[] }>('/channels', {
+    part: 'snippet,contentDetails',
+    forUsername: username,
+  });
+  return channelFromListItem(data.items?.[0], 'username');
+}
+
+async function lookupChannelBySearch(query: string): Promise<YoutubeChannelResolve | null> {
+  const search = await youtubeGet<{
+    items?: Array<{ id?: { channelId?: string }; snippet?: { channelTitle?: string } }>;
+  }>('/search', {
+    part: 'snippet',
+    type: 'channel',
+    maxResults: '5',
+    q: query,
+  });
+
+  const channelIds = (search.items ?? [])
+    .map((item) => item.id?.channelId ?? '')
+    .filter((id) => /^UC[\w-]+$/i.test(id));
+
+  if (!channelIds.length) return null;
+
+  const channels = await youtubeGet<{ items?: ChannelListItem[] }>('/channels', {
+    part: 'snippet,contentDetails',
+    id: channelIds.join(','),
+  });
+
+  const normalizedQuery = query.replace(/^@/, '').toLowerCase();
+  const exact =
+    channels.items?.find(
+      (item) =>
+        item.snippet?.customUrl?.replace(/^@/, '').toLowerCase() === normalizedQuery ||
+        item.snippet?.title?.toLowerCase() === normalizedQuery,
+    ) ?? channels.items?.[0];
+
+  return channelFromListItem(exact, 'search');
+}
+
+export async function resolveYoutubeUrlRedirect(inputUrl: string): Promise<string> {
+  const url = inputUrl.trim().startsWith('http') ? inputUrl.trim() : `https://${inputUrl.trim()}`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; XXREALIT-NewsBot/1.0)',
+        Accept: 'text/html',
+      },
+    });
+    return res.url || url;
+  } catch {
+    return url;
+  }
+}
+
+async function lookupChannelByVanity(vanity: string): Promise<YoutubeChannelResolve | null> {
+  const clean = vanity.replace(/^@/, '');
+
+  const byHandle = await lookupChannelByHandle(clean);
+  if (byHandle) return { ...byHandle, resolvedVia: 'vanity' };
+
+  const byUsername = await lookupChannelByUsername(clean);
+  if (byUsername) return { ...byUsername, resolvedVia: 'vanity' };
+
+  return lookupChannelBySearch(clean);
 }
 
 export async function resolveYoutubeChannel(
@@ -88,54 +261,58 @@ export async function resolveYoutubeChannel(
   explicitChannelId?: string | null,
 ): Promise<YoutubeChannelResolve> {
   if (explicitChannelId?.trim() && /^UC[\w-]+$/i.test(explicitChannelId.trim())) {
-    const byId = await youtubeGet<{
-      items?: Array<{
-        id: string;
-        snippet?: { title?: string };
-        contentDetails?: { relatedPlaylists?: { uploads?: string } };
-      }>;
-    }>('/channels', {
+    const data = await youtubeGet<{ items?: ChannelListItem[] }>('/channels', {
       part: 'snippet,contentDetails',
       id: explicitChannelId.trim(),
     });
-    const item = byId.items?.[0];
-    if (!item?.contentDetails?.relatedPlaylists?.uploads) {
-      throw new Error('Kanál nenalezen podle channelId.');
-    }
-    return {
-      channelId: item.id,
-      channelTitle: item.snippet?.title ?? 'YouTube kanál',
-      uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads,
-    };
+    const resolved = channelFromListItem(data.items?.[0], 'channel_id');
+    if (resolved) return resolved;
+    throw new YoutubeApiError('Kanál nenalezen podle channelId.', 404);
   }
 
-  const hint = extractYoutubeChannelHint(channelUrl);
+  let hint = extractYoutubeChannelHint(channelUrl);
+
   if (hint.channelId) {
     return resolveYoutubeChannel(channelUrl, hint.channelId);
   }
 
   if (hint.handle) {
-    const byHandle = await youtubeGet<{
-      items?: Array<{
-        id: string;
-        snippet?: { title?: string };
-        contentDetails?: { relatedPlaylists?: { uploads?: string } };
-      }>;
-    }>('/channels', {
-      part: 'snippet,contentDetails',
-      forHandle: hint.handle,
-    });
-    const item = byHandle.items?.[0];
-    if (item?.contentDetails?.relatedPlaylists?.uploads) {
-      return {
-        channelId: item.id,
-        channelTitle: item.snippet?.title ?? hint.handle,
-        uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads,
-      };
+    const byHandle = await lookupChannelByHandle(hint.handle);
+    if (byHandle) return byHandle;
+  }
+
+  if (hint.vanity) {
+    const byVanity = await lookupChannelByVanity(hint.vanity);
+    if (byVanity) return byVanity;
+  }
+
+  if (!hint.handle && !hint.vanity) {
+    const finalUrl = await resolveYoutubeUrlRedirect(channelUrl);
+    if (finalUrl !== channelUrl) {
+      hint = extractYoutubeChannelHint(finalUrl);
+      if (hint.channelId) {
+        const resolved = await resolveYoutubeChannel(finalUrl, hint.channelId);
+        return { ...resolved, resolvedVia: 'redirect' };
+      }
+      if (hint.handle) {
+        const byHandle = await lookupChannelByHandle(hint.handle);
+        if (byHandle) return { ...byHandle, resolvedVia: 'redirect' };
+      }
+      if (hint.vanity) {
+        const byVanity = await lookupChannelByVanity(hint.vanity);
+        if (byVanity) return { ...byVanity, resolvedVia: 'redirect' };
+      }
     }
   }
 
-  throw new Error('Nepodařilo se rozpoznat YouTube kanál z URL. Zadejte platný Channel URL nebo Channel ID.');
+  const fallbackQuery = hint.vanity ?? hint.handle ?? channelUrl;
+  const bySearch = await lookupChannelBySearch(fallbackQuery);
+  if (bySearch) return bySearch;
+
+  throw new YoutubeApiError(
+    'Nepodařilo se rozpoznat YouTube kanál z URL. Zkuste @handle, /channel/UC… nebo Channel ID.',
+    404,
+  );
 }
 
 export async function fetchPlaylistVideos(

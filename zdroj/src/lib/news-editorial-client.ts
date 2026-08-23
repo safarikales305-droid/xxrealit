@@ -60,6 +60,9 @@ export type NewsAutomationSettings = {
   youtubeMinRelevance: number;
   youtubeCreatePortalPost: boolean;
   youtubeCreateFacebookPost: boolean;
+  youtubeUseAiTeaser?: boolean;
+  youtubeInitialSyncVideos?: number;
+  youtubeInitialSyncIgnoreRelevance?: boolean;
 };
 
 export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
@@ -628,21 +631,30 @@ export async function nestAdminTestNewsPipeline(
 
 export type YoutubeChannelTestResponse = {
   ok: boolean;
-  api: 'OK' | 'FAIL';
+  api: 'OK' | 'FAIL' | 'MISSING_KEY';
+  apiConfigured?: boolean;
+  channelResolution?: 'OK' | 'ERROR';
   error?: string;
   channel?: { id: string; title: string; url: string };
   channelId?: string;
+  uploadsPlaylistId?: string;
+  lastApiHttp?: number | null;
+  lastApiError?: string | null;
+  videosReturned?: number;
   recentVideos?: Array<{
     videoId: string;
     title: string;
     publishedAt: string;
     thumbnailOk: boolean;
+    embeddable: boolean;
+    relevanceScore?: number;
   }>;
   latestVideo?: {
     videoId: string;
     title: string;
     publishedAt: string;
     thumbnailUrl: string;
+    embeddable: boolean;
   } | null;
 };
 
@@ -651,9 +663,72 @@ export type YoutubeImportTestResponse = {
   videoFound: boolean;
   duplicate: boolean;
   relevanceScore?: number;
+  skippedReason?: string;
+  forceImportForTest?: boolean;
   portalPostId?: string;
   postId?: string;
   steps: Array<{ step: string; status: 'PASS' | 'FAIL' | 'SKIP'; detail?: string }>;
+};
+
+export type YoutubeBackfillResponse = {
+  loaded: number;
+  duplicates: number;
+  lowRelevance: number;
+  notEmbeddable: number;
+  dailyLimit: number;
+  created: number;
+  skipped: number;
+  total: number;
+  errors: number;
+  postsCreated: string[];
+  decisions: Array<{
+    videoId: string;
+    title: string;
+    relevanceScore?: number;
+    decision: string;
+    detail?: string;
+    postId?: string;
+  }>;
+};
+
+export type YoutubeDiagnoseResponse = {
+  sourceId: string;
+  sourceName: string;
+  sourceUrl: string;
+  health: string;
+  lastError: string | null;
+  apiConfigured: boolean;
+  apiStatus: 'OK' | 'ERROR' | 'MISSING_KEY';
+  urlResolved: boolean;
+  channelId: string | null;
+  channelTitle: string | null;
+  uploadsPlaylistId: string | null;
+  lastApiHttp: number | null;
+  lastApiError: string | null;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  videosReturned: number;
+  eligible: number;
+  duplicates: number;
+  lowRelevance: number;
+  imported: number;
+  postsCreated: number;
+  workerOnline: boolean;
+  workerLastHeartbeat: string | null;
+  candidates: YoutubeBackfillResponse['decisions'];
+};
+
+export type YoutubeAdminStatus = {
+  apiConfigured: boolean;
+  apiStatus: 'Configured' | 'Missing';
+  workerRunning: boolean;
+  workerLastHeartbeat: string | null;
+  queueCount: number;
+  youtubeSources: number;
+  activeSources: number;
+  lastCheck: string | null;
+  lastError: string | null;
+  totalImported: number;
 };
 
 export async function nestAdminTestYoutubeChannel(
@@ -693,12 +768,30 @@ export async function nestAdminYoutubeBackfill(
   token: string,
   sourceId: string,
   count = 5,
-): Promise<AdminFetchResult<{ created: number; skipped: number; total: number }>> {
-  return adminFetchResult<{ created: number; skipped: number; total: number }>(
+  ignoreRelevance = false,
+): Promise<AdminFetchResult<YoutubeBackfillResponse>> {
+  return adminFetchResult<YoutubeBackfillResponse>(
     token,
     `/sources/${encodeURIComponent(sourceId)}/youtube-backfill`,
-    { method: 'POST', body: JSON.stringify({ count }) },
+    { method: 'POST', body: JSON.stringify({ count, ignoreRelevance }) },
   );
+}
+
+export async function nestAdminYoutubeDiagnose(
+  token: string,
+  sourceId: string,
+): Promise<AdminFetchResult<YoutubeDiagnoseResponse>> {
+  return adminFetchResult<YoutubeDiagnoseResponse>(
+    token,
+    `/sources/${encodeURIComponent(sourceId)}/youtube-diagnose`,
+    { method: 'POST' },
+  );
+}
+
+export async function nestAdminYoutubeStatus(
+  token: string,
+): Promise<YoutubeAdminStatus | null> {
+  return adminFetch<YoutubeAdminStatus>(token, '/youtube/status');
 }
 
 export async function nestAdminSyncNewsPortalPost(

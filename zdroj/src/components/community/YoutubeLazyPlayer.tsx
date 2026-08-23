@@ -26,7 +26,7 @@ export function YoutubeLazyPlayer({
     thumbnailUrl?.trim() ||
     (safeId ? `https://i.ytimg.com/vi/${safeId}/hqdefault.jpg` : '');
   const embedSrc = safeId
-    ? `https://www.youtube.com/embed/${safeId}?autoplay=1&rel=0&modestbranding=1`
+    ? `https://www.youtube-nocookie.com/embed/${safeId}?autoplay=1&rel=0&modestbranding=1`
     : '';
   const external = watchUrl?.trim() || (safeId ? `https://www.youtube.com/watch?v=${safeId}` : '');
 
@@ -46,7 +46,7 @@ export function YoutubeLazyPlayer({
           <img src={thumb} alt={title ?? 'YouTube video'} className="aspect-video w-full object-cover opacity-80" />
         ) : null}
         <div className="space-y-2 p-4 text-sm text-white">
-          <p>Video nelze přehrát přímo na portálu.</p>
+          <p>Video nelze přehrát přímo na XXREALIT.</p>
           {external ? (
             <a
               href={external}

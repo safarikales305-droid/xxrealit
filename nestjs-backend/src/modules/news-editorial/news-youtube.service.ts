@@ -20,26 +20,54 @@ import {
   getYouTubeApiKey,
   isValidYoutubeVideoId,
   resolveYoutubeChannel,
+  YoutubeApiError,
   type YoutubeVideoMeta,
 } from './news-youtube-api.util';
+import { getNewsWorkerHeartbeat } from './news-editorial-worker.state';
+
+export type YoutubeVideoDecision = {
+  videoId: string;
+  title: string;
+  relevanceScore?: number;
+  decision:
+    | 'IMPORTED'
+    | 'SKIPPED_DUPLICATE'
+    | 'SKIPPED_LOW_RELEVANCE'
+    | 'SKIPPED_NOT_EMBEDDABLE'
+    | 'SKIPPED_DAILY_LIMIT'
+    | 'SKIPPED_CREATE_POST_DISABLED'
+    | 'SKIPPED_INVALID_VIDEO_ID'
+    | 'ERROR';
+  detail?: string;
+  postId?: string;
+};
 
 export type YoutubeTestResult = {
   ok: boolean;
   channel?: { id: string; title: string; url: string };
   channelId?: string;
-  api: 'OK' | 'FAIL';
+  uploadsPlaylistId?: string;
+  channelResolution?: 'OK' | 'ERROR';
+  api: 'OK' | 'FAIL' | 'MISSING_KEY';
+  apiConfigured?: boolean;
+  lastApiHttp?: number | null;
+  lastApiError?: string | null;
+  videosReturned?: number;
   error?: string;
   recentVideos?: Array<{
     videoId: string;
     title: string;
     publishedAt: string;
     thumbnailOk: boolean;
+    embeddable: boolean;
+    relevanceScore?: number;
   }>;
   latestVideo?: {
     videoId: string;
     title: string;
     publishedAt: string;
     thumbnailUrl: string;
+    embeddable: boolean;
   } | null;
 };
 
@@ -51,7 +79,49 @@ export type YoutubeImportResult = {
   skippedReason?: string;
   portalPostId?: string;
   postId?: string;
+  forceImportForTest?: boolean;
   steps: Array<{ step: string; status: 'PASS' | 'FAIL' | 'SKIP'; detail?: string }>;
+};
+
+export type YoutubeBackfillResult = {
+  loaded: number;
+  duplicates: number;
+  lowRelevance: number;
+  notEmbeddable: number;
+  dailyLimit: number;
+  created: number;
+  skipped: number;
+  total: number;
+  errors: number;
+  postsCreated: string[];
+  decisions: YoutubeVideoDecision[];
+};
+
+export type YoutubeDiagnoseResult = {
+  sourceId: string;
+  sourceName: string;
+  sourceUrl: string;
+  health: string;
+  lastError: string | null;
+  apiConfigured: boolean;
+  apiStatus: 'OK' | 'ERROR' | 'MISSING_KEY';
+  urlResolved: boolean;
+  channelId: string | null;
+  channelTitle: string | null;
+  uploadsPlaylistId: string | null;
+  lastApiHttp: number | null;
+  lastApiError: string | null;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  videosReturned: number;
+  eligible: number;
+  duplicates: number;
+  lowRelevance: number;
+  imported: number;
+  postsCreated: number;
+  workerOnline: boolean;
+  workerLastHeartbeat: string | null;
+  candidates: YoutubeVideoDecision[];
 };
 
 @Injectable()
@@ -72,6 +142,10 @@ export class NewsYoutubeService {
 
   private sourceMinRelevance(source: NewsSource): number {
     return source.minRelevanceScore ?? source.trustScore ?? 70;
+  }
+
+  private apiKeyStatus(): 'OK' | 'MISSING_KEY' {
+    return getYouTubeApiKey() ? 'OK' : 'MISSING_KEY';
   }
 
   async pollDueSources(limit = 3) {
@@ -123,26 +197,35 @@ export class NewsYoutubeService {
     });
 
     if (!getYouTubeApiKey()) {
-      await this.markSourceError(sourceId, 'YOUTUBE_API_KEY chybí');
-      throw new Error('YOUTUBE_API_KEY není nastaveno.');
+      await this.markSourceConfigError(sourceId, 'YOUTUBE_API_KEY chybí nebo není platný.');
+      throw new YoutubeApiError('YOUTUBE_API_KEY není nastaveno.', 0);
     }
+
+    const cfg = this.settings.getCached();
+    const isFirstSync = !source.lastVideoId && source.youtubeImportedCount === 0;
 
     const channel = await resolveYoutubeChannel(source.url, source.channelId);
     if (!source.channelId || source.channelId !== channel.channelId) {
       await this.prisma.newsSource.update({
         where: { id: sourceId },
-        data: { channelId: channel.channelId },
+        data: { channelId: channel.channelId, health: NewsSourceHealth.ACTIVE, lastError: null },
       });
     }
 
-    const maxVideos = opts?.maxVideos ?? 5;
+    const maxVideos =
+      opts?.maxVideos ??
+      (isFirstSync ? (cfg.youtubeInitialSyncVideos ?? 5) : 5);
+    const publishedAfter = isFirstSync ? null : source.lastVideoPublishedAt;
+    const forceAll =
+      opts?.forceAll ??
+      (isFirstSync && (cfg.youtubeInitialSyncIgnoreRelevance ?? true));
+
     const videos = await fetchPlaylistVideos(
       channel.uploadsPlaylistId,
       maxVideos,
-      source.lastVideoPublishedAt,
+      publishedAfter,
     );
 
-    const cfg = this.settings.getCached();
     let created = 0;
     let skipped = 0;
 
@@ -151,7 +234,8 @@ export class NewsYoutubeService {
     )) {
       const result = await this.processVideo(source, video, channel.channelTitle, {
         enqueueFacebook: opts?.enqueueFacebook ?? false,
-        forceAll: opts?.forceAll ?? false,
+        forceAll,
+        forceImportForTest: false,
       });
       if (result.created) created += 1;
       else skipped += 1;
@@ -172,23 +256,46 @@ export class NewsYoutubeService {
     if (!videos.length) {
       await this.prisma.newsSource.update({
         where: { id: sourceId },
-        data: { lastSuccessAt: new Date(), lastError: null },
+        data: {
+          lastSuccessAt: new Date(),
+          lastError: null,
+          health: NewsSourceHealth.ACTIVE,
+        },
       });
     }
 
     await this.audit.log('YOUTUBE_POLL', `YouTube ${source.name}: ${created} nových, ${skipped} přeskočeno`, {
-      metadata: { sourceId, created, skipped, dailyLimit: cfg.youtubeMaxPostsPerDay },
+      metadata: { sourceId, created, skipped, dailyLimit: cfg.youtubeMaxPostsPerDay, videosFound: videos.length },
     });
 
     return { sourceId, created, skipped, checked: videos.length };
+  }
+
+  private mapSkipReason(reason?: string): YoutubeVideoDecision['decision'] {
+    switch (reason) {
+      case 'SKIP_DUPLICATE':
+        return 'SKIPPED_DUPLICATE';
+      case 'LOW_RELEVANCE':
+        return 'SKIPPED_LOW_RELEVANCE';
+      case 'NOT_EMBEDDABLE':
+        return 'SKIPPED_NOT_EMBEDDABLE';
+      case 'DAILY_LIMIT':
+        return 'SKIPPED_DAILY_LIMIT';
+      case 'CREATE_POST_DISABLED':
+        return 'SKIPPED_CREATE_POST_DISABLED';
+      case 'INVALID_VIDEO_ID':
+        return 'SKIPPED_INVALID_VIDEO_ID';
+      default:
+        return 'ERROR';
+    }
   }
 
   private async processVideo(
     source: NewsSource,
     video: YoutubeVideoMeta,
     channelTitle: string,
-    opts: { enqueueFacebook: boolean; forceAll: boolean },
-  ): Promise<{ created: boolean; reason?: string }> {
+    opts: { enqueueFacebook: boolean; forceAll: boolean; forceImportForTest: boolean },
+  ): Promise<{ created: boolean; reason?: string; relevanceScore?: number; postId?: string }> {
     if (!isValidYoutubeVideoId(video.videoId)) {
       return { created: false, reason: 'INVALID_VIDEO_ID' };
     }
@@ -200,7 +307,7 @@ export class NewsYoutubeService {
     if (existing) return { created: false, reason: 'SKIP_DUPLICATE' };
 
     const cfg = this.settings.getCached();
-    if (!(await this.canPublishYoutubeToday(cfg.youtubeMaxPostsPerDay))) {
+    if (!opts.forceImportForTest && !(await this.canPublishYoutubeToday(cfg.youtubeMaxPostsPerDay))) {
       return { created: false, reason: 'DAILY_LIMIT' };
     }
 
@@ -210,13 +317,18 @@ export class NewsYoutubeService {
       cfg.youtubeMinRelevance ?? 70,
     );
     const publishAll =
-      opts.forceAll || source.youtubePublishMode === NewsYoutubePublishMode.ALL;
+      opts.forceAll ||
+      opts.forceImportForTest ||
+      source.youtubePublishMode === NewsYoutubePublishMode.ALL;
+
     if (!publishAll && relevanceScore < minRelevance) {
-      return { created: false, reason: 'LOW_RELEVANCE' };
+      return { created: false, reason: 'LOW_RELEVANCE', relevanceScore };
     }
 
     const createPost = source.youtubeCreatePost && cfg.youtubeCreatePortalPost !== false;
-    if (!createPost) return { created: false, reason: 'CREATE_POST_DISABLED' };
+    if (!createPost && !opts.forceImportForTest) {
+      return { created: false, reason: 'CREATE_POST_DISABLED', relevanceScore };
+    }
 
     const teaser = await this.generateTeaser(video);
     const postId = await this.createYoutubePost({
@@ -245,7 +357,7 @@ export class NewsYoutubeService {
       data: { youtubeImportedCount: { increment: 1 } },
     });
 
-    return { created: true };
+    return { created: true, relevanceScore, postId };
   }
 
   private async canPublishYoutubeToday(maxPerDay: number): Promise<boolean> {
@@ -264,6 +376,11 @@ export class NewsYoutubeService {
   }
 
   async generateTeaser(video: YoutubeVideoMeta): Promise<string> {
+    const cfg = this.settings.getCached();
+    if (cfg.youtubeUseAiTeaser === false) {
+      return `Nové video „${video.title}“ na kanálu ${video.channelTitle}.`;
+    }
+
     const cleaned = sanitizeNewsSourceText(video.title, video.description);
     const title = cleaned.title;
     const description = cleaned.summary.slice(0, 1200);
@@ -298,7 +415,7 @@ export class NewsYoutubeService {
     const siteBase = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '') ?? 'https://xxrealit.cz';
     const postSlug = `video-${input.video.videoId}`;
     const portalContent = [
-      '🎥 VIDEO',
+      '🎥 YOUTUBE',
       '',
       input.video.title,
       '',
@@ -320,7 +437,7 @@ export class NewsYoutubeService {
         previewTitle: input.video.title,
         previewDescription: input.teaser,
         previewImage: input.video.thumbnailUrl,
-        previewSiteName: cfg.portalPostAuthorLabel ?? 'XXREALIT Aktuality',
+        previewSiteName: cfg.portalPostAuthorLabel ?? 'Redakce XXREALIT',
         imageUrl: input.video.thumbnailUrl,
         youtubeVideoId: input.video.videoId,
         youtubeChannelId: input.video.channelId,
@@ -359,6 +476,17 @@ export class NewsYoutubeService {
     return post.id;
   }
 
+  private async markSourceConfigError(sourceId: string, message: string) {
+    await this.prisma.newsSource.update({
+      where: { id: sourceId },
+      data: {
+        lastError: message,
+        failureCount: { increment: 1 },
+        health: NewsSourceHealth.ERROR,
+      },
+    });
+  }
+
   private async markSourceError(sourceId: string, message: string) {
     await this.prisma.newsSource.update({
       where: { id: sourceId },
@@ -370,58 +498,147 @@ export class NewsYoutubeService {
     });
   }
 
+  private async evaluateCandidates(
+    source: NewsSource,
+    videos: YoutubeVideoMeta[],
+    opts?: { ignoreRelevance?: boolean; forceImportForTest?: boolean },
+  ): Promise<YoutubeVideoDecision[]> {
+    const cfg = this.settings.getCached();
+    const minRelevance = Math.max(
+      this.sourceMinRelevance(source),
+      cfg.youtubeMinRelevance ?? 70,
+    );
+    const publishAll =
+      opts?.ignoreRelevance ||
+      opts?.forceImportForTest ||
+      source.youtubePublishMode === NewsYoutubePublishMode.ALL;
+
+    const decisions: YoutubeVideoDecision[] = [];
+
+    for (const video of videos) {
+      const relevanceScore = await this.scoreVideoRelevance(video, source.category);
+      const existing = await this.prisma.post.findUnique({
+        where: { youtubeVideoId: video.videoId },
+        select: { id: true },
+      });
+      if (existing) {
+        decisions.push({
+          videoId: video.videoId,
+          title: video.title,
+          relevanceScore,
+          decision: 'SKIPPED_DUPLICATE',
+          detail: existing.id,
+        });
+        continue;
+      }
+      if (!publishAll && relevanceScore < minRelevance) {
+        decisions.push({
+          videoId: video.videoId,
+          title: video.title,
+          relevanceScore,
+          decision: 'SKIPPED_LOW_RELEVANCE',
+          detail: `Min ${minRelevance}`,
+        });
+        continue;
+      }
+      decisions.push({
+        videoId: video.videoId,
+        title: video.title,
+        relevanceScore,
+        decision: 'IMPORTED',
+        detail: video.embeddable ? 'embeddable' : 'not_embeddable_but_importable',
+      });
+    }
+
+    return decisions;
+  }
+
   async testChannel(sourceId: string): Promise<YoutubeTestResult> {
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
       return { ok: false, api: 'FAIL', error: 'Zdroj není YouTube kanál.' };
     }
 
-    if (!getYouTubeApiKey()) {
-      return { ok: false, api: 'FAIL', error: 'YOUTUBE_API_KEY není nastaveno na serveru.' };
+    const apiConfigured = Boolean(getYouTubeApiKey());
+    if (!apiConfigured) {
+      return {
+        ok: false,
+        api: 'MISSING_KEY',
+        apiConfigured: false,
+        channelResolution: 'ERROR',
+        error: 'YouTube API key chybí / není platný.',
+      };
     }
 
     try {
       const channel = await resolveYoutubeChannel(source.url, source.channelId);
-      const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, 5);
+      const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, 10);
       const latest = videos[0] ?? null;
 
       if (channel.channelId !== source.channelId) {
         await this.prisma.newsSource.update({
           where: { id: sourceId },
-          data: { channelId: channel.channelId },
+          data: {
+            channelId: channel.channelId,
+            health: NewsSourceHealth.ACTIVE,
+            lastError: null,
+            failureCount: 0,
+          },
         });
       }
 
-      return {
-        ok: true,
-        api: 'OK',
-        channel: { id: channel.channelId, title: channel.channelTitle, url: source.url },
-        channelId: channel.channelId,
-        recentVideos: videos.map((v) => ({
+      const recentWithScores = await Promise.all(
+        videos.map(async (v) => ({
           videoId: v.videoId,
           title: v.title,
           publishedAt: v.publishedAt.toISOString(),
           thumbnailOk: Boolean(v.thumbnailUrl),
+          embeddable: v.embeddable,
+          relevanceScore: await this.scoreVideoRelevance(v, source.category),
         })),
+      );
+
+      return {
+        ok: true,
+        api: 'OK',
+        apiConfigured: true,
+        channelResolution: 'OK',
+        channel: { id: channel.channelId, title: channel.channelTitle, url: source.url },
+        channelId: channel.channelId,
+        uploadsPlaylistId: channel.uploadsPlaylistId,
+        videosReturned: videos.length,
+        recentVideos: recentWithScores,
         latestVideo: latest
           ? {
               videoId: latest.videoId,
               title: latest.title,
               publishedAt: latest.publishedAt.toISOString(),
               thumbnailUrl: latest.thumbnailUrl,
+              embeddable: latest.embeddable,
             }
           : null,
       };
     } catch (err) {
+      const httpStatus = err instanceof YoutubeApiError ? err.httpStatus : null;
+      const message = err instanceof Error ? err.message : String(err);
+      await this.markSourceError(sourceId, message);
       return {
         ok: false,
         api: 'FAIL',
-        error: err instanceof Error ? err.message : String(err),
+        apiConfigured: true,
+        channelResolution: 'ERROR',
+        lastApiHttp: httpStatus,
+        lastApiError: message,
+        error: message,
       };
     }
   }
 
-  async testImportOne(sourceId: string): Promise<YoutubeImportResult> {
+  async testImportOne(
+    sourceId: string,
+    opts?: { forceImportForTest?: boolean },
+  ): Promise<YoutubeImportResult> {
+    const forceImportForTest = opts?.forceImportForTest !== false;
     const steps: YoutubeImportResult['steps'] = [];
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
@@ -433,9 +650,29 @@ export class NewsYoutubeService {
       };
     }
 
+    if (!getYouTubeApiKey()) {
+      return {
+        ok: false,
+        videoFound: false,
+        duplicate: false,
+        steps: [{ step: 'API', status: 'FAIL', detail: 'YOUTUBE_API_KEY chybí' }],
+      };
+    }
+
     try {
       const channel = await resolveYoutubeChannel(source.url, source.channelId);
-      steps.push({ step: 'API', status: 'PASS', detail: channel.channelId });
+      steps.push({
+        step: 'CHANNEL',
+        status: 'PASS',
+        detail: `${channel.channelTitle} (${channel.channelId})`,
+      });
+
+      if (channel.channelId !== source.channelId) {
+        await this.prisma.newsSource.update({
+          where: { id: sourceId },
+          data: { channelId: channel.channelId, health: NewsSourceHealth.ACTIVE, lastError: null },
+        });
+      }
 
       const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, 1);
       if (!videos.length) {
@@ -443,7 +680,7 @@ export class NewsYoutubeService {
           ok: false,
           videoFound: false,
           duplicate: false,
-          steps: [...steps, { step: 'VIDEO', status: 'FAIL', detail: 'Žádné video' }],
+          steps: [...steps, { step: 'VIDEO', status: 'FAIL', detail: 'Žádné video v playlistu' }],
         };
       }
       const video = videos[0]!;
@@ -460,73 +697,297 @@ export class NewsYoutubeService {
           duplicate: true,
           portalPostId: dup.id,
           postId: dup.id,
-          steps: [...steps, { step: 'DUPLICATE', status: 'SKIP' }],
+          forceImportForTest,
+          steps: [...steps, { step: 'DUPLICATE', status: 'SKIP', detail: dup.id }],
         };
       }
 
       const relevanceScore = await this.scoreVideoRelevance(video, source.category);
       steps.push({ step: 'RELEVANCE', status: 'PASS', detail: String(relevanceScore) });
 
-      const teaser = await this.generateTeaser(video);
-      steps.push({ step: 'TEASER', status: 'PASS' });
-
-      const postId = await this.createYoutubePost({
-        video,
-        channelTitle: channel.channelTitle,
-        teaser,
-        category: source.category,
-        sourceName: source.name,
+      const result = await this.processVideo(source, video, channel.channelTitle, {
+        enqueueFacebook: false,
+        forceAll: forceImportForTest,
+        forceImportForTest,
       });
-      steps.push({ step: 'PORTAL_POST', status: 'PASS', detail: postId });
+
+      if (!result.created) {
+        const reason = result.reason ?? 'UNKNOWN';
+        steps.push({ step: 'IMPORT', status: 'SKIP', detail: reason });
+        return {
+          ok: false,
+          videoFound: true,
+          duplicate: false,
+          relevanceScore,
+          skippedReason: reason,
+          forceImportForTest,
+          steps,
+        };
+      }
+
+      steps.push({ step: 'PORTAL_POST', status: 'PASS', detail: result.postId });
       steps.push({ step: 'FACEBOOK', status: 'SKIP', detail: 'Test bez FB' });
       steps.push({ step: 'FEED', status: 'PASS' });
       steps.push({ step: 'PLAYER', status: video.embeddable ? 'PASS' : 'SKIP' });
+
+      await this.prisma.newsSource.update({
+        where: { id: sourceId },
+        data: {
+          health: NewsSourceHealth.ACTIVE,
+          lastError: null,
+          lastSuccessAt: new Date(),
+          lastVideoId: video.videoId,
+          lastVideoPublishedAt: video.publishedAt,
+        },
+      });
 
       return {
         ok: true,
         videoFound: true,
         duplicate: false,
         relevanceScore,
-        portalPostId: postId,
-        postId,
+        portalPostId: result.postId,
+        postId: result.postId,
+        forceImportForTest,
         steps,
       };
     } catch (err) {
-      steps.push({
-        step: 'PIPELINE',
-        status: 'FAIL',
-        detail: err instanceof Error ? err.message : String(err),
-      });
-      return { ok: false, videoFound: false, duplicate: false, steps };
+      const message = err instanceof Error ? err.message : String(err);
+      await this.markSourceError(sourceId, message);
+      steps.push({ step: 'PIPELINE', status: 'FAIL', detail: message });
+      return { ok: false, videoFound: false, duplicate: false, forceImportForTest, steps };
     }
   }
 
   async testPipeline(sourceId: string): Promise<YoutubeImportResult> {
-    return this.testImportOne(sourceId);
+    return this.testImportOne(sourceId, { forceImportForTest: true });
   }
 
-  async backfillRecent(sourceId: string, count: number) {
+  async backfillRecent(
+    sourceId: string,
+    count: number,
+    opts?: { ignoreRelevance?: boolean },
+  ): Promise<YoutubeBackfillResult> {
     const safeCount = Math.min(20, Math.max(1, count));
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
       throw new Error('Zdroj není YouTube kanál.');
     }
 
-    const channel = await resolveYoutubeChannel(source.url, source.channelId);
-    const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, safeCount, null);
-
-    let created = 0;
-    let skipped = 0;
-    for (const video of videos) {
-      const result = await this.processVideo(source, video, channel.channelTitle, {
-        enqueueFacebook: false,
-        forceAll: true,
-      });
-      if (result.created) created += 1;
-      else skipped += 1;
+    if (!getYouTubeApiKey()) {
+      throw new YoutubeApiError('YOUTUBE_API_KEY chybí.', 0);
     }
 
-    return { created, skipped, total: videos.length };
+    const channel = await resolveYoutubeChannel(source.url, source.channelId);
+    if (channel.channelId !== source.channelId) {
+      await this.prisma.newsSource.update({
+        where: { id: sourceId },
+        data: { channelId: channel.channelId, health: NewsSourceHealth.ACTIVE, lastError: null },
+      });
+    }
+
+    const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, safeCount, null);
+    const decisions: YoutubeVideoDecision[] = [];
+    let created = 0;
+    let skipped = 0;
+    let duplicates = 0;
+    let lowRelevance = 0;
+    let notEmbeddable = 0;
+    let dailyLimit = 0;
+    let errors = 0;
+    const postsCreated: string[] = [];
+
+    for (const video of videos) {
+      try {
+        const relevanceScore = await this.scoreVideoRelevance(video, source.category);
+        const result = await this.processVideo(source, video, channel.channelTitle, {
+          enqueueFacebook: false,
+          forceAll: opts?.ignoreRelevance ?? false,
+          forceImportForTest: opts?.ignoreRelevance ?? false,
+        });
+
+        if (result.created && result.postId) {
+          created += 1;
+          postsCreated.push(result.postId);
+          decisions.push({
+            videoId: video.videoId,
+            title: video.title,
+            relevanceScore: result.relevanceScore,
+            decision: 'IMPORTED',
+            postId: result.postId,
+          });
+        } else {
+          skipped += 1;
+          const decision = this.mapSkipReason(result.reason);
+          if (decision === 'SKIPPED_DUPLICATE') duplicates += 1;
+          if (decision === 'SKIPPED_LOW_RELEVANCE') lowRelevance += 1;
+          if (decision === 'SKIPPED_NOT_EMBEDDABLE') notEmbeddable += 1;
+          if (decision === 'SKIPPED_DAILY_LIMIT') dailyLimit += 1;
+          decisions.push({
+            videoId: video.videoId,
+            title: video.title,
+            relevanceScore: result.relevanceScore ?? relevanceScore,
+            decision,
+            detail: result.reason,
+          });
+        }
+      } catch (err) {
+        errors += 1;
+        skipped += 1;
+        decisions.push({
+          videoId: video.videoId,
+          title: video.title,
+          decision: 'ERROR',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (created > 0 || videos.length > 0) {
+      const latest = videos[0];
+      await this.prisma.newsSource.update({
+        where: { id: sourceId },
+        data: {
+          health: NewsSourceHealth.ACTIVE,
+          lastError: null,
+          lastSuccessAt: new Date(),
+          lastCheckedAt: new Date(),
+          ...(latest
+            ? { lastVideoId: latest.videoId, lastVideoPublishedAt: latest.publishedAt }
+            : {}),
+        },
+      });
+    }
+
+    return {
+      loaded: videos.length,
+      duplicates,
+      lowRelevance,
+      notEmbeddable,
+      dailyLimit,
+      created,
+      skipped,
+      total: videos.length,
+      errors,
+      postsCreated,
+      decisions,
+    };
+  }
+
+  async diagnoseSource(sourceId: string): Promise<YoutubeDiagnoseResult> {
+    const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
+    if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
+      throw new Error('Zdroj není YouTube kanál.');
+    }
+
+    const apiConfigured = Boolean(getYouTubeApiKey());
+    const heartbeat = getNewsWorkerHeartbeat();
+    const base: YoutubeDiagnoseResult = {
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceUrl: source.url,
+      health: source.health,
+      lastError: source.lastError,
+      apiConfigured,
+      apiStatus: apiConfigured ? 'OK' : 'MISSING_KEY',
+      urlResolved: false,
+      channelId: source.channelId,
+      channelTitle: null,
+      uploadsPlaylistId: null,
+      lastApiHttp: null,
+      lastApiError: source.lastError,
+      lastCheckedAt: source.lastCheckedAt?.toISOString() ?? null,
+      lastSuccessAt: source.lastSuccessAt?.toISOString() ?? null,
+      videosReturned: 0,
+      eligible: 0,
+      duplicates: 0,
+      lowRelevance: 0,
+      imported: source.youtubeImportedCount,
+      postsCreated: source.youtubeImportedCount,
+      workerOnline: heartbeat != null && Date.now() - heartbeat.getTime() < 5 * 60_000,
+      workerLastHeartbeat: heartbeat?.toISOString() ?? null,
+      candidates: [],
+    };
+
+    if (!apiConfigured) return base;
+
+    try {
+      const channel = await resolveYoutubeChannel(source.url, source.channelId);
+      const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, 10, null);
+      const candidates = await this.evaluateCandidates(source, videos);
+
+      if (channel.channelId !== source.channelId) {
+        await this.prisma.newsSource.update({
+          where: { id: sourceId },
+          data: { channelId: channel.channelId, health: NewsSourceHealth.ACTIVE, lastError: null },
+        });
+      }
+
+      return {
+        ...base,
+        apiStatus: 'OK',
+        urlResolved: true,
+        channelId: channel.channelId,
+        channelTitle: channel.channelTitle,
+        uploadsPlaylistId: channel.uploadsPlaylistId,
+        lastApiError: null,
+        health: NewsSourceHealth.ACTIVE,
+        videosReturned: videos.length,
+        eligible: candidates.filter((c) => c.decision === 'IMPORTED').length,
+        duplicates: candidates.filter((c) => c.decision === 'SKIPPED_DUPLICATE').length,
+        lowRelevance: candidates.filter((c) => c.decision === 'SKIPPED_LOW_RELEVANCE').length,
+        candidates,
+      };
+    } catch (err) {
+      const httpStatus = err instanceof YoutubeApiError ? err.httpStatus : null;
+      const message = err instanceof Error ? err.message : String(err);
+      await this.markSourceError(sourceId, message);
+      return {
+        ...base,
+        apiStatus: 'ERROR',
+        lastApiHttp: httpStatus,
+        lastApiError: message,
+      };
+    }
+  }
+
+  async getAdminStatus() {
+    const apiConfigured = Boolean(getYouTubeApiKey());
+    const heartbeat = getNewsWorkerHeartbeat();
+    const sources = await this.prisma.newsSource.findMany({
+      where: { type: NewsSourceType.YOUTUBE_CHANNEL },
+      select: {
+        id: true,
+        name: true,
+        enabled: true,
+        health: true,
+        lastCheckedAt: true,
+        lastError: true,
+        youtubeImportedCount: true,
+      },
+    });
+    const active = sources.filter((s) => s.enabled);
+    const lastChecked = sources
+      .map((s) => s.lastCheckedAt)
+      .filter((d): d is Date => d != null)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    return {
+      apiConfigured,
+      apiStatus: apiConfigured ? 'Configured' : 'Missing',
+      workerRunning: heartbeat != null && Date.now() - heartbeat.getTime() < 5 * 60_000,
+      workerLastHeartbeat: heartbeat?.toISOString() ?? null,
+      queueCount: active.length,
+      youtubeSources: sources.length,
+      activeSources: active.length,
+      lastCheck: lastChecked?.toISOString() ?? null,
+      lastError:
+        sources
+          .filter((s) => s.lastError)
+          .sort((a, b) => (b.lastCheckedAt?.getTime() ?? 0) - (a.lastCheckedAt?.getTime() ?? 0))[0]
+          ?.lastError ?? null,
+      totalImported: sources.reduce((sum, s) => sum + s.youtubeImportedCount, 0),
+    };
   }
 
   async getVideoMeta(videoId: string) {

@@ -127,6 +127,12 @@ export class NewsEditorialSettingsService implements OnModuleInit {
       youtubeMinRelevance: this.num(o.youtubeMinRelevance, d.youtubeMinRelevance, 0, 100),
       youtubeCreatePortalPost: this.bool(o.youtubeCreatePortalPost, d.youtubeCreatePortalPost),
       youtubeCreateFacebookPost: this.bool(o.youtubeCreateFacebookPost, d.youtubeCreateFacebookPost),
+      youtubeUseAiTeaser: this.bool(o.youtubeUseAiTeaser, d.youtubeUseAiTeaser),
+      youtubeInitialSyncVideos: this.num(o.youtubeInitialSyncVideos, d.youtubeInitialSyncVideos, 1, 20),
+      youtubeInitialSyncIgnoreRelevance: this.bool(
+        o.youtubeInitialSyncIgnoreRelevance,
+        d.youtubeInitialSyncIgnoreRelevance,
+      ),
     };
 
     return settings;

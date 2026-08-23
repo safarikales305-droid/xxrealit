@@ -239,8 +239,23 @@ export class NewsEditorialAdminController {
   }
 
   @Post('sources/:id/youtube-backfill')
-  youtubeBackfill(@Param('id') id: string, @Body() body?: { count?: number }) {
-    return this.youtube.backfillRecent(id, body?.count ?? 5);
+  youtubeBackfill(
+    @Param('id') id: string,
+    @Body() body?: { count?: number; ignoreRelevance?: boolean },
+  ) {
+    return this.youtube.backfillRecent(id, body?.count ?? 5, {
+      ignoreRelevance: body?.ignoreRelevance,
+    });
+  }
+
+  @Post('sources/:id/youtube-diagnose')
+  youtubeDiagnose(@Param('id') id: string) {
+    return this.youtube.diagnoseSource(id);
+  }
+
+  @Get('youtube/status')
+  youtubeStatus() {
+    return this.youtube.getAdminStatus();
   }
 
   @Post('articles/:id/quality')

@@ -33,6 +33,8 @@ import {
   nestAdminTestYoutubeImportOne,
   nestAdminTestYoutubePipeline,
   nestAdminYoutubeBackfill,
+  nestAdminYoutubeDiagnose,
+  nestAdminYoutubeStatus,
   nestAdminSyncNewsPortalPost,
   nestAdminRepublishNewsFacebook,
   nestAdminUpdateNewsArticle,
@@ -54,6 +56,9 @@ import {
   type NewsRssImportTestResponse,
   type YoutubeChannelTestResponse,
   type YoutubeImportTestResponse,
+  type YoutubeDiagnoseResponse,
+  type YoutubeBackfillResponse,
+  type YoutubeAdminStatus,
 } from '@/lib/news-editorial-client';
 
 type Tab =
@@ -81,7 +86,21 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'history', label: 'Historie' },
 ];
 
+const SOURCE_TYPE_LABELS: Record<NewsSourceType, string> = {
+  RSS: 'RSS',
+  ATOM: 'ATOM',
+  API: 'API',
+  OPEN_DATA: 'Open data',
+  WEB_SOURCE: 'Web zdroj',
+  YOUTUBE_CHANNEL: 'YouTube kanál',
+};
+
 const SOURCE_TYPES: NewsSourceType[] = ['RSS', 'ATOM', 'API', 'OPEN_DATA', 'WEB_SOURCE', 'YOUTUBE_CHANNEL'];
+
+function sourceTypeLabel(type: NewsSourceType): string {
+  if (type === 'YOUTUBE_CHANNEL') return 'YOUTUBE';
+  return SOURCE_TYPE_LABELS[type] ?? type;
+}
 
 function formatDate(value?: string | null): string {
   if (!value) return '—';
@@ -142,9 +161,13 @@ export default function AdminAktualityPage() {
   const [rejectModal, setRejectModal] = useState<{ id: string; title: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('Nerelevantní pro portál');
   const [rssTestResult, setRssTestResult] = useState<
-    (NewsRssTestResponse | NewsRssImportTestResponse | YoutubeChannelTestResponse | YoutubeImportTestResponse) | null
+    (NewsRssTestResponse | NewsRssImportTestResponse | YoutubeChannelTestResponse | YoutubeImportTestResponse | YoutubeDiagnoseResponse | YoutubeBackfillResponse) | null
   >(null);
   const [rssTestSourceName, setRssTestSourceName] = useState<string | null>(null);
+  const [youtubeStatus, setYoutubeStatus] = useState<YoutubeAdminStatus | null>(null);
+  const [backfillModal, setBackfillModal] = useState<{ sourceId: string; name: string } | null>(null);
+  const [backfillCount, setBackfillCount] = useState(5);
+  const [backfillIgnoreRelevance, setBackfillIgnoreRelevance] = useState(false);
 
   const refreshDashboard = useCallback(async () => {
     if (!token) return;
@@ -158,8 +181,12 @@ export default function AdminAktualityPage() {
 
   const refreshSources = useCallback(async () => {
     if (!token) return;
-    const rows = await nestAdminNewsSources(token);
+    const [rows, ytStatus] = await Promise.all([
+      nestAdminNewsSources(token),
+      nestAdminYoutubeStatus(token),
+    ]);
     setSources(rows ?? []);
+    setYoutubeStatus(ytStatus);
   }, [token]);
 
   const refreshSettings = useCallback(async () => {
@@ -520,6 +547,39 @@ export default function AdminAktualityPage() {
 
       {tab === 'sources' ? (
         <div className="space-y-6">
+          <section className="rounded-2xl border border-red-200 bg-red-50/50 p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-red-950">YouTube API</h2>
+            {youtubeStatus ? (
+              <div className="mt-3 grid gap-2 text-sm text-red-950 sm:grid-cols-2 lg:grid-cols-4">
+                <p>
+                  API:{' '}
+                  <strong>
+                    {youtubeStatus.apiConfigured ? 'Configured' : 'Missing'}
+                  </strong>
+                </p>
+                <p>
+                  Worker:{' '}
+                  <strong>{youtubeStatus.workerRunning ? 'Running' : 'Stopped'}</strong>
+                </p>
+                <p>Queue: {youtubeStatus.queueCount}</p>
+                <p>Last check: {formatDate(youtubeStatus.lastCheck)}</p>
+                <p>Importováno celkem: {youtubeStatus.totalImported}</p>
+                {youtubeStatus.lastError ? (
+                  <p className="text-red-800 sm:col-span-2 lg:col-span-4">
+                    Last error: {youtubeStatus.lastError}
+                  </p>
+                ) : null}
+                {!youtubeStatus.apiConfigured ? (
+                  <p className="font-semibold text-red-800 sm:col-span-2 lg:col-span-4">
+                    YouTube API není nakonfigurováno. Nastavte YOUTUBE_API_KEY na serveru.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-red-900">Načítám stav…</p>
+            )}
+          </section>
+
           <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold">Přidat zdroj</h2>
             <form onSubmit={(e) => void handleCreateSource(e)} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -599,7 +659,7 @@ export default function AdminAktualityPage() {
               >
                 {SOURCE_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t}
+                    {SOURCE_TYPE_LABELS[t]}
                   </option>
                 ))}
               </select>
@@ -643,7 +703,11 @@ export default function AdminAktualityPage() {
                 disabled={busy}
                 className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50 sm:col-span-2 lg:col-span-1"
               >
-                {busy ? 'Ukládám…' : 'Přidat zdroj'}
+                {busy
+                  ? 'Ukládám…'
+                  : sourceForm.type === 'YOUTUBE_CHANNEL'
+                    ? 'Přidat YouTube kanál'
+                    : 'Přidat zdroj'}
               </button>
             </form>
           </section>
@@ -673,7 +737,7 @@ export default function AdminAktualityPage() {
                         {source.url}
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">{source.type}</td>
+                    <td className="px-4 py-3 text-zinc-600">{sourceTypeLabel(source.type)}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -683,6 +747,12 @@ export default function AdminAktualityPage() {
                         {source.enabled ? 'Aktivní' : 'Vypnuto'}
                       </span>
                       <p className="mt-1 text-xs text-zinc-500">{source.health}</p>
+                      {source.lastError ? (
+                        <p className="mt-1 text-xs text-red-700">{source.lastError}</p>
+                      ) : null}
+                      {source.channelId ? (
+                        <p className="mt-1 text-xs text-zinc-500">Channel ID: {source.channelId}</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-xs text-zinc-600">
                       {source.type === 'YOUTUBE_CHANNEL' ? (
@@ -837,13 +907,29 @@ export default function AdminAktualityPage() {
                               disabled={busy}
                               onClick={async () => {
                                 if (!token) return;
-                                const count = Number(prompt('Importovat posledních videí:', '5') ?? '5');
-                                if (!Number.isFinite(count)) return;
                                 setBusy(true);
-                                const res = await nestAdminYoutubeBackfill(token, source.id, count);
+                                setErrMsg(null);
+                                const res = await nestAdminYoutubeDiagnose(token, source.id);
                                 setBusy(false);
-                                setMsg(res.ok ? `Backfill: ${res.data.created} vytvořeno` : res.message);
+                                if (!res.ok) {
+                                  setErrMsg(res.message);
+                                  return;
+                                }
+                                setRssTestSourceName(`Diagnostika – ${source.name}`);
+                                setRssTestResult(res.data);
                                 void refreshSources();
+                              }}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900"
+                            >
+                              Diagnostika
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setBackfillModal({ sourceId: source.id, name: source.name });
+                                setBackfillCount(5);
+                                setBackfillIgnoreRelevance(false);
                               }}
                               className="rounded-lg border border-zinc-200 px-2 py-1 text-xs font-semibold"
                             >
@@ -947,28 +1033,113 @@ export default function AdminAktualityPage() {
                 </>
               ) : (
                 <div className="mt-3 space-y-2 text-sm text-blue-950">
-                  {'api' in rssTestResult ? (
+                  {'api' in rssTestResult && !('sourceId' in rssTestResult) ? (
                     <>
                       <p>
-                        API: <strong>{rssTestResult.api === 'OK' ? '✅ OK' : '❌ FAIL'}</strong>
+                        API:{' '}
+                        <strong>
+                          {rssTestResult.api === 'OK'
+                            ? '✅ OK'
+                            : rssTestResult.api === 'MISSING_KEY'
+                              ? '❌ MISSING KEY'
+                              : '❌ FAIL'}
+                        </strong>
                       </p>
+                      {'channelResolution' in rssTestResult && rssTestResult.channelResolution ? (
+                        <p>Channel resolution: {rssTestResult.channelResolution}</p>
+                      ) : null}
                       {rssTestResult.channel ? (
                         <p>
                           Kanál: {rssTestResult.channel.title} ({rssTestResult.channelId})
                         </p>
                       ) : null}
+                      {'uploadsPlaylistId' in rssTestResult && rssTestResult.uploadsPlaylistId ? (
+                        <p>Uploads playlist: {rssTestResult.uploadsPlaylistId}</p>
+                      ) : null}
+                      {'videosReturned' in rssTestResult ? (
+                        <p>Videos returned: {rssTestResult.videosReturned ?? 0}</p>
+                      ) : null}
                       {rssTestResult.latestVideo ? (
                         <>
-                          <p>Poslední video: {rssTestResult.latestVideo.title}</p>
+                          <p>Nejnovější: {rssTestResult.latestVideo.title}</p>
                           <p>Video ID: {rssTestResult.latestVideo.videoId}</p>
                           <p>Datum: {formatDate(rssTestResult.latestVideo.publishedAt)}</p>
-                          <p>Thumbnail: {rssTestResult.latestVideo.thumbnailUrl ? 'OK' : '—'}</p>
+                          <p>
+                            Thumbnail:{' '}
+                            {rssTestResult.latestVideo.thumbnailUrl ? 'OK' : '—'}
+                          </p>
+                          <p>
+                            Embeddable:{' '}
+                            {rssTestResult.latestVideo.embeddable ? 'ANO' : 'NE'}
+                          </p>
                         </>
+                      ) : null}
+                      {'recentVideos' in rssTestResult && rssTestResult.recentVideos?.length ? (
+                        <ul className="mt-2 space-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs">
+                          {rssTestResult.recentVideos.map((v) => (
+                            <li key={v.videoId}>
+                              {v.title} — relevance {v.relevanceScore ?? '—'} —{' '}
+                              {v.embeddable ? 'embed' : 'no-embed'}
+                            </li>
+                          ))}
+                        </ul>
                       ) : null}
                       {rssTestResult.error ? (
                         <p className="text-red-700">{rssTestResult.error}</p>
                       ) : null}
+                      {'lastApiError' in rssTestResult && rssTestResult.lastApiError ? (
+                        <p className="text-red-700">API error: {rssTestResult.lastApiError}</p>
+                      ) : null}
                     </>
+                  ) : null}
+                  {'sourceId' in rssTestResult ? (
+                    <div className="space-y-2">
+                      <p>
+                        API configured:{' '}
+                        <strong>{rssTestResult.apiConfigured ? 'YES' : 'NO'}</strong>
+                      </p>
+                      <p>URL resolved: {rssTestResult.urlResolved ? 'YES' : 'NO'}</p>
+                      <p>Channel ID: {rssTestResult.channelId ?? '—'}</p>
+                      <p>Channel: {rssTestResult.channelTitle ?? '—'}</p>
+                      <p>Uploads playlist: {rssTestResult.uploadsPlaylistId ?? '—'}</p>
+                      <p>Videos returned: {rssTestResult.videosReturned}</p>
+                      <p>Eligible: {rssTestResult.eligible}</p>
+                      <p>Duplicates: {rssTestResult.duplicates}</p>
+                      <p>Low relevance: {rssTestResult.lowRelevance}</p>
+                      <p>Imported: {rssTestResult.imported}</p>
+                      <p>Last error: {rssTestResult.lastError ?? '—'}</p>
+                      {rssTestResult.candidates?.length ? (
+                        <ul className="space-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs">
+                          {rssTestResult.candidates.map((c) => (
+                            <li key={c.videoId}>
+                              <strong>{c.title}</strong> — relevance {c.relevanceScore ?? '—'} —{' '}
+                              {c.decision}
+                              {c.detail ? ` (${c.detail})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {'loaded' in rssTestResult ? (
+                    <div className="space-y-1">
+                      <p>Načteno: {rssTestResult.loaded}</p>
+                      <p>Duplicit: {rssTestResult.duplicates}</p>
+                      <p>Nízká relevance: {rssTestResult.lowRelevance}</p>
+                      <p>Importováno: {rssTestResult.created}</p>
+                      <p>Post vytvořen: {rssTestResult.postsCreated.length}</p>
+                      <p>Chyby: {rssTestResult.errors}</p>
+                      {rssTestResult.decisions?.length ? (
+                        <ul className="space-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs">
+                          {rssTestResult.decisions.map((d) => (
+                            <li key={d.videoId}>
+                              {d.title} — {d.decision}
+                              {d.relevanceScore != null ? ` (${d.relevanceScore})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
                   ) : null}
                   {'steps' in rssTestResult && rssTestResult.steps?.length ? (
                     <ul className="space-y-1 rounded-lg border border-blue-100 bg-white p-3 text-xs">
@@ -985,11 +1156,78 @@ export default function AdminAktualityPage() {
                       Video: {rssTestResult.videoFound ? 'YES' : 'NO'} · Duplicate:{' '}
                       {rssTestResult.duplicate ? 'YES' : 'NO'} · Relevance:{' '}
                       {rssTestResult.relevanceScore ?? '—'}
+                      {rssTestResult.skippedReason ? ` · Skipped: ${rssTestResult.skippedReason}` : ''}
+                      {rssTestResult.postId ? ` · Post: ${rssTestResult.postId}` : ''}
                     </p>
                   ) : null}
                 </div>
               )}
             </section>
+          ) : null}
+
+          {backfillModal ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                <h3 className="text-lg font-semibold">Importovat posledních X — {backfillModal.name}</h3>
+                <label className="mt-4 block text-sm">
+                  Počet videí
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={backfillCount}
+                    onChange={(e) => setBackfillCount(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+                  />
+                </label>
+                <label className="mt-3 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={backfillIgnoreRelevance}
+                    onChange={(e) => setBackfillIgnoreRelevance(e.target.checked)}
+                  />
+                  Importovat i videa pod relevance limitem
+                </label>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBackfillModal(null)}
+                    className="rounded-xl border border-zinc-200 px-4 py-2 text-sm"
+                  >
+                    Zrušit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      if (!token) return;
+                      setBusy(true);
+                      setErrMsg(null);
+                      const res = await nestAdminYoutubeBackfill(
+                        token,
+                        backfillModal.sourceId,
+                        backfillCount,
+                        backfillIgnoreRelevance,
+                      );
+                      setBusy(false);
+                      setBackfillModal(null);
+                      if (!res.ok) {
+                        setErrMsg(res.message);
+                        return;
+                      }
+                      setRssTestSourceName(`Backfill – ${backfillModal.name}`);
+                      setRssTestResult(res.data);
+                      setMsg(`Importováno ${res.data.created} videí`);
+                      void refreshSources();
+                      void refreshArticles();
+                    }}
+                    className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Importovat
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}

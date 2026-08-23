@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/com
 import { NewsSourceHealth, NewsSourceType, NewsYoutubePublishMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { DEFAULT_NEWS_SOURCES, LEGACY_NEWS_SOURCE_URL_FIXES } from './news-editorial.constants';
+import { getYouTubeApiKey, resolveYoutubeChannel } from './news-youtube-api.util';
 
 export type NewsSourceListRow = {
   id: string;
@@ -152,6 +153,18 @@ export class NewsSourceService implements OnModuleInit {
     youtubeFacebookPost?: boolean;
     minRelevanceScore?: number;
   }) {
+    let channelId = data.channelId?.trim() || null;
+    if (data.type === NewsSourceType.YOUTUBE_CHANNEL && !channelId && getYouTubeApiKey()) {
+      try {
+        const resolved = await resolveYoutubeChannel(data.url, null);
+        channelId = resolved.channelId;
+      } catch (err) {
+        this.log.warn(
+          `YouTube channel resolve on create failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
     return this.prisma.newsSource.create({
       data: {
         name: data.name.trim(),
@@ -163,11 +176,12 @@ export class NewsSourceService implements OnModuleInit {
         priority: data.priority ?? 50,
         checkIntervalMinutes: data.checkIntervalMinutes ?? 30,
         note: data.note?.trim() || null,
-        channelId: data.channelId?.trim() || null,
+        channelId,
         youtubePublishMode: data.youtubePublishMode ?? NewsYoutubePublishMode.RELEVANT_ONLY,
         youtubeCreatePost: data.youtubeCreatePost ?? true,
         youtubeFacebookPost: data.youtubeFacebookPost ?? false,
         minRelevanceScore: data.minRelevanceScore ?? null,
+        health: channelId ? NewsSourceHealth.ACTIVE : undefined,
       },
     });
   }

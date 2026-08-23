@@ -27,6 +27,9 @@ export type NewsAutomationSettings = {
   youtubeMinRelevance: number;
   youtubeCreatePortalPost: boolean;
   youtubeCreateFacebookPost: boolean;
+  youtubeUseAiTeaser: boolean;
+  youtubeInitialSyncVideos: number;
+  youtubeInitialSyncIgnoreRelevance: boolean;
 };
 
 export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
@@ -56,6 +59,9 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   youtubeMinRelevance: 70,
   youtubeCreatePortalPost: true,
   youtubeCreateFacebookPost: false,
+  youtubeUseAiTeaser: true,
+  youtubeInitialSyncVideos: 5,
+  youtubeInitialSyncIgnoreRelevance: true,
 };
 
 export const NEWS_ARTICLES_PER_DAY_MIN = 0;
