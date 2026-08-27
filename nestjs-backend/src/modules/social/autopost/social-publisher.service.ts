@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   FacebookPostType,
   PostSocialPublishStatus,
@@ -91,7 +91,6 @@ export class SocialPublisherService {
     private readonly listingReelFinalVideo: ListingReelFinalVideoService,
     private readonly postSocialPublish: PostSocialPublishService,
     private readonly platformStub: SocialPlatformStubService,
-    @Inject(forwardRef(() => NewsEditorialSettingsService))
     private readonly newsSettings: NewsEditorialSettingsService,
   ) {}
 

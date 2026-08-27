@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   SocialPlatform,
   SocialPublishContentType,
@@ -92,7 +92,6 @@ export class SocialPublishEnqueueService {
     private readonly settings: SocialAutopostSettingsService,
     private readonly logService: SocialPublishLogService,
     private readonly postSocialPublish: PostSocialPublishService,
-    @Inject(forwardRef(() => NewsEditorialSettingsService))
     private readonly newsSettings: NewsEditorialSettingsService,
   ) {}
 

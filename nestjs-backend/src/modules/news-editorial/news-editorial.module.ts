@@ -7,7 +7,7 @@ import { SocialModule } from '../social/social.module';
 import { UploadModule } from '../upload/upload.module';
 import { NewsAuditService } from './news-audit.service';
 import { NewsBackfillService } from './news-backfill.service';
-import { NewsEditorialSettingsService } from './news-editorial-settings.service';
+import { NewsEditorialSettingsModule } from './news-editorial-settings.module';
 import { NewsSourceService } from './news-source.service';
 import { NewsFetchService } from './news-fetch.service';
 import { NewsAiService } from './news-ai.service';
@@ -24,12 +24,19 @@ import { NewsEditorialAdminController } from './news-editorial-admin.controller'
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
 
 @Module({
-  imports: [OpenAiModule, PropertiesModule, PostsModule, forwardRef(() => SocialModule), UploadModule, forwardRef(() => AuthModule)],
+  imports: [
+    OpenAiModule,
+    forwardRef(() => PropertiesModule),
+    forwardRef(() => PostsModule),
+    forwardRef(() => SocialModule),
+    UploadModule,
+    forwardRef(() => AuthModule),
+    NewsEditorialSettingsModule,
+  ],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [
     NewsAuditService,
     NewsBackfillService,
-    NewsEditorialSettingsService,
     NewsSourceService,
     NewsFetchService,
     NewsImageService,
@@ -44,8 +51,8 @@ import { NewsEditorialPublicController } from './news-editorial-public.controlle
     NewsEditorialWorkerService,
   ],
   exports: [
+    NewsEditorialSettingsModule,
     NewsArticleService,
-    NewsEditorialSettingsService,
     NewsPublishService,
     NewsPortalPostService,
     EditorialPortalPostService,
