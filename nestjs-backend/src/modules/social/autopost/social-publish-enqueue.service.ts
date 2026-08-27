@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import {
   SocialPlatform,
   SocialPublishContentType,
@@ -22,7 +22,13 @@ import {
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
+import {
+  getFacebookDestinationUrl,
+  isValidFacebookDestinationUrl,
+  type FacebookDestinationPost,
+} from './facebook-post-destination.util';
 import { verifyPublicPostResolvable } from '../../posts/public-post-resolve.util';
+import { NewsEditorialSettingsService } from '../../news-editorial/news-editorial-settings.service';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES, type FacebookPublishResult } from './social-autopost.types';
 import { SocialIntroPropertyType } from '@prisma/client';
@@ -86,6 +92,8 @@ export class SocialPublishEnqueueService {
     private readonly settings: SocialAutopostSettingsService,
     private readonly logService: SocialPublishLogService,
     private readonly postSocialPublish: PostSocialPublishService,
+    @Inject(forwardRef(() => NewsEditorialSettingsService))
+    private readonly newsSettings: NewsEditorialSettingsService,
   ) {}
 
   firePropertyCreated(propertyId: string) {
@@ -322,7 +330,17 @@ export class SocialPublishEnqueueService {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
       include: {
-        user: { select: { id: true, role: true, accountLimited: true, name: true, publicProfile: true, canPublishPosts: true, portalWorkerStatus: true } },
+        user: {
+          select: {
+            id: true,
+            role: true,
+            accountLimited: true,
+            name: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            portalWorkerStatus: true,
+          },
+        },
         media: { orderBy: { order: 'asc' } },
       },
     });
@@ -426,15 +444,32 @@ export class SocialPublishEnqueueService {
     publishedAt?: Date | null;
     videoUrl?: string | null;
     youtubeVideoId?: string | null;
+    externalUrl?: string | null;
+    editorialSourceUrl?: string | null;
     media?: Array<{ type?: string | null }>;
     user: Parameters<typeof verifyPublicPostResolvable>[1]['user'];
   }): Promise<string | null> {
-    const check = await verifyPublicPostResolvable(this.prisma, post);
-    if (check.ok) return null;
-    this.logger.warn(
-      `BLOCKED_PUBLIC_URL postId=${post.id} slug=${post.slug ?? 'null'} generatedUrl=${check.generatedUrl} reason=${check.reason}`,
-    );
-    return 'BLOCKED_PUBLIC_URL';
+    const newsCfg = this.newsSettings.getCached();
+    const portalCheck = await verifyPublicPostResolvable(this.prisma, post);
+    const portalUrl = portalCheck.ok ? portalCheck.generatedUrl : '';
+    const fbPost = post as FacebookDestinationPost;
+    const destinationUrl = getFacebookDestinationUrl(fbPost, newsCfg, portalUrl);
+
+    if (!isValidFacebookDestinationUrl(destinationUrl)) {
+      this.logger.warn(
+        `INVALID_DESTINATION_URL postId=${post.id} slug=${post.slug ?? 'null'} generatedUrl=${destinationUrl}`,
+      );
+      return 'INVALID_DESTINATION_URL';
+    }
+
+    if (destinationUrl === portalUrl && !portalCheck.ok) {
+      this.logger.warn(
+        `INVALID_DESTINATION_URL postId=${post.id} slug=${post.slug ?? 'null'} generatedUrl=${destinationUrl} reason=portal_not_resolvable`,
+      );
+      return 'INVALID_DESTINATION_URL';
+    }
+
+    return null;
   }
 
   private async shouldSkipContent(

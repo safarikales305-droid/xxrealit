@@ -2050,6 +2050,127 @@ export default function AdminAktualityPage() {
               />
             </label>
 
+            <div className="sm:col-span-2 mt-2 rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+              <h3 className="font-semibold text-blue-950">Facebook – odkazy příspěvků</h3>
+              <p className="mt-1 text-sm text-blue-900">
+                Kam má Facebook příspěvek odkazovat? Do textu se vloží právě jedna CTA URL podle šablony.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm">
+                  Běžný Portal Post
+                  <select
+                    value={settings.facebookLinkTargetPortalPost ?? 'PORTAL_DETAIL'}
+                    onChange={(e) =>
+                      setSettings((s) =>
+                        s
+                          ? {
+                              ...s,
+                              facebookLinkTargetPortalPost: e.target
+                                .value as NewsAutomationSettings['facebookLinkTargetPortalPost'],
+                            }
+                          : s,
+                      )
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+                  >
+                    <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
+                    <option value="SOURCE">Původní zdroj</option>
+                    <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>
+                    <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  AI Aktualita
+                  <select
+                    value={settings.facebookLinkTargetNewsArticle ?? 'ARTICLE_DETAIL'}
+                    onChange={(e) =>
+                      setSettings((s) =>
+                        s
+                          ? {
+                              ...s,
+                              facebookLinkTargetNewsArticle: e.target
+                                .value as NewsAutomationSettings['facebookLinkTargetNewsArticle'],
+                            }
+                          : s,
+                      )
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+                  >
+                    <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>
+                    <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
+                    <option value="SOURCE">Původní zdroj</option>
+                    <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
+                  </select>
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  YouTube
+                  <select
+                    value={settings.facebookLinkTargetYoutube ?? 'PORTAL_DETAIL'}
+                    onChange={(e) =>
+                      setSettings((s) =>
+                        s
+                          ? {
+                              ...s,
+                              facebookLinkTargetYoutube: e.target
+                                .value as NewsAutomationSettings['facebookLinkTargetYoutube'],
+                            }
+                          : s,
+                      )
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+                  >
+                    <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
+                    <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
+                    <option value="SOURCE">Původní zdroj</option>
+                    <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>
+                  </select>
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  Šablona Facebook příspěvku
+                  <textarea
+                    rows={8}
+                    value={
+                      settings.facebookPostTemplate ??
+                      '🏡 Nový příspěvek na XXREALIT\n\n{title}\n\n{teaser}\n\n👉 Více:\n{url}\n\n{hashtags}'
+                    }
+                    onChange={(e) =>
+                      setSettings((s) => s && { ...s, facebookPostTemplate: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono text-xs"
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  Šablona pro YouTube
+                  <textarea
+                    rows={8}
+                    value={
+                      settings.facebookYoutubePostTemplate ??
+                      '🎥 Nové video na XXREALIT\n\n{title}\n\n{teaser}\n\n👉 Více:\n{url}\n\n{hashtags}'
+                    }
+                    onChange={(e) =>
+                      setSettings((s) => s && { ...s, facebookYoutubePostTemplate: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono text-xs"
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  Hashtagy ({'{hashtags}'})
+                  <input
+                    type="text"
+                    value={settings.facebookHashtags ?? '#xxrealit #reality #bydleni'}
+                    onChange={(e) =>
+                      setSettings((s) => s && { ...s, facebookHashtags: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
+                  />
+                </label>
+                <p className="sm:col-span-2 text-xs text-blue-900">
+                  Proměnné: {'{title}'} {'{teaser}'} {'{url}'} {'{hashtags}'} {'{author}'}{' '}
+                  {'{category}'} {'{source}'} {'{youtube_url}'} {'{channel}'}
+                </p>
+              </div>
+            </div>
+
             <div className="sm:col-span-2 mt-2 rounded-xl border border-red-200 bg-red-50/40 p-4">
               <h3 className="font-semibold text-red-950">YouTube monitoring</h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">

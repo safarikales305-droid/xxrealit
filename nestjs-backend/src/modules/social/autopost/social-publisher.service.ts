@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import {
   FacebookPostType,
   PostSocialPublishStatus,
@@ -29,16 +29,21 @@ import { PostSocialPublishService } from './post-social-publish.service';
 import { propertyHasPublishableVideo, validateRemoteVideoForFacebook } from './social-facebook-reel.util';
 import { maskAccessToken, type FacebookPublishResult } from './social-autopost.types';
 import {
-  buildPostDetailUrl,
   buildPostFacebookMessage,
   buildVideoReelFacebookMessage,
   facebookPostPermalink,
   getPublicPortalUrl,
   resolvePostShareImage,
   resolvePostShareVideo,
-  resolvePostSocialText,
 } from './social-publish-format.util';
+import {
+  buildFacebookPostMessage,
+  getFacebookDestinationUrl,
+  isValidFacebookDestinationUrl,
+  type FacebookDestinationPost,
+} from './facebook-post-destination.util';
 import { verifyPublicPostResolvable } from '../../posts/public-post-resolve.util';
+import { NewsEditorialSettingsService } from '../../news-editorial/news-editorial-settings.service';
 
 export type FacebookPublishPayload = {
   message: string;
@@ -86,6 +91,8 @@ export class SocialPublisherService {
     private readonly listingReelFinalVideo: ListingReelFinalVideoService,
     private readonly postSocialPublish: PostSocialPublishService,
     private readonly platformStub: SocialPlatformStubService,
+    @Inject(forwardRef(() => NewsEditorialSettingsService))
+    private readonly newsSettings: NewsEditorialSettingsService,
   ) {}
 
   async publishToInstagram(): Promise<never> {
@@ -997,6 +1004,7 @@ export class SocialPublisherService {
         user: {
           select: {
             role: true,
+            name: true,
             publicProfile: true,
             canPublishPosts: true,
             accountLimited: true,
@@ -1007,18 +1015,35 @@ export class SocialPublisherService {
     });
     if (!post) throw new Error('Příspěvek nenalezen.');
 
-    const publicCheck = await verifyPublicPostResolvable(this.prisma, post);
-    if (!publicCheck.ok) {
+    const newsCfg = this.newsSettings.getCached();
+    const portalCheck = await verifyPublicPostResolvable(this.prisma, post);
+    const portalUrl = portalCheck.ok ? portalCheck.generatedUrl : '';
+    const fbPost = post as FacebookDestinationPost;
+    const destinationUrl = getFacebookDestinationUrl(fbPost, newsCfg, portalUrl);
+
+    if (!isValidFacebookDestinationUrl(destinationUrl)) {
       this.logger.warn(
-        `BLOCKED_PUBLIC_URL postId=${postId} slug=${post.slug ?? 'null'} generatedUrl=${publicCheck.generatedUrl} reason=${publicCheck.reason}`,
+        `INVALID_DESTINATION_URL postId=${postId} slug=${post.slug ?? 'null'} generatedUrl=${destinationUrl}`,
       );
-      return { skipped: true, reason: 'BLOCKED_PUBLIC_URL' };
+      return { skipped: true, reason: 'INVALID_DESTINATION_URL' };
     }
+
+    if (destinationUrl === portalUrl && !portalCheck.ok) {
+      this.logger.warn(
+        `INVALID_DESTINATION_URL postId=${postId} slug=${post.slug ?? 'null'} generatedUrl=${destinationUrl} reason=portal_not_resolvable`,
+      );
+      return { skipped: true, reason: 'INVALID_DESTINATION_URL' };
+    }
+
+    const message = buildFacebookPostMessage({
+      post: fbPost,
+      destinationUrl,
+      settings: newsCfg,
+    });
 
     const videoUrl = resolvePostShareVideo(post);
     const imageUrl = resolvePostShareImage(post);
-    const text = resolvePostSocialText(post);
-    const publicUrl = publicCheck.generatedUrl;
+    const publicUrl = destinationUrl;
     const publishType = videoUrl ? PostSocialPublishType.REEL : PostSocialPublishType.POST;
 
     await this.postSocialPublish.markStatus(postId, platform, {
@@ -1031,11 +1056,11 @@ export class SocialPublisherService {
       if (platform === SocialPlatform.FACEBOOK) {
         const result = await this.publishUserPostToFacebook(
           {
-            description: text,
+            description: message,
             publicUrl,
             imageUrl,
             videoUrl,
-            title: post.title?.trim() || text.slice(0, 80) || undefined,
+            title: post.title?.trim() || message.slice(0, 80) || undefined,
           },
           {
             forceFormat: videoUrl

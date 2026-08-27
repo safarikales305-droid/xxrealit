@@ -37,6 +37,14 @@ import { NewsSystemUserService } from './news-system-user.service';
 import { EditorialPortalPostService } from './editorial-portal-post.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
 import type { SystemAuthorProfilePatch } from './news-system-user.service';
+import { PrismaService } from '../../database/prisma.service';
+import {
+  buildFacebookPostMessage,
+  getFacebookDestinationUrl,
+  isValidFacebookDestinationUrl,
+  type FacebookDestinationPost,
+} from '../social/autopost/facebook-post-destination.util';
+import { verifyPublicPostResolvable } from '../posts/public-post-resolve.util';
 
 @Controller('admin/news-editorial')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -54,6 +62,7 @@ export class NewsEditorialAdminController {
     private readonly youtube: NewsYoutubeService,
     private readonly systemUser: NewsSystemUserService,
     private readonly editorialPosts: EditorialPortalPostService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('dashboard')
@@ -140,6 +149,52 @@ export class NewsEditorialAdminController {
   @Patch('settings')
   updateSettings(@Body() body: Partial<NewsAutomationSettings>) {
     return this.settings.updateSettings(body);
+  }
+
+  @Post('facebook-preview')
+  async facebookPreview(@Body() body: { postId?: string }) {
+    const postId = body.postId?.trim();
+    if (!postId) throw new BadRequestException('Chybí postId.');
+
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        user: {
+          select: {
+            name: true,
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
+        media: { select: { type: true } },
+      },
+    });
+    if (!post) throw new BadRequestException('Příspěvek nenalezen.');
+
+    const cfg = this.settings.getCached();
+    const portalCheck = await verifyPublicPostResolvable(this.prisma, post);
+    const portalUrl = portalCheck.ok ? portalCheck.generatedUrl : '';
+    const fbPost = post as FacebookDestinationPost;
+    const destinationUrl = getFacebookDestinationUrl(fbPost, cfg, portalUrl);
+    const valid =
+      isValidFacebookDestinationUrl(destinationUrl) &&
+      (destinationUrl !== portalUrl || portalCheck.ok);
+
+    const message = buildFacebookPostMessage({
+      post: fbPost,
+      destinationUrl: valid ? destinationUrl : portalUrl || destinationUrl,
+      settings: cfg,
+    });
+
+    return {
+      message,
+      destinationUrl,
+      valid,
+      status: valid ? 'VALID' : 'INVALID_DESTINATION_URL',
+    };
   }
 
   @Get('articles')

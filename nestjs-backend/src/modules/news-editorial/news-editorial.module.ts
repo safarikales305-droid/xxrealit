@@ -24,7 +24,7 @@ import { NewsEditorialAdminController } from './news-editorial-admin.controller'
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
 
 @Module({
-  imports: [OpenAiModule, PropertiesModule, PostsModule, SocialModule, UploadModule, forwardRef(() => AuthModule)],
+  imports: [OpenAiModule, PropertiesModule, PostsModule, forwardRef(() => SocialModule), UploadModule, forwardRef(() => AuthModule)],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [
     NewsAuditService,

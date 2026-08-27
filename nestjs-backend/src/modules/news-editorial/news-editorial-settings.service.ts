@@ -43,6 +43,16 @@ export class NewsEditorialSettingsService implements OnModuleInit {
     return typeof v === 'string' && v.trim() ? v.trim() : fallback;
   }
 
+  private linkTarget(
+    v: unknown,
+    fallback: NewsAutomationSettings['facebookLinkTargetPortalPost'],
+  ): NewsAutomationSettings['facebookLinkTargetPortalPost'] {
+    const allowed = ['PORTAL_DETAIL', 'SOURCE', 'YOUTUBE_ORIGINAL', 'ARTICLE_DETAIL'] as const;
+    return (
+      typeof v === 'string' && (allowed as readonly string[]).includes(v) ? v : fallback
+    ) as NewsAutomationSettings['facebookLinkTargetPortalPost'];
+  }
+
   private strArray(v: unknown, fallback: string[]): string[] {
     if (!Array.isArray(v)) return fallback;
     const items = v
@@ -133,6 +143,18 @@ export class NewsEditorialSettingsService implements OnModuleInit {
         o.youtubeInitialSyncIgnoreRelevance,
         d.youtubeInitialSyncIgnoreRelevance,
       ),
+      facebookLinkTargetPortalPost: this.linkTarget(
+        o.facebookLinkTargetPortalPost,
+        d.facebookLinkTargetPortalPost,
+      ),
+      facebookLinkTargetNewsArticle: this.linkTarget(
+        o.facebookLinkTargetNewsArticle,
+        d.facebookLinkTargetNewsArticle,
+      ),
+      facebookLinkTargetYoutube: this.linkTarget(o.facebookLinkTargetYoutube, d.facebookLinkTargetYoutube),
+      facebookPostTemplate: this.str(o.facebookPostTemplate, d.facebookPostTemplate),
+      facebookYoutubePostTemplate: this.str(o.facebookYoutubePostTemplate, d.facebookYoutubePostTemplate),
+      facebookHashtags: this.str(o.facebookHashtags, d.facebookHashtags),
     };
 
     return settings;

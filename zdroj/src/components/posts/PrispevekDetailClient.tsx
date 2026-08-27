@@ -11,6 +11,7 @@ import { PublicHeader } from '@/components/navigation/PublicHeader';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInlineVideoPlayer';
+import { YoutubeLazyPlayer } from '@/components/community/YoutubeLazyPlayer';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import {
@@ -69,6 +70,21 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
     !useFbMediaRenderer && resolvedMedia.mode !== 'none' && orderedMedia.length === 0;
 
   const isCommunityPost = post?.type === 'post' || !post?.type;
+  const youtubeVideoId = String(post?.youtubeVideoId ?? '').trim();
+  const isYoutubeVideo =
+    String(post?.type ?? '') === 'YOUTUBE_VIDEO' || Boolean(youtubeVideoId);
+  const youtubeTitle = (post?.previewTitle ?? post?.title ?? '').trim();
+  const youtubeTeaser = (post?.previewDescription ?? post?.description ?? '').trim();
+  const youtubeChannel = String(post?.youtubeChannelTitle ?? '').trim();
+  const youtubeWatchUrl = post?.externalUrl?.trim() ?? '';
+  const authorName = post?.user?.name?.trim() || 'Redakce XXREALIT';
+  const publishedLabel = post?.publishedAt
+    ? new Date(post.publishedAt).toLocaleDateString('cs-CZ', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    : null;
 
   function scrollToIndex(index: number) {
     const el = carouselRef.current;
@@ -91,8 +107,9 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
     (post?.title ?? '').trim().slice(0, 120) ||
     (post?.description ?? '').trim().slice(0, 80) ||
     'Příspěvek';
+  const postSlug = post ? String((post as { slug?: string | null }).slug ?? '').trim() : '';
   const shareUrl = absoluteShareUrl(
-    sharePath ?? `/prispevky/${encodeURIComponent(postId)}`,
+    sharePath ?? (postSlug ? `/prispevek/${postSlug}` : `/prispevky/${encodeURIComponent(postId)}`),
   );
 
   return (
@@ -129,7 +146,52 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
 
       {post ? (
         <article className="mt-0 overflow-hidden bg-black md:mt-4 md:rounded-2xl md:border md:border-zinc-200 md:bg-white md:shadow-sm">
-          {useFbMediaRenderer || showPrimaryMediaBlock ? (
+          {isYoutubeVideo && youtubeVideoId ? (
+            <div className="bg-white px-3 py-4 md:px-6">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                <span className="font-semibold text-zinc-800">{authorName}</span>
+                <span className="rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-700">
+                  🎥 YouTube
+                </span>
+                {publishedLabel ? <span>{publishedLabel}</span> : null}
+              </div>
+              {youtubeTitle ? (
+                <h1 className="text-xl font-semibold text-zinc-900 md:text-2xl">{youtubeTitle}</h1>
+              ) : null}
+              {youtubeTeaser ? (
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                  {youtubeTeaser}
+                </p>
+              ) : null}
+              <div className="mt-4 w-full max-w-3xl">
+                <YoutubeLazyPlayer
+                  videoId={youtubeVideoId}
+                  title={youtubeTitle}
+                  thumbnailUrl={post.youtubeThumbnailUrl ?? post.previewImage ?? post.imageUrl}
+                  embeddable={post.youtubeEmbeddable !== false}
+                  watchUrl={youtubeWatchUrl}
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
+                {(post as { editorialSourceName?: string | null }).editorialSourceName ? (
+                  <span>
+                    Zdroj: {(post as { editorialSourceName?: string | null }).editorialSourceName}
+                  </span>
+                ) : null}
+                {youtubeChannel ? <span>Kanál: {youtubeChannel}</span> : null}
+                {youtubeWatchUrl ? (
+                  <a
+                    href={youtubeWatchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-red-700 hover:underline"
+                  >
+                    Otevřít na YouTube
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          ) : useFbMediaRenderer || showPrimaryMediaBlock ? (
             <FacebookPostMediaBlock
               media={resolvedMedia}
               facebookPostType={post.facebookPostType ?? null}
@@ -193,6 +255,7 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
             </div>
           ) : null}
 
+          {!isYoutubeVideo ? (
           <div className="px-3 py-3 md:bg-white">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h1 className="text-lg font-semibold text-zinc-900">
@@ -232,6 +295,13 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
               Další příspěvky
             </Link>
           </div>
+          ) : (
+            <div className="border-t border-zinc-100 bg-white px-3 py-3 md:px-6">
+              <Link href="/?tab=posts" className="text-sm font-semibold text-orange-600">
+                Další příspěvky
+              </Link>
+            </div>
+          )}
         </article>
       ) : null}
       </main>

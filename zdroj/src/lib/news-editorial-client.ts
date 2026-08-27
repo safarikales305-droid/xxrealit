@@ -63,6 +63,12 @@ export type NewsAutomationSettings = {
   youtubeUseAiTeaser?: boolean;
   youtubeInitialSyncVideos?: number;
   youtubeInitialSyncIgnoreRelevance?: boolean;
+  facebookLinkTargetPortalPost?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
+  facebookLinkTargetNewsArticle?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
+  facebookLinkTargetYoutube?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
+  facebookPostTemplate?: string;
+  facebookYoutubePostTemplate?: string;
+  facebookHashtags?: string;
 };
 
 export const NEWS_CATEGORY_LABELS: Record<NewsArticleCategory, string> = {
@@ -396,6 +402,23 @@ export async function nestAdminUpdateNewsSettings(
   return adminFetch<NewsAutomationSettings>(token, '/settings', {
     method: 'PATCH',
     body: JSON.stringify(body),
+  });
+}
+
+export type NewsFacebookPreview = {
+  message: string;
+  destinationUrl: string;
+  valid: boolean;
+  status: 'VALID' | 'INVALID_DESTINATION_URL';
+};
+
+export async function nestAdminNewsFacebookPreview(
+  token: string,
+  postId: string,
+): Promise<NewsFacebookPreview | null> {
+  return adminFetch<NewsFacebookPreview>(token, '/facebook-preview', {
+    method: 'POST',
+    body: JSON.stringify({ postId }),
   });
 }
 

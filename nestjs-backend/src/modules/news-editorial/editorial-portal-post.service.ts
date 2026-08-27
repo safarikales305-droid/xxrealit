@@ -16,7 +16,6 @@ import { NewsArticleService } from './news-article.service';
 import { NewsEditorialSettingsService } from './news-editorial-settings.service';
 import {
   buildNewsArticleCanonicalUrl,
-  buildNewsFacebookPostText,
   buildNewsPortalPostContent,
   buildNewsPortalPostSlug,
   buildNewsSocialExcerpt,
@@ -131,12 +130,6 @@ export class EditorialPortalPostService {
       category: article.category,
       articleUrl,
     });
-    const facebookText = buildNewsFacebookPostText({
-      socialTitle,
-      socialExcerpt,
-      articleUrl,
-      addHashtags: cfg.addHashtags !== false,
-    });
     const systemUser = await this.systemUser.getSystemUser();
     const primarySource = article.sources?.[0];
     const postSlug = buildNewsPortalPostSlug(article.slug);
@@ -145,7 +138,7 @@ export class EditorialPortalPostService {
 
     const payload = {
       title: socialTitle.slice(0, 200),
-      description: facebookText,
+      description: socialExcerpt,
       content: portalContent,
       imageUrl,
       previewImage: imageUrl,
@@ -289,7 +282,6 @@ export class EditorialPortalPostService {
 
     const systemUser = await this.systemUser.getSystemUser();
     const cfg = this.settings.getCached();
-    const siteBase = process.env.PUBLIC_SITE_URL?.replace(/\/$/, '') ?? 'https://xxrealit.cz';
     const publishToFeed = this.shouldPublishYoutubeToFeed(cfg, input.source, input.forcePublish);
     const publishedAt = publishToFeed ? input.video.publishedAt ?? new Date() : null;
 
@@ -331,24 +323,6 @@ export class EditorialPortalPostService {
         likesAutopilotEnabled: true,
         lastAutopilotLikesAt: new Date(),
       },
-    });
-
-    const facebookText = [
-      '🎥 Nové video k tématu bydlení a realit',
-      '',
-      input.video.title,
-      '',
-      input.teaser,
-      '',
-      'Podívejte se na video na XXREALIT:',
-      `${siteBase}/prispevky/${post.id}`,
-      '',
-      '#XXREALIT #reality #bydleni',
-    ].join('\n');
-
-    await this.prisma.post.update({
-      where: { id: post.id },
-      data: { description: facebookText },
     });
 
     if (publishedAt) {

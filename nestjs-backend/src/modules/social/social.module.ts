@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MetaCenterModule } from '../meta-center/meta-center.module';
 import { AuthModule } from '../auth/auth.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
+import { NewsEditorialModule } from '../news-editorial/news-editorial.module';
 import { PostsModule } from '../posts/posts.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { ShareModule } from '../share/share.module';
@@ -60,6 +61,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     forwardRef(() => PostsModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => TikTokModule),
+    forwardRef(() => NewsEditorialModule),
     BonusCampaignModule,
     ShareModule,
   ],

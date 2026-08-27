@@ -70,6 +70,9 @@ export function buildPropertyFacebookMessage(
 
 export function buildPostFacebookMessage(text: string, publicUrl: string): string {
   const body = text.trim() || 'Nový příspěvek na portálu XXREALIT.';
+  if (/https?:\/\/\S+/i.test(body) || body.includes(publicUrl)) {
+    return body;
+  }
   return [
     '🏡 Nový příspěvek na XXREALIT',
     '',
@@ -86,6 +89,9 @@ export function buildPostFacebookMessage(text: string, publicUrl: string): strin
 
 export function buildVideoReelFacebookMessage(publicUrl: string, postText?: string): string {
   const snippet = (postText ?? '').trim().slice(0, 280);
+  if (/https?:\/\/\S+/i.test(snippet) || snippet.includes(publicUrl)) {
+    return snippet || `🎬 Nové video na XXREALIT\n\n${publicUrl}`;
+  }
   const lines = [
     '🎬 Nové video na XXREALIT',
     '',
@@ -192,15 +198,16 @@ export function resolvePostShareVideo(post: {
   return null;
 }
 
-/** Text pro social publish – u recenzí firmy preferuje popis (Facebook copy). */
+/** Text pro social publish – u redakčních typů preferuje teaser bez URL. */
 export function resolvePostSocialText(post: {
   type?: string | null;
   title?: string | null;
   description?: string | null;
   content?: string | null;
+  previewDescription?: string | null;
 }): string {
   if (post.type === 'COMPANY_REVIEW' || post.type === 'NEWS_ARTICLE' || post.type === 'YOUTUBE_VIDEO') {
-    return (post.description ?? post.content ?? post.title ?? '').trim();
+    return (post.previewDescription ?? post.description ?? post.content ?? post.title ?? '').trim();
   }
   return (post.content ?? post.description ?? post.title ?? '').trim();
 }

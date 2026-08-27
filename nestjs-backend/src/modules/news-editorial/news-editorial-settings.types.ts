@@ -1,5 +1,35 @@
 import { NewsPublishMode } from '@prisma/client';
 
+export type FacebookLinkTarget =
+  | 'PORTAL_DETAIL'
+  | 'SOURCE'
+  | 'YOUTUBE_ORIGINAL'
+  | 'ARTICLE_DETAIL';
+
+export const DEFAULT_FACEBOOK_POST_TEMPLATE = `🏡 Nový příspěvek na XXREALIT
+
+{title}
+
+{teaser}
+
+👉 Více:
+{url}
+
+{hashtags}`;
+
+export const DEFAULT_FACEBOOK_YOUTUBE_TEMPLATE = `🎥 Nové video na XXREALIT
+
+{title}
+
+{teaser}
+
+👉 Více:
+{url}
+
+{hashtags}`;
+
+export const DEFAULT_FACEBOOK_HASHTAGS = '#xxrealit #reality #bydleni';
+
 export type NewsAutomationSettings = {
   enabled: boolean;
   autoFetchSources: boolean;
@@ -30,6 +60,12 @@ export type NewsAutomationSettings = {
   youtubeUseAiTeaser: boolean;
   youtubeInitialSyncVideos: number;
   youtubeInitialSyncIgnoreRelevance: boolean;
+  facebookLinkTargetPortalPost: FacebookLinkTarget;
+  facebookLinkTargetNewsArticle: FacebookLinkTarget;
+  facebookLinkTargetYoutube: FacebookLinkTarget;
+  facebookPostTemplate: string;
+  facebookYoutubePostTemplate: string;
+  facebookHashtags: string;
 };
 
 export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
@@ -62,6 +98,12 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   youtubeUseAiTeaser: true,
   youtubeInitialSyncVideos: 5,
   youtubeInitialSyncIgnoreRelevance: true,
+  facebookLinkTargetPortalPost: 'PORTAL_DETAIL',
+  facebookLinkTargetNewsArticle: 'ARTICLE_DETAIL',
+  facebookLinkTargetYoutube: 'PORTAL_DETAIL',
+  facebookPostTemplate: DEFAULT_FACEBOOK_POST_TEMPLATE,
+  facebookYoutubePostTemplate: DEFAULT_FACEBOOK_YOUTUBE_TEMPLATE,
+  facebookHashtags: DEFAULT_FACEBOOK_HASHTAGS,
 };
 
 export const NEWS_ARTICLES_PER_DAY_MIN = 0;
