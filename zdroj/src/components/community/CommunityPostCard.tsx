@@ -17,6 +17,10 @@ import {
   isFacebookImportPost,
   resolveFacebookPostMedia,
 } from '@/lib/facebook-post-media';
+import {
+  pickArticleHeroImageUrl,
+  resolveCommunityPostDetailHref,
+} from '@/lib/community-post-feed.util';
 
 export type CommunityPostCardProps = {
   post: ListingPost;
@@ -87,15 +91,26 @@ export function CommunityPostCard({
   const shareUrl = absoluteShareUrl(`/prispevky/${encodeURIComponent(id)}`);
 
   const externalUrl = String(p.externalUrl ?? '').trim();
-  const linkPreview: LinkPreviewData | null = externalUrl
-    ? {
-        url: externalUrl,
-        title: String(p.previewTitle ?? '').trim() || externalUrl,
-        description: String(p.previewDescription ?? '').trim(),
-        image: String(p.previewImage ?? '').trim(),
-        siteName: String(p.previewSiteName ?? '').trim(),
-      }
-    : null;
+
+  const isFacebookImport = isFacebookImportPost(p);
+  const isNewsArticle =
+    String(p.type ?? '') === 'NEWS_ARTICLE' ||
+    String(p.previewSiteName ?? '').toLowerCase().includes('aktualit');
+  const youtubeVideoId = String((p as { youtubeVideoId?: string }).youtubeVideoId ?? '').trim();
+  const isYoutubeVideo = String(p.type ?? '') === 'YOUTUBE_VIDEO' || Boolean(youtubeVideoId);
+  const detailHref = resolveCommunityPostDetailHref(p);
+  const isExternalDetail = /^https?:\/\//i.test(detailHref);
+  const articleHeroImageUrl = isNewsArticle ? pickArticleHeroImageUrl(p) : null;
+  const linkPreview: LinkPreviewData | null =
+    externalUrl && !isNewsArticle && !isYoutubeVideo
+      ? {
+          url: externalUrl,
+          title: String(p.previewTitle ?? '').trim() || externalUrl,
+          description: String(p.previewDescription ?? '').trim(),
+          image: String(p.previewImage ?? '').trim(),
+          siteName: String(p.previewSiteName ?? '').trim(),
+        }
+      : null;
 
   const authorId = String(p.user?.id ?? '').trim();
   const author = String(p.user?.name ?? 'Autor').trim() || 'Autor';
@@ -130,13 +145,6 @@ export function CommunityPostCard({
     window.setTimeout(() => redirectToLogin(), 400);
   }
 
-  const isFacebookImport = isFacebookImportPost(p);
-  const isNewsArticle =
-    String(p.type ?? '') === 'NEWS_ARTICLE' ||
-    String(p.previewSiteName ?? '').toLowerCase().includes('aktualit');
-  const youtubeVideoId = String((p as { youtubeVideoId?: string }).youtubeVideoId ?? '').trim();
-  const isYoutubeVideo = String(p.type ?? '') === 'YOUTUBE_VIDEO' || Boolean(youtubeVideoId);
-  const articleUrl = isNewsArticle ? externalUrl : '';
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
   const hasFeedMedia =
     !isNewsArticle && !isYoutubeVideo && resolvedMedia.mode !== 'none';
@@ -329,7 +337,23 @@ export function CommunityPostCard({
 
       {editingPostId !== id && isNewsArticle && newsTitle ? (
         <div className="px-3 pb-2 md:px-4">
-          <p className="text-base font-semibold text-zinc-900">{newsTitle}</p>
+          {isExternalDetail ? (
+            <a
+              href={detailHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-base font-semibold text-zinc-900 hover:text-orange-700"
+            >
+              {newsTitle}
+            </a>
+          ) : (
+            <Link
+              href={detailHref}
+              className="text-base font-semibold text-zinc-900 hover:text-orange-700"
+            >
+              {newsTitle}
+            </Link>
+          )}
           {newsTeaser ? (
             <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{newsTeaser}</p>
           ) : null}
@@ -354,19 +378,22 @@ export function CommunityPostCard({
       ) : null}
 
       {editingPostId !== id && isYoutubeVideo && youtubeVideoId ? (
-        <div className="px-3 pb-2 md:px-4">
-          <YoutubeLazyPlayer
-            videoId={youtubeVideoId}
-            title={youtubeTitle}
-            thumbnailUrl={
-              (p as { youtubeThumbnailUrl?: string }).youtubeThumbnailUrl ??
-              p.previewImage ??
-              p.imageUrl
-            }
-            embeddable={(p as { youtubeEmbeddable?: boolean }).youtubeEmbeddable !== false}
-            watchUrl={externalUrl}
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+        <>
+          <div className="w-full min-w-0 overflow-hidden">
+            <YoutubeLazyPlayer
+              videoId={youtubeVideoId}
+              title={youtubeTitle}
+              thumbnailUrl={
+                (p as { youtubeThumbnailUrl?: string }).youtubeThumbnailUrl ??
+                p.previewImage ??
+                p.imageUrl
+              }
+              embeddable={(p as { youtubeEmbeddable?: boolean }).youtubeEmbeddable !== false}
+              watchUrl={externalUrl}
+              className="rounded-none sm:rounded-2xl"
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 px-3 pb-2 text-xs text-zinc-500 md:px-4">
             {editorialSourceName ? <span>Zdroj: {editorialSourceName}</span> : null}
             {youtubeChannel ? <span>Kanál: {youtubeChannel}</span> : null}
             {externalUrl ? (
@@ -380,32 +407,48 @@ export function CommunityPostCard({
               </a>
             ) : null}
           </div>
-        </div>
+        </>
       ) : null}
 
-      {editingPostId !== id && linkPreview && !hasFeedMedia && !isFacebookImport && !isYoutubeVideo ? (
+      {editingPostId !== id &&
+      linkPreview &&
+      !hasFeedMedia &&
+      !isFacebookImport &&
+      !isYoutubeVideo &&
+      !isNewsArticle ? (
         <div className="px-3 pb-2 md:px-4">
           <LinkPreviewCard preview={linkPreview} compact />
         </div>
       ) : null}
 
-      {editingPostId !== id && isNewsArticle && articleUrl ? (
+      {editingPostId !== id && isNewsArticle && articleHeroImageUrl ? (
         <div className="px-3 pb-2 md:px-4">
           <NewsArticleHeroImage
-            imageUrl={p.imageUrl}
-            previewImage={p.previewImage}
+            imageUrl={articleHeroImageUrl}
+            previewImage={null}
             category={(p as { category?: string }).category}
             seed={id}
             alt={newsTitle}
-            href={articleUrl}
+            href={detailHref}
           />
           <div className="mt-3">
-            <a
-              href={articleUrl}
-              className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
-            >
-              Přečíst celý článek
-            </a>
+            {isExternalDetail ? (
+              <a
+                href={detailHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+              >
+                Přečíst celý článek
+              </a>
+            ) : (
+              <Link
+                href={detailHref}
+                className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+              >
+                Přečíst celý článek
+              </Link>
+            )}
           </div>
         </div>
       ) : null}

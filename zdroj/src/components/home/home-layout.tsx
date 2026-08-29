@@ -44,6 +44,7 @@ import { PortalProfilesCarousel } from './PortalProfilesCarousel';
 import { FeedSkeletonRows } from '@/components/ui/page-loading';
 import { NewsHomeBlock } from '@/components/news/NewsHomeBlock';
 import type { CommunityCategoryKey } from '@/lib/community-category-roles';
+import { sortCommunityPostsByFeedDate } from '@/lib/community-post-feed.util';
 
 function buildListingFilterQuery(
   searchParams: { get: (key: string) => string | null },
@@ -331,6 +332,8 @@ export function HomeLayout({
   const [shortsFeedCursor, setShortsFeedCursor] = useState<string | null>(null);
   const [shortsFeedHasMore, setShortsFeedHasMore] = useState(false);
   const [shortsFeedLoadingMore, setShortsFeedLoadingMore] = useState(false);
+  const [shortsFeedError, setShortsFeedError] = useState(false);
+  const [shortsFeedRetryNonce, setShortsFeedRetryNonce] = useState(0);
   /** Video z deep linku, které ještě není v odpovědi /feed/shorts. */
   const [shareExtraVideo, setShareExtraVideo] = useState<ShortVideo | null>(null);
   const [shareExtraLoading, setShareExtraLoading] = useState(false);
@@ -447,7 +450,9 @@ export function HomeLayout({
       },
       apiAccessToken,
     );
-    setPostFeed(result.items as Array<Record<string, unknown>>);
+    setPostFeed(
+      sortCommunityPostsByFeedDate(result.items as ListingPost[]) as Array<Record<string, unknown>>,
+    );
     setPostsHasMore(result.hasMore);
     mergePostReactionMaps(result.items, user?.id);
   }, [
@@ -477,7 +482,12 @@ export function HomeLayout({
       );
       postsPageRef.current = nextPage;
       setPostsHasMore(result.hasMore);
-      setPostFeed((prev) => [...prev, ...(result.items as Array<Record<string, unknown>>)]);
+      setPostFeed((prev) =>
+        sortCommunityPostsByFeedDate([
+          ...(prev as ListingPost[]),
+          ...(result.items as ListingPost[]),
+        ]) as Array<Record<string, unknown>>,
+      );
       mergePostReactionMaps(result.items, user?.id);
     } finally {
       setPostsLoadingMore(false);
@@ -696,10 +706,12 @@ export function HomeLayout({
 
   const communityFeedPosts = useMemo(
     () =>
-      postFeed.filter((row) => {
-        const t = String((row as ListingPost).type ?? '');
-        return t !== 'short';
-      }),
+      sortCommunityPostsByFeedDate(
+        postFeed.filter((row) => {
+          const t = String((row as ListingPost).type ?? '');
+          return t !== 'short';
+        }) as ListingPost[],
+      ),
     [postFeed],
   );
 
@@ -727,6 +739,7 @@ export function HomeLayout({
     if (!API_BASE_URL || viewMode !== 'shorts') return;
     let cancelled = false;
     setLoadingFeed(true);
+    setShortsFeedError(false);
     setMixedShortsFeed([]);
     setShortsFeedCursor(null);
     setShortsFeedHasMore(false);
@@ -752,14 +765,20 @@ export function HomeLayout({
           console.warn(
             `[HomeLayout] GET mixed shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
           );
+          if (!cancelled) {
+            setShortsFeedError(true);
+            setMixedShortsFeed([]);
+            setVideoFeed([]);
+            setShortsTotal(0);
+            setShortsFallbackItems([]);
+          }
+          return;
         }
-        const data = res.ok
-          ? ((await res.json()) as {
-              items?: ShortsFeedItem[];
-              nextCursor?: string | null;
-              hasMore?: boolean;
-            })
-          : { items: [] as ShortsFeedItem[] };
+        const data = (await res.json()) as {
+          items?: ShortsFeedItem[];
+          nextCursor?: string | null;
+          hasMore?: boolean;
+        };
         const list = Array.isArray(data.items) ? data.items : [];
         const propertyCount = list.filter((x) => isPropertyShortsItem(x)).length;
         if (cancelled) return;
@@ -788,18 +807,11 @@ export function HomeLayout({
           console.warn('[HomeLayout] mixed shorts feed load failed', err);
         }
         if (!cancelled) {
+          setShortsFeedError(true);
           setMixedShortsFeed([]);
           setVideoFeed([]);
           setShortsTotal(0);
-          try {
-            const classic = await loadPropertyFeedItems(API_BASE_URL, {
-              path: '/properties',
-              query: listingFilterQuery || undefined,
-            });
-            if (!cancelled) setShortsFallbackItems(classic.items);
-          } catch {
-            if (!cancelled) setShortsFallbackItems([]);
-          }
+          setShortsFallbackItems([]);
         }
       } finally {
         window.clearTimeout(timeout);
@@ -810,7 +822,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, apiAccessToken, listingFilterQuery]);
+  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce]);
 
   const loadMoreMixedShorts = useCallback(async () => {
     if (!API_BASE_URL || !shortsFeedHasMore || shortsFeedLoadingMore || !shortsFeedCursor) return;
@@ -876,7 +888,9 @@ export function HomeLayout({
           apiAccessToken,
         );
         if (cancelled) return;
-        setPostFeed(result.items as Array<Record<string, unknown>>);
+        setPostFeed(
+          sortCommunityPostsByFeedDate(result.items as ListingPost[]) as Array<Record<string, unknown>>,
+        );
         setPostsHasMore(result.hasMore);
         mergePostReactionMaps(result.items, user?.id);
         // eslint-disable-next-line no-console
@@ -1107,7 +1121,9 @@ export function HomeLayout({
         className={
           viewMode === 'posts'
             ? 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0'
-            : 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_272px]'
+            : viewMode === 'shorts'
+              ? 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(560px,1fr)_272px]'
+              : 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_272px]'
         }
       >
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block ${viewMode === 'posts' ? 'md:hidden' : ''}`}>
@@ -1211,6 +1227,19 @@ export function HomeLayout({
                         : 'Načítám video feed…'}
                     </p>
                   </div>
+                ) : shortsFeedError ? (
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+                    <p className="text-sm font-medium text-white/90 lg:text-zinc-800">
+                      Data se nyní nepodařilo načíst.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShortsFeedRetryNonce((n) => n + 1)}
+                      className="rounded-full border border-zinc-300 bg-white px-6 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 lg:border-orange-200 lg:text-orange-900"
+                    >
+                      Zkusit znovu
+                    </button>
+                  </div>
                 ) : mixedItemsForFeed.length > 0 ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {activeLocationLabel ? (
@@ -1251,8 +1280,8 @@ export function HomeLayout({
                   </div>
                 )
               ) : viewMode === 'posts' ? (
-                <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
-                  <div className="mx-auto w-full max-w-7xl overflow-x-hidden px-0 py-3 sm:px-4 md:px-6">
+                <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-1 max-md:pt-0 md:pt-3">
+                  <div className="mx-auto w-full max-w-7xl overflow-x-hidden px-0 py-1 max-md:py-0 md:py-3 sm:px-4 md:px-6">
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
                       <aside className="hidden min-w-0 xl:col-span-3 xl:block">
                         <div className="space-y-4 lg:sticky lg:top-20">
@@ -1287,8 +1316,8 @@ export function HomeLayout({
                       <main className="min-w-0 xl:col-span-6">
                         <div className="mx-auto w-full max-w-[650px]">
                         <PortalProfilesCarousel category={activeCategory as CommunityCategoryKey} />
-                        <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:p-3">
-                          <div className="flex w-full min-w-0 items-center justify-between gap-2 md:gap-3">
+                        <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur max-md:rounded-xl max-md:p-1 md:p-3">
+                          <div className="flex w-full min-w-0 items-center justify-between gap-1.5 md:gap-3">
                             <div className="relative min-w-0 flex-1">
                               <button
                                 type="button"
@@ -1299,7 +1328,7 @@ export function HomeLayout({
                                 <span className="hidden md:inline">Příspěvky / {activeCategoryLabel}</span>
                                 <span aria-hidden>{postsCategoryOpen ? '▴' : '▾'}</span>
                               </button>
-                              <p className="mt-1 text-xs font-semibold text-zinc-700 md:hidden">
+                              <p className="mt-0.5 text-[11px] font-medium text-zinc-600 md:hidden">
                                 Aktivní: {activeCategoryLabel}
                               </p>
                               {postsCategoryOpen ? (

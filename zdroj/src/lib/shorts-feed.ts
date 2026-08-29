@@ -39,6 +39,7 @@ export type ShortsFeedSettings = {
   propertyRatioTierLow: number;
   propertyRatioTierMid: number;
   propertyRatioTierHigh: number;
+  preferNewContent: boolean;
 };
 
 export const SHORTS_BADGE_LABELS: Record<ShortsItemType, string> = {

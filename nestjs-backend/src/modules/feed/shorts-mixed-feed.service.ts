@@ -61,7 +61,9 @@ export class ShortsMixedFeedService {
     const settings = await this.settingsService.getSettings();
     const cacheKey = this.cacheKey(params.filters, settings);
     const pools = await this.loadPools(params.viewerId, params.filters, settings, cacheKey);
-    const mixed = this.mixPools(pools.properties, pools.content, settings, pools.propertyCount);
+    const mixed = this.applyOpeningHook(
+      this.mixPools(pools.properties, pools.content, settings, pools.propertyCount),
+    );
     const page = mixed.slice(offset, offset + limit);
     const nextOffset = offset + limit;
     const hasMore = nextOffset < mixed.length;
@@ -166,7 +168,13 @@ export class ShortsMixedFeedService {
       },
     });
 
-    const shortsItems = await this.serializePropertyRows(shortsRows, viewerId, access, 'property');
+    const shortsItems = await this.serializePropertyRows(
+      shortsRows,
+      viewerId,
+      access,
+      'property',
+      settings,
+    );
 
     let classicVideoItems: ScoredPoolItem[] = [];
     if (shortsItems.length < 20) {
@@ -205,6 +213,7 @@ export class ShortsMixedFeedService {
         viewerId,
         access,
         'property-video',
+        settings,
       );
     }
 
@@ -232,6 +241,7 @@ export class ShortsMixedFeedService {
     viewerId: string | undefined,
     access: PropertyViewerAccess | undefined,
     contentType: 'property' | 'property-video',
+    settings: ShortsFeedSettings,
   ): Promise<ScoredPoolItem[]> {
     const items: ScoredPoolItem[] = [];
     for (const r of rows) {
@@ -278,7 +288,9 @@ export class ShortsMixedFeedService {
       };
 
       const publishedAt = r.publishedAt ?? r.createdAt;
-      let score = publishedAt.getTime() / 1_000_000_000;
+      const priorityBoost =
+        settings.propertyPriority === 'high' ? 25 : settings.propertyPriority === 'medium' ? 12 : 0;
+      let score = this.computeScore(publishedAt, settings, priorityBoost);
       if (r.isTiparTip) score += 50;
 
       items.push({
@@ -345,7 +357,7 @@ export class ShortsMixedFeedService {
             if (type === 'COMPANY_REVIEW' && !settings.showEditorial) continue;
             if (type === 'post' && !settings.showUserPosts) continue;
 
-            const mapped = this.mapPostToShortsItem(row);
+            const mapped = this.mapPostToShortsItem(row, settings);
             if (mapped) items.push(mapped);
           }
         })(),
@@ -391,7 +403,7 @@ export class ShortsMixedFeedService {
             items.push({
               feedKey: `${contentType}:${row.id}`,
               contentType,
-              score: publishedAt.getTime() / 1_000_000_000,
+              score: this.computeScore(publishedAt, settings),
               publishedAt: publishedAt.toISOString(),
               payload: {
                 id: row.id,
@@ -415,7 +427,8 @@ export class ShortsMixedFeedService {
     return items;
   }
 
-  private mapPostToShortsItem(row: {
+  private mapPostToShortsItem(
+    row: {
     id: string;
     type: string;
     title: string;
@@ -434,7 +447,9 @@ export class ShortsMixedFeedService {
     createdAt: Date;
     user: { name: string | null };
     media: Array<{ url: string; type: string }>;
-  }): ScoredPoolItem | null {
+  },
+    settings: ShortsFeedSettings,
+  ): ScoredPoolItem | null {
     const type = String(row.type ?? '');
     const publishedAt = row.publishedAt ?? row.createdAt;
     const teaser = (row.description || row.content || '').trim().slice(0, 280);
@@ -449,7 +464,7 @@ export class ShortsMixedFeedService {
       return {
         feedKey: `youtube:${row.id}`,
         contentType: 'youtube',
-        score: publishedAt.getTime() / 1_000_000_000,
+        score: this.computeScore(publishedAt, settings),
         publishedAt: publishedAt.toISOString(),
         payload: {
           id: row.id,
@@ -476,7 +491,7 @@ export class ShortsMixedFeedService {
     return {
       feedKey: `${contentType}:${row.id}`,
       contentType,
-      score: publishedAt.getTime() / 1_000_000_000,
+      score: this.computeScore(publishedAt, settings),
       publishedAt: publishedAt.toISOString(),
       payload: {
         id: row.id,
@@ -605,7 +620,72 @@ export class ShortsMixedFeedService {
     const contentPerBatch = 1;
     const fromTier = Math.max(1, Math.round((ratio / (100 - ratio)) * contentPerBatch));
     const fromSettings = Math.max(1, settings.contentEveryNItems - 1);
-    const propsPerBatch = Math.max(fromSettings, fromTier);
+    let propsPerBatch = Math.max(fromSettings, fromTier);
+    if (settings.propertyPriority === 'medium') {
+      propsPerBatch = Math.max(1, propsPerBatch - 1);
+    } else if (settings.propertyPriority === 'low') {
+      propsPerBatch = Math.max(1, propsPerBatch - 2);
+    }
     return { propsPerBatch, contentPerBatch };
+  }
+
+  private computeScore(
+    publishedAt: Date,
+    settings: ShortsFeedSettings,
+    extraBoost = 0,
+  ): number {
+    let score = publishedAt.getTime() / 1_000_000_000 + extraBoost;
+    if (settings.preferNewContent) {
+      const ageDays = (Date.now() - publishedAt.getTime()) / 86_400_000;
+      score += Math.max(0, 45 - ageDays) * 1.5;
+    }
+    return score;
+  }
+
+  private isPropertyItem(item: ScoredPoolItem): boolean {
+    return item.contentType === 'property' || item.contentType === 'property-video';
+  }
+
+  private propertyOpeningScore(item: ScoredPoolItem): number {
+    const payload = item.payload as Record<string, unknown>;
+    let score = item.score ?? 0;
+    if (payload.isTiparTip === true) score += 100;
+    if (item.contentType === 'property-video') score += 40;
+    return score;
+  }
+
+  private applyOpeningHook(items: ScoredPoolItem[]): ScoredPoolItem[] {
+    if (items.length <= 1) return items;
+
+    const pool = [...items];
+    const opening: ScoredPoolItem[] = [];
+
+    const take = (pred: (item: ScoredPoolItem) => boolean) => {
+      const idx = pool.findIndex(pred);
+      if (idx < 0) return;
+      opening.push(...pool.splice(idx, 1));
+    };
+
+    const properties = pool
+      .filter((item) => this.isPropertyItem(item))
+      .sort((a, b) => this.propertyOpeningScore(b) - this.propertyOpeningScore(a));
+    if (properties[0]) {
+      const idx = pool.findIndex((item) => item.feedKey === properties[0].feedKey);
+      if (idx >= 0) opening.push(...pool.splice(idx, 1));
+    }
+
+    take(
+      (item) =>
+        item.contentType === 'youtube' ||
+        item.contentType === 'property-video' ||
+        item.contentType === 'editorial',
+    );
+    take((item) => ['news', 'finance', 'article'].includes(item.contentType));
+
+    while (opening.length < 3 && pool.length > 0) {
+      opening.push(pool.shift()!);
+    }
+
+    return [...opening, ...pool];
   }
 }

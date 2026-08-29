@@ -21,6 +21,8 @@ export type ShortsFeedSettings = {
   propertyRatioTierMid: number;
   /** 50+ realit → cílový podíl realit v %. */
   propertyRatioTierHigh: number;
+  /** Zvýhodnit novější obsah ve skóre řazení. */
+  preferNewContent: boolean;
 };
 
 export const DEFAULT_SHORTS_FEED_SETTINGS: ShortsFeedSettings = {
@@ -37,4 +39,5 @@ export const DEFAULT_SHORTS_FEED_SETTINGS: ShortsFeedSettings = {
   propertyRatioTierLow: 50,
   propertyRatioTierMid: 70,
   propertyRatioTierHigh: 85,
+  preferNewContent: true,
 };

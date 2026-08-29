@@ -11,6 +11,7 @@ type YoutubeLazyPlayerProps = {
   thumbnailUrl?: string | null;
   embeddable?: boolean;
   watchUrl?: string | null;
+  className?: string;
 };
 
 export function YoutubeLazyPlayer({
@@ -19,6 +20,7 @@ export function YoutubeLazyPlayer({
   thumbnailUrl,
   embeddable = true,
   watchUrl,
+  className = 'rounded-xl',
 }: YoutubeLazyPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const safeId = VIDEO_ID_RE.test(videoId) ? videoId : '';
@@ -64,11 +66,11 @@ export function YoutubeLazyPlayer({
 
   if (playing) {
     return (
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
+      <div className={`relative aspect-video w-full overflow-hidden bg-black ${className}`}>
         <iframe
           src={embedSrc}
           title={title ?? 'YouTube video'}
-          className="absolute inset-0 h-full w-full border-0"
+          className="absolute inset-0 block h-full w-full border-0"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
           loading="lazy"
@@ -81,7 +83,7 @@ export function YoutubeLazyPlayer({
     <button
       type="button"
       onClick={() => setPlaying(true)}
-      className="group relative block aspect-video w-full overflow-hidden rounded-xl bg-zinc-900"
+      className={`group relative block aspect-video w-full overflow-hidden bg-zinc-900 ${className}`}
       aria-label={title ? `Přehrát video: ${title}` : 'Přehrát YouTube video'}
     >
       {thumb ? (

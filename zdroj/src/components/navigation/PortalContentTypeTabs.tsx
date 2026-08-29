@@ -22,7 +22,7 @@ type Props = {
 };
 
 const TAB_BASE =
-  'inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[14px] px-3 py-2.5 text-[14px] font-semibold leading-none transition sm:px-3.5 sm:text-[15px]';
+  'inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[14px] px-3 py-2.5 text-[14px] font-semibold leading-none transition max-md:min-h-[36px] max-md:px-2.5 max-md:py-1.5 max-md:text-[13px] sm:px-3.5 sm:text-[15px]';
 
 const TAB_ACTIVE =
   'bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-white shadow-md shadow-orange-500/25';
@@ -51,7 +51,7 @@ export function PortalContentTypeTabs({
       ref={scrollerRef}
       role="tablist"
       aria-label="Hlavní sekce portálu"
-      className="no-scrollbar flex items-stretch gap-2 overflow-x-auto scroll-smooth px-3 py-2 md:px-4"
+      className="no-scrollbar flex items-stretch gap-2 overflow-x-auto scroll-smooth px-3 py-2 max-md:gap-1.5 max-md:px-2 max-md:py-1 md:px-4"
       style={{ scrollbarWidth: 'none' }}
     >
       {tabs.map((tab) => {

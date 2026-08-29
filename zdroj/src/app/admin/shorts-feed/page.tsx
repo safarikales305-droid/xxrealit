@@ -173,6 +173,15 @@ export default function AdminShortsFeedSettingsPage() {
               </label>
             ))}
           </div>
+          <label className="flex items-center gap-3 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={settings.preferNewContent}
+              disabled={busy}
+              onChange={(e) => void save({ preferNewContent: e.target.checked })}
+            />
+            Preferovat nový obsah
+          </label>
         </section>
       </div>
     </div>

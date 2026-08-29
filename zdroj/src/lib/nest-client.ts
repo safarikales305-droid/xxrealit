@@ -9229,6 +9229,7 @@ export type ListingPost = {
   facebookVideoMimeType?: string | null;
   source?: 'INTERNAL' | 'FACEBOOK' | 'YOUTUBE' | string;
   publishedAt?: string | null;
+  slug?: string | null;
   youtubeVideoId?: string | null;
   youtubeChannelTitle?: string | null;
   youtubeThumbnailUrl?: string | null;
@@ -16171,6 +16172,7 @@ export type ShortsFeedSettings = {
   propertyRatioTierLow: number;
   propertyRatioTierMid: number;
   propertyRatioTierHigh: number;
+  preferNewContent: boolean;
 };
 
 export async function nestAdminShortsFeedSettingsGet(

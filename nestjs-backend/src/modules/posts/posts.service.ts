@@ -29,7 +29,7 @@ import {
   isCommunityPostAuthorVisibleUser,
   isPublicMediaUrl,
   postHasFeedVisibility,
-  sortCommunityPostsWithFollowPriority,
+  sortCommunityPostsByDate,
 } from './community-posts.util';
 import { resolvePublicPostBySlug } from './public-post-resolve.util';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -603,33 +603,13 @@ export class PostsService {
     const followedSet = new Set(followedIds);
 
     let orderedIds: string[] = [];
-    if (safePage === 0 && followedIds.length > 0) {
-      const followedPostIds = await this.queryCommunityFeedPostIds({
-        authorRole,
-        followedUserIds: followedIds,
-        onlyFollowedAuthors: true,
-        limit: safeLimit,
-        offset: 0,
-      });
-      orderedIds.push(...followedPostIds);
-
-      const generalIds = await this.queryCommunityFeedPostIds({
-        authorRole,
-        followedUserIds: followedIds,
-        excludeIds: orderedIds,
-        limit: fetchBatchSize,
-        offset: 0,
-      });
-      orderedIds.push(...generalIds);
-    } else {
-      orderedIds = await this.queryCommunityFeedPostIds({
-        authorRole,
-        followedUserIds: followedIds,
-        prioritizeFollowed: followedIds.length > 0,
-        limit: fetchBatchSize,
-        offset: safePage * fetchBatchSize,
-      });
-    }
+    orderedIds = await this.queryCommunityFeedPostIds({
+      authorRole,
+      followedUserIds: followedIds,
+      prioritizeFollowed: false,
+      limit: fetchBatchSize,
+      offset: safePage * fetchBatchSize,
+    });
 
     if (orderedIds.length === 0) {
       return { items: [], page: safePage, limit: safeLimit, hasMore: false };
@@ -669,7 +649,7 @@ export class PostsService {
         .filter((row) => postHasFeedVisibility(row)),
     );
 
-    const sorted = sortCommunityPostsWithFollowPriority(deduped, followedSet).slice(0, safeLimit);
+    const sorted = sortCommunityPostsByDate(deduped).slice(0, safeLimit);
 
     const items = sorted.map((row) => {
       const r = row as (typeof rows)[number];

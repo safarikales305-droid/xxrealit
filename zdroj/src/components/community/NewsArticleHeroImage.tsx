@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { pickCategoryFallbackImage } from '@/lib/news-hero-fallback';
@@ -48,8 +49,16 @@ export function NewsArticleHeroImage({
   );
 
   if (href) {
+    const isInternal = href.startsWith('/');
+    if (isInternal) {
+      return (
+        <Link href={href} className="block">
+          {body}
+        </Link>
+      );
+    }
     return (
-      <a href={href} className="block">
+      <a href={href} target="_blank" rel="noopener noreferrer" className="block">
         {body}
       </a>
     );

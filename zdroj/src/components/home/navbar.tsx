@@ -92,7 +92,7 @@ export function Navbar({
     router.push('/inzerat/pridat');
   }
 
-  const isShortsMobileCompact = viewMode === 'shorts';
+  const isMobileCompactHeader = viewMode === 'shorts' || viewMode === 'posts';
 
   const portalTabs = useMemo(() => {
     if (viewMode == null || onViewModeChange == null) return null;
@@ -185,7 +185,7 @@ export function Navbar({
 
   return (
     <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      {isShortsMobileCompact && viewMode != null && onViewModeChange != null ? (
+      {isMobileCompactHeader && viewMode != null && onViewModeChange != null ? (
         <div className="mx-auto hidden w-full max-w-[100rem] min-w-0 px-3 pb-2 pt-1 max-md:block md:hidden">
           <div className="flex w-full min-w-0 items-center gap-1.5">
             <div className="shrink-0 [&_img]:h-[1.35rem]">
@@ -251,7 +251,7 @@ export function Navbar({
 
       <div
         className={`mx-auto w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 overflow-x-clip px-4 md:min-h-16 md:flex md:gap-3 md:overflow-visible md:px-4 md:py-2.5 ${
-          isShortsMobileCompact
+          isMobileCompactHeader
             ? 'hidden min-h-12 gap-y-1 py-2 max-md:min-h-0 max-md:py-0 md:flex md:flex-wrap md:items-center'
             : 'flex min-h-14 gap-y-2 py-3'
         }`}
@@ -268,7 +268,7 @@ export function Navbar({
 
         <div
           className={`relative min-w-0 flex-1 basis-[min(100%,12rem)] sm:min-w-[180px] md:max-w-xl ${
-            isShortsMobileCompact ? 'max-md:hidden' : ''
+            isMobileCompactHeader ? 'max-md:hidden' : ''
           }`}
         >
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 md:left-3 md:text-sm">
@@ -285,7 +285,7 @@ export function Navbar({
             onBlur={() => window.setTimeout(() => setLocationOpen(false), 180)}
             placeholder="Hledat lokality, projekty…"
             className={`w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 pl-8 text-xs font-medium text-zinc-900 placeholder:text-zinc-400 outline-none transition hover:border-zinc-300 hover:bg-white focus:border-[#ff6a00]/55 focus:bg-white focus:ring-2 focus:ring-[#ff6a00]/15 md:px-3 md:py-2 md:pl-9 md:text-sm lg:text-base ${
-              isShortsMobileCompact
+              isMobileCompactHeader
                 ? 'max-md:px-2.5 max-md:py-1.5 max-md:pl-7 max-md:text-[11px]'
                 : ''
             }`}
@@ -316,7 +316,7 @@ export function Navbar({
         <div className="flex shrink-0 flex-nowrap items-center gap-2 md:flex-wrap md:gap-3">
           <button
             type="button"
-            className={`${mobileMenuBtn} size-10 ${isShortsMobileCompact ? 'max-md:hidden' : ''}`}
+            className={`${mobileMenuBtn} size-10 ${isMobileCompactHeader ? 'max-md:hidden' : ''}`}
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
             onClick={() => setMenuOpen((o) => !o)}
@@ -332,7 +332,7 @@ export function Navbar({
             )}
           </button>
 
-          {onMobileFiltersOpen && !isShortsMobileCompact ? (
+          {onMobileFiltersOpen && !isMobileCompactHeader ? (
             <button
               type="button"
               onClick={onMobileFiltersOpen}
@@ -458,7 +458,7 @@ export function Navbar({
           <Link
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
             className={`relative z-[60] flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 font-bold text-zinc-700 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-12 md:text-base md:shadow-md md:ring-2 md:ring-orange-500/15 ${
-              isShortsMobileCompact
+              isMobileCompactHeader
                 ? 'hidden size-10 shadow-md ring-1 ring-orange-500/25 md:inline-flex md:size-12 md:ring-2'
                 : 'size-12 text-sm shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 md:size-12'
             }`}
@@ -478,7 +478,7 @@ export function Navbar({
             ) : (
               <span
                 className={`flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 md:text-lg ${
-                  isShortsMobileCompact ? 'text-sm max-md:text-xs' : 'text-base'
+                  isMobileCompactHeader ? 'text-sm max-md:text-xs' : 'text-base'
                 }`}
               >
                 {(user?.name?.trim().charAt(0) || 'U').toUpperCase()}
@@ -488,10 +488,10 @@ export function Navbar({
         </div>
       </div>
 
-      {portalTabs && !isShortsMobileCompact ? (
+      {portalTabs && !isMobileCompactHeader ? (
         <div className="mx-auto w-full max-w-[100rem] md:hidden">
           <PortalContentTypeTabs embedded tabs={portalTabs.tabs} activeId={portalTabs.activeId} />
-          <div className="px-3 pb-2">
+          <div className="hidden px-3 pb-2 min-[480px]:block">
             <Link
               href="/profesionalove"
               className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-[14px] border border-zinc-200/90 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800"

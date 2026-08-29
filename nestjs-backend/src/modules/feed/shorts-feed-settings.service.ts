@@ -43,6 +43,7 @@ export class ShortsFeedSettingsService {
       propertyRatioTierLow: this.num(o.propertyRatioTierLow, d.propertyRatioTierLow, 0, 100),
       propertyRatioTierMid: this.num(o.propertyRatioTierMid, d.propertyRatioTierMid, 0, 100),
       propertyRatioTierHigh: this.num(o.propertyRatioTierHigh, d.propertyRatioTierHigh, 0, 100),
+      preferNewContent: o.preferNewContent !== false,
     };
   }
 

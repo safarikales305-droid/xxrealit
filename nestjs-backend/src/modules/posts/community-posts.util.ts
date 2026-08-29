@@ -153,6 +153,8 @@ export function dedupeCommunityPosts<T extends CommunityPostRow>(rows: T[]): T[]
       row.facebookExternalId?.trim(),
       row.facebookPermalink?.trim(),
       row.externalUrl?.trim(),
+      (row as { youtubeVideoId?: string | null }).youtubeVideoId?.trim(),
+      (row as { editorialExternalId?: string | null }).editorialExternalId?.trim(),
     ].filter((k): k is string => Boolean(k));
 
     if (keys.some((k) => seenKeys.has(k))) continue;

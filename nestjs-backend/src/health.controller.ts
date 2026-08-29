@@ -1,4 +1,4 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from './database/prisma.service';
 
 @Controller('health')
@@ -7,16 +7,19 @@ export class HealthController {
 
   @Get()
   async getHealth() {
+    let database: 'connected' | 'disconnected' = 'disconnected';
     try {
       await this.prisma.$queryRaw`SELECT 1`;
-      return { status: 'ok', database: 'connected', timestamp: new Date().toISOString() };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown';
-      throw new ServiceUnavailableException({
-        status: 'error',
-        database: 'disconnected',
-        error: message,
-      });
+      database = 'connected';
+    } catch {
+      database = 'disconnected';
     }
+
+    return {
+      status: 'ok',
+      service: 'xxrealit-api',
+      database,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
