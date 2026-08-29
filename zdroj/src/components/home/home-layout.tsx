@@ -36,7 +36,12 @@ import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filter
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { MixedShortsFeed } from '@/components/video-feed/MixedShortsFeed';
 import type { ShortsFeedItem } from '@/lib/shorts-feed';
-import { isPropertyShortsItem, normalizeShortsFeedItem, shortsPayloadToShortVideo } from '@/lib/shorts-feed';
+import {
+  isPropertyShortsItem,
+  normalizeShortsFeedItem,
+  resolveShortDeepLinkParam,
+  shortsPayloadToShortVideo,
+} from '@/lib/shorts-feed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
@@ -304,6 +309,11 @@ export function HomeLayout({
     () => searchParams.get('video')?.trim() || null,
     [searchParams],
   );
+  const sharedShortKey = useMemo(
+    () =>
+      resolveShortDeepLinkParam(searchParams.get('short'), searchParams.get('video')),
+    [searchParams],
+  );
   const tipsOnlyActive = useMemo(() => {
     const raw = searchParams.get('tipsOnly')?.trim().toLowerCase();
     return raw === '1' || raw === 'true';
@@ -313,12 +323,13 @@ export function HomeLayout({
     const tab = searchParams.get('tab');
     const category = parseCategoryFromQuery(searchParams.get('category'));
     const v = searchParams.get('video')?.trim();
+    const short = searchParams.get('short')?.trim();
     if (tab === 'posts') {
       setViewMode('posts');
       setActiveCategory(category);
       return;
     }
-    if (tab === 'shorts' || Boolean(v)) {
+    if (tab === 'shorts' || Boolean(v) || Boolean(short)) {
       setViewMode('shorts');
       return;
     }
@@ -334,6 +345,8 @@ export function HomeLayout({
   const [shortsFeedLoadingMore, setShortsFeedLoadingMore] = useState(false);
   const [shortsFeedError, setShortsFeedError] = useState(false);
   const [shortsFeedRetryNonce, setShortsFeedRetryNonce] = useState(0);
+  const [shortsTargetIndexInPage, setShortsTargetIndexInPage] = useState<number | null>(null);
+  const [shortsTargetMissing, setShortsTargetMissing] = useState(false);
   /** Video z deep linku, které ještě není v odpovědi /feed/shorts. */
   const [shareExtraVideo, setShareExtraVideo] = useState<ShortVideo | null>(null);
   const [shareExtraLoading, setShareExtraLoading] = useState(false);
@@ -643,34 +656,43 @@ export function HomeLayout({
         seen.add(item.feedKey);
       }
     }
-    if (!sharedVideoId) {
-      return tipsOnlyActive
-        ? merged.filter((item) => {
-            if (!isPropertyShortsItem(item)) return false;
-            return item.payload.isTip === true || item.payload.isTiparTip === true;
-          })
-        : merged;
+    const filtered = tipsOnlyActive
+      ? merged.filter((item) => {
+          if (!isPropertyShortsItem(item)) return false;
+          return item.payload.isTip === true || item.payload.isTiparTip === true;
+        })
+      : merged;
+    if (!sharedShortKey || shortsTargetIndexInPage != null) {
+      return filtered;
     }
-    const idx = merged.findIndex((item) => {
-      if (!isPropertyShortsItem(item)) return false;
-      const v = shortsPayloadToShortVideo(item.payload);
-      return v?.id === sharedVideoId;
-    });
+    const idx = merged.findIndex(
+      (item) =>
+        item.feedKey === sharedShortKey ||
+        (sharedShortKey.startsWith('property:') &&
+          (item.feedKey === sharedShortKey ||
+            item.feedKey === sharedShortKey.replace('property:', 'property-video:'))),
+    );
     if (idx === -1) return merged;
     const picked = merged[idx];
     const rest = merged.filter((_, i) => i !== idx);
     return [picked, ...rest];
-  }, [mixedShortsFeed, shareExtraVideo, sharedVideoId, tipsOnlyActive]);
+  }, [mixedShortsFeed, shareExtraVideo, sharedShortKey, tipsOnlyActive, shortsTargetIndexInPage]);
 
-  const shareMissingInFeed = Boolean(
-    sharedVideoId &&
-      !mixedShortsFeed.some((item) => {
-        if (!isPropertyShortsItem(item)) return false;
-        const v = shortsPayloadToShortVideo(item.payload);
-        return v?.id === sharedVideoId;
-      }) &&
-      shareExtraVideo?.id !== sharedVideoId,
+  const handleActiveShortChange = useCallback(
+    (feedKey: string) => {
+      if (typeof window === 'undefined') return;
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('short') === feedKey && url.searchParams.get('tab') === 'shorts') {
+        return;
+      }
+      url.searchParams.set('tab', 'shorts');
+      url.searchParams.set('short', feedKey);
+      url.searchParams.delete('video');
+      window.history.replaceState(window.history.state, '', url.toString());
+    },
+    [],
   );
+
   /** Feed zobrazíme hned po načtení shorts; sdílené video / profily jdou na pozadí. */
   const shortsBootstrapBusy =
     loadingFeed && mixedItemsForFeed.length === 0 && filteredShortsFallback.length === 0;
@@ -743,6 +765,8 @@ export function HomeLayout({
     setMixedShortsFeed([]);
     setShortsFeedCursor(null);
     setShortsFeedHasMore(false);
+    setShortsTargetIndexInPage(null);
+    setShortsTargetMissing(false);
 
     void (async () => {
       const controller = new AbortController();
@@ -751,6 +775,7 @@ export function HomeLayout({
         const qs = listingFilterQuery;
         const params = new URLSearchParams(qs);
         params.set('limit', '20');
+        if (sharedShortKey) params.set('target', sharedShortKey);
         const shortsUrl = `${API_BASE_URL}/feed/shorts/feed?${params.toString()}`;
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
@@ -778,6 +803,8 @@ export function HomeLayout({
           items?: ShortsFeedItem[];
           nextCursor?: string | null;
           hasMore?: boolean;
+          targetIndexInPage?: number | null;
+          targetFound?: boolean;
         };
         const list = (Array.isArray(data.items) ? data.items : []).map(normalizeShortsFeedItem);
         const propertyCount = list.filter((x) => isPropertyShortsItem(x)).length;
@@ -785,6 +812,10 @@ export function HomeLayout({
         setMixedShortsFeed(list);
         setShortsFeedCursor(data.nextCursor ?? null);
         setShortsFeedHasMore(Boolean(data.hasMore));
+        setShortsTargetIndexInPage(
+          typeof data.targetIndexInPage === 'number' ? data.targetIndexInPage : null,
+        );
+        setShortsTargetMissing(Boolean(sharedShortKey && data.targetFound === false));
         setShortsTotal(propertyCount > 0 ? propertyCount : list.length);
         setVideoFeed(
           list
@@ -822,7 +853,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce]);
+  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce, sharedShortKey]);
 
   const loadMoreMixedShorts = useCallback(async () => {
     if (!API_BASE_URL || !shortsFeedHasMore || shortsFeedLoadingMore || !shortsFeedCursor) return;
@@ -1247,9 +1278,17 @@ export function HomeLayout({
                         Aktivní lokalita: <span className="font-semibold">{activeLocationLabel}</span>
                       </p>
                     ) : null}
+                    {shortsTargetMissing ? (
+                      <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
+                        Toto video již není dostupné — zobrazujeme nejbližší Shorts.
+                      </p>
+                    ) : null}
                     <MixedShortsFeed
-                      key={sharedVideoId ?? 'mixed-feed'}
+                      key={sharedShortKey ?? 'mixed-feed'}
                       items={mixedItemsForFeed}
+                      initialFeedKey={sharedShortKey}
+                      initialIndex={shortsTargetIndexInPage}
+                      onActiveItemChange={(feedKey) => handleActiveShortChange(feedKey)}
                       onMobileFiltersOpen={() => setMobileFiltersOpen(true)}
                       onLoadMore={shortsFeedHasMore ? loadMoreMixedShorts : undefined}
                       loadingMore={shortsFeedLoadingMore}

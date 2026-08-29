@@ -19,6 +19,7 @@ import {
 import { NEWS_CATEGORY_LABELS } from '../news-editorial/news-editorial.constants';
 import { ShortsFeedSettingsService } from './shorts-feed-settings.service';
 import type { ShortsFeedSettings } from './shorts-feed-settings.types';
+import { parseShortPublicId, type ParsedShortPublicId } from './shorts-public-id.util';
 import type {
   ShortsFeedCursor,
   ShortsFeedItem,
@@ -59,6 +60,7 @@ export class ShortsMixedFeedService {
     filters?: PublicPropertyListFilters;
     cursor?: string;
     limit?: number;
+    target?: string;
   }): Promise<ShortsFeedResponse> {
     const limit = Math.min(30, Math.max(1, Math.trunc(params.limit ?? 15) || 15));
     const offset = this.decodeCursor(params.cursor);
@@ -67,13 +69,69 @@ export class ShortsMixedFeedService {
     const pools = await this.loadPools(params.viewerId, params.filters, settings, cacheKey);
     const properties = pools.properties.filter((item) => this.isRenderableShortItem(item));
     const content = pools.content.filter((item) => this.isRenderableShortItem(item));
-    const mixed = this.applyOpeningHook(
+    let mixed = this.applyOpeningHook(
       this.mixPools(properties, content, settings, properties.length),
       properties.length,
       settings,
     );
     this.logFeedSummary('pools', properties, content);
     this.logFeedSummary('mixed', properties, content, mixed);
+
+    const targetKey = params.target?.trim() || null;
+    let targetIndexInPage: number | null = null;
+    let targetFound = false;
+
+    if (targetKey && offset === 0) {
+      const parsed = parseShortPublicId(targetKey);
+      if (parsed) {
+        let targetIndex = mixed.findIndex(
+          (item) =>
+            item.feedKey === parsed.feedKey ||
+            (parsed.contentType === 'property' &&
+              (item.feedKey === `property:${parsed.id}` ||
+                item.feedKey === `property-video:${parsed.id}`)),
+        );
+
+        if (targetIndex < 0) {
+          const fetched = await this.fetchItemByPublicId(parsed, params.viewerId, settings);
+          if (fetched && this.isRenderableShortItem(fetched)) {
+            const beforeCount = Math.min(5, mixed.length);
+            mixed = [...mixed.slice(0, beforeCount), fetched, ...mixed.slice(beforeCount)];
+            targetIndex = beforeCount;
+            targetFound = true;
+          }
+        } else {
+          targetFound = true;
+        }
+
+        if (targetFound && targetIndex >= 0) {
+          const before = 5;
+          const start = Math.max(0, targetIndex - before);
+          const page = mixed.slice(start, start + limit);
+          const nextOffset = start + limit;
+          targetIndexInPage = targetIndex - start;
+          return {
+            items: page,
+            nextCursor: nextOffset < mixed.length ? this.encodeCursor({ offset: nextOffset }) : null,
+            hasMore: nextOffset < mixed.length,
+            targetFeedKey: parsed.feedKey,
+            targetIndexInPage,
+            targetFound: true,
+          };
+        }
+      }
+
+      return {
+        items: mixed.slice(offset, offset + limit),
+        nextCursor:
+          offset + limit < mixed.length ? this.encodeCursor({ offset: offset + limit }) : null,
+        hasMore: offset + limit < mixed.length,
+        targetFeedKey: targetKey,
+        targetIndexInPage: null,
+        targetFound: false,
+      };
+    }
+
     const page = mixed.slice(offset, offset + limit);
     const nextOffset = offset + limit;
     const hasMore = nextOffset < mixed.length;
@@ -83,6 +141,18 @@ export class ShortsMixedFeedService {
       nextCursor: hasMore ? this.encodeCursor({ offset: nextOffset }) : null,
       hasMore,
     };
+  }
+
+  async resolveItemByPublicId(
+    publicId: string,
+    viewerId?: string,
+  ): Promise<ShortsFeedItem | null> {
+    const parsed = parseShortPublicId(publicId);
+    if (!parsed) return null;
+    const settings = await this.settingsService.getSettings();
+    const item = await this.fetchItemByPublicId(parsed, viewerId, settings);
+    if (!item || !this.isRenderableShortItem(item)) return null;
+    return item;
   }
 
   private cacheKey(filters: PublicPropertyListFilters | undefined, settings: ShortsFeedSettings): string {
@@ -941,5 +1011,124 @@ export class ShortsMixedFeedService {
     }
 
     return [...opening, ...pool];
+  }
+
+  private async fetchItemByPublicId(
+    parsed: ParsedShortPublicId,
+    viewerId: string | undefined,
+    settings: ShortsFeedSettings,
+  ): Promise<ScoredPoolItem | null> {
+    const { contentType, id } = parsed;
+
+    if (contentType === 'property' || contentType === 'property-video') {
+      const row = await this.prisma.property.findFirst({
+        where: { id, deletedAt: null },
+        include: {
+          media: { orderBy: { sortOrder: 'asc' } },
+          tiparPostPublished: { select: { id: true, contactUnlockPrice: true } },
+          _count: { select: { likes: true } },
+          user: { select: { id: true, city: true, name: true, avatar: true } },
+        },
+      });
+      if (!row) return null;
+      const viewer = viewerId
+        ? await this.prisma.user.findUnique({
+            where: { id: viewerId },
+            select: { id: true, role: true, isPremiumBroker: true },
+          })
+        : null;
+      const access: PropertyViewerAccess | undefined = viewer
+        ? {
+            role: viewer.role,
+            isPremiumBroker: Boolean(viewer.isPremiumBroker),
+            isAdmin: viewer.role === UserRole.ADMIN,
+          }
+        : undefined;
+      const type: 'property' | 'property-video' =
+        contentType === 'property-video' ? 'property-video' : 'property';
+      const items = await this.serializePropertyRows([row], viewerId, access, type, settings);
+      return items[0] ?? null;
+    }
+
+    if (contentType === 'youtube') {
+      const row = await this.prisma.post.findFirst({
+        where: {
+          AND: [
+            buildCommunityPostsWhere(),
+            { type: 'YOUTUBE_VIDEO' },
+            { OR: [{ youtubeVideoId: id }, { id }] },
+            { publishedAt: { not: null } },
+          ],
+        },
+        include: this.postRowInclude(),
+      });
+      if (!row) return null;
+      return this.mapPostToShortsItem(row, settings);
+    }
+
+    if (['article', 'editorial', 'post'].includes(contentType)) {
+      const typeMap: Record<string, string> = {
+        article: 'NEWS_ARTICLE',
+        editorial: 'COMPANY_REVIEW',
+        post: 'post',
+      };
+      const row = await this.prisma.post.findFirst({
+        where: {
+          AND: [buildCommunityPostsWhere(), { id }, { type: typeMap[contentType] ?? contentType }],
+        },
+        include: this.postRowInclude(),
+      });
+      if (!row) return null;
+      return this.mapPostToShortsItem(row, settings);
+    }
+
+    if (contentType === 'news' || contentType === 'finance') {
+      const row = await this.prisma.newsArticle.findFirst({
+        where: {
+          id,
+          status: NewsArticleStatus.PUBLISHED,
+          publishedAt: { not: null },
+          ogImageUrl: { not: null },
+        },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          perex: true,
+          ogImageUrl: true,
+          category: true,
+          publishedAt: true,
+          canonicalPath: true,
+        },
+      });
+      if (!row) return null;
+      const imageUrl = (row.ogImageUrl ?? '').trim();
+      const title = (row.title ?? '').trim();
+      if (!imageUrl || !title) return null;
+      const isFinance = FINANCE_NEWS_CATEGORIES.has(row.category);
+      const itemType: ShortsItemType = isFinance ? 'finance' : 'news';
+      const publishedAt = row.publishedAt!;
+      const categoryLabel =
+        NEWS_CATEGORY_LABELS[row.category as keyof typeof NEWS_CATEGORY_LABELS] ?? row.category;
+      return {
+        feedKey: `${itemType}:${row.id}`,
+        contentType: itemType,
+        score: this.computeScore(publishedAt, settings),
+        publishedAt: publishedAt.toISOString(),
+        payload: {
+          id: row.id,
+          slug: row.slug,
+          title: row.title,
+          teaser: row.perex,
+          imageUrl,
+          category: row.category,
+          categoryLabel,
+          sourceName: 'XXREALIT Aktuality',
+          href: row.canonicalPath?.trim() || `/aktuality/${row.slug}`,
+        },
+      };
+    }
+
+    return null;
   }
 }

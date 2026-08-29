@@ -1,6 +1,7 @@
 import type { ShortVideo } from '@/lib/nest-client';
 import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
 import { parseApiListingPrice } from '@/types/property';
+import { getShareOrigin } from '@/lib/public-share-url';
 
 const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 const YOUTUBE_URL_RE =
@@ -28,6 +29,9 @@ export type ShortsFeedResponse = {
   items: ShortsFeedItem[];
   nextCursor: string | null;
   hasMore: boolean;
+  targetIndexInPage?: number | null;
+  targetFeedKey?: string | null;
+  targetFound?: boolean;
 };
 
 export type ShortsFeedSettings = {
@@ -236,4 +240,53 @@ export function isRenderableShortsItem(item: ShortsFeedItem): boolean {
 /** @deprecated Use isRenderableShortsItem */
 export function isPlayableShortsItem(item: ShortsFeedItem): boolean {
   return isRenderableShortsItem(item);
+}
+
+export type ParsedShortPublicId = {
+  contentType: string;
+  id: string;
+  feedKey: string;
+};
+
+export function parseShortPublicId(raw: string): ParsedShortPublicId | null {
+  const trimmed = raw.trim();
+  const idx = trimmed.indexOf(':');
+  if (idx <= 0) return null;
+  const contentType = trimmed.slice(0, idx).trim().toLowerCase();
+  const id = trimmed.slice(idx + 1).trim();
+  if (!contentType || !id) return null;
+  return { contentType, id, feedKey: `${contentType}:${id}` };
+}
+
+export function getShortPublicId(item: ShortsFeedItem): string {
+  return normalizeShortsFeedItem(item).feedKey;
+}
+
+export function buildShortShareUrl(publicId: string, origin?: string): string {
+  const base = (origin ?? getShareOrigin()).replace(/\/+$/, '');
+  const trimmed = publicId.trim();
+  return `${base}/?tab=shorts&short=${encodeURIComponent(trimmed)}`;
+}
+
+export function buildShortShareUrlFromItem(item: ShortsFeedItem, origin?: string): string {
+  return buildShortShareUrl(getShortPublicId(item), origin);
+}
+
+export function propertyShortPublicId(propertyId: string): string {
+  return `property:${propertyId.trim()}`;
+}
+
+/** Resolve deep-link param from URL (?short= or legacy ?video=). */
+export function resolveShortDeepLinkParam(
+  shortParam: string | null | undefined,
+  legacyVideoParam: string | null | undefined,
+): string | null {
+  const short = shortParam?.trim();
+  if (short) {
+    const parsed = parseShortPublicId(short);
+    return parsed?.feedKey ?? short;
+  }
+  const video = legacyVideoParam?.trim();
+  if (video) return propertyShortPublicId(video);
+  return null;
 }

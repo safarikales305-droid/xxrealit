@@ -7,6 +7,10 @@ import {
 } from '../../news-editorial/news-editorial-settings.types';
 import { buildPostPublicUrl } from '../../seo/post-seo.util';
 import { getPublicPortalUrl } from './social-publish-format.util';
+import {
+  buildShortShareUrl,
+  getShortPublicIdFromPost,
+} from '../../feed/shorts-public-id.util';
 
 export type { FacebookLinkTarget };
 
@@ -60,6 +64,11 @@ export function getFacebookDestinationUrl(
   const portal = portalDetailUrl.replace(/\/+$/, '');
 
   switch (target) {
+    case 'SHORTS_FEED': {
+      const publicId = getShortPublicIdFromPost(post);
+      if (publicId) return buildShortShareUrl(publicId);
+      return portal;
+    }
     case 'ARTICLE_DETAIL': {
       const articleUrl = post.externalUrl?.trim();
       if (articleUrl?.startsWith('http')) return articleUrl;

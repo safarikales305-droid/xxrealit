@@ -47,7 +47,13 @@ export class NewsEditorialSettingsService implements OnModuleInit {
     v: unknown,
     fallback: NewsAutomationSettings['facebookLinkTargetPortalPost'],
   ): NewsAutomationSettings['facebookLinkTargetPortalPost'] {
-    const allowed = ['PORTAL_DETAIL', 'SOURCE', 'YOUTUBE_ORIGINAL', 'ARTICLE_DETAIL'] as const;
+    const allowed = [
+      'PORTAL_DETAIL',
+      'SOURCE',
+      'YOUTUBE_ORIGINAL',
+      'ARTICLE_DETAIL',
+      'SHORTS_FEED',
+    ] as const;
     return (
       typeof v === 'string' && (allowed as readonly string[]).includes(v) ? v : fallback
     ) as NewsAutomationSettings['facebookLinkTargetPortalPost'];

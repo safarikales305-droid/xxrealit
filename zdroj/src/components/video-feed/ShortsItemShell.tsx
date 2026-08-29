@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { DesktopShortsNavButtons } from '@/components/shorts/shorts-feed-nav-context';
+import { ShortsGestureLayer } from '@/components/video-feed/ShortsGestureLayer';
 
 type ShortsItemShellProps = {
   badge?: ReactNode;
@@ -32,7 +33,10 @@ export function ShortsItemShell({
             {badge ? (
               <div className="pointer-events-none absolute left-3 top-3 z-20 lg:left-4 lg:top-4">{badge}</div>
             ) : null}
-            {center}
+            <div className="relative h-full w-full touch-pan-y">
+              {center}
+              <ShortsGestureLayer className="absolute inset-0 z-[15] lg:hidden" />
+            </div>
             {mobileOverlay ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[20] lg:hidden">
                 {mobileOverlay}

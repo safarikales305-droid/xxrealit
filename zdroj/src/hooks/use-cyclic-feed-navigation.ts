@@ -32,6 +32,8 @@ type Options<T> = {
   enabled?: boolean;
   /** URL dalšího / předchozího prvku pro přednačtení videa. */
   prefetchSrc?: (item: T) => string | null;
+  /** Počáteční index ve feedu (např. deep-link). */
+  initialIndex?: number;
 };
 
 function outgoingSlideClass(direction: FeedDirection, animate: boolean): string {
@@ -56,6 +58,7 @@ export function useCyclicFeedNavigation<T>(
     switchLockMs = DEFAULT_SWITCH_LOCK_MS,
     enabled = true,
     prefetchSrc,
+    initialIndex = 0,
   } = options;
 
   const total = items.length;
@@ -64,7 +67,9 @@ export function useCyclicFeedNavigation<T>(
     [items, getId],
   );
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(() =>
+    Math.max(0, Math.min(initialIndex, Math.max(0, total - 1))),
+  );
   const [transition, setTransition] = useState<TransitionState | null>(null);
   const [direction, setDirection] = useState<FeedDirection | null>(null);
   const isSwitchingRef = useRef(false);
@@ -76,10 +81,12 @@ export function useCyclicFeedNavigation<T>(
   currentIndexRef.current = currentIndex;
 
   useEffect(() => {
-    setCurrentIndex(0);
+    const next =
+      total > 0 ? Math.max(0, Math.min(initialIndex, total - 1)) : 0;
+    setCurrentIndex(next);
     setTransition(null);
     setDirection(null);
-  }, [itemsKey]);
+  }, [itemsKey, initialIndex, total]);
 
   useEffect(() => {
     setCurrentIndex((prev) => {

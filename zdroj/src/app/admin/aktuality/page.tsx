@@ -2100,9 +2100,11 @@ export default function AdminAktualityPage() {
                     }
                     className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
                   >
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
                     <option value="SOURCE">Původní zdroj</option>
                     <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
                   </select>
                 </label>
@@ -2124,8 +2126,10 @@ export default function AdminAktualityPage() {
                     className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
                   >
                     <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
                     <option value="SOURCE">Původní zdroj</option>
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
                   </select>
                 </label>
@@ -2146,7 +2150,9 @@ export default function AdminAktualityPage() {
                     }
                     className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
                   >
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="PORTAL_DETAIL">Detail příspěvku na XXREALIT</option>
+                    <option value="SHORTS_FEED">Shorts feed (doporučeno)</option>
                     <option value="YOUTUBE_ORIGINAL">Původní YouTube video</option>
                     <option value="SOURCE">Původní zdroj</option>
                     <option value="ARTICLE_DETAIL">Detail článku XXREALIT</option>

@@ -4,7 +4,8 @@ export type FacebookLinkTarget =
   | 'PORTAL_DETAIL'
   | 'SOURCE'
   | 'YOUTUBE_ORIGINAL'
-  | 'ARTICLE_DETAIL';
+  | 'ARTICLE_DETAIL'
+  | 'SHORTS_FEED';
 
 export const DEFAULT_FACEBOOK_POST_TEMPLATE = `🏡 Nový příspěvek na XXREALIT
 
@@ -98,9 +99,9 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   youtubeUseAiTeaser: true,
   youtubeInitialSyncVideos: 30,
   youtubeInitialSyncIgnoreRelevance: true,
-  facebookLinkTargetPortalPost: 'PORTAL_DETAIL',
-  facebookLinkTargetNewsArticle: 'ARTICLE_DETAIL',
-  facebookLinkTargetYoutube: 'PORTAL_DETAIL',
+  facebookLinkTargetPortalPost: 'SHORTS_FEED',
+  facebookLinkTargetNewsArticle: 'SHORTS_FEED',
+  facebookLinkTargetYoutube: 'SHORTS_FEED',
   facebookPostTemplate: DEFAULT_FACEBOOK_POST_TEMPLATE,
   facebookYoutubePostTemplate: DEFAULT_FACEBOOK_YOUTUBE_TEMPLATE,
   facebookHashtags: DEFAULT_FACEBOOK_HASHTAGS,

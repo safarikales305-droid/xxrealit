@@ -18,6 +18,10 @@ import {
 } from '../properties/property-og-media.util';
 import { buildListingPublicSeoUrl } from '../seo/post-seo.util';
 import {
+  buildShortShareUrl,
+  propertyShortPublicId,
+} from '../feed/shorts-public-id.util';
+import {
   DEFAULT_SHARE_TEXTS,
   type ShareContentType,
   ShareTextsSettingsService,
@@ -58,7 +62,7 @@ export class ShareMetadataService {
     }
     const origin = getSiteOriginForOg();
     return contentType === 'shorts'
-      ? `${origin}/shorts/${encodeURIComponent(id)}`
+      ? buildShortShareUrl(propertyShortPublicId(id), origin)
       : `${origin}/nemovitost/${encodeURIComponent(id)}`;
   }
 

@@ -29,6 +29,7 @@ type Props<T> = {
   emptyState?: ReactNode;
   prefetchSrc?: (item: T) => string | null;
   onNavigation?: (nav: CyclicFeedNav) => void;
+  initialIndex?: number;
   children: (item: T, ctx: SlideContext) => ReactNode;
 };
 
@@ -42,6 +43,7 @@ export function CyclicFeedViewport<T>({
   emptyState = null,
   prefetchSrc,
   onNavigation,
+  initialIndex = 0,
   children,
 }: Props<T>) {
   const {
@@ -58,6 +60,7 @@ export function CyclicFeedViewport<T>({
     debugLabel,
     switchLockMs: 400,
     prefetchSrc,
+    initialIndex,
   });
 
   useEffect(() => {

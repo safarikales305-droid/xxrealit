@@ -63,9 +63,9 @@ export type NewsAutomationSettings = {
   youtubeUseAiTeaser?: boolean;
   youtubeInitialSyncVideos?: number;
   youtubeInitialSyncIgnoreRelevance?: boolean;
-  facebookLinkTargetPortalPost?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
-  facebookLinkTargetNewsArticle?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
-  facebookLinkTargetYoutube?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL';
+  facebookLinkTargetPortalPost?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL' | 'SHORTS_FEED';
+  facebookLinkTargetNewsArticle?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL' | 'SHORTS_FEED';
+  facebookLinkTargetYoutube?: 'PORTAL_DETAIL' | 'SOURCE' | 'YOUTUBE_ORIGINAL' | 'ARTICLE_DETAIL' | 'SHORTS_FEED';
   facebookPostTemplate?: string;
   facebookYoutubePostTemplate?: string;
   facebookHashtags?: string;

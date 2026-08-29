@@ -20,6 +20,10 @@ export type ShortsFeedResponse = {
   items: ShortsFeedItem[];
   nextCursor: string | null;
   hasMore: boolean;
+  /** Index of target item within returned page (when target= query was used). */
+  targetIndexInPage?: number | null;
+  targetFeedKey?: string | null;
+  targetFound?: boolean;
 };
 
 export type ShortsFeedCursor = {

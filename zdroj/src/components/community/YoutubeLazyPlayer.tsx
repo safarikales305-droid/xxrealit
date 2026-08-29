@@ -84,7 +84,7 @@ export function YoutubeLazyPlayer({
         <iframe
           src={embedSrc}
           title={title ?? 'YouTube video'}
-          className="absolute inset-0 block h-full w-full border-0"
+          className="absolute inset-0 block h-full w-full touch-pan-y border-0"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
           loading="lazy"
@@ -99,8 +99,8 @@ export function YoutubeLazyPlayer({
       onClick={() => setPlaying(true)}
       className={
         fillStage
-          ? 'group relative block h-full w-full overflow-hidden bg-zinc-900'
-          : `group relative block aspect-video w-full overflow-hidden bg-zinc-900 ${className}`
+          ? 'group relative block h-full w-full touch-pan-y overflow-hidden bg-zinc-900'
+          : `group relative block aspect-video w-full touch-pan-y overflow-hidden bg-zinc-900 ${className}`
       }
       aria-label={title ? `Přehrát video: ${title}` : 'Přehrát YouTube video'}
     >

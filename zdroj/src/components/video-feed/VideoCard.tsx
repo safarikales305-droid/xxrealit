@@ -16,6 +16,7 @@ import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { TipShortsSticker } from '@/components/listing/TipBadges';
 import { ShortsSlideVideo } from '@/components/shorts/ShortsSlideVideo';
+import { ShortsGestureLayer } from '@/components/video-feed/ShortsGestureLayer';
 import { DesktopShortsNavButtons } from '@/components/shorts/shorts-feed-nav-context';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
@@ -525,7 +526,8 @@ export default function VideoCard({
           <div
             className="shorts-video-stage relative min-h-0 flex-1 overflow-hidden max-lg:max-h-full lg:flex lg:h-[min(88vh,calc(100dvh-9rem))] lg:w-[min(100%,calc(min(88vh,100dvh-9rem)*9/16))] lg:max-w-[min(420px,42vw)] lg:flex-none lg:shrink-0 lg:items-center lg:justify-center lg:rounded-xl lg:border lg:border-zinc-200 lg:bg-zinc-950 lg:shadow-[0_24px_70px_rgba(0,0,0,0.18)]"
           >
-            {desktopPreviewUrl ? (
+            <div className="relative h-full w-full touch-pan-y">
+              {desktopPreviewUrl ? (
               <>
                 <img
                   src={desktopPreviewUrl}
@@ -567,6 +569,8 @@ export default function VideoCard({
                 Video se nepodařilo načíst
               </div>
             )}
+              <ShortsGestureLayer className="absolute inset-0 z-[14] lg:hidden" />
+            </div>
             {showTipSticker ? (
               <TipShortsSticker
                 belowGuestCta={showGuestCta}
@@ -595,7 +599,13 @@ export default function VideoCard({
             ) : null}
 
             {/* Mobil: akce v pravém sloupci */}
-            <div className="shorts-actions lg:hidden" data-floating-ui data-floating-ui-id="shorts-action-rail" data-floating-action="shorts-rail">
+            <div
+              className="shorts-actions lg:hidden"
+              data-floating-ui
+              data-floating-ui-id="shorts-action-rail"
+              data-floating-action="shorts-rail"
+              data-no-swipe
+            >
               {renderActionRail({ desktopLightShare: false })}
             </div>
 

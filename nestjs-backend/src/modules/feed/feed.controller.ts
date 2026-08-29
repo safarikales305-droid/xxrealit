@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -57,6 +57,7 @@ export class FeedController {
     @Query('tipsOnly') tipsOnlyRaw?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limitRaw?: string,
+    @Query('target') target?: string,
   ) {
     const filters = parsePublicPropertyListFiltersQuery({
       city,
@@ -75,7 +76,19 @@ export class FeedController {
       filters,
       cursor,
       limit: Number.isFinite(limit) ? limit : undefined,
+      target: target?.trim() || undefined,
     });
+  }
+
+  @Get('shorts/item/:publicId')
+  @UseGuards(OptionalJwtAuthGuard)
+  async getShortsFeedItem(
+    @CurrentUser() user: AuthUser | null,
+    @Param('publicId') publicId: string,
+  ) {
+    const item = await this.mixedFeedService.resolveItemByPublicId(publicId, user?.id);
+    if (!item) throw new NotFoundException('Short položka nenalezena');
+    return item;
   }
 
   @Get('posts')

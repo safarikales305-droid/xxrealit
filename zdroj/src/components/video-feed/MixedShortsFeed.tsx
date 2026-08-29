@@ -23,6 +23,9 @@ type MixedShortsFeedProps = {
   onMobileFiltersOpen?: () => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  initialFeedKey?: string | null;
+  initialIndex?: number | null;
+  onActiveItemChange?: (feedKey: string, index: number) => void;
 };
 
 const noopNav: CyclicFeedNav = {
@@ -66,6 +69,9 @@ export function MixedShortsFeed({
   onMobileFiltersOpen,
   onLoadMore,
   loadingMore = false,
+  initialFeedKey = null,
+  initialIndex: initialIndexOverride = null,
+  onActiveItemChange,
 }: MixedShortsFeedProps) {
   const { reportGuestListingViewed } = useGuestRegistrationGate();
   const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
@@ -88,6 +94,21 @@ export function MixedShortsFeed({
     [items, skippedKeys],
   );
 
+  const initialIndex = useMemo(() => {
+    if (typeof initialIndexOverride === 'number' && initialIndexOverride >= 0) {
+      return Math.min(initialIndexOverride, Math.max(0, renderableItems.length - 1));
+    }
+    if (!initialFeedKey?.trim()) return 0;
+    const key = initialFeedKey.trim();
+    const idx = renderableItems.findIndex(
+      (item) =>
+        item.feedKey === key ||
+        (key.startsWith('property:') &&
+          (item.feedKey === key || item.feedKey === key.replace('property:', 'property-video:'))),
+    );
+    return idx >= 0 ? idx : 0;
+  }, [renderableItems, initialFeedKey, initialIndexOverride]);
+
   const handleNavigation = useCallback((api: CyclicFeedNav) => {
     setNav(api);
   }, []);
@@ -98,6 +119,12 @@ export function MixedShortsFeed({
       onLoadMore();
     }
   }, [nav.currentIndex, renderableItems.length, onLoadMore, loadingMore]);
+
+  useEffect(() => {
+    if (!onActiveItemChange || nav.total <= 0) return;
+    const item = renderableItems[nav.currentIndex];
+    if (item) onActiveItemChange(item.feedKey, nav.currentIndex);
+  }, [nav.currentIndex, nav.total, renderableItems, onActiveItemChange]);
 
   const onGuestVideoViewed = useCallback(
     (videoId: string) => {
@@ -126,6 +153,7 @@ export function MixedShortsFeed({
           items={renderableItems}
           getId={(item) => item.feedKey}
           debugLabel="MIXED_SHORTS"
+          initialIndex={initialIndex}
           prefetchSrc={(item) => {
             if (!isPropertyShortsItem(item)) return null;
             const video = shortsPayloadToShortVideo(item.payload);

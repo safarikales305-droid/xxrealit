@@ -1,4 +1,5 @@
 import { getAppOrigin } from '@/lib/app-url';
+import { buildShortShareUrl, propertyShortPublicId } from '@/lib/shorts-feed';
 
 export function getShareOrigin(): string {
   return getAppOrigin();
@@ -25,7 +26,7 @@ export function listingShareUrl(
     opts?.force === 'shorts' ||
     (opts?.force !== 'classic' && isShortsListing(opts ?? {}));
   return asShorts
-    ? `${origin}/shorts/${encodeURIComponent(id)}`
+    ? buildShortShareUrl(propertyShortPublicId(id), origin)
     : `${origin}/nemovitost/${encodeURIComponent(id)}`;
 }
 
