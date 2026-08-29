@@ -16157,6 +16157,54 @@ export async function nestAdminSeoAiImprove(
   return (await res.json()) as NestAdminSeoAiProposal;
 }
 
+export type ShortsFeedSettings = {
+  showProperties: boolean;
+  showYoutube: boolean;
+  showArticles: boolean;
+  showNews: boolean;
+  showEditorial: boolean;
+  showUserPosts: boolean;
+  showFinanceNews: boolean;
+  propertyPriority: 'high' | 'medium' | 'low';
+  contentEveryNItems: number;
+  minPropertyRatioPercent: number;
+  propertyRatioTierLow: number;
+  propertyRatioTierMid: number;
+  propertyRatioTierHigh: number;
+};
+
+export async function nestAdminShortsFeedSettingsGet(
+  token: string | null,
+): Promise<ShortsFeedSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-feed/settings`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as ShortsFeedSettings | null;
+}
+
+export async function nestAdminShortsFeedSettingsPatch(
+  token: string | null,
+  body: Partial<ShortsFeedSettings>,
+): Promise<{ ok: boolean; data?: ShortsFeedSettings; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-feed/settings`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: err.message ?? `Chyba ${res.status}` };
+  }
+  return { ok: true, data: (await res.json()) as ShortsFeedSettings };
+}
+
 export async function nestAdminSeoAiApply(token: string | null, generationId: string) {
   if (!API_BASE_URL || !token) throw new Error('Nejste přihlášeni nebo API není dostupné.');
   const res = await fetch(`${API_BASE_URL}/admin/ai/seo/apply`, {

@@ -34,7 +34,9 @@ import { MobileFiltersSheet } from '@/components/home/MobileFiltersSheet';
 import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
-import { VideoFeed } from '@/components/video-feed/VideoFeed';
+import { MixedShortsFeed } from '@/components/video-feed/MixedShortsFeed';
+import type { ShortsFeedItem } from '@/lib/shorts-feed';
+import { isPropertyShortsItem, shortsPayloadToShortVideo } from '@/lib/shorts-feed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
@@ -325,6 +327,10 @@ export function HomeLayout({
   }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
+  const [mixedShortsFeed, setMixedShortsFeed] = useState<ShortsFeedItem[]>([]);
+  const [shortsFeedCursor, setShortsFeedCursor] = useState<string | null>(null);
+  const [shortsFeedHasMore, setShortsFeedHasMore] = useState(false);
+  const [shortsFeedLoadingMore, setShortsFeedLoadingMore] = useState(false);
   /** Video z deep linku, které ještě není v odpovědi /feed/shorts. */
   const [shareExtraVideo, setShareExtraVideo] = useState<ShortVideo | null>(null);
   const [shareExtraLoading, setShareExtraLoading] = useState(false);
@@ -609,45 +615,55 @@ export function HomeLayout({
     });
   }, [classicShortsFallbackGrid, searchQuery, tipsOnlyActive, listingLocations]);
 
-  const videosForFeed = useMemo(() => {
-    function sortKey(v: ShortVideo): number {
-      const p = v.publishedAt ? Date.parse(v.publishedAt) : NaN;
-      const c = Date.parse(v.createdAt);
-      const primary = Number.isFinite(p) ? p : c;
-      return Number.isFinite(primary) ? primary : 0;
-    }
-    function sortByCreatedDesc(list: ShortVideo[]): ShortVideo[] {
-      return [...list].sort((a, b) => sortKey(b) - sortKey(a));
-    }
+  const mixedItemsForFeed = useMemo(() => {
     const seen = new Set<string>();
-    const merged: ShortVideo[] = [];
+    const merged: ShortsFeedItem[] = [];
     if (shareExtraVideo) {
-      merged.push(shareExtraVideo);
+      merged.push({
+        feedKey: `property:${shareExtraVideo.id}`,
+        contentType: 'property',
+        publishedAt: shareExtraVideo.publishedAt ?? shareExtraVideo.createdAt,
+        payload: { ...shareExtraVideo } as Record<string, unknown>,
+      });
       seen.add(shareExtraVideo.id);
     }
-    for (const v of videoFeed) {
-      if (!seen.has(v.id)) {
-        merged.push(v);
-        seen.add(v.id);
+    for (const item of mixedShortsFeed) {
+      if (!seen.has(item.feedKey)) {
+        merged.push(item);
+        seen.add(item.feedKey);
       }
     }
-    const sorted = (() => {
-      if (!sharedVideoId) return sortByCreatedDesc(merged);
-      const idx = merged.findIndex((v) => v.id === sharedVideoId);
-      if (idx === -1) return sortByCreatedDesc(merged);
-      const picked = merged[idx];
-      const rest = merged.filter((_, i) => i !== idx);
-      return [picked, ...sortByCreatedDesc(rest)];
-    })();
-    return tipsOnlyActive ? tipListingsOnly(sorted) : sorted;
-  }, [videoFeed, sharedVideoId, shareExtraVideo, tipsOnlyActive]);
+    if (!sharedVideoId) {
+      return tipsOnlyActive
+        ? merged.filter((item) => {
+            if (!isPropertyShortsItem(item)) return false;
+            return item.payload.isTip === true || item.payload.isTiparTip === true;
+          })
+        : merged;
+    }
+    const idx = merged.findIndex((item) => {
+      if (!isPropertyShortsItem(item)) return false;
+      const v = shortsPayloadToShortVideo(item.payload);
+      return v?.id === sharedVideoId;
+    });
+    if (idx === -1) return merged;
+    const picked = merged[idx];
+    const rest = merged.filter((_, i) => i !== idx);
+    return [picked, ...rest];
+  }, [mixedShortsFeed, shareExtraVideo, sharedVideoId, tipsOnlyActive]);
 
   const shareMissingInFeed = Boolean(
-    sharedVideoId && !videoFeed.some((v) => v.id === sharedVideoId),
+    sharedVideoId &&
+      !mixedShortsFeed.some((item) => {
+        if (!isPropertyShortsItem(item)) return false;
+        const v = shortsPayloadToShortVideo(item.payload);
+        return v?.id === sharedVideoId;
+      }) &&
+      shareExtraVideo?.id !== sharedVideoId,
   );
   /** Feed zobrazíme hned po načtení shorts; sdílené video / profily jdou na pozadí. */
   const shortsBootstrapBusy =
-    loadingFeed && videoFeed.length === 0 && filteredShortsFallback.length === 0;
+    loadingFeed && mixedItemsForFeed.length === 0 && filteredShortsFallback.length === 0;
 
   const hasData = classicGridItems.length > 0;
   const listingsTotalLabel = useMemo(() => {
@@ -667,13 +683,13 @@ export function HomeLayout({
   const showNoSearchHitsShorts =
     viewMode === 'shorts' &&
     !shortsBootstrapBusy &&
-    videosForFeed.length === 0 &&
+    mixedItemsForFeed.length === 0 &&
     (activeLocationLabel != null || listingFilterQuery.length > 0);
 
   const showNoSearchHitsShortsFallback =
     viewMode === 'shorts' &&
     !shortsBootstrapBusy &&
-    videosForFeed.length === 0 &&
+    mixedItemsForFeed.length === 0 &&
     classicShortsFallbackGrid.length > 0 &&
     filteredShortsFallback.length === 0 &&
     !showNoSearchHitsShorts;
@@ -711,13 +727,18 @@ export function HomeLayout({
     if (!API_BASE_URL || viewMode !== 'shorts') return;
     let cancelled = false;
     setLoadingFeed(true);
+    setMixedShortsFeed([]);
+    setShortsFeedCursor(null);
+    setShortsFeedHasMore(false);
 
     void (async () => {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 12_000);
       try {
         const qs = listingFilterQuery;
-        const shortsUrl = `${API_BASE_URL}/feed/shorts${qs ? `?${qs}` : ''}`;
+        const params = new URLSearchParams(qs);
+        params.set('limit', '20');
+        const shortsUrl = `${API_BASE_URL}/feed/shorts/feed?${params.toString()}`;
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
           signal: controller.signal,
@@ -729,48 +750,28 @@ export function HomeLayout({
         if (!res.ok) {
           // eslint-disable-next-line no-console
           console.warn(
-            `[HomeLayout] GET shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
+            `[HomeLayout] GET mixed shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
           );
         }
-        const data = res.ok ? await res.json() : [];
-        const rawList = Array.isArray(data)
-          ? (data as Record<string, unknown>[])
-          : data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
-            ? ((data as { items: Record<string, unknown>[] }).items ?? [])
-            : [];
-        const totalFromApi =
-          data && typeof data === 'object' && !Array.isArray(data)
-            ? Number((data as { total?: unknown }).total)
-            : NaN;
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.debug(
-            '[HomeLayout][shorts api viewsCount]',
-            rawList.slice(0, 8).map((r) => ({
-              id: String(r.id ?? ''),
-              viewsCount: r.viewsCount ?? null,
-            })),
-          );
-        }
-        const list = rawList
-          .map(feedShortsRowToShortVideo)
-          .filter((x): x is ShortVideo => x != null);
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.debug(
-            '[HomeLayout][shorts mapped viewsCount]',
-            list.slice(0, 8).map((r) => ({
-              id: r.id,
-              viewsCount: r.viewsCount ?? null,
-            })),
-          );
-        }
+        const data = res.ok
+          ? ((await res.json()) as {
+              items?: ShortsFeedItem[];
+              nextCursor?: string | null;
+              hasMore?: boolean;
+            })
+          : { items: [] as ShortsFeedItem[] };
+        const list = Array.isArray(data.items) ? data.items : [];
+        const propertyCount = list.filter((x) => isPropertyShortsItem(x)).length;
         if (cancelled) return;
-        setVideoFeed(list);
-        setShortsTotal(
-          Number.isFinite(totalFromApi) && totalFromApi >= 0
-            ? Math.trunc(totalFromApi)
-            : list.length,
+        setMixedShortsFeed(list);
+        setShortsFeedCursor(data.nextCursor ?? null);
+        setShortsFeedHasMore(Boolean(data.hasMore));
+        setShortsTotal(propertyCount > 0 ? propertyCount : list.length);
+        setVideoFeed(
+          list
+            .filter(isPropertyShortsItem)
+            .map((x) => shortsPayloadToShortVideo(x.payload))
+            .filter((x): x is ShortVideo => x != null),
         );
         if (list.length === 0) {
           const classic = await loadPropertyFeedItems(API_BASE_URL, {
@@ -784,9 +785,10 @@ export function HomeLayout({
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
-          console.warn('[HomeLayout] shorts feed load failed', err);
+          console.warn('[HomeLayout] mixed shorts feed load failed', err);
         }
         if (!cancelled) {
+          setMixedShortsFeed([]);
           setVideoFeed([]);
           setShortsTotal(0);
           try {
@@ -809,6 +811,51 @@ export function HomeLayout({
       cancelled = true;
     };
   }, [viewMode, apiAccessToken, listingFilterQuery]);
+
+  const loadMoreMixedShorts = useCallback(async () => {
+    if (!API_BASE_URL || !shortsFeedHasMore || shortsFeedLoadingMore || !shortsFeedCursor) return;
+    setShortsFeedLoadingMore(true);
+    try {
+      const params = new URLSearchParams(listingFilterQuery);
+      params.set('limit', '15');
+      params.set('cursor', shortsFeedCursor);
+      const res = await fetch(`${API_BASE_URL}/feed/shorts/feed?${params.toString()}`, {
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          ...(apiAccessToken ? nestAuthHeaders(apiAccessToken) : {}),
+        },
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        items?: ShortsFeedItem[];
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      };
+      const list = Array.isArray(data.items) ? data.items : [];
+      setMixedShortsFeed((prev) => {
+        const seen = new Set(prev.map((x) => x.feedKey));
+        const next = [...prev];
+        for (const item of list) {
+          if (!seen.has(item.feedKey)) {
+            next.push(item);
+            seen.add(item.feedKey);
+          }
+        }
+        return next;
+      });
+      setShortsFeedCursor(data.nextCursor ?? null);
+      setShortsFeedHasMore(Boolean(data.hasMore));
+    } finally {
+      setShortsFeedLoadingMore(false);
+    }
+  }, [
+    apiAccessToken,
+    listingFilterQuery,
+    shortsFeedCursor,
+    shortsFeedHasMore,
+    shortsFeedLoadingMore,
+  ]);
 
   useEffect(() => {
     if (viewMode !== 'posts') return;
@@ -1080,7 +1127,7 @@ export function HomeLayout({
           className={
             !hasData && viewMode === 'classic'
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
-              : viewMode === 'shorts' && !shortsBootstrapBusy && videosForFeed.length === 0
+              : viewMode === 'shorts' && !shortsBootstrapBusy && mixedItemsForFeed.length === 0
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-[#fafafa] shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
                 : viewMode === 'shorts'
                   ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-black shadow-none max-md:rounded-none md:min-w-0 md:rounded-2xl md:shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] lg:bg-white lg:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] lg:ring-1 lg:ring-zinc-200/80'
@@ -1164,21 +1211,19 @@ export function HomeLayout({
                         : 'Načítám video feed…'}
                     </p>
                   </div>
-                ) : videosForFeed.length > 0 ? (
+                ) : mixedItemsForFeed.length > 0 ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {activeLocationLabel ? (
                       <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2 text-center text-sm text-zinc-700">
                         Aktivní lokalita: <span className="font-semibold">{activeLocationLabel}</span>
                       </p>
                     ) : null}
-                    <VideoFeed
-                      key={sharedVideoId ?? 'feed'}
-                      videos={videosForFeed}
-                      onMobileFiltersOpen={
-                        viewMode === 'shorts'
-                          ? () => setMobileFiltersOpen(true)
-                          : undefined
-                      }
+                    <MixedShortsFeed
+                      key={sharedVideoId ?? 'mixed-feed'}
+                      items={mixedItemsForFeed}
+                      onMobileFiltersOpen={() => setMobileFiltersOpen(true)}
+                      onLoadMore={shortsFeedHasMore ? loadMoreMixedShorts : undefined}
+                      loadingMore={shortsFeedLoadingMore}
                     />
                   </div>
                 ) : filteredShortsFallback.length > 0 ? (
