@@ -28,6 +28,9 @@ import type {
 const POOL_CACHE_MS = 60_000;
 const POOL_FETCH_LIMIT = 120;
 const FINANCE_NEWS_CATEGORIES = new Set(['hypoteky', 'investice', 'trh', 'ceny-nemovitosti']);
+const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
+const YOUTUBE_URL_RE =
+  /(?:youtube\.com\/(?:watch\?(?:[^&\s]+&)*v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 
 type ScoredPoolItem = ShortsFeedItem;
 
@@ -64,6 +67,8 @@ export class ShortsMixedFeedService {
     const mixed = this.applyOpeningHook(
       this.mixPools(pools.properties, pools.content, settings, pools.propertyCount),
     );
+    this.logFeedComposition('pools', [...pools.properties, ...pools.content]);
+    this.logFeedComposition('mixed', mixed);
     const page = mixed.slice(offset, offset + limit);
     const nextOffset = offset + limit;
     const hasMore = nextOffset < mixed.length;
@@ -443,6 +448,7 @@ export class ShortsMixedFeedService {
     youtubeChannelTitle: string | null;
     youtubeThumbnailUrl: string | null;
     youtubeEmbeddable: boolean;
+    externalUrl?: string | null;
     publishedAt: Date | null;
     createdAt: Date;
     user: { name: string | null };
@@ -456,13 +462,12 @@ export class ShortsMixedFeedService {
     const slug = row.slug?.trim() || row.id;
 
     if (type === 'YOUTUBE_VIDEO') {
-      const videoId = row.youtubeVideoId?.trim();
+      const videoId = this.resolveYoutubeVideoId(row);
+      if (!videoId) return null;
       const thumb =
-        row.youtubeThumbnailUrl?.trim() ||
-        (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
-      if (!videoId || !thumb) return null;
+        row.youtubeThumbnailUrl?.trim() || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
       return {
-        feedKey: `youtube:${row.id}`,
+        feedKey: `youtube:${videoId}`,
         contentType: 'youtube',
         score: this.computeScore(publishedAt, settings),
         publishedAt: publishedAt.toISOString(),
@@ -531,6 +536,43 @@ export class ShortsMixedFeedService {
     }
     if (row.videoUrl?.trim() && isPublicMediaUrl(row.videoUrl)) return row.videoUrl.trim();
     return null;
+  }
+
+  private parseYoutubeIdFromText(text: string): string | null {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    if (YOUTUBE_ID_RE.test(trimmed)) return trimmed;
+    const match = trimmed.match(YOUTUBE_URL_RE);
+    return match?.[1] && YOUTUBE_ID_RE.test(match[1]) ? match[1] : null;
+  }
+
+  private resolveYoutubeVideoId(row: {
+    youtubeVideoId?: string | null;
+    videoUrl?: string | null;
+    externalUrl?: string | null;
+    description?: string | null;
+    content?: string | null;
+  }): string | null {
+    const direct = row.youtubeVideoId?.trim();
+    if (direct && YOUTUBE_ID_RE.test(direct)) return direct;
+    for (const candidate of [
+      row.videoUrl,
+      row.externalUrl,
+      row.description,
+      row.content,
+    ]) {
+      const parsed = this.parseYoutubeIdFromText(String(candidate ?? ''));
+      if (parsed) return parsed;
+    }
+    return null;
+  }
+
+  private logFeedComposition(label: string, items: ScoredPoolItem[]): void {
+    if (process.env.NODE_ENV === 'production') return;
+    const count = (type: ShortsItemType) => items.filter((i) => i.contentType === type).length;
+    this.log.debug(
+      `[shorts/feed] ${label}: properties=${count('property') + count('property-video')} youtube=${count('youtube')} articles=${count('article')} news=${count('news')} editorial=${count('editorial')} finance=${count('finance')} posts=${count('post')} total=${items.length}`,
+    );
   }
 
   private mixPools(

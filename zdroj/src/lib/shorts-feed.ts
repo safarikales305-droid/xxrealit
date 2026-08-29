@@ -1,5 +1,10 @@
 import type { ShortVideo } from '@/lib/nest-client';
+import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
 import { parseApiListingPrice } from '@/types/property';
+
+const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
+const YOUTUBE_URL_RE =
+  /(?:youtube\.com\/(?:watch\?(?:[^&\s]+&)*v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
 
 export type ShortsItemType =
   | 'property'
@@ -119,4 +124,63 @@ export function formatShortsDate(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export function parseYoutubeVideoIdFromText(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (YOUTUBE_ID_RE.test(trimmed)) return trimmed;
+  const match = trimmed.match(YOUTUBE_URL_RE);
+  return match?.[1] && YOUTUBE_ID_RE.test(match[1]) ? match[1] : null;
+}
+
+export function resolveYoutubeVideoId(payload: Record<string, unknown>): string | null {
+  const direct = payload.youtubeVideoId ?? payload.youtube_video_id;
+  if (typeof direct === 'string') {
+    const id = direct.trim();
+    if (YOUTUBE_ID_RE.test(id)) return id;
+  }
+  const fromUrl = [
+    payload.videoUrl,
+    payload.externalUrl,
+    payload.href,
+    payload.youtubeUrl,
+  ]
+    .map((v) => (typeof v === 'string' ? parseYoutubeVideoIdFromText(v) : null))
+    .find((v): v is string => Boolean(v));
+  if (fromUrl) return fromUrl;
+  const thumb =
+    typeof payload.youtubeThumbnailUrl === 'string'
+      ? payload.youtubeThumbnailUrl
+      : typeof payload.imageUrl === 'string'
+        ? payload.imageUrl
+        : '';
+  const thumbMatch = thumb.match(/\/vi\/([a-zA-Z0-9_-]{11})\//);
+  return thumbMatch?.[1] && YOUTUBE_ID_RE.test(thumbMatch[1]) ? thumbMatch[1] : null;
+}
+
+export function resolveShortsMediaUrl(payload: Record<string, unknown>): string | null {
+  const candidates = [
+    payload.imageUrl,
+    payload.thumbnailUrl,
+    payload.youtubeThumbnailUrl,
+    payload.previewImage,
+    payload.ogImageUrl,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  const ytId = resolveYoutubeVideoId(payload);
+  return ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null;
+}
+
+export function isPlayableShortsItem(item: ShortsFeedItem): boolean {
+  if (isPropertyShortsItem(item)) {
+    const video = shortsPayloadToShortVideo(item.payload);
+    return video != null && isShortVideoPlayable(video);
+  }
+  if (item.contentType === 'youtube') {
+    return Boolean(resolveYoutubeVideoId(item.payload));
+  }
+  return Boolean(resolveShortsMediaUrl(item.payload));
 }

@@ -9,6 +9,7 @@ import { ShortsFeedNavProvider } from '@/components/shorts/shorts-feed-nav-conte
 import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { isShortVideoPlayable, shortVideoPlayableSrc } from '@/lib/feed/loop-feed';
 import {
+  isPlayableShortsItem,
   isPropertyShortsItem,
   shortsPayloadToShortVideo,
   type ShortsFeedItem,
@@ -39,21 +40,7 @@ export function MixedShortsFeed({
   const { reportGuestListingViewed } = useGuestRegistrationGate();
   const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
 
-  const playableItems = useMemo(
-    () =>
-      items.filter((item) => {
-        if (isPropertyShortsItem(item)) {
-          const video = shortsPayloadToShortVideo(item.payload);
-          return video != null && isShortVideoPlayable(video);
-        }
-        const imageUrl = item.payload.imageUrl;
-        if (item.contentType === 'youtube') {
-          return Boolean(item.payload.youtubeVideoId);
-        }
-        return typeof imageUrl === 'string' && imageUrl.trim().length > 0;
-      }),
-    [items],
-  );
+  const playableItems = useMemo(() => items.filter(isPlayableShortsItem), [items]);
 
   const handleNavigation = useCallback((api: CyclicFeedNav) => {
     setNav(api);
@@ -101,10 +88,10 @@ export function MixedShortsFeed({
           onNavigation={handleNavigation}
           className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
           viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
-          slideClassName="shorts-slide overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm max-md:scroll-snap-align-start max-md:min-h-[100dvh]"
+          slideClassName="shorts-slide overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm"
         >
           {(item, { isActive }) => (
-            <div data-shorts-slide={item.feedKey} className="h-full w-full max-md:min-h-[100dvh]">
+            <div data-shorts-slide={item.feedKey} className="h-full min-h-0 w-full">
               {isPropertyShortsItem(item) ? (
                 (() => {
                   const video = shortsPayloadToShortVideo(item.payload);

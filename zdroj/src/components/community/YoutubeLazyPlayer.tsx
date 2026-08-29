@@ -12,6 +12,8 @@ type YoutubeLazyPlayerProps = {
   embeddable?: boolean;
   watchUrl?: string | null;
   className?: string;
+  /** Vyplní vertikální Shorts stage (9:16) místo klasického 16:9 boxu. */
+  fillStage?: boolean;
 };
 
 export function YoutubeLazyPlayer({
@@ -21,6 +23,7 @@ export function YoutubeLazyPlayer({
   embeddable = true,
   watchUrl,
   className = 'rounded-xl',
+  fillStage = false,
 }: YoutubeLazyPlayerProps) {
   const [playing, setPlaying] = useState(false);
   const safeId = VIDEO_ID_RE.test(videoId) ? videoId : '';
@@ -64,9 +67,13 @@ export function YoutubeLazyPlayer({
     );
   }
 
+  const stageClass = fillStage
+    ? 'relative h-full w-full overflow-hidden bg-black'
+    : `relative aspect-video w-full overflow-hidden bg-black ${className}`;
+
   if (playing) {
     return (
-      <div className={`relative aspect-video w-full overflow-hidden bg-black ${className}`}>
+      <div className={stageClass}>
         <iframe
           src={embedSrc}
           title={title ?? 'YouTube video'}
@@ -83,7 +90,11 @@ export function YoutubeLazyPlayer({
     <button
       type="button"
       onClick={() => setPlaying(true)}
-      className={`group relative block aspect-video w-full overflow-hidden bg-zinc-900 ${className}`}
+      className={
+        fillStage
+          ? 'group relative block h-full w-full overflow-hidden bg-zinc-900'
+          : `group relative block aspect-video w-full overflow-hidden bg-zinc-900 ${className}`
+      }
       aria-label={title ? `Přehrát video: ${title}` : 'Přehrát YouTube video'}
     >
       {thumb ? (
