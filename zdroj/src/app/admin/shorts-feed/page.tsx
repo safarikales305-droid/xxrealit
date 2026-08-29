@@ -183,6 +183,64 @@ export default function AdminShortsFeedSettingsPage() {
             Preferovat nový obsah
           </label>
         </section>
+
+        <section className="mt-6 space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-800">YouTube priorita</h2>
+          <label className="flex items-center gap-3 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={settings.preferYoutubeWhenLowCatalog}
+              disabled={busy}
+              onChange={(e) => void save({ preferYoutubeWhenLowCatalog: e.target.checked })}
+            />
+            Preferovat YouTube při malém počtu inzerátů
+          </label>
+          <label className="block text-sm text-zinc-700">
+            <span className="mb-1 block font-medium">Hranice malého katalogu (počet realit)</span>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={settings.lowCatalogThreshold}
+              disabled={busy}
+              onChange={(e) =>
+                void save({ lowCatalogThreshold: Number.parseInt(e.target.value, 10) || 20 })
+              }
+            />
+          </label>
+          <label className="block text-sm text-zinc-700">
+            <span className="mb-1 block font-medium">Priorita YouTube</span>
+            <select
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={settings.youtubePriority}
+              disabled={busy}
+              onChange={(e) =>
+                void save({
+                  youtubePriority: e.target.value as ShortsFeedSettings['youtubePriority'],
+                })
+              }
+            >
+              <option value="high">Vysoká</option>
+              <option value="medium">Střední</option>
+              <option value="low">Nízká</option>
+            </select>
+          </label>
+          <label className="block text-sm text-zinc-700">
+            <span className="mb-1 block font-medium">Max. článků mezi 10 Shorts</span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={settings.maxArticlesPer10Shorts}
+              disabled={busy}
+              onChange={(e) =>
+                void save({ maxArticlesPer10Shorts: Number.parseInt(e.target.value, 10) || 2 })
+              }
+            />
+          </label>
+        </section>
       </div>
     </div>
   );

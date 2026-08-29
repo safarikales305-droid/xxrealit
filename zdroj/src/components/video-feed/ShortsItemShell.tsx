@@ -19,7 +19,7 @@ export function ShortsItemShell({
   rightRail,
 }: ShortsItemShellProps) {
   return (
-    <div className="relative isolate flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden bg-black lg:bg-white">
+    <div className="relative isolate flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-100 lg:bg-white">
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row lg:items-stretch lg:justify-center lg:gap-8 lg:overflow-hidden lg:px-8 lg:py-8">
         {leftPanel ? (
           <div className="hidden min-h-0 w-full min-w-0 max-w-[360px] shrink-0 flex-col gap-4 overflow-hidden lg:flex lg:w-[min(100%,340px)] lg:min-w-[260px] lg:pt-1">

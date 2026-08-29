@@ -45,6 +45,10 @@ export type ShortsFeedSettings = {
   propertyRatioTierMid: number;
   propertyRatioTierHigh: number;
   preferNewContent: boolean;
+  preferYoutubeWhenLowCatalog: boolean;
+  lowCatalogThreshold: number;
+  youtubePriority: 'high' | 'medium' | 'low';
+  maxArticlesPer10Shorts: number;
 };
 
 export const SHORTS_BADGE_LABELS: Record<ShortsItemType, string> = {
@@ -208,13 +212,28 @@ export function resolveShortsMediaUrl(payload: Record<string, unknown>): string 
   return ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null;
 }
 
-export function isPlayableShortsItem(item: ShortsFeedItem): boolean {
-  if (isPropertyShortsItem(item)) {
-    const video = shortsPayloadToShortVideo(item.payload);
+export function isRenderableShortsItem(item: ShortsFeedItem): boolean {
+  const normalized = normalizeShortsFeedItem(item);
+  const p = normalized.payload;
+  const title = String(p.title ?? '').trim();
+
+  if (isPropertyShortsItem(normalized)) {
+    const video = shortsPayloadToShortVideo(p);
     return video != null && isShortVideoPlayable(video);
   }
-  if (item.contentType === 'youtube') {
-    return Boolean(resolveYoutubeVideoId(item.payload));
+
+  if (normalized.contentType === 'youtube') {
+    return Boolean(resolveYoutubeVideoId(p) && title);
   }
-  return Boolean(resolveShortsMediaUrl(item.payload));
+
+  if (['article', 'news', 'editorial', 'finance', 'post'].includes(normalized.contentType)) {
+    return Boolean(title && resolveShortsMediaUrl(p));
+  }
+
+  return false;
+}
+
+/** @deprecated Use isRenderableShortsItem */
+export function isPlayableShortsItem(item: ShortsFeedItem): boolean {
+  return isRenderableShortsItem(item);
 }

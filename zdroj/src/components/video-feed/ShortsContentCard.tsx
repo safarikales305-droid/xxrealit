@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { YoutubeLazyPlayer } from '@/components/community/YoutubeLazyPlayer';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
@@ -16,6 +16,7 @@ import { ShortsItemShell } from './ShortsItemShell';
 type Props = {
   item: ShortsFeedItem;
   isActive: boolean;
+  onSkip?: () => void;
 };
 
 function Badge({ label }: { label: string }) {
@@ -104,19 +105,33 @@ function MobileOverlay({
   );
 }
 
-export function ShortsContentCard({ item, isActive }: Props) {
+export function ShortsContentCard({ item, isActive, onSkip }: Props) {
   const p = item.payload;
-  const title = String(p.title ?? '');
+  const title = String(p.title ?? '').trim();
   const teaser = String(p.teaser ?? '').trim();
   const sourceName = String(p.sourceName ?? 'XXREALIT');
   const href = String(p.href ?? '#');
   const categoryLabel = String(p.categoryLabel ?? SHORTS_BADGE_LABELS[item.contentType]);
   const publishedLabel = formatShortsDate(item.publishedAt);
   const [imgError, setImgError] = useState(false);
+  const videoId = item.contentType === 'youtube' ? resolveYoutubeVideoId(p) ?? '' : '';
+  const thumb = item.contentType === 'youtube' ? resolveShortsMediaUrl(p) ?? '' : '';
+  const resolvedImg = item.contentType !== 'youtube' ? resolveShortsMediaUrl(p) : null;
+  const imageSrc = resolvedImg ? nestAbsoluteAssetUrl(resolvedImg) : '';
+
+  useEffect(() => {
+    if (!title) onSkip?.();
+    else if (item.contentType === 'youtube' && !videoId) onSkip?.();
+    else if (item.contentType !== 'youtube' && !imageSrc) onSkip?.();
+  }, [title, item.contentType, videoId, imageSrc, onSkip]);
+
+  useEffect(() => {
+    if (imgError) onSkip?.();
+  }, [imgError, onSkip]);
+
+  if (!title) return null;
 
   if (item.contentType === 'youtube') {
-    const videoId = resolveYoutubeVideoId(p) ?? '';
-    const thumb = resolveShortsMediaUrl(p) ?? '';
     if (!videoId) return null;
 
     return (
@@ -134,25 +149,16 @@ export function ShortsContentCard({ item, isActive }: Props) {
           />
         }
         center={
-          <div className="absolute inset-0 flex items-center justify-center bg-black lg:relative lg:h-full lg:w-full">
-            {isActive ? (
-              <YoutubeLazyPlayer
-                videoId={videoId}
-                title={title}
-                thumbnailUrl={thumb}
-                embeddable={p.youtubeEmbeddable !== false}
-                watchUrl={href.startsWith('http') ? href : undefined}
-                fillStage
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={thumb}
-                alt={title}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            )}
+          <div className="absolute inset-0 lg:relative lg:h-full lg:w-full">
+            <YoutubeLazyPlayer
+              videoId={videoId}
+              title={title}
+              thumbnailUrl={thumb}
+              embeddable={p.youtubeEmbeddable !== false}
+              watchUrl={href.startsWith('http') ? href : undefined}
+              fillStage
+              autoPlay={isActive}
+            />
           </div>
         }
         mobileOverlay={
@@ -170,9 +176,11 @@ export function ShortsContentCard({ item, isActive }: Props) {
     );
   }
 
-  const resolvedImg = resolveShortsMediaUrl(p);
-  const imageSrc = resolvedImg ? nestAbsoluteAssetUrl(resolvedImg) : '';
   if (!imageSrc || imgError) return null;
+
+  const handleImgError = () => {
+    setImgError(true);
+  };
 
   return (
     <ShortsItemShell
@@ -195,7 +203,7 @@ export function ShortsContentCard({ item, isActive }: Props) {
           alt={title}
           className="absolute inset-0 h-full w-full object-cover"
           loading="lazy"
-          onError={() => setImgError(true)}
+          onError={handleImgError}
         />
       }
       mobileOverlay={

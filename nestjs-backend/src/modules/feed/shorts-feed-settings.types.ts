@@ -23,6 +23,14 @@ export type ShortsFeedSettings = {
   propertyRatioTierHigh: number;
   /** Zvýhodnit novější obsah ve skóre řazení. */
   preferNewContent: boolean;
+  /** Při malém katalogu realit zvýhodnit YouTube před články. */
+  preferYoutubeWhenLowCatalog: boolean;
+  /** Hranice „malého katalogu“ realit (např. 20). */
+  lowCatalogThreshold: number;
+  /** Priorita YouTube ve skóre míchání. */
+  youtubePriority: 'high' | 'medium' | 'low';
+  /** Max. článků/aktualit v každých 10 Shorts položkách. */
+  maxArticlesPer10Shorts: number;
 };
 
 export const DEFAULT_SHORTS_FEED_SETTINGS: ShortsFeedSettings = {
@@ -40,4 +48,8 @@ export const DEFAULT_SHORTS_FEED_SETTINGS: ShortsFeedSettings = {
   propertyRatioTierMid: 70,
   propertyRatioTierHigh: 85,
   preferNewContent: true,
+  preferYoutubeWhenLowCatalog: true,
+  lowCatalogThreshold: 20,
+  youtubePriority: 'high',
+  maxArticlesPer10Shorts: 2,
 };

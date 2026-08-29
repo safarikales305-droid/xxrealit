@@ -2043,7 +2043,7 @@ export async function nestAdminDeleteImportSource(
     method: 'DELETE',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
@@ -2541,16 +2541,16 @@ export type AdminImportedBrokerContactsList = {
 };
 
 export type AdminImportedBrokerContactsQuery = {
-  search?: string;
-  portal?: string;
-  hasEmail?: boolean;
-  hasPhone?: boolean;
-  profileCreated?: boolean;
-  outreachStatus?: string;
+    search?: string;
+    portal?: string;
+    hasEmail?: boolean;
+    hasPhone?: boolean;
+    profileCreated?: boolean;
+    outreachStatus?: string;
   contactStatus?: string;
-  sort?: string;
-  skip?: number;
-  take?: number;
+    sort?: string;
+    skip?: number;
+    take?: number;
 };
 
 export async function nestAdminBrokerContacts(
@@ -3643,17 +3643,17 @@ export async function nestFetchPublicProfile(
 } | null> {
   if (!API_BASE_URL || !profileUserId.trim()) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(profileUserId)}`, {
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        ...(token ? nestAuthHeaders(token) : {}),
-      },
-    });
+  const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(profileUserId)}`, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? nestAuthHeaders(token) : {}),
+    },
+  });
     const data = (await res.json().catch(() => null)) as {
       user?: Record<string, unknown> | null;
-      posts?: unknown[];
-      videos?: unknown[];
+        posts?: unknown[];
+        videos?: unknown[];
       properties?: unknown[];
     } | null;
     if (!res.ok || !data?.user) {
@@ -4488,11 +4488,11 @@ export async function nestListPublicProfessionals(
   for (const url of endpoints) {
     try {
       const res = await fetch(url, {
-        cache: 'no-store',
+    cache: 'no-store',
         headers: { Accept: 'application/json' },
-      });
+  });
       if (!res.ok) continue;
-      const data = (await res.json()) as unknown;
+  const data = (await res.json()) as unknown;
       if (!Array.isArray(data)) continue;
       const rows = data
         .map((row) => normalizeNestPublicBrokerCard(row))
@@ -8908,15 +8908,15 @@ export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo 
         }
       }
       const res = await fetch(`${apiBase}/properties/${encodeURIComponent(id)}`, {
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
-      });
-      if (res.ok) {
-        const root = (await res.json()) as { property?: Record<string, unknown> };
-        const p = root.property;
-        if (p && typeof p === 'object') {
-          const mapped = mapDetailProperty(p, id);
-          if (mapped) return mapped;
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const root = (await res.json()) as { property?: Record<string, unknown> };
+      const p = root.property;
+      if (p && typeof p === 'object') {
+        const mapped = mapDetailProperty(p, id);
+        if (mapped) return mapped;
         }
       }
     }
@@ -10068,11 +10068,11 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
 
 
 export type CommunityPostsCategory =
-  | 'VSE'
-  | 'MAKLERI'
-  | 'STAVEBNI_FIRMY'
-  | 'REALITNI_KANCELARE'
-  | 'FINANCNI_PORADCI'
+    | 'VSE'
+    | 'MAKLERI'
+    | 'STAVEBNI_FIRMY'
+    | 'REALITNI_KANCELARE'
+    | 'FINANCNI_PORADCI'
   | 'INVESTORI'
   | 'DEVELOPERI'
   | 'PROJEKTANTI'
@@ -16173,6 +16173,10 @@ export type ShortsFeedSettings = {
   propertyRatioTierMid: number;
   propertyRatioTierHigh: number;
   preferNewContent: boolean;
+  preferYoutubeWhenLowCatalog: boolean;
+  lowCatalogThreshold: number;
+  youtubePriority: 'high' | 'medium' | 'low';
+  maxArticlesPer10Shorts: number;
 };
 
 export async function nestAdminShortsFeedSettingsGet(

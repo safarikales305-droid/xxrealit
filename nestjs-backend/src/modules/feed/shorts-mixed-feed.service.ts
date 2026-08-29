@@ -65,11 +65,15 @@ export class ShortsMixedFeedService {
     const settings = await this.settingsService.getSettings();
     const cacheKey = this.cacheKey(params.filters, settings);
     const pools = await this.loadPools(params.viewerId, params.filters, settings, cacheKey);
+    const properties = pools.properties.filter((item) => this.isRenderableShortItem(item));
+    const content = pools.content.filter((item) => this.isRenderableShortItem(item));
     const mixed = this.applyOpeningHook(
-      this.mixPools(pools.properties, pools.content, settings, pools.propertyCount),
+      this.mixPools(properties, content, settings, properties.length),
+      properties.length,
+      settings,
     );
-    this.logFeedComposition('pools', [...pools.properties, ...pools.content]);
-    this.logFeedComposition('mixed', mixed);
+    this.logFeedSummary('pools', properties, content);
+    this.logFeedSummary('mixed', properties, content, mixed);
     const page = mixed.slice(offset, offset + limit);
     const nextOffset = offset + limit;
     const hasMore = nextOffset < mixed.length;
@@ -251,12 +255,8 @@ export class ShortsMixedFeedService {
   ): Promise<ScoredPoolItem[]> {
     const items: ScoredPoolItem[] = [];
     for (const r of rows) {
-      const hasVideo =
-        (r.videoUrl ?? '').trim().length > 0 || r.media.some((m) => m.type === 'video');
-      const hasImage =
-        (Array.isArray(r.images) && r.images.length > 0) ||
-        r.media.some((m) => m.type === 'image');
-      if (!hasVideo && !hasImage) continue;
+      const videoUrl = this.resolvePropertyVideoUrl(r);
+      if (!videoUrl) continue;
 
       const isOwner = Boolean(viewerId && r.userId === viewerId);
       const hasViewerUnlock = viewerId
@@ -298,6 +298,7 @@ export class ShortsMixedFeedService {
         settings.propertyPriority === 'high' ? 25 : settings.propertyPriority === 'medium' ? 12 : 0;
       let score = this.computeScore(publishedAt, settings, priorityBoost);
       if (r.isTiparTip) score += 50;
+      if (contentType === 'property-video') score += 35;
 
       items.push({
         feedKey: `${contentType}:${r.id}`,
@@ -424,6 +425,9 @@ export class ShortsMixedFeedService {
             const imageUrl = (row.ogImageUrl ?? '').trim();
             if (!imageUrl) continue;
 
+            const title = (row.title ?? '').trim();
+            if (!title) continue;
+
             const isFinance = FINANCE_NEWS_CATEGORIES.has(row.category);
             if (isFinance && !settings.showFinanceNews) continue;
             if (!isFinance && !settings.showNews) continue;
@@ -497,12 +501,15 @@ export class ShortsMixedFeedService {
     if (type === 'YOUTUBE_VIDEO') {
       const videoId = this.resolveYoutubeVideoId(row);
       if (!videoId) return null;
+      const title = (row.title || row.previewTitle || '').trim();
+      if (!title) return null;
       const thumb =
         row.youtubeThumbnailUrl?.trim() || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      const ytBoost = this.youtubeScoreBoost(settings);
       return {
         feedKey: `youtube:${videoId}`,
         contentType: 'youtube',
-        score: this.computeScore(publishedAt, settings),
+        score: this.computeScore(publishedAt, settings, ytBoost),
         publishedAt: publishedAt.toISOString(),
         payload: {
           id: row.id,
@@ -522,6 +529,8 @@ export class ShortsMixedFeedService {
 
     const imageUrl = this.resolvePostImage(row);
     if (!imageUrl) return null;
+    const title = (row.title || row.previewTitle || '').trim();
+    if (!title) return null;
 
     const contentType: ShortsItemType =
       type === 'NEWS_ARTICLE' ? 'article' : type === 'COMPANY_REVIEW' ? 'editorial' : 'post';
@@ -583,6 +592,7 @@ export class ShortsMixedFeedService {
     youtubeVideoId?: string | null;
     videoUrl?: string | null;
     externalUrl?: string | null;
+    href?: string | null;
     description?: string | null;
     content?: string | null;
   }): string | null {
@@ -591,6 +601,7 @@ export class ShortsMixedFeedService {
     for (const candidate of [
       row.videoUrl,
       row.externalUrl,
+      row.href,
       row.description,
       row.content,
     ]) {
@@ -600,12 +611,119 @@ export class ShortsMixedFeedService {
     return null;
   }
 
-  private logFeedComposition(label: string, items: ScoredPoolItem[]): void {
+  private logFeedSummary(
+    label: string,
+    properties: ScoredPoolItem[],
+    content: ScoredPoolItem[],
+    mixed?: ScoredPoolItem[],
+  ): void {
     if (process.env.NODE_ENV === 'production') return;
-    const count = (type: ShortsItemType) => items.filter((i) => i.contentType === type).length;
+    const count = (items: ScoredPoolItem[], type: ShortsItemType) =>
+      items.filter((i) => i.contentType === type).length;
+    const pool = [...properties, ...content];
+    const selected = mixed ?? pool;
     this.log.debug(
-      `[shorts/feed] ${label}: properties=${count('property') + count('property-video')} youtube=${count('youtube')} articles=${count('article')} news=${count('news')} editorial=${count('editorial')} finance=${count('finance')} posts=${count('post')} total=${items.length}`,
+      `[SHORTS FEED] ${label}: properties available=${properties.length} youtube available=${count(pool, 'youtube')} articles available=${count(pool, 'article') + count(pool, 'news') + count(pool, 'editorial') + count(pool, 'finance') + count(pool, 'post')} | properties selected=${count(selected, 'property') + count(selected, 'property-video')} youtube selected=${count(selected, 'youtube')} articles selected=${count(selected, 'article') + count(selected, 'news') + count(selected, 'editorial') + count(selected, 'finance') + count(selected, 'post')} final items=${selected.length}`,
     );
+  }
+
+  private isArticleType(type: ShortsItemType): boolean {
+    return ['article', 'news', 'editorial', 'finance', 'post'].includes(type);
+  }
+
+  private isRenderableShortItem(item: ScoredPoolItem): boolean {
+    const p = item.payload;
+    const title = String(p.title ?? '').trim();
+    switch (item.contentType) {
+      case 'property':
+      case 'property-video':
+        return Boolean(String(p.id ?? '').trim() && this.resolvePropertyVideoUrlFromPayload(p));
+      case 'youtube':
+        return Boolean(
+          this.resolveYoutubeVideoId({
+            youtubeVideoId: p.youtubeVideoId as string | null | undefined,
+            videoUrl: p.videoUrl as string | null | undefined,
+            externalUrl: p.externalUrl as string | null | undefined,
+            href: p.href as string | null | undefined,
+            description: p.description as string | null | undefined,
+            content: p.content as string | null | undefined,
+          }) && title,
+        );
+      case 'article':
+      case 'news':
+      case 'editorial':
+      case 'finance':
+      case 'post': {
+        const image = String(p.imageUrl ?? p.ogImageUrl ?? p.thumbnailUrl ?? '').trim();
+        return Boolean(title && image && isPublicMediaUrl(image));
+      }
+      default:
+        return false;
+    }
+  }
+
+  private resolvePropertyVideoUrl(row: {
+    videoUrl: string | null;
+    media: Array<{ type: string; url: string }>;
+  }): string | null {
+    const direct = row.videoUrl?.trim();
+    if (direct && isPublicMediaUrl(direct)) return direct;
+    for (const m of row.media) {
+      if (m.type === 'video' && isPublicMediaUrl(m.url)) return m.url.trim();
+    }
+    return null;
+  }
+
+  private resolvePropertyVideoUrlFromPayload(payload: Record<string, unknown>): string | null {
+    const direct = typeof payload.videoUrl === 'string' ? payload.videoUrl.trim() : '';
+    if (direct && isPublicMediaUrl(direct)) return direct;
+    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+    if (url && isPublicMediaUrl(url)) return url;
+    const media = Array.isArray(payload.media) ? payload.media : [];
+    for (const m of media) {
+      if (!m || typeof m !== 'object') continue;
+      const rec = m as { type?: string; url?: string };
+      if (rec.type === 'video' && isPublicMediaUrl(rec.url)) return rec.url!.trim();
+    }
+    return null;
+  }
+
+  private youtubeScoreBoost(settings: ShortsFeedSettings): number {
+    if (settings.youtubePriority === 'high') return 40;
+    if (settings.youtubePriority === 'medium') return 20;
+    return 8;
+  }
+
+  private buildMixCycle(
+    propertyCount: number,
+    settings: ShortsFeedSettings,
+  ): Array<'property' | 'youtube' | 'article'> {
+    const low = settings.preferYoutubeWhenLowCatalog && propertyCount <= settings.lowCatalogThreshold;
+    if (propertyCount === 0) {
+      return low
+        ? ['youtube', 'youtube', 'article', 'youtube', 'youtube', 'article', 'youtube']
+        : ['youtube', 'article', 'youtube', 'article'];
+    }
+    if (propertyCount <= 5) {
+      return ['property', 'youtube', 'property', 'youtube', 'article'];
+    }
+    if (propertyCount <= settings.lowCatalogThreshold) {
+      return [
+        'property',
+        'youtube',
+        'property',
+        'youtube',
+        'property',
+        'article',
+        'youtube',
+        'property',
+        'youtube',
+      ];
+    }
+    if (propertyCount <= 50) {
+      return ['property', 'property', 'youtube', 'property', 'article', 'property', 'youtube', 'property', 'property'];
+    }
+    return ['property', 'property', 'property', 'property', 'youtube', 'property', 'property', 'article', 'property', 'property'];
   }
 
   private mixPools(
@@ -614,94 +732,95 @@ export class ShortsMixedFeedService {
     settings: ShortsFeedSettings,
     propertyCount: number,
   ): ScoredPoolItem[] {
-    const { propsPerBatch } = this.resolveMixPattern(propertyCount, settings);
+    const youtube = content
+      .filter((item) => item.contentType === 'youtube')
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const articles = content
+      .filter((item) => this.isArticleType(item.contentType))
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+    const cycle = this.buildMixCycle(propertyCount, settings);
     const result: ScoredPoolItem[] = [];
     const seen = new Set<string>();
-    let pi = 0;
-    let ci = 0;
+    const piRef = { value: 0 };
+    const yiRef = { value: 0 };
+    const aiRef = { value: 0 };
+    let cycleIdx = 0;
+    let stuck = 0;
+    const maxItems = properties.length + youtube.length + articles.length;
 
-    const takeProperty = (): boolean => {
-      while (pi < properties.length) {
-        const item = properties[pi++];
+    const takeFrom = (pool: ScoredPoolItem[], index: { value: number }): ScoredPoolItem | null => {
+      while (index.value < pool.length) {
+        const item = pool[index.value++];
         if (!seen.has(item.feedKey)) {
           seen.add(item.feedKey);
-          result.push(item);
-          return true;
+          return item;
         }
       }
-      return false;
+      return null;
     };
 
-    const takeContent = (): boolean => {
-      while (ci < content.length) {
-        const item = content[ci++];
-        if (!seen.has(item.feedKey)) {
-          seen.add(item.feedKey);
-          result.push(item);
-          return true;
-        }
-      }
-      return false;
+    const articlesInLast10 = () => {
+      const window = result.slice(-10);
+      return window.filter((item) => this.isArticleType(item.contentType)).length;
     };
 
-    if (properties.length === 0) {
-      while (takeContent()) {
-        /* content only */
+    const lastTypes = (n: number) => result.slice(-n).map((item) => item.contentType);
+
+    while (result.length < maxItems && stuck < maxItems + 10) {
+      let slot = cycle[cycleIdx % cycle.length] ?? 'property';
+      cycleIdx++;
+
+      if (slot === 'article' && articlesInLast10() >= settings.maxArticlesPer10Shorts) {
+        slot = yiRef.value < youtube.length ? 'youtube' : 'property';
       }
-      return result;
+
+      const recentYoutube = lastTypes(3).filter((t) => t === 'youtube').length;
+      if (slot === 'youtube' && recentYoutube >= 2 && piRef.value < properties.length) {
+        slot = 'property';
+      }
+
+      let picked: ScoredPoolItem | null = null;
+      if (slot === 'property') {
+        picked = takeFrom(properties, piRef);
+        if (!picked) picked = takeFrom(youtube, yiRef);
+        if (!picked) picked = takeFrom(articles, aiRef);
+      } else if (slot === 'youtube') {
+        picked = takeFrom(youtube, yiRef);
+        if (!picked) picked = takeFrom(properties, piRef);
+        if (!picked) picked = takeFrom(articles, aiRef);
+      } else {
+        picked = takeFrom(articles, aiRef);
+        if (!picked) picked = takeFrom(youtube, yiRef);
+        if (!picked) picked = takeFrom(properties, piRef);
+      }
+
+      if (!picked) {
+        stuck++;
+        continue;
+      }
+      stuck = 0;
+      result.push(picked);
     }
 
-    while (pi < properties.length || ci < content.length) {
-      let insertedProps = 0;
-      for (let i = 0; i < propsPerBatch; i++) {
-        if (!takeProperty()) break;
-        insertedProps++;
-      }
-      if (!takeContent()) {
-        while (takeProperty()) {
-          /* drain */
+    const drain = (pool: ScoredPoolItem[], index: { value: number }) => {
+      let item: ScoredPoolItem | null;
+      while ((item = takeFrom(pool, index))) {
+        if (
+          this.isArticleType(item.contentType) &&
+          articlesInLast10() >= settings.maxArticlesPer10Shorts
+        ) {
+          continue;
         }
-        break;
+        result.push(item);
       }
-      if (insertedProps === 0 && pi >= properties.length) {
-        while (takeContent()) {
-          /* content only tail */
-        }
-        break;
-      }
-    }
+    };
+
+    drain(properties, piRef);
+    drain(youtube, yiRef);
+    drain(articles, aiRef);
 
     return result;
-  }
-
-  private resolveMixPattern(
-    propertyCount: number,
-    settings: ShortsFeedSettings,
-  ): { propsPerBatch: number; contentPerBatch: number } {
-    let ratio = settings.minPropertyRatioPercent;
-    if (propertyCount <= 10) ratio = settings.propertyRatioTierLow;
-    else if (propertyCount <= 50) ratio = settings.propertyRatioTierMid;
-    else ratio = settings.propertyRatioTierHigh;
-    ratio = Math.max(ratio, settings.minPropertyRatioPercent);
-    ratio = Math.min(100, Math.max(0, ratio));
-
-    if (ratio >= 100 || propertyCount === 0) {
-      return { propsPerBatch: 1, contentPerBatch: 0 };
-    }
-    if (ratio <= 0) {
-      return { propsPerBatch: 0, contentPerBatch: 1 };
-    }
-
-    const contentPerBatch = 1;
-    const fromTier = Math.max(1, Math.round((ratio / (100 - ratio)) * contentPerBatch));
-    const fromSettings = Math.max(1, settings.contentEveryNItems - 1);
-    let propsPerBatch = Math.max(fromSettings, fromTier);
-    if (settings.propertyPriority === 'medium') {
-      propsPerBatch = Math.max(1, propsPerBatch - 1);
-    } else if (settings.propertyPriority === 'low') {
-      propsPerBatch = Math.max(1, propsPerBatch - 2);
-    }
-    return { propsPerBatch, contentPerBatch };
   }
 
   private computeScore(
@@ -729,11 +848,17 @@ export class ShortsMixedFeedService {
     return score;
   }
 
-  private applyOpeningHook(items: ScoredPoolItem[]): ScoredPoolItem[] {
+  private applyOpeningHook(
+    items: ScoredPoolItem[],
+    propertyCount: number,
+    settings: ShortsFeedSettings,
+  ): ScoredPoolItem[] {
     if (items.length <= 1) return items;
 
     const pool = [...items];
     const opening: ScoredPoolItem[] = [];
+    const lowCatalog =
+      settings.preferYoutubeWhenLowCatalog && propertyCount <= settings.lowCatalogThreshold;
 
     const take = (pred: (item: ScoredPoolItem) => boolean) => {
       const idx = pool.findIndex(pred);
@@ -749,13 +874,19 @@ export class ShortsMixedFeedService {
       if (idx >= 0) opening.push(...pool.splice(idx, 1));
     }
 
-    take(
-      (item) =>
-        item.contentType === 'youtube' ||
-        item.contentType === 'property-video' ||
-        item.contentType === 'editorial',
-    );
-    take((item) => ['news', 'finance', 'article'].includes(item.contentType));
+    if (lowCatalog) {
+      take((item) => item.contentType === 'youtube');
+      take((item) => this.isPropertyItem(item));
+      take((item) => item.contentType === 'youtube');
+    } else {
+      take(
+        (item) =>
+          item.contentType === 'youtube' ||
+          item.contentType === 'property-video' ||
+          item.contentType === 'editorial',
+      );
+      take((item) => ['news', 'finance', 'article'].includes(item.contentType));
+    }
 
     while (opening.length < 3 && pool.length > 0) {
       opening.push(pool.shift()!);

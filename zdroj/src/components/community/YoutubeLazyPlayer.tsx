@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
@@ -14,6 +14,8 @@ type YoutubeLazyPlayerProps = {
   className?: string;
   /** Vyplní vertikální Shorts stage (9:16) místo klasického 16:9 boxu. */
   fillStage?: boolean;
+  /** Automaticky spustí přehrávání (např. aktivní Shorts slide). */
+  autoPlay?: boolean;
 };
 
 export function YoutubeLazyPlayer({
@@ -24,8 +26,13 @@ export function YoutubeLazyPlayer({
   watchUrl,
   className = 'rounded-xl',
   fillStage = false,
+  autoPlay = false,
 }: YoutubeLazyPlayerProps) {
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(autoPlay);
+
+  useEffect(() => {
+    setPlaying(autoPlay);
+  }, [autoPlay, videoId]);
   const safeId = VIDEO_ID_RE.test(videoId) ? videoId : '';
   const thumb =
     thumbnailUrl?.trim() ||

@@ -26,6 +26,12 @@ export class ShortsFeedSettingsService {
     return 'high';
   }
 
+  private youtubePriority(v: unknown): 'high' | 'medium' | 'low' {
+    const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (s === 'medium' || s === 'low') return s;
+    return 'high';
+  }
+
   normalize(raw: unknown): ShortsFeedSettings {
     const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const d = DEFAULT_SHORTS_FEED_SETTINGS;
@@ -44,6 +50,10 @@ export class ShortsFeedSettingsService {
       propertyRatioTierMid: this.num(o.propertyRatioTierMid, d.propertyRatioTierMid, 0, 100),
       propertyRatioTierHigh: this.num(o.propertyRatioTierHigh, d.propertyRatioTierHigh, 0, 100),
       preferNewContent: o.preferNewContent !== false,
+      preferYoutubeWhenLowCatalog: o.preferYoutubeWhenLowCatalog !== false,
+      lowCatalogThreshold: this.num(o.lowCatalogThreshold, d.lowCatalogThreshold, 1, 200),
+      youtubePriority: this.youtubePriority(o.youtubePriority),
+      maxArticlesPer10Shorts: this.num(o.maxArticlesPer10Shorts, d.maxArticlesPer10Shorts, 0, 10),
     };
   }
 
