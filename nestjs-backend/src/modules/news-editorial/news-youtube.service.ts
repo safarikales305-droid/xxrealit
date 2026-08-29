@@ -147,6 +147,7 @@ export type YoutubeDiagnoseResult = {
 @Injectable()
 export class NewsYoutubeService {
   private readonly log = new Logger(NewsYoutubeService.name);
+  private readonly syncLocks = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -243,11 +244,13 @@ export class NewsYoutubeService {
     return now - source.lastCheckedAt.getTime() >= intervalMs;
   }
 
-  async pollDueSources(limit = 3) {
+  async pollDueSources(limit = 15) {
     const cfg = this.settings.getCached();
     if (!cfg.youtubeMonitoringEnabled) return { polled: 0 };
 
-    const intervalMs = (cfg.youtubeCheckIntervalMinutes ?? 30) * 60_000;
+    await this.publishDraftYoutubePosts(50);
+
+    const intervalMs = (cfg.youtubeCheckIntervalMinutes ?? 10) * 60_000;
     const now = Date.now();
     const apiConfigured = Boolean(getYouTubeApiKey());
     if (apiConfigured) {
@@ -266,20 +269,103 @@ export class NewsYoutubeService {
 
     const due = sources
       .filter((s) => this.isSourceDueForPoll(s, intervalMs, now, apiConfigured))
-      .slice(0, limit);
+      .slice(0, Math.max(1, limit));
 
     let processed = 0;
+    let errors = 0;
     for (const source of due) {
       try {
-        await this.pollSource(source.id, { enqueueFacebook: true });
-        processed += 1;
+        const result = await this.withSourceLock(source.id, () =>
+          this.pollSource(source.id, { enqueueFacebook: true }),
+        );
+        if (result) processed += 1;
       } catch (err) {
+        errors += 1;
         this.log.warn(
           `YouTube poll failed ${source.name}: ${err instanceof Error ? err.message : err}`,
         );
       }
     }
-    return { polled: processed, due: due.length };
+    return { polled: processed, due: due.length, errors };
+  }
+
+  async syncAllActiveSources() {
+    const sources = await this.prisma.newsSource.findMany({
+      where: {
+        type: NewsSourceType.YOUTUBE_CHANNEL,
+        enabled: true,
+        health: { notIn: [NewsSourceHealth.DISABLED] },
+      },
+      select: { id: true },
+    });
+    let processed = 0;
+    let errors = 0;
+    for (const source of sources) {
+      try {
+        const result = await this.withSourceLock(source.id, () =>
+          this.pollSource(source.id, { enqueueFacebook: true, forcePoll: true }),
+        );
+        if (result) processed += 1;
+      } catch {
+        errors += 1;
+      }
+    }
+    return { polled: processed, total: sources.length, errors };
+  }
+
+  async runInitialSync(sourceId: string) {
+    const cfg = this.settings.getCached();
+    const maxVideos = cfg.youtubeInitialSyncVideos ?? 30;
+    return this.withSourceLock(sourceId, () =>
+      this.pollSource(sourceId, {
+        enqueueFacebook: true,
+        maxVideos,
+        forceAll: cfg.youtubeInitialSyncIgnoreRelevance ?? true,
+        forcePoll: true,
+        skipDailyLimit: true,
+      }),
+    );
+  }
+
+  private async withSourceLock<T>(
+    sourceId: string,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    if (this.syncLocks.has(sourceId)) {
+      this.log.debug(`[youtube] sync skipped — already running source=${sourceId}`);
+      return null;
+    }
+    this.syncLocks.add(sourceId);
+    try {
+      return await fn();
+    } finally {
+      this.syncLocks.delete(sourceId);
+    }
+  }
+
+  private async publishDraftYoutubePosts(limit = 50): Promise<number> {
+    const drafts = await this.prisma.post.findMany({
+      where: { type: 'YOUTUBE_VIDEO', publishedAt: null, youtubeVideoId: { not: null } },
+      select: { id: true, userId: true, createdAt: true },
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    });
+    let published = 0;
+    for (const post of drafts) {
+      try {
+        await this.prisma.post.update({
+          where: { id: post.id },
+          data: { publishedAt: post.createdAt ?? new Date() },
+        });
+        this.posts.finalizeEditorialPost(post.userId, post.id);
+        published += 1;
+      } catch (err) {
+        this.log.warn(
+          `YouTube draft publish ${post.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return published;
   }
 
   async pollSourceNow(sourceId: string, opts?: { maxVideos?: number; ignoreRelevance?: boolean }) {
@@ -298,6 +384,7 @@ export class NewsYoutubeService {
       maxVideos?: number;
       forceAll?: boolean;
       forcePoll?: boolean;
+      skipDailyLimit?: boolean;
     },
   ) {
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
@@ -314,23 +401,40 @@ export class NewsYoutubeService {
     const isFirstSync = !source.lastVideoId && source.youtubeImportedCount === 0;
 
     const channel = await resolveYoutubeChannel(source.url, source.channelId);
-    if (!source.channelId || source.channelId !== channel.channelId) {
+    const channelPatch: {
+      channelId: string;
+      uploadsPlaylistId?: string;
+      youtubeChannelTitle?: string;
+      health: NewsSourceHealth;
+      lastError: null;
+    } = {
+      channelId: channel.channelId,
+      health: NewsSourceHealth.ACTIVE,
+      lastError: null,
+    };
+    if (channel.uploadsPlaylistId) channelPatch.uploadsPlaylistId = channel.uploadsPlaylistId;
+    if (channel.channelTitle) channelPatch.youtubeChannelTitle = channel.channelTitle;
+    if (!source.channelId || source.channelId !== channel.channelId || !source.uploadsPlaylistId) {
       await this.prisma.newsSource.update({
         where: { id: sourceId },
-        data: { channelId: channel.channelId, health: NewsSourceHealth.ACTIVE, lastError: null },
+        data: channelPatch,
       });
     }
 
+    const uploadsPlaylistId = channel.uploadsPlaylistId ?? source.uploadsPlaylistId;
+    if (!uploadsPlaylistId) {
+      throw new YoutubeApiError('Uploads playlist kanálu není dostupný.', 404);
+    }
     const maxVideos =
       opts?.maxVideos ??
-      (isFirstSync ? (cfg.youtubeInitialSyncVideos ?? 5) : 5);
+      (isFirstSync ? (cfg.youtubeInitialSyncVideos ?? 30) : 10);
     const publishedAfter = isFirstSync ? null : source.lastVideoPublishedAt;
     const forceAll =
       opts?.forceAll ??
       (isFirstSync && (cfg.youtubeInitialSyncIgnoreRelevance ?? true));
 
     const videos = await fetchPlaylistVideos(
-      channel.uploadsPlaylistId,
+      uploadsPlaylistId,
       maxVideos,
       publishedAfter,
     );
@@ -346,6 +450,7 @@ export class NewsYoutubeService {
         enqueueFacebook: opts?.enqueueFacebook ?? false,
         forceAll,
         forceImportForTest: false,
+        skipDailyLimit: opts?.skipDailyLimit ?? isFirstSync,
       });
       if (result.created) created += 1;
       else {
@@ -429,7 +534,12 @@ export class NewsYoutubeService {
     source: NewsSource,
     video: YoutubeVideoMeta,
     channelTitle: string,
-    opts: { enqueueFacebook: boolean; forceAll: boolean; forceImportForTest: boolean },
+    opts: {
+      enqueueFacebook: boolean;
+      forceAll: boolean;
+      forceImportForTest: boolean;
+      skipDailyLimit?: boolean;
+    },
   ): Promise<{ created: boolean; reason?: string; relevanceScore?: number; postId?: string }> {
     if (!isValidYoutubeVideoId(video.videoId)) {
       return { created: false, reason: 'INVALID_VIDEO_ID' };
@@ -437,12 +547,19 @@ export class NewsYoutubeService {
 
     const existing = await this.prisma.post.findUnique({
       where: { youtubeVideoId: video.videoId },
-      select: { id: true },
+      select: { id: true, publishedAt: true },
     });
-    if (existing) return { created: false, reason: 'SKIP_DUPLICATE' };
+    if (existing) {
+      await this.ensureYoutubePostFeedVisible(existing.id, video, existing.publishedAt);
+      return { created: false, reason: 'SKIP_DUPLICATE' };
+    }
 
     const cfg = this.settings.getCached();
-    if (!opts.forceImportForTest && !(await this.canPublishYoutubeToday(cfg.youtubeMaxPostsPerDay))) {
+    if (
+      !opts.forceImportForTest &&
+      !opts.skipDailyLimit &&
+      !(await this.canPublishYoutubeToday(cfg.youtubeMaxPostsPerDay))
+    ) {
       return { created: false, reason: 'DAILY_LIMIT' };
     }
 
@@ -509,6 +626,23 @@ export class NewsYoutubeService {
     });
 
     return { created: true, relevanceScore, postId };
+  }
+
+  private async ensureYoutubePostFeedVisible(
+    postId: string,
+    video: YoutubeVideoMeta,
+    currentPublishedAt: Date | null,
+  ) {
+    await this.prisma.post.update({
+      where: { id: postId },
+      data: {
+        publishedAt: currentPublishedAt ?? video.publishedAt ?? new Date(),
+        youtubeThumbnailUrl: video.thumbnailUrl,
+        youtubeEmbeddable: video.embeddable,
+        youtubeChannelId: video.channelId,
+        youtubeChannelTitle: video.channelTitle,
+      },
+    });
   }
 
   private async canPublishYoutubeToday(maxPerDay: number): Promise<boolean> {
@@ -865,7 +999,7 @@ export class NewsYoutubeService {
     count: number,
     opts?: { ignoreRelevance?: boolean },
   ): Promise<YoutubeBackfillResult> {
-    const safeCount = Math.min(20, Math.max(1, count));
+    const safeCount = Math.min(50, Math.max(1, count));
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
       throw new Error('Zdroj není YouTube kanál.');

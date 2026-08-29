@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NewsArticleStatus, PortalWorkerStatus, UserRole } from '@prisma/client';
+import { NewsArticleStatus, NewsSourceHealth, NewsSourceType, PortalWorkerStatus, UserRole } from '@prisma/client';
 import type { PublicVisibilityUser } from '../../common/public-visibility.util';
 import { PrismaService } from '../../database/prisma.service';
 import type { PublicPropertyListFilters } from '../properties/properties.service';
@@ -364,7 +364,24 @@ export class ShortsMixedFeedService {
         (async () => {
           const rows = await this.prisma.post.findMany({
             where: {
-              AND: [buildCommunityPostsWhere(), { type: 'YOUTUBE_VIDEO' }],
+              AND: [
+                buildCommunityPostsWhere(),
+                { type: 'YOUTUBE_VIDEO' },
+                { youtubeVideoId: { not: null } },
+                { publishedAt: { not: null } },
+                {
+                  OR: [
+                    { newsSourceId: null },
+                    {
+                      newsSource: {
+                        enabled: true,
+                        type: NewsSourceType.YOUTUBE_CHANNEL,
+                        health: { not: NewsSourceHealth.DISABLED },
+                      },
+                    },
+                  ],
+                },
+              ],
             },
             orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
             take: POOL_FETCH_LIMIT,
@@ -521,7 +538,9 @@ export class ShortsMixedFeedService {
           youtubeChannelTitle: row.youtubeChannelTitle ?? 'YouTube',
           youtubeThumbnailUrl: thumb,
           youtubeEmbeddable: row.youtubeEmbeddable !== false,
-          sourceName: row.youtubeChannelTitle ?? 'YouTube',
+          sourceName: row.youtubeChannelTitle
+            ? `YouTube • ${row.youtubeChannelTitle}`
+            : 'YouTube',
           href: `/prispevek/${slug}`,
         },
       };
@@ -726,15 +745,44 @@ export class ShortsMixedFeedService {
     return ['property', 'property', 'property', 'property', 'youtube', 'property', 'property', 'article', 'property', 'property'];
   }
 
+  private diversifyYoutubeByChannel(items: ScoredPoolItem[]): ScoredPoolItem[] {
+    if (items.length <= 1) return items;
+    const buckets = new Map<string, ScoredPoolItem[]>();
+    for (const item of items) {
+      const channelId = String(
+        (item.payload as Record<string, unknown>).youtubeChannelId ?? item.feedKey,
+      );
+      const list = buckets.get(channelId) ?? [];
+      list.push(item);
+      buckets.set(channelId, list);
+    }
+    const channelIds = [...buckets.keys()];
+    const mixed: ScoredPoolItem[] = [];
+    while (mixed.length < items.length) {
+      let progressed = false;
+      for (const channelId of channelIds) {
+        const bucket = buckets.get(channelId);
+        if (!bucket?.length) continue;
+        mixed.push(bucket.shift()!);
+        progressed = true;
+        if (mixed.length >= items.length) break;
+      }
+      if (!progressed) break;
+    }
+    return mixed;
+  }
+
   private mixPools(
     properties: ScoredPoolItem[],
     content: ScoredPoolItem[],
     settings: ShortsFeedSettings,
     propertyCount: number,
   ): ScoredPoolItem[] {
-    const youtube = content
-      .filter((item) => item.contentType === 'youtube')
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const youtube = this.diversifyYoutubeByChannel(
+      content
+        .filter((item) => item.contentType === 'youtube')
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)),
+    );
     const articles = content
       .filter((item) => this.isArticleType(item.contentType))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));

@@ -320,35 +320,53 @@ export async function fetchPlaylistVideos(
   maxResults = 5,
   publishedAfter?: Date | null,
 ): Promise<YoutubeVideoMeta[]> {
-  const data = await youtubeGet<{
-    items?: Array<{
-      snippet?: {
-        publishedAt?: string;
-        title?: string;
-        description?: string;
-        channelId?: string;
-        channelTitle?: string;
-        thumbnails?: Record<string, { url?: string }>;
-        resourceId?: { videoId?: string };
-      };
-      contentDetails?: { videoId?: string };
-    }>;
-  }>('/playlistItems', {
-    part: 'snippet,contentDetails',
-    playlistId: uploadsPlaylistId,
-    maxResults: String(Math.min(50, Math.max(1, maxResults))),
-  });
+  const target = Math.min(50, Math.max(1, maxResults));
+  const collected: YoutubeVideoMeta[] = [];
+  let pageToken: string | undefined;
 
-  const videoIds = (data.items ?? [])
-    .map((item) => item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId ?? '')
-    .filter((id) => isValidYoutubeVideoId(id));
+  while (collected.length < target) {
+    const pageSize = Math.min(50, target - collected.length);
+    const data = await youtubeGet<{
+      items?: Array<{
+        snippet?: {
+          publishedAt?: string;
+          title?: string;
+          description?: string;
+          channelId?: string;
+          channelTitle?: string;
+          thumbnails?: Record<string, { url?: string }>;
+          resourceId?: { videoId?: string };
+        };
+        contentDetails?: { videoId?: string };
+      }>;
+      nextPageToken?: string;
+    }>('/playlistItems', {
+      part: 'snippet,contentDetails',
+      playlistId: uploadsPlaylistId,
+      maxResults: String(pageSize),
+      ...(pageToken ? { pageToken } : {}),
+    });
 
-  if (!videoIds.length) return [];
+    const videoIds = (data.items ?? [])
+      .map((item) => item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId ?? '')
+      .filter((id) => isValidYoutubeVideoId(id));
 
-  const details = await fetchVideoDetails(videoIds);
-  if (!publishedAfter) return details;
+    if (!videoIds.length) break;
 
-  return details.filter((v) => v.publishedAt.getTime() > publishedAfter.getTime());
+    const details = await fetchVideoDetails(videoIds);
+    for (const video of details) {
+      if (publishedAfter && video.publishedAt.getTime() <= publishedAfter.getTime()) {
+        return collected;
+      }
+      collected.push(video);
+      if (collected.length >= target) return collected;
+    }
+
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  return collected;
 }
 
 /** Lightweight live probe — never logs or returns the API key. */

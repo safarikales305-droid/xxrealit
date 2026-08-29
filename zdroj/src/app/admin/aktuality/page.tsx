@@ -41,6 +41,7 @@ import {
   nestAdminYoutubeDiagnose,
   nestAdminYoutubeStatus,
   nestAdminTestYoutubeApi,
+  nestAdminYoutubeSyncAll,
   nestAdminYoutubePollNow,
   nestAdminSystemAuthor,
   nestAdminUpdateSystemAuthor,
@@ -612,6 +613,29 @@ export default function AdminAktualityPage() {
               >
                 Otestovat YouTube API
               </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  setErrMsg(null);
+                  const res = await nestAdminYoutubeSyncAll(token);
+                  setBusy(false);
+                  if (!res.ok) {
+                    setErrMsg(res.message);
+                    return;
+                  }
+                  setMsg(
+                    `Synchronizováno ${res.data?.polled ?? 0}/${res.data?.total ?? 0} kanálů` +
+                      (res.data?.errors ? ` (${res.data.errors} chyb)` : ''),
+                  );
+                  void refreshSources();
+                }}
+                className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-100"
+              >
+                Synchronizovat všechny kanály
+              </button>
             </div>
             {youtubeStatus ? (
               <div className="mt-3 grid gap-2 text-sm text-red-950 sm:grid-cols-2 lg:grid-cols-4">
@@ -863,9 +887,12 @@ export default function AdminAktualityPage() {
                       {source.type === 'YOUTUBE_CHANNEL' ? (
                         <>
                           <span>Importováno: {source.youtubeImportedCount ?? 0}</span>
+                          <span className="block">Sync: {formatDate(source.lastSuccessAt)}</span>
                           <span className="block">Kontrola: {formatDate(source.lastCheckedAt)}</span>
-                          {source.lastVideoId ? (
-                            <span className="block truncate">Poslední video: {source.lastVideoId}</span>
+                          {source.lastVideoPublishedAt ? (
+                            <span className="block">
+                              Poslední video: {formatDate(source.lastVideoPublishedAt)}
+                            </span>
                           ) : null}
                         </>
                       ) : (

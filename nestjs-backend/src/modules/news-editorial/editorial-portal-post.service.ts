@@ -82,6 +82,7 @@ export class EditorialPortalPostService {
     forcePublish?: boolean,
   ): boolean {
     if (forcePublish) return true;
+    if (source.youtubeCreatePost !== false) return true;
     return (
       cfg.publishMode === NewsPublishMode.AUTOMATIC ||
       cfg.autoPublishArticles ||

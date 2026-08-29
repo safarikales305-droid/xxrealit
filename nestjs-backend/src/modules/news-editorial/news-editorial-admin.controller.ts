@@ -90,7 +90,7 @@ export class NewsEditorialAdminController {
   }
 
   @Post('sources')
-  createSource(
+  async createSource(
     @Body()
     body: {
       name: string;
@@ -109,7 +109,18 @@ export class NewsEditorialAdminController {
       minRelevanceScore?: number;
     },
   ) {
-    return this.sources.create(body);
+    const source = await this.sources.create(body);
+    if (source.type === NewsSourceType.YOUTUBE_CHANNEL && source.enabled) {
+      void this.youtube.runInitialSync(source.id).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[news-editorial] initial YouTube sync failed for ${source.id}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      });
+    }
+    return source;
   }
 
   @Patch('sources/:id')
@@ -327,6 +338,11 @@ export class NewsEditorialAdminController {
   @Post('youtube/test-api')
   testYoutubeApi() {
     return this.youtube.testApiConnection();
+  }
+
+  @Post('youtube/sync-all')
+  syncAllYoutubeSources() {
+    return this.youtube.syncAllActiveSources();
   }
 
   @Get('system-author')

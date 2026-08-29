@@ -876,6 +876,12 @@ export async function nestAdminTestYoutubeApi(
   return adminFetchResult<YoutubeApiTestResponse>(token, '/youtube/test-api', { method: 'POST' });
 }
 
+export async function nestAdminYoutubeSyncAll(
+  token: string,
+): Promise<AdminFetchResult<{ polled: number; total: number; errors: number }>> {
+  return adminFetchResult(token, '/youtube/sync-all', { method: 'POST' });
+}
+
 export async function nestAdminYoutubePollNow(
   token: string,
   sourceId: string,

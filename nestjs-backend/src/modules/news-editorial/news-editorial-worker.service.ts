@@ -104,7 +104,7 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
         await this.fetchService.fetchDueSources(3);
       }
       if (cfg.youtubeMonitoringEnabled) {
-        await this.youtube.pollDueSources(3);
+        await this.youtube.pollDueSources(15);
       }
       if (cfg.autoAiProcessing) {
         await this.ai.analyzeNewItems(15);

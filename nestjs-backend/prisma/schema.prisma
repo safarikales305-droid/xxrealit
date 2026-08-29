@@ -7585,6 +7585,10 @@ model NewsSource {
   failureCount         Int              @default(0)
   /// YouTube: kanálové ID (UC…)
   channelId            String?
+  /// YouTube: uploads playlist ID (UU…) pro efektivní sync
+  uploadsPlaylistId    String?
+  /// YouTube: název kanálu z API
+  youtubeChannelTitle  String?
   youtubePublishMode   NewsYoutubePublishMode @default(RELEVANT_ONLY)
   youtubeCreatePost    Boolean          @default(true)
   youtubeFacebookPost  Boolean          @default(false)

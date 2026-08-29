@@ -154,10 +154,14 @@ export class NewsSourceService implements OnModuleInit {
     minRelevanceScore?: number;
   }) {
     let channelId = data.channelId?.trim() || null;
-    if (data.type === NewsSourceType.YOUTUBE_CHANNEL && !channelId && getYouTubeApiKey()) {
+    let uploadsPlaylistId: string | null = null;
+    let youtubeChannelTitle: string | null = null;
+    if (data.type === NewsSourceType.YOUTUBE_CHANNEL && getYouTubeApiKey()) {
       try {
-        const resolved = await resolveYoutubeChannel(data.url, null);
+        const resolved = await resolveYoutubeChannel(data.url, channelId);
         channelId = resolved.channelId;
+        uploadsPlaylistId = resolved.uploadsPlaylistId ?? null;
+        youtubeChannelTitle = resolved.channelTitle ?? null;
       } catch (err) {
         this.log.warn(
           `YouTube channel resolve on create failed: ${err instanceof Error ? err.message : err}`,
@@ -177,6 +181,8 @@ export class NewsSourceService implements OnModuleInit {
         checkIntervalMinutes: data.checkIntervalMinutes ?? 30,
         note: data.note?.trim() || null,
         channelId,
+        uploadsPlaylistId,
+        youtubeChannelTitle,
         youtubePublishMode: data.youtubePublishMode ?? NewsYoutubePublishMode.RELEVANT_ONLY,
         youtubeCreatePost: data.youtubeCreatePost ?? true,
         youtubeFacebookPost: data.youtubeFacebookPost ?? false,

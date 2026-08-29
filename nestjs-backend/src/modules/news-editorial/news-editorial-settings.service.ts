@@ -130,15 +130,15 @@ export class NewsEditorialSettingsService implements OnModuleInit {
       youtubeCheckIntervalMinutes: this.num(
         o.youtubeCheckIntervalMinutes,
         d.youtubeCheckIntervalMinutes,
-        15,
+        5,
         240,
       ),
-      youtubeMaxPostsPerDay: this.num(o.youtubeMaxPostsPerDay, d.youtubeMaxPostsPerDay, 1, 20),
+      youtubeMaxPostsPerDay: this.num(o.youtubeMaxPostsPerDay, d.youtubeMaxPostsPerDay, 1, 200),
       youtubeMinRelevance: this.num(o.youtubeMinRelevance, d.youtubeMinRelevance, 0, 100),
       youtubeCreatePortalPost: this.bool(o.youtubeCreatePortalPost, d.youtubeCreatePortalPost),
       youtubeCreateFacebookPost: this.bool(o.youtubeCreateFacebookPost, d.youtubeCreateFacebookPost),
       youtubeUseAiTeaser: this.bool(o.youtubeUseAiTeaser, d.youtubeUseAiTeaser),
-      youtubeInitialSyncVideos: this.num(o.youtubeInitialSyncVideos, d.youtubeInitialSyncVideos, 1, 20),
+      youtubeInitialSyncVideos: this.num(o.youtubeInitialSyncVideos, d.youtubeInitialSyncVideos, 1, 50),
       youtubeInitialSyncIgnoreRelevance: this.bool(
         o.youtubeInitialSyncIgnoreRelevance,
         d.youtubeInitialSyncIgnoreRelevance,
