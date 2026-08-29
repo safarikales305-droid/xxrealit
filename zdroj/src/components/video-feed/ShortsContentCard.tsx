@@ -84,7 +84,7 @@ function MobileOverlay({
   ctaLabel: string;
 }) {
   return (
-    <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-16 pr-4 text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(1.25rem,calc(env(safe-area-inset-bottom,0px)+1rem))] sm:px-4 sm:pt-16">
+    <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-16 pr-[4.5rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(1.25rem,calc(env(safe-area-inset-bottom,0px)+1rem))] sm:px-4 sm:pr-24 sm:pt-16">
       <div className="pointer-events-auto space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">{categoryLabel}</p>
         <h2 className="line-clamp-2 text-lg font-bold leading-snug">{title}</h2>

@@ -68,7 +68,7 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
           prefetchSrc={(v) => shortVideoPlayableSrc(v)}
           onNavigation={handleNavigation}
           className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
-          viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
+          viewportClassName="h-full min-h-0"
           slideClassName="shorts-slide overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm"
         >
           {(video, { isActive }) => (

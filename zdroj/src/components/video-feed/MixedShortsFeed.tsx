@@ -87,8 +87,8 @@ export function MixedShortsFeed({
           }}
           onNavigation={handleNavigation}
           className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
-          viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
-          slideClassName="shorts-slide overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm"
+          viewportClassName="h-full min-h-0"
+          slideClassName="shorts-slide h-full min-h-0 overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm"
         >
           {(item, { isActive }) => (
             <div data-shorts-slide={item.feedKey} className="h-full min-h-0 w-full">

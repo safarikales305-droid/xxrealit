@@ -62,6 +62,40 @@ export function isPropertyShortsItem(item: ShortsFeedItem): boolean {
   return item.contentType === 'property' || item.contentType === 'property-video';
 }
 
+export function normalizeShortsFeedItem(item: ShortsFeedItem): ShortsFeedItem {
+  const raw = String(item.contentType ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  const contentTypeMap: Record<string, ShortsItemType> = {
+    property: 'property',
+    property_video: 'property-video',
+    youtube: 'youtube',
+    youtube_video: 'youtube',
+    article: 'article',
+    news: 'news',
+    editorial: 'editorial',
+    editorial_post: 'editorial',
+    post: 'post',
+    user_post: 'post',
+    finance: 'finance',
+    finance_news: 'finance',
+  };
+  const contentType = contentTypeMap[raw] ?? item.contentType;
+  const payload = { ...item.payload };
+  if (contentType === 'youtube') {
+    const videoId = resolveYoutubeVideoId(payload);
+    if (videoId) {
+      payload.youtubeVideoId = videoId;
+      if (!resolveShortsMediaUrl(payload)) {
+        payload.imageUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+        payload.youtubeThumbnailUrl = payload.imageUrl;
+      }
+    }
+  }
+  return { ...item, contentType, payload };
+}
+
 export function shortsPayloadToShortVideo(payload: Record<string, unknown>): ShortVideo | null {
   const id = payload.id != null ? String(payload.id) : '';
   if (!id) return null;

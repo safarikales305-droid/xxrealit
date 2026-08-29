@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NewsArticleStatus, UserRole } from '@prisma/client';
+import { NewsArticleStatus, PortalWorkerStatus, UserRole } from '@prisma/client';
+import type { PublicVisibilityUser } from '../../common/public-visibility.util';
 import { PrismaService } from '../../database/prisma.service';
 import type { PublicPropertyListFilters } from '../properties/properties.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -309,62 +310,89 @@ export class ShortsMixedFeedService {
     return items;
   }
 
+  private postRowInclude() {
+    return {
+      media: { orderBy: { order: 'asc' as const } },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          publicProfile: true,
+          accountLimited: true,
+          portalWorkerStatus: true,
+        },
+      },
+    };
+  }
+
+  private mapPostRowsToShortsItems(
+    rows: Array<
+      Parameters<ShortsMixedFeedService['mapPostToShortsItem']>[0] & {
+        type: string;
+        user: PublicVisibilityUser & { name: string | null };
+      }
+    >,
+    settings: ShortsFeedSettings,
+  ): ScoredPoolItem[] {
+    const items: ScoredPoolItem[] = [];
+    for (const row of rows) {
+      const type = String(row.type ?? '');
+      const isEditorial =
+        type === 'COMPANY_REVIEW' || type === 'NEWS_ARTICLE' || type === 'YOUTUBE_VIDEO';
+      if (!isEditorial && !isCommunityPostAuthorVisibleUser(row.user)) continue;
+      if (!postHasFeedVisibility(row)) continue;
+
+      if (type === 'YOUTUBE_VIDEO' && !settings.showYoutube) continue;
+      if (type === 'NEWS_ARTICLE' && !settings.showArticles && !settings.showEditorial) continue;
+      if (type === 'COMPANY_REVIEW' && !settings.showEditorial) continue;
+      if (type === 'post' && !settings.showUserPosts) continue;
+
+      const mapped = this.mapPostToShortsItem(row, settings);
+      if (mapped) items.push(mapped);
+    }
+    return items;
+  }
+
   private async fetchContentPool(settings: ShortsFeedSettings): Promise<ScoredPoolItem[]> {
     const items: ScoredPoolItem[] = [];
     const postFetches: Promise<void>[] = [];
 
-    if (
-      settings.showYoutube ||
-      settings.showArticles ||
-      settings.showEditorial ||
-      settings.showUserPosts
-    ) {
+    if (settings.showYoutube) {
+      postFetches.push(
+        (async () => {
+          const rows = await this.prisma.post.findMany({
+            where: {
+              AND: [buildCommunityPostsWhere(), { type: 'YOUTUBE_VIDEO' }],
+            },
+            orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+            take: POOL_FETCH_LIMIT,
+            include: this.postRowInclude(),
+          });
+          items.push(...this.mapPostRowsToShortsItems(rows, settings));
+        })(),
+      );
+    }
+
+    if (settings.showArticles || settings.showEditorial || settings.showUserPosts) {
       postFetches.push(
         (async () => {
           const types: string[] = [];
-          if (settings.showYoutube) types.push('YOUTUBE_VIDEO');
           if (settings.showArticles || settings.showEditorial) {
             types.push('NEWS_ARTICLE', 'COMPANY_REVIEW');
           }
           if (settings.showUserPosts) types.push('post');
+          if (types.length === 0) return;
 
-          const where = buildCommunityPostsWhere();
           const rows = await this.prisma.post.findMany({
             where: {
-              AND: [where, types.length > 0 ? { type: { in: types } } : {}],
+              AND: [buildCommunityPostsWhere(), { type: { in: types } }],
             },
             orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
             take: POOL_FETCH_LIMIT,
-            include: {
-              media: { orderBy: { order: 'asc' } },
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  role: true,
-                  publicProfile: true,
-                  accountLimited: true,
-                  portalWorkerStatus: true,
-                },
-              },
-            },
+            include: this.postRowInclude(),
           });
-
-          for (const row of rows) {
-            const type = String(row.type ?? '');
-            const isEditorial =
-              type === 'COMPANY_REVIEW' || type === 'NEWS_ARTICLE' || type === 'YOUTUBE_VIDEO';
-            if (!isEditorial && !isCommunityPostAuthorVisibleUser(row.user)) continue;
-            if (!postHasFeedVisibility(row)) continue;
-
-            if (type === 'YOUTUBE_VIDEO' && !settings.showYoutube) continue;
-            if (type === 'NEWS_ARTICLE' && !settings.showArticles && !settings.showEditorial) continue;
-            if (type === 'COMPANY_REVIEW' && !settings.showEditorial) continue;
-            if (type === 'post' && !settings.showUserPosts) continue;
-
-            const mapped = this.mapPostToShortsItem(row, settings);
-            if (mapped) items.push(mapped);
-          }
+          items.push(...this.mapPostRowsToShortsItems(rows, settings));
         })(),
       );
     }
@@ -428,8 +456,13 @@ export class ShortsMixedFeedService {
     }
 
     await Promise.all(postFetches);
-    items.sort((a, b) => b.score - a.score);
-    return items;
+    const deduped = new Map<string, ScoredPoolItem>();
+    for (const item of items) {
+      if (!deduped.has(item.feedKey)) deduped.set(item.feedKey, item);
+    }
+    const merged = [...deduped.values()];
+    merged.sort((a, b) => b.score - a.score);
+    return merged;
   }
 
   private mapPostToShortsItem(

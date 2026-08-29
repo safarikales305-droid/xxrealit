@@ -36,7 +36,7 @@ import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filter
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { MixedShortsFeed } from '@/components/video-feed/MixedShortsFeed';
 import type { ShortsFeedItem } from '@/lib/shorts-feed';
-import { isPropertyShortsItem, shortsPayloadToShortVideo } from '@/lib/shorts-feed';
+import { isPropertyShortsItem, normalizeShortsFeedItem, shortsPayloadToShortVideo } from '@/lib/shorts-feed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
@@ -779,7 +779,7 @@ export function HomeLayout({
           nextCursor?: string | null;
           hasMore?: boolean;
         };
-        const list = Array.isArray(data.items) ? data.items : [];
+        const list = (Array.isArray(data.items) ? data.items : []).map(normalizeShortsFeedItem);
         const propertyCount = list.filter((x) => isPropertyShortsItem(x)).length;
         if (cancelled) return;
         setMixedShortsFeed(list);
@@ -844,7 +844,7 @@ export function HomeLayout({
         nextCursor?: string | null;
         hasMore?: boolean;
       };
-      const list = Array.isArray(data.items) ? data.items : [];
+      const list = (Array.isArray(data.items) ? data.items : []).map(normalizeShortsFeedItem);
       setMixedShortsFeed((prev) => {
         const seen = new Set(prev.map((x) => x.feedKey));
         const next = [...prev];
