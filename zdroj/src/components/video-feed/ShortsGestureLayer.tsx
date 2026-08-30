@@ -81,7 +81,10 @@ export function ShortsGestureLayer({
         if (onTap) {
           onTap();
         } else {
+          const layer = e.currentTarget as HTMLElement;
+          layer.style.pointerEvents = 'none';
           const el = document.elementFromPoint(touch.clientX, touch.clientY);
+          layer.style.pointerEvents = '';
           if (el instanceof HTMLElement && !isNoSwipeTarget(el)) {
             el.click();
           }
