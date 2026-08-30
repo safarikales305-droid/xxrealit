@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
 import { ShortsMusicModule } from '../shorts-music/shorts-music.module';
+import { NewsEditorialSettingsModule } from '../news-editorial/news-editorial-settings.module';
 import { ContentSourceCategoryService } from './content-source-category.service';
 import { EditorialCenterDashboardService } from './editorial-center-dashboard.service';
 import { EditorialReelAdminController } from './editorial-reel-admin.controller';

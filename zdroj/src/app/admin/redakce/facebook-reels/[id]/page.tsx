@@ -69,6 +69,10 @@ export default function ReelJobDetailPage() {
               <dd>{job.template?.name ?? '—'}</dd>
             </div>
             <div className="flex justify-between">
+              <dt className="text-zinc-500">Hudba</dt>
+              <dd>{job.template?.musicTrack?.title ?? 'Bez hudby'}</dd>
+            </div>
+            <div className="flex justify-between">
               <dt className="text-zinc-500">Pokusů</dt>
               <dd>{job.attemptCount}</dd>
             </div>

@@ -55,7 +55,7 @@ export type EditorialReelJobRow = {
   renderedAt: string | null;
   createdAt: string;
   publishedAt: string | null;
-  template?: { id: string; name: string } | null;
+  template?: { id: string; name: string; musicTrack?: { id: string; title: string } | null } | null;
   category?: { label: string } | null;
   segments?: Array<{
     id: string;
@@ -250,6 +250,14 @@ export function nestEditorialDeleteReelJob(token: string, id: string) {
 
 export function nestEditorialReelMusic(token: string) {
   return editorialFetch<
-    Array<{ id: string; title: string; fileKey: string; active: boolean; isDefault: boolean }>
+    Array<{
+      id: string;
+      title: string;
+      artist?: string;
+      fileUrl: string;
+      previewUrl?: string | null;
+      durationSec?: number | null;
+      isActive: boolean;
+    }>
   >(token, '/reel/music');
 }

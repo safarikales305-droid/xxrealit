@@ -9,6 +9,7 @@ import { AutoStatusBanner, EditorialCenterShell } from '@/components/admin/redak
 import {
   nestEditorialPublishReelJob,
   nestEditorialReelJobs,
+  nestEditorialReelMusic,
   nestEditorialReelPending,
   nestEditorialReelSettings,
   nestEditorialReelTemplates,
@@ -35,6 +36,7 @@ export default function RedakceFacebookReelsPage() {
   const [settings, setSettings] = useState<EditorialReelAutomationSettings | null>(null);
   const [pending, setPending] = useState<ReelPendingBuffer | null>(null);
   const [templates, setTemplates] = useState<EditorialReelTemplate[]>([]);
+  const [musicTracks, setMusicTracks] = useState<Array<{ id: string; title: string }>>([]);
 
   const load = () => {
     if (!apiAccessToken) return;
@@ -43,11 +45,13 @@ export default function RedakceFacebookReelsPage() {
       nestEditorialReelSettings(apiAccessToken),
       nestEditorialReelPending(apiAccessToken),
       nestEditorialReelTemplates(apiAccessToken),
-    ]).then(([j, s, p, t]) => {
+      nestEditorialReelMusic(apiAccessToken),
+    ]).then(([j, s, p, t, m]) => {
       if (j) setJobs(j);
       if (s) setSettings(s);
       if (p) setPending(p);
       if (t) setTemplates(t);
+      if (m) setMusicTracks(m);
     });
   };
 
@@ -58,6 +62,7 @@ export default function RedakceFacebookReelsPage() {
   useEffect(load, [apiAccessToken]);
 
   const defaultTemplate = templates.find((t) => t.isDefault);
+  const defaultMusic = musicTracks.find((m) => m.id === settings?.musicTrackId);
   const lastJob = jobs[0];
 
   if (isLoading || !user) {
@@ -85,7 +90,7 @@ export default function RedakceFacebookReelsPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <AutoStatusBanner active={settings?.enabled ?? false} label="AUTOMATICKÉ REELS" />
         <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Čekající videa</p>
@@ -100,6 +105,10 @@ export default function RedakceFacebookReelsPage() {
         <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Výchozí šablona</p>
           <p className="text-lg font-bold text-zinc-900">{defaultTemplate?.name ?? '—'}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Výchozí hudba</p>
+          <p className="text-lg font-bold text-zinc-900">{defaultMusic?.title ?? 'Bez hudby'}</p>
         </div>
       </div>
 
@@ -159,6 +168,26 @@ export default function RedakceFacebookReelsPage() {
             />
             Automaticky publikovat na Facebook
           </label>
+          <label className="block">
+            <span className="mb-1 block font-medium">Výchozí hudba</span>
+            <select
+              className="w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2"
+              value={settings?.musicTrackId ?? ''}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, {
+                  musicTrackId: e.target.value || null,
+                }).then((s) => s && setSettings(s));
+              }}
+            >
+              <option value="">Bez hudby</option>
+              {musicTracks.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.title}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
@@ -169,6 +198,7 @@ export default function RedakceFacebookReelsPage() {
               <th className="px-4 py-3">Název</th>
               <th className="px-4 py-3">Segmentů</th>
               <th className="px-4 py-3">Šablona</th>
+              <th className="px-4 py-3">Hudba</th>
               <th className="px-4 py-3">Stav</th>
               <th className="px-4 py-3">Fáze / chyba</th>
               <th className="px-4 py-3">Datum</th>
@@ -185,6 +215,7 @@ export default function RedakceFacebookReelsPage() {
                 </td>
                 <td className="px-4 py-3">{job.videoCount}</td>
                 <td className="px-4 py-3 text-xs">{job.template?.name ?? '—'}</td>
+                <td className="px-4 py-3 text-xs">{job.template?.musicTrack?.title ?? 'Bez hudby'}</td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(job.status)}`}>
                     {job.status}

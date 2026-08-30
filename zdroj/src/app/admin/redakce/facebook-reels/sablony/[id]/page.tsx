@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { EditorialCenterShell } from '@/components/admin/redakce/EditorialCenterShell';
 import {
   nestEditorialReelMusic,
@@ -14,7 +15,18 @@ import {
   type EditorialReelTemplate,
 } from '@/lib/editorial-center-client';
 
-type MusicTrack = { id: string; title: string };
+type MusicTrack = {
+  id: string;
+  title: string;
+  fileUrl: string;
+  previewUrl?: string | null;
+};
+
+function trackAudioUrl(t: MusicTrack): string {
+  const u = (t.previewUrl || t.fileUrl || '').trim();
+  if (!u) return '';
+  return nestAbsoluteAssetUrl(u) || u;
+}
 
 export default function ReelSablonaEditorPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +37,8 @@ export default function ReelSablonaEditorPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testJobId, setTestJobId] = useState<string | null>(null);
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (!isLoading && user?.role !== 'ADMIN') router.replace('/');
@@ -213,7 +227,7 @@ export default function ReelSablonaEditorPage() {
               value={template.musicTrackId ?? ''}
               onChange={(e) => void save({ musicTrackId: e.target.value || null })}
             >
-              <option value="">žádná</option>
+              <option value="">Bez hudby</option>
               {music.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.title}
@@ -221,6 +235,36 @@ export default function ReelSablonaEditorPage() {
               ))}
             </select>
           </label>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {template.musicTrackId ? (
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-300 px-3 py-1.5"
+                onClick={() => {
+                  const track = music.find((m) => m.id === template.musicTrackId);
+                  if (!track) return;
+                  const url = trackAudioUrl(track);
+                  if (!url) return;
+                  if (previewTrackId === track.id && audioRef.current && !audioRef.current.paused) {
+                    audioRef.current.pause();
+                    setPreviewTrackId(null);
+                    return;
+                  }
+                  if (audioRef.current) {
+                    audioRef.current.src = url;
+                    void audioRef.current.play();
+                    setPreviewTrackId(track.id);
+                  }
+                }}
+              >
+                {previewTrackId === template.musicTrackId ? '⏸ Zastavit' : '▶ Přehrát ukázku'}
+              </button>
+            ) : null}
+            <Link href="/admin/hudba" className="text-orange-700 underline">
+              Spravovat hudební knihovnu
+            </Link>
+          </div>
+          <audio ref={audioRef} className="hidden" onEnded={() => setPreviewTrackId(null)} />
 
           <div className="flex flex-wrap gap-2 pt-2">
             <button
