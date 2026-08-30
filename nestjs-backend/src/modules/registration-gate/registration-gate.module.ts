@@ -6,6 +6,7 @@ import { RegistrationGateService } from './registration-gate.service';
 import { RegistrationRequirementsAdminController } from './registration-requirements-admin.controller';
 import { RegistrationRequirementsController } from './registration-requirements.controller';
 import { RegistrationRequirementsService } from './registration-requirements.service';
+import { ShortsSignupAnalyticsService } from './shorts-signup-analytics.service';
 
 @Module({
   imports: [forwardRef(() => PropertiesModule)],
@@ -15,7 +16,7 @@ import { RegistrationRequirementsService } from './registration-requirements.ser
     RegistrationRequirementsController,
     RegistrationRequirementsAdminController,
   ],
-  providers: [RegistrationGateService, RegistrationRequirementsService],
-  exports: [RegistrationGateService, RegistrationRequirementsService],
+  providers: [RegistrationGateService, RegistrationRequirementsService, ShortsSignupAnalyticsService],
+  exports: [RegistrationGateService, RegistrationRequirementsService, ShortsSignupAnalyticsService],
 })
 export class RegistrationGateModule {}

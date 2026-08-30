@@ -7,6 +7,7 @@ import {
 } from '@/components/feed/CyclicFeedViewport';
 import { ShortsFeedNavProvider } from '@/components/shorts/shorts-feed-nav-context';
 import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
+import { useShortsEmailSignup } from '@/hooks/use-shorts-email-signup';
 import { isShortVideoPlayable, shortVideoPlayableSrc } from '@/lib/feed/loop-feed';
 import {
   isPropertyShortsItem,
@@ -74,6 +75,7 @@ export function MixedShortsFeed({
   onActiveItemChange,
 }: MixedShortsFeedProps) {
   const { reportGuestListingViewed } = useGuestRegistrationGate();
+  const { reportShortViewed } = useShortsEmailSignup();
   const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
   const [skippedKeys, setSkippedKeys] = useState<Set<string>>(() => new Set());
 
@@ -125,6 +127,12 @@ export function MixedShortsFeed({
     const item = renderableItems[nav.currentIndex];
     if (item) onActiveItemChange(item.feedKey, nav.currentIndex);
   }, [nav.currentIndex, nav.total, renderableItems, onActiveItemChange]);
+
+  useEffect(() => {
+    if (nav.total <= 0) return;
+    const item = renderableItems[nav.currentIndex];
+    if (item) reportShortViewed(item.feedKey, item.contentType);
+  }, [nav.currentIndex, nav.total, renderableItems, reportShortViewed]);
 
   const onGuestVideoViewed = useCallback(
     (videoId: string) => {

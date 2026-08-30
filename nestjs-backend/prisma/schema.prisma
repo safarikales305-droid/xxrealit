@@ -2452,8 +2452,35 @@ model RegistrationGateSetting {
   videoUrl            String?
   bannerImageUrl      String?
   skipAfterSeconds    Int      @default(5)
+  /// Lehká email-only registrace ze Shorts feedu
+  emailSignupEnabled              Boolean  @default(false)
+  emailSignupAfterViews           Int      @default(10)
+  emailSignupTitle                String   @default("Připojte se k XXREALIT")
+  emailSignupDescription          String   @default("Sledujte reality, videa a novinky na jednom místě.")
+  emailSignupButtonText           String   @default("Pokračovat")
+  emailSignupDismissText          String   @default("Nechci registraci")
+  emailSignupDismissCooldownDays  Int      @default(7)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+/// Analytics události funnelu registrace ze Shorts
+model ShortsSignupEvent {
+  id                 String   @id @default(cuid())
+  eventName          String
+  anonymousSessionId String?
+  userId             String?
+  triggerViewCount   Int?
+  shortType          String?
+  utmSource          String?
+  utmMedium          String?
+  utmCampaign        String?
+  referrer           String?
+  variantId          String?
+  createdAt          DateTime @default(now())
+  @@index([eventName, createdAt])
+  @@index([anonymousSessionId, createdAt])
+  @@index([userId])
 }
 
 /// Gamifikace registrace — nastavení hry pro návštěvníky (singleton id=default).

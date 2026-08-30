@@ -100,7 +100,7 @@ function ResetHeslaInner() {
         return;
       }
       setMessage(data.message || 'Heslo bylo změněno. Můžete se přihlásit.');
-      setTimeout(() => router.push('/login'), 1500);
+      setTimeout(() => router.push('/?tab=shorts'), 1500);
     } catch (err) {
       console.error('RESET PASSWORD REQUEST ERROR', err);
       setError('Nelze se spojit se serverem');

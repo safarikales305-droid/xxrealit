@@ -48,4 +48,40 @@ export class UpdateRegistrationGateDto {
   @Min(0)
   @Max(120)
   skipAfterSeconds?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  emailSignupEnabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  emailSignupAfterViews?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  emailSignupTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  emailSignupDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  emailSignupButtonText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  emailSignupDismissText?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  emailSignupDismissCooldownDays?: number;
 }

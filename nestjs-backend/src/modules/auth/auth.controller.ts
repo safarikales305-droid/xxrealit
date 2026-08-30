@@ -11,6 +11,7 @@ import {
   Req,
   Request,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
@@ -22,6 +23,8 @@ import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { EmailSignupDto } from '../registration-gate/dto/shorts-signup.dto';
+import { ShortsSignupAnalyticsService } from '../registration-gate/shorts-signup-analytics.service';
 import type { AuthUser } from './decorators/current-user.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -37,6 +40,7 @@ export class AuthController {
     private readonly registrationRequirements: RegistrationRequirementsService,
     private readonly config: ConfigService,
     private readonly portalTerms: PortalTermsService,
+    private readonly shortsSignupAnalytics: ShortsSignupAnalyticsService,
   ) {}
 
   @Post('register')
@@ -79,6 +83,32 @@ export class AuthController {
     return result;
   }
 
+  @Post('email-signup')
+  async emailSignup(
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: EmailSignupDto,
+    @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> },
+  ) {
+    const meta = extractRequestClientMeta(req);
+    const result = await this.authService.emailSignupFromShorts(dto.email, meta);
+    if (result.success) {
+      void this.shortsSignupAnalytics.track({
+        eventName: result.isNewAccount ? 'shorts_signup_success' : 'shorts_signup_existing_email',
+        userId: result.userId,
+        utmSource: dto.utmSource,
+        utmMedium: dto.utmMedium,
+        utmCampaign: dto.utmCampaign,
+        referrer: dto.referrer,
+      });
+      void this.shortsSignupAnalytics.track({
+        eventName: 'shorts_signup_password_email_sent',
+        userId: result.userId,
+      });
+    } else {
+      void this.shortsSignupAnalytics.track({ eventName: 'shorts_signup_failed' });
+    }
+    return { success: result.success, message: result.message };
+  }
+
   @Post('forgot-password')
   async forgotPassword(@Body() body: { email?: string }) {
     const email = typeof body?.email === 'string' ? body.email : '';
@@ -105,6 +135,9 @@ export class AuthController {
       password: body?.password ?? body?.newPassword,
       confirmPassword: body?.confirmPassword ?? body?.passwordConfirmation,
     });
+    if (result.success && result.userId) {
+      void this.shortsSignupAnalytics.trackPasswordSetIfEligible(result.userId);
+    }
     if (!result.success) {
       console.warn(`[AUTH] reset-password failed: ${result.error ?? 'unknown error'}`);
     } else {

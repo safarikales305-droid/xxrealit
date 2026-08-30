@@ -21,6 +21,13 @@ const DEFAULTS = {
   videoUrl: null as string | null,
   bannerImageUrl: null as string | null,
   skipAfterSeconds: 5,
+  emailSignupEnabled: false,
+  emailSignupAfterViews: 10,
+  emailSignupTitle: 'Připojte se k XXREALIT',
+  emailSignupDescription: 'Sledujte reality, videa a novinky na jednom místě.',
+  emailSignupButtonText: 'Pokračovat',
+  emailSignupDismissText: 'Nechci registraci',
+  emailSignupDismissCooldownDays: 7,
 };
 
 @Injectable()
@@ -44,6 +51,13 @@ export class RegistrationGateService {
       videoUrl: upgradeHttpToHttpsForApi(row.videoUrl) ?? row.videoUrl,
       bannerImageUrl: upgradeHttpToHttpsForApi(row.bannerImageUrl) ?? row.bannerImageUrl,
       skipAfterSeconds: row.skipAfterSeconds,
+      emailSignupEnabled: row.emailSignupEnabled,
+      emailSignupAfterViews: row.emailSignupAfterViews,
+      emailSignupTitle: row.emailSignupTitle,
+      emailSignupDescription: row.emailSignupDescription,
+      emailSignupButtonText: row.emailSignupButtonText,
+      emailSignupDismissText: row.emailSignupDismissText,
+      emailSignupDismissCooldownDays: row.emailSignupDismissCooldownDays,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -76,6 +90,21 @@ export class RegistrationGateService {
   async getAdminSettings() {
     const row = await this.getOrCreate();
     return this.serialize(row);
+  }
+
+  async getEmailSignupPublicSettings() {
+    const row = await this.getOrCreate();
+    if (!row.emailSignupEnabled) return null;
+    return {
+      enabled: true,
+      afterViews: row.emailSignupAfterViews,
+      title: row.emailSignupTitle,
+      description: row.emailSignupDescription,
+      buttonText: row.emailSignupButtonText,
+      dismissText: row.emailSignupDismissText,
+      dismissCooldownDays: row.emailSignupDismissCooldownDays,
+      variantId: `trigger_${row.emailSignupAfterViews}`,
+    };
   }
 
   async getPublicSettings() {
@@ -115,6 +144,32 @@ export class RegistrationGateService {
           : {}),
         ...(dto.skipAfterSeconds !== undefined
           ? { skipAfterSeconds: Math.max(0, Math.min(120, Math.trunc(dto.skipAfterSeconds))) }
+          : {}),
+        ...(dto.emailSignupEnabled !== undefined
+          ? { emailSignupEnabled: dto.emailSignupEnabled }
+          : {}),
+        ...(dto.emailSignupAfterViews !== undefined
+          ? { emailSignupAfterViews: Math.max(1, Math.min(100, Math.trunc(dto.emailSignupAfterViews))) }
+          : {}),
+        ...(dto.emailSignupTitle !== undefined
+          ? { emailSignupTitle: dto.emailSignupTitle.trim() }
+          : {}),
+        ...(dto.emailSignupDescription !== undefined
+          ? { emailSignupDescription: dto.emailSignupDescription.trim() }
+          : {}),
+        ...(dto.emailSignupButtonText !== undefined
+          ? { emailSignupButtonText: dto.emailSignupButtonText.trim() }
+          : {}),
+        ...(dto.emailSignupDismissText !== undefined
+          ? { emailSignupDismissText: dto.emailSignupDismissText.trim() }
+          : {}),
+        ...(dto.emailSignupDismissCooldownDays !== undefined
+          ? {
+              emailSignupDismissCooldownDays: Math.max(
+                1,
+                Math.min(90, Math.trunc(dto.emailSignupDismissCooldownDays)),
+              ),
+            }
           : {}),
       },
     });

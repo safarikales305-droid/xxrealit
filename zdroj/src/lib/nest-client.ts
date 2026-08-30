@@ -5478,8 +5478,37 @@ export type RegistrationGateAdminSettings = {
   videoUrl: string | null;
   bannerImageUrl: string | null;
   skipAfterSeconds: number;
+  emailSignupEnabled: boolean;
+  emailSignupAfterViews: number;
+  emailSignupTitle: string;
+  emailSignupDescription: string;
+  emailSignupButtonText: string;
+  emailSignupDismissText: string;
+  emailSignupDismissCooldownDays: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ShortsSignupStats = {
+  from: string;
+  to: string;
+  counts: {
+    popupShown: number;
+    submitted: number;
+    success: number;
+    passwordEmails: number;
+    passwordSet: number;
+    dismissed: number;
+    existingEmail: number;
+    failed: number;
+    eligible: number;
+  };
+  conversion: {
+    emailSubmitRate: number;
+    registrationRate: number;
+    passwordCompletionRate: number;
+    dismissRate: number;
+  };
 };
 
 export async function nestAdminRegistrationGateGet(
@@ -5491,6 +5520,19 @@ export async function nestAdminRegistrationGateGet(
   });
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as RegistrationGateAdminSettings | null;
+}
+
+export async function nestAdminShortsSignupStats(
+  token: string | null,
+  days = 7,
+): Promise<ShortsSignupStats | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/registration-gate/shorts-signup/stats?days=${days}`,
+    { headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as ShortsSignupStats | null;
 }
 
 export async function nestAdminRegistrationGatePatch(

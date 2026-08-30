@@ -232,6 +232,7 @@ export type CompleteResetPasswordResult = {
   success: boolean;
   message?: string;
   error?: string;
+  userId?: string;
 };
 
 @Injectable()
@@ -504,7 +505,7 @@ export class AuthService {
       });
       this.logger.log(`[reset-password] user updated and token invalidated userId=${user.id}`);
 
-      return { success: true, message: 'Heslo bylo úspěšně změněno.' };
+      return { success: true, message: 'Heslo bylo úspěšně změněno.', userId: user.id };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const name = error instanceof Error ? error.name : 'UnknownError';
@@ -935,5 +936,89 @@ export class AuthService {
         createdAt: user.createdAt.toISOString(),
       },
     };
+  }
+
+  private readonly emailSignupLastByIp = new Map<string, number>();
+  private readonly emailSignupLastByEmail = new Map<string, number>();
+
+  private isEmailSignupRateLimited(ip: string, email: string): boolean {
+    const now = Date.now();
+    const ipKey = ip || 'unknown';
+    const emailKey = createHash('sha256').update(email).digest('hex').slice(0, 16);
+    if (now - (this.emailSignupLastByIp.get(ipKey) ?? 0) < 30_000) return true;
+    if (now - (this.emailSignupLastByEmail.get(emailKey) ?? 0) < 60_000) return true;
+    this.emailSignupLastByIp.set(ipKey, now);
+    this.emailSignupLastByEmail.set(emailKey, now);
+    return false;
+  }
+
+  async emailSignupFromShorts(
+    emailRaw: string,
+    meta?: RequestClientMeta,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    isNewAccount?: boolean;
+    userId?: string;
+  }> {
+    const email = emailRaw?.trim().toLowerCase() ?? '';
+    if (!this.isValidEmail(email)) {
+      return { success: false, message: 'Zadejte platný e-mail.' };
+    }
+    if (this.isEmailSignupRateLimited(meta?.ip ?? '', email)) {
+      return { success: false, message: 'Počkejte prosím chvíli a zkuste to znovu.' };
+    }
+
+    const genericMessage =
+      'Pokud je možné účet připravit, poslali jsme vám e-mail s dalšími instrukcemi.';
+
+    const existing = await this.users.findByEmail(email);
+    if (existing) {
+      const resetResult = await this.resetPassword(email);
+      return {
+        success: resetResult.success,
+        message: resetResult.success
+          ? genericMessage
+          : (resetResult.error ?? 'Nepodařilo se odeslat e-mail.'),
+        isNewAccount: false,
+        userId: existing.id,
+      };
+    }
+
+    try {
+      const termsVersion = await this.portalTerms.assertRegistrationConsent(true);
+      const termsConsent = this.portalTerms.termsConsentData(termsVersion, meta);
+      const hashedPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
+
+      await this.accountUniqueness.assertEmailAvailable(email);
+      const user = await this.users.create({
+        email,
+        password: hashedPassword,
+        name: '',
+        phone: '',
+        role: UserRole.USER,
+        emailVerified: false,
+        ...termsConsent,
+        consentSource: 'SHORTS_EMAIL_SIGNUP',
+        firstContentCompleted: true,
+      });
+
+      const token = randomBytes(32).toString('hex');
+      const resetExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await this.users.setPasswordResetToken(user.id, token, resetExpires);
+      const url = buildPasswordResetUrl(token, this.config, this.logger);
+
+      try {
+        await this.emailsService.sendPasswordResetEmail({ email: user.email, resetUrl: url });
+      } catch (err) {
+        this.logger.warn(`Shorts signup email failed: ${this.resendErrorMessage(err)}`);
+        return { success: false, message: 'Nepodařilo se odeslat e-mail. Zkuste to prosím znovu.' };
+      }
+
+      return { success: true, message: genericMessage, isNewAccount: true, userId: user.id };
+    } catch (err) {
+      this.logger.error(`Shorts email signup failed: ${err instanceof Error ? err.message : err}`);
+      return { success: false, message: 'Nepodařilo se registraci dokončit. Zkuste to prosím znovu.' };
+    }
   }
 }

@@ -11,7 +11,9 @@ import {
   nestAdminRegistrationGatePatch,
   nestAdminRegistrationGateUploadBanner,
   nestAdminRegistrationGateUploadVideo,
+  nestAdminShortsSignupStats,
   type RegistrationGateAdminSettings,
+  type ShortsSignupStats,
 } from '@/lib/nest-client';
 
 export default function AdminRegistrationGatePage() {
@@ -20,6 +22,8 @@ export default function AdminRegistrationGatePage() {
   const token = apiAccessToken;
 
   const [settings, setSettings] = useState<RegistrationGateAdminSettings | null>(null);
+  const [stats, setStats] = useState<ShortsSignupStats | null>(null);
+  const [statsDays, setStatsDays] = useState(7);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,6 +39,12 @@ export default function AdminRegistrationGatePage() {
     setSettings(data);
   }, [token]);
 
+  const refreshStats = useCallback(async () => {
+    if (!token) return;
+    const data = await nestAdminShortsSignupStats(token, statsDays);
+    setStats(data);
+  }, [token, statsDays]);
+
   useEffect(() => {
     if (!isLoading && (!token || !user || user.role !== 'ADMIN')) {
       router.replace('/');
@@ -44,6 +54,10 @@ export default function AdminRegistrationGatePage() {
   useEffect(() => {
     if (token && user?.role === 'ADMIN') void refresh();
   }, [token, user?.role, refresh]);
+
+  useEffect(() => {
+    if (token && user?.role === 'ADMIN') void refreshStats();
+  }, [token, user?.role, refreshStats]);
 
   async function save(patch: Partial<RegistrationGateAdminSettings>) {
     if (!token) return;
@@ -315,6 +329,197 @@ export default function AdminRegistrationGatePage() {
                 <p className="mt-2 text-xs text-zinc-500">Zatím není nahrán žádný banner.</p>
               )}
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">C) Registrační výzva ze Shorts (e-mail)</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Lehká registrace pouze e-mailem po nastaveném počtu zhlédnutých Shorts. Heslo si uživatel
+              nastaví z odkazu v e-mailu.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={settings.emailSignupEnabled}
+              onChange={(e) => void save({ emailSignupEnabled: e.target.checked })}
+              disabled={busy}
+            />
+            Aktivní
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Zobrazit po (Shorts)</span>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className="w-full max-w-[8rem] rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupAfterViews}
+              onChange={(e) =>
+                setSettings((s) =>
+                  s ? { ...s, emailSignupAfterViews: Number(e.target.value) || 10 } : s,
+                )
+              }
+              onBlur={() => void save({ emailSignupAfterViews: settings.emailSignupAfterViews })}
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Titulek</span>
+            <input
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupTitle}
+              onChange={(e) => setSettings((s) => (s ? { ...s, emailSignupTitle: e.target.value } : s))}
+              onBlur={() => void save({ emailSignupTitle: settings.emailSignupTitle })}
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Text</span>
+            <textarea
+              rows={2}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupDescription}
+              onChange={(e) =>
+                setSettings((s) => (s ? { ...s, emailSignupDescription: e.target.value } : s))
+              }
+              onBlur={() => void save({ emailSignupDescription: settings.emailSignupDescription })}
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Tlačítko</span>
+            <input
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupButtonText}
+              onChange={(e) =>
+                setSettings((s) => (s ? { ...s, emailSignupButtonText: e.target.value } : s))
+              }
+              onBlur={() => void save({ emailSignupButtonText: settings.emailSignupButtonText })}
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Text odmítnutí</span>
+            <input
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupDismissText}
+              onChange={(e) =>
+                setSettings((s) => (s ? { ...s, emailSignupDismissText: e.target.value } : s))
+              }
+              onBlur={() => void save({ emailSignupDismissText: settings.emailSignupDismissText })}
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Znovu zobrazit po odmítnutí (dny)</span>
+            <input
+              type="number"
+              min={1}
+              max={90}
+              className="w-full max-w-[8rem] rounded-xl border border-zinc-200 px-3 py-2"
+              value={settings.emailSignupDismissCooldownDays}
+              onChange={(e) =>
+                setSettings((s) =>
+                  s
+                    ? { ...s, emailSignupDismissCooldownDays: Number(e.target.value) || 7 }
+                    : s,
+                )
+              }
+              onBlur={() =>
+                void save({ emailSignupDismissCooldownDays: settings.emailSignupDismissCooldownDays })
+              }
+            />
+          </label>
+
+          <div className="grid gap-4 border-t border-zinc-100 pt-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Náhled desktop
+              </p>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="mx-auto w-full max-w-sm rounded-2xl bg-white p-5 shadow-md">
+                  <h3 className="text-lg font-bold text-zinc-900">{settings.emailSignupTitle}</h3>
+                  <p className="mt-1 text-sm text-zinc-600">{settings.emailSignupDescription}</p>
+                  <div className="mt-4 h-10 rounded-xl border border-zinc-300 bg-white" />
+                  <div className="mt-3 h-10 rounded-xl bg-orange-600" />
+                  <p className="mt-2 text-center text-xs text-zinc-500">{settings.emailSignupDismissText}</p>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Náhled mobil
+              </p>
+              <div className="mx-auto max-w-[220px] rounded-[2rem] border-4 border-zinc-800 bg-zinc-800 p-2">
+                <div className="rounded-[1.25rem] bg-black/40 p-3">
+                  <div className="rounded-2xl bg-white p-4">
+                    <h3 className="text-sm font-bold text-zinc-900">{settings.emailSignupTitle}</h3>
+                    <p className="mt-1 text-xs text-zinc-600">{settings.emailSignupDescription}</p>
+                    <div className="mt-3 h-9 rounded-lg border border-zinc-300" />
+                    <div className="mt-2 h-9 rounded-lg bg-orange-600" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 border-t border-zinc-100 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-zinc-900">Statistiky konverze</h3>
+              <div className="flex gap-2">
+                {[1, 7, 30].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                      statsDays === d
+                        ? 'bg-orange-600 text-white'
+                        : 'border border-zinc-300 bg-white text-zinc-700'
+                    }`}
+                    onClick={() => setStatsDays(d)}
+                  >
+                    {d === 1 ? 'Dnes' : `${d} dní`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {stats ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[
+                    ['Popup zobrazen', stats.counts.popupShown],
+                    ['E-mail zadán', stats.counts.submitted],
+                    ['Nové účty', stats.counts.success],
+                    ['Nastavené heslo', stats.counts.passwordSet],
+                    ['Odmítnuto', stats.counts.dismissed],
+                    ['E-maily odeslány', stats.counts.passwordEmails],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+                      <p className="mt-1 text-2xl font-bold text-zinc-900">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-200 px-4 py-3 text-sm">
+                    <p>Popup → e-mail: <strong>{stats.conversion.emailSubmitRate}%</strong></p>
+                    <p>Popup → registrace: <strong>{stats.conversion.registrationRate}%</strong></p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 px-4 py-3 text-sm">
+                    <p>Registrace → heslo: <strong>{stats.conversion.passwordCompletionRate}%</strong></p>
+                    <p>Popup → odmítnutí: <strong>{stats.conversion.dismissRate}%</strong></p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-500">Statistiky se načítají…</p>
+            )}
           </div>
         </section>
       </main>
