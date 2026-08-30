@@ -15,6 +15,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { NewsArticleStatus, NewsSourceType, NewsYoutubePublishMode } from '@prisma/client';
+import type { AuthUser } from '../auth/decorators/current-user.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { PROFILE_UPLOAD_MAX_BYTES } from '../upload/profile-images.service';
@@ -34,6 +36,7 @@ import { NewsSourceDeleteService } from './news-source-delete.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsYoutubeService } from './news-youtube.service';
+import { NewsYoutubeDiscoveryService } from './news-youtube-discovery.service';
 import { NewsSystemUserService } from './news-system-user.service';
 import { EditorialPortalPostService } from './editorial-portal-post.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
@@ -62,6 +65,7 @@ export class NewsEditorialAdminController {
     private readonly audit: NewsAuditService,
     private readonly backfill: NewsBackfillService,
     private readonly youtube: NewsYoutubeService,
+    private readonly youtubeDiscovery: NewsYoutubeDiscoveryService,
     private readonly systemUser: NewsSystemUserService,
     private readonly editorialPosts: EditorialPortalPostService,
     private readonly prisma: PrismaService,
@@ -533,5 +537,52 @@ export class NewsEditorialAdminController {
     @Query('articleId') articleId?: string,
   ) {
     return this.audit.list(limit ? Number(limit) : 100, articleId);
+  }
+
+  @Get('youtube/discovery/settings')
+  getYoutubeDiscoverySettings() {
+    return this.youtubeDiscovery.getSettings();
+  }
+
+  @Patch('youtube/discovery/settings')
+  patchYoutubeDiscoverySettings(@Body() body: Record<string, unknown>) {
+    return this.youtubeDiscovery.updateSettings(body as Parameters<NewsYoutubeDiscoveryService['updateSettings']>[0]);
+  }
+
+  @Get('youtube/discovery/stats')
+  getYoutubeDiscoveryStats() {
+    return this.youtubeDiscovery.getDiscoveryStats();
+  }
+
+  @Get('youtube/suggestions')
+  listYoutubeSuggestions(@Query('status') status?: string) {
+    const allowed = ['PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const;
+    const st = allowed.find((x) => x === status);
+    return this.youtubeDiscovery.listSuggestions(st);
+  }
+
+  @Post('youtube/discovery/run')
+  runYoutubeDiscovery() {
+    return this.youtubeDiscovery.runDiscovery();
+  }
+
+  @Post('youtube/suggestions/:id/approve')
+  approveYoutubeSuggestion(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body?: { categoryId?: string },
+  ) {
+    return this.youtubeDiscovery.approveSuggestion(id, user.id, body?.categoryId);
+  }
+
+  @Post('youtube/suggestions/:id/reject')
+  rejectYoutubeSuggestion(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.youtubeDiscovery.rejectSuggestion(id, user.id);
+  }
+
+  @Patch('youtube/suggestions/:id')
+  patchYoutubeSuggestion(@Param('id') id: string, @Body() body: { categoryId?: string }) {
+    if (!body.categoryId) throw new BadRequestException('categoryId je povinné.');
+    return this.youtubeDiscovery.patchSuggestionCategory(id, body.categoryId);
   }
 }

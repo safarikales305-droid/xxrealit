@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
+import { OpenAiModule } from '../openai/openai.module';
 import { ShortsMusicModule } from '../shorts-music/shorts-music.module';
 import { NewsEditorialSettingsModule } from '../news-editorial/news-editorial-settings.module';
 import { ContentSourceCategoryService } from './content-source-category.service';
@@ -11,6 +12,7 @@ import { EditorialReelJobService } from './editorial-reel-job.service';
 import { EditorialReelRenderService } from './editorial-reel-render.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
 import { EditorialReelWorkerService } from './editorial-reel-worker.service';
+import { ReelHookService } from './reel-hook.service';
 
 @Module({
   imports: [
@@ -18,6 +20,7 @@ import { EditorialReelWorkerService } from './editorial-reel-worker.service';
     forwardRef(() => PropertiesModule),
     forwardRef(() => SocialModule),
     ShortsMusicModule,
+    OpenAiModule,
     NewsEditorialSettingsModule,
   ],
   controllers: [EditorialReelAdminController],
@@ -28,6 +31,7 @@ import { EditorialReelWorkerService } from './editorial-reel-worker.service';
     EditorialReelRenderService,
     EditorialReelJobService,
     EditorialReelWorkerService,
+    ReelHookService,
   ],
   exports: [
     ContentSourceCategoryService,

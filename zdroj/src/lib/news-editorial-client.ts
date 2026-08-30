@@ -1205,3 +1205,70 @@ export const DASHBOARD_STAT_LABELS: Record<keyof NewsDashboardStats, string> = {
   duplicateToday: 'Duplicity dnes',
   publishedTotal: 'Publikováno celkem',
 };
+
+export type YoutubeSourceSuggestionRow = {
+  id: string;
+  channelId: string;
+  channelTitle: string;
+  channelUrl: string;
+  thumbnailUrl: string | null;
+  description: string | null;
+  relevanceScore: number;
+  reason: string | null;
+  status: string;
+  subscriberCount: number | null;
+  videoCount: number | null;
+  lastVideoAt: string | null;
+  category: { id: string; slug: string; label: string };
+};
+
+function newsAdminBase(): string {
+  return API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+}
+
+export async function nestAdminListYoutubeSuggestions(
+  token: string,
+  status?: string,
+): Promise<YoutubeSourceSuggestionRow[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/suggestions${qs}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function nestAdminApproveYoutubeSuggestion(
+  token: string,
+  id: string,
+  categoryId?: string,
+): Promise<boolean> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/suggestions/${id}/approve`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(categoryId ? { categoryId } : {}),
+  });
+  return res.ok;
+}
+
+export async function nestAdminRejectYoutubeSuggestion(token: string, id: string): Promise<boolean> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/suggestions/${id}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  return res.ok;
+}
+
+export async function nestAdminRunYoutubeDiscovery(token: string): Promise<boolean> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/discovery/run`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  return res.ok;
+}

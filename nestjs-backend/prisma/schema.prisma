@@ -7832,6 +7832,19 @@ enum ReelNarrationMode {
   AI_AVATAR
 }
 
+enum ReelHookMode {
+  TEMPLATE
+  AI
+  AI_FALLBACK
+}
+
+enum YoutubeSourceSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IGNORED
+}
+
 enum ReelTransitionStyle {
   FADE
   ZOOM
@@ -7848,8 +7861,38 @@ model ContentSourceCategory {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  sources   NewsSource[]
-  reelJobs  EditorialReelJob[]
+  sources              NewsSource[]
+  reelJobs             EditorialReelJob[]
+  youtubeSuggestions   YouTubeSourceSuggestion[]
+}
+
+/// AI návrh YouTube kanálu ke schválení adminem
+model YouTubeSourceSuggestion {
+  id               String                        @id @default(cuid())
+  channelId        String
+  channelTitle     String
+  channelUrl       String
+  thumbnailUrl     String?
+  description      String?                       @db.Text
+  categoryId       String
+  category         ContentSourceCategory         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subscriberCount  Int?
+  videoCount       Int?
+  lastVideoAt      DateTime?
+  relevanceScore   Int                           @default(0)
+  reason           String?                       @db.Text
+  status           YoutubeSourceSuggestionStatus @default(PENDING)
+  suggestedBy      String                        @default("ai_discovery")
+  approvedBy       String?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectedBy       String?
+  createdSourceId  String?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  @@unique([channelId, categoryId])
+  @@index([status, relevanceScore])
+  @@index([categoryId, status])
 }
 
 /// Šablona Facebook Reel kompilace
@@ -7867,6 +7910,10 @@ model EditorialReelTemplate {
   showCategory    Boolean             @default(true)
   ctaText         String              @default("Další videa najdete na XXREALIT.cz")
   introText       String?
+  hookMode        ReelHookMode        @default(AI_FALLBACK)
+  generateHookText Boolean            @default(true)
+  useFirstVideoAsIntro Boolean        @default(true)
+  showFirstVideoTitle Boolean         @default(true)
   musicTrackId    String?
   musicTrack      ShortsMusicTrack?   @relation(fields: [musicTrackId], references: [id], onDelete: SetNull)
   narrationMode   ReelNarrationMode   @default(MUSIC)

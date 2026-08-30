@@ -6,12 +6,15 @@ import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { parsePublicPropertyListFiltersQuery } from '../properties/parse-public-property-filters.util';
 import { FeedService } from './feed.service';
 import { ShortsMixedFeedService } from './shorts-mixed-feed.service';
+import { parseTopicSlugsParam } from './content-topic.util';
+import { PrismaService } from '../../database/prisma.service';
 
 @Controller('feed')
 export class FeedController {
   constructor(
     private readonly feedService: FeedService,
     private readonly mixedFeedService: ShortsMixedFeedService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('shorts')
@@ -59,6 +62,8 @@ export class FeedController {
     @Query('limit') limitRaw?: string,
     @Query('target') target?: string,
     @Query('collection') collection?: string,
+    @Query('topics') topics?: string,
+    @Query('topic') topic?: string,
   ) {
     const filters = parsePublicPropertyListFiltersQuery({
       city,
@@ -72,14 +77,26 @@ export class FeedController {
       tipsOnlyRaw,
     });
     const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+    const topicSlugs = parseTopicSlugsParam(topics ?? topic);
     return this.mixedFeedService.getFeed({
       viewerId: user?.id,
       filters,
+      topicSlugs,
       cursor,
       limit: Number.isFinite(limit) ? limit : undefined,
       target: target?.trim() || undefined,
       collection: collection?.trim() || undefined,
     });
+  }
+
+  @Get('shorts/topics')
+  async listShortsTopics() {
+    const rows = await this.prisma.contentSourceCategory.findMany({
+      where: { active: true },
+      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+      select: { id: true, slug: true, label: true },
+    });
+    return rows;
   }
 
   @Get('shorts/item/:publicId')

@@ -68,17 +68,12 @@ export class EditorialReelRenderService {
       const outroSec = Math.max(1, input.template.outroSec);
       const slidePaths: string[] = [];
       let idx = 0;
-
-      const introSlide = await this.buildTextSlide(tmpRoot, idx++, {
-        title: input.template.introText ?? 'Co je nového ve světě realit',
-        subtitle: 'XXREALIT',
-        durationSec: introSec,
-        logoPath: input.logoPath,
-      });
-      slidePaths.push(introSlide);
+      const hookHeadline =
+        input.template.introText?.trim() || 'Novinky z realit a bydlení';
 
       let skippedSegmentCount = 0;
       const segmentDurations: number[] = [];
+      let hookFrameDone = false;
 
       for (const seg of input.segments) {
         try {
@@ -90,13 +85,26 @@ export class EditorialReelRenderService {
             continue;
           }
           const slidePath = join(tmpRoot, `slide-${idx}.jpg`);
+          const isHookFrame = !hookFrameDone;
           await this.composeThumbnailSlide(thumbPath, slidePath, {
-            title: input.template.showVideoTitle ? seg.title : '',
-            channelTitle: input.template.showChannelTitle ? seg.channelTitle : '',
+            title: isHookFrame
+              ? hookHeadline
+              : input.template.showVideoTitle
+                ? seg.title
+                : '',
+            channelTitle: isHookFrame
+              ? 'XXREALIT'
+              : input.template.showChannelTitle
+                ? seg.channelTitle
+                : '',
             categoryLabel: input.template.showCategory ? seg.categoryLabel : '',
+            hookStyle: isHookFrame,
+            showLogo: isHookFrame && Boolean(input.logoPath),
+            logoPath: input.logoPath,
           });
           slidePaths.push(slidePath);
-          segmentDurations.push(segmentSec);
+          segmentDurations.push(isHookFrame ? introSec : segmentSec);
+          if (isHookFrame) hookFrameDone = true;
           idx += 1;
         } catch (err) {
           skippedSegmentCount += 1;
@@ -122,7 +130,7 @@ export class EditorialReelRenderService {
       });
       slidePaths.push(outroSlide);
 
-      const durations: number[] = [introSec, ...segmentDurations, outroSec];
+      const durations: number[] = [...segmentDurations, outroSec];
 
       const ffconcatPath = await this.writeFfconcat(tmpRoot, slidePaths, durations);
       const silentPath = join(tmpRoot, 'silent.mp4');
@@ -186,7 +194,14 @@ export class EditorialReelRenderService {
   private async composeThumbnailSlide(
     thumbPath: string,
     outPath: string,
-    overlay: { title?: string; channelTitle?: string; categoryLabel?: string },
+    overlay: {
+      title?: string;
+      channelTitle?: string;
+      categoryLabel?: string;
+      hookStyle?: boolean;
+      showLogo?: boolean;
+      logoPath?: string | null;
+    },
   ) {
     try {
       await this.composeThumbnailSlideInner(thumbPath, outPath, overlay);
@@ -202,7 +217,14 @@ export class EditorialReelRenderService {
   private async composeThumbnailSlideInner(
     thumbPath: string,
     outPath: string,
-    overlay: { title?: string; channelTitle?: string; categoryLabel?: string },
+    overlay: {
+      title?: string;
+      channelTitle?: string;
+      categoryLabel?: string;
+      hookStyle?: boolean;
+      showLogo?: boolean;
+      logoPath?: string | null;
+    },
   ) {
     const base = await sharp(thumbPath)
       .resize(WIDTH, HEIGHT, { fit: 'cover', position: 'centre' })
@@ -219,25 +241,36 @@ export class EditorialReelRenderService {
       return;
     }
 
+    const hook = overlay.hookStyle === true;
+    const titleY = hook ? HEIGHT * 0.42 : HEIGHT - 180;
+    const titleSize = hook ? 46 : 42;
     const svg = `
       <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="rgba(0,0,0,0)" />
-            <stop offset="55%" stop-color="rgba(0,0,0,0)" />
-            <stop offset="100%" stop-color="rgba(0,0,0,0.75)" />
+            <stop offset="0%" stop-color="rgba(0,0,0,${hook ? '0.35' : '0'})" />
+            <stop offset="45%" stop-color="rgba(0,0,0,${hook ? '0.15' : '0'})" />
+            <stop offset="100%" stop-color="rgba(0,0,0,0.78)" />
           </linearGradient>
         </defs>
         <rect width="100%" height="100%" fill="url(#g)" />
-        <text x="48" y="${HEIGHT - 180}" fill="white" font-size="42" font-family="Arial, sans-serif" font-weight="700">${lines[0] ?? ''}</text>
-        ${lines[1] ? `<text x="48" y="${HEIGHT - 120}" fill="#f97316" font-size="28" font-family="Arial, sans-serif">${lines[1]}</text>` : ''}
-        ${lines[2] ? `<text x="48" y="${HEIGHT - 72}" fill="#d4d4d8" font-size="22" font-family="Arial, sans-serif" letter-spacing="2">${lines[2]}</text>` : ''}
+        <text x="${hook ? '50%' : '48'}" y="${titleY}" ${hook ? 'text-anchor="middle"' : ''} fill="white" font-size="${titleSize}" font-family="Arial, sans-serif" font-weight="700">${lines[0] ?? ''}</text>
+        ${lines[1] ? `<text x="${hook ? '50%' : '48'}" y="${titleY + (hook ? 52 : 60)}" ${hook ? 'text-anchor="middle"' : ''} fill="#f97316" font-size="${hook ? 26 : 28}" font-family="Arial, sans-serif">${lines[1]}</text>` : ''}
+        ${lines[2] && !hook ? `<text x="48" y="${HEIGHT - 72}" fill="#d4d4d8" font-size="22" font-family="Arial, sans-serif" letter-spacing="2">${lines[2]}</text>` : ''}
       </svg>`;
 
-    await sharp(base)
-      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-      .jpeg({ quality: 88 })
-      .toFile(outPath);
+    let pipeline = sharp(base).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
+    if (overlay.showLogo && overlay.logoPath) {
+      try {
+        const logo = await sharp(overlay.logoPath).resize(160, 160, { fit: 'inside' }).png().toBuffer();
+        pipeline = sharp(await pipeline.jpeg({ quality: 88 }).toBuffer()).composite([
+          { input: logo, top: 48, left: Math.floor((WIDTH - 160) / 2) },
+        ]);
+      } catch {
+        /* optional */
+      }
+    }
+    await pipeline.jpeg({ quality: 88 }).toFile(outPath);
   }
 
   private async buildTextSlide(

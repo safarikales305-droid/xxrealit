@@ -19,6 +19,7 @@ import { NewsPublishService } from './news-publish.service';
 import { NewsPortalPostService } from './news-portal-post.service';
 import { NewsRssTestService } from './news-rss-test.service';
 import { NewsYoutubeService } from './news-youtube.service';
+import { NewsYoutubeDiscoveryService } from './news-youtube-discovery.service';
 import { NewsSystemUserService } from './news-system-user.service';
 import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
@@ -53,6 +54,7 @@ import { EditorialReelModule } from '../editorial-reel/editorial-reel.module';
     NewsPublishService,
     NewsRssTestService,
     NewsYoutubeService,
+    NewsYoutubeDiscoveryService,
     NewsSystemUserService,
     NewsEditorialWorkerService,
   ],

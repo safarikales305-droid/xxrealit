@@ -225,6 +225,12 @@ export default function RedakceYoutubePage() {
           {toast}
         </div>
       ) : null}
+      <Link
+        href="/admin/redakce/youtube/navrh"
+        className="inline-flex rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+      >
+        Návrhy AI →
+      </Link>
       <div className="flex flex-wrap gap-3">
         <input
           type="search"

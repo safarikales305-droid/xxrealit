@@ -955,6 +955,7 @@ export class AuthService {
   async emailSignupFromShorts(
     emailRaw: string,
     meta?: RequestClientMeta,
+    signupSource?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -991,6 +992,7 @@ export class AuthService {
       const hashedPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
 
       await this.accountUniqueness.assertEmailAvailable(email);
+      const source = (signupSource?.trim() || 'SHORTS_EMAIL_SIGNUP').slice(0, 40);
       const user = await this.users.create({
         email,
         password: hashedPassword,
@@ -999,7 +1001,7 @@ export class AuthService {
         role: UserRole.USER,
         emailVerified: false,
         ...termsConsent,
-        consentSource: 'SHORTS_EMAIL_SIGNUP',
+        consentSource: source,
         firstContentCompleted: true,
       });
 

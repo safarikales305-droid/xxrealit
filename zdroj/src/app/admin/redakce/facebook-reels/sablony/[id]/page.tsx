@@ -98,28 +98,30 @@ export default function ReelSablonaEditorPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="flex justify-center">
           <div
-            className="relative w-full max-w-[270px] overflow-hidden rounded-2xl border border-zinc-300 bg-zinc-900 shadow-xl"
+            className="relative w-full max-w-[270px] overflow-hidden rounded-2xl border border-zinc-300 bg-zinc-800 shadow-xl"
             style={{ aspectRatio: '9/16' }}
           >
-            <div className="absolute inset-0 bg-gradient-to-b from-zinc-800 to-zinc-950" />
+            <div
+              className="absolute inset-0 bg-cover bg-center"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.55)), url(https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg)',
+              }}
+            />
             {template.showLogo ? (
-              <div className="absolute left-1/2 top-8 -translate-x-1/2 rounded bg-orange-600 px-3 py-1 text-xs font-bold text-white">
+              <div className="absolute left-1/2 top-6 -translate-x-1/2 rounded bg-orange-600/95 px-3 py-1 text-xs font-bold text-white shadow">
                 XXREALIT
               </div>
             ) : null}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 pt-16">
-              {template.showVideoTitle ? (
-                <p className="text-sm font-bold text-white">Ukázkový název videa</p>
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 pt-20">
+              <p className="text-center text-sm font-extrabold uppercase leading-tight tracking-wide text-white">
+                {template.generateHookText !== false
+                  ? 'CO TEĎ ŘEŠÍ MAKLÉŘI?'
+                  : template.introText || 'Novinky z realit'}
+              </p>
+              {template.showFirstVideoTitle !== false ? (
+                <p className="mt-3 text-xs font-semibold text-white/90">Ukázkový název videa</p>
               ) : null}
-              {template.showChannelTitle ? (
-                <p className="mt-1 text-xs text-orange-400">Honza reality</p>
-              ) : null}
-              {template.showCategory ? (
-                <p className="mt-1 text-[10px] uppercase tracking-wider text-zinc-300">Makléři</p>
-              ) : null}
-            </div>
-            <div className="absolute inset-0 flex items-center justify-center text-center text-xs text-zinc-500">
-              {preview ? `~${Math.round(preview.total)}s` : ''}
             </div>
           </div>
         </div>
@@ -186,16 +188,21 @@ export default function ReelSablonaEditorPage() {
 
           <div className="space-y-2 text-sm">
             {[
-              ['showLogo', 'Logo'],
-              ['showVideoTitle', 'Název videa'],
+              ['useFirstVideoAsIntro', 'Použít první video jako úvod'],
+              ['generateHookText', 'Generovat hook text'],
+              ['showLogo', 'Zobrazit logo'],
+              ['showFirstVideoTitle', 'Zobrazit název prvního videa'],
+              ['showVideoTitle', 'Název videa (segmenty)'],
               ['showChannelTitle', 'Kanál'],
               ['showCategory', 'Kategorie'],
             ].map(([key, label]) => (
               <label key={key} className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={template[key as keyof EditorialReelTemplate] as boolean}
-                  onChange={(e) => void save({ [key]: e.target.checked } as Partial<EditorialReelTemplate>)}
+                  checked={(template as Record<string, unknown>)[key] !== false}
+                  onChange={(e) =>
+                    void save({ [key]: e.target.checked } as Partial<EditorialReelTemplate>)
+                  }
                 />
                 {label}
               </label>
@@ -203,7 +210,22 @@ export default function ReelSablonaEditorPage() {
           </div>
 
           <label className="block text-sm">
-            Intro text
+            Hook mode
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={(template as { hookMode?: string }).hookMode ?? 'AI_FALLBACK'}
+              onChange={(e) =>
+                void save({ hookMode: e.target.value } as Partial<EditorialReelTemplate>)
+              }
+            >
+              <option value="TEMPLATE">Template</option>
+              <option value="AI">AI</option>
+              <option value="AI_FALLBACK">AI + fallback</option>
+            </select>
+          </label>
+
+          <label className="block text-sm">
+            Intro text (fallback / template)
             <input
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
               value={template.introText ?? ''}

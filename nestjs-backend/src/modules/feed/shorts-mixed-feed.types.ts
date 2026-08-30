@@ -24,6 +24,7 @@ export type ShortsFeedResponse = {
   targetIndexInPage?: number | null;
   targetFeedKey?: string | null;
   targetFound?: boolean;
+  topicFilterEmpty?: boolean;
 };
 
 export type ShortsFeedCursor = {

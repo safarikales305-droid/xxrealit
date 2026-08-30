@@ -43,7 +43,10 @@ export function trackShortsSignupEvent(
   }).catch(() => undefined);
 }
 
-export async function submitShortsEmailSignup(email: string): Promise<{
+export async function submitShortsEmailSignup(
+  email: string,
+  signupSource?: string,
+): Promise<{
   success: boolean;
   message: string;
 }> {
@@ -61,6 +64,7 @@ export async function submitShortsEmailSignup(email: string): Promise<{
       utmMedium: params.get('utm_medium') ?? undefined,
       utmCampaign: params.get('utm_campaign') ?? undefined,
       referrer: document.referrer?.slice(0, 500) || undefined,
+      signupSource: signupSource ?? undefined,
     }),
   });
   const data = (await res.json().catch(() => null)) as { success?: boolean; message?: string } | null;

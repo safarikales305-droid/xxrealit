@@ -27,7 +27,8 @@ export type AiFeature =
   | 'ai_chat_intent'
   | 'ai_chat_eval'
   | 'ai_sales'
-  | 'editorial_news';
+  | 'editorial_news'
+  | 'editorial_reel_hook';
 
 export type OpenAiCompleteInput = {
   feature: AiFeature;
@@ -386,6 +387,7 @@ export class OpenAiService {
       ai_chat_eval: db.chatEnabled,
       ai_sales: db.chatEnabled,
       editorial_news: db.seoEnabled,
+      editorial_reel_hook: db.seoEnabled,
     };
     if (!options?.adminTest && !featureEnabled[feature]) {
       if (

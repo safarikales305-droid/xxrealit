@@ -1126,6 +1126,49 @@ export class NewsYoutubeService {
     };
   }
 
+  /** Importuje nejrelevantnější videa z posledních scanCount položek playlistu. */
+  async importMostRelevantRecent(sourceId: string, maxImport = 10, scanCount = 25) {
+    const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
+    if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {
+      throw new Error('Zdroj není YouTube kanál.');
+    }
+    if (!getYouTubeApiKey()) {
+      throw new YoutubeApiError('YOUTUBE_API_KEY chybí.', 0);
+    }
+
+    const channel = await resolveYoutubeChannel(source.url, source.channelId);
+    const videos = await fetchPlaylistVideos(channel.uploadsPlaylistId, scanCount, null);
+    const scored: Array<{ video: YoutubeVideoMeta; score: number }> = [];
+    for (const video of videos) {
+      const score = await this.scoreVideoRelevance(video, source.category);
+      scored.push({ video, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+
+    let imported = 0;
+    for (const { video } of scored) {
+      if (imported >= maxImport) break;
+      const result = await this.processVideo(source, video, channel.channelTitle, {
+        enqueueFacebook: false,
+        forceAll: false,
+        forceImportForTest: false,
+      });
+      if (result.created) imported += 1;
+    }
+
+    await this.prisma.newsSource.update({
+      where: { id: sourceId },
+      data: {
+        health: NewsSourceHealth.ACTIVE,
+        lastCheckedAt: new Date(),
+        lastSuccessAt: new Date(),
+        channelId: channel.channelId,
+      },
+    });
+
+    return { scanned: videos.length, imported };
+  }
+
   async diagnoseSource(sourceId: string): Promise<YoutubeDiagnoseResult> {
     const source = await this.prisma.newsSource.findUnique({ where: { id: sourceId } });
     if (!source || source.type !== NewsSourceType.YOUTUBE_CHANNEL) {

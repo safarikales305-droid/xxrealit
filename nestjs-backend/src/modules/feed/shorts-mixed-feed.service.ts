@@ -20,6 +20,11 @@ import { NEWS_CATEGORY_LABELS } from '../news-editorial/news-editorial.constants
 import { ShortsFeedSettingsService } from './shorts-feed-settings.service';
 import type { ShortsFeedSettings } from './shorts-feed-settings.types';
 import { parseShortPublicId, type ParsedShortPublicId } from './shorts-public-id.util';
+import {
+  articleCategoryToTopicSlug,
+  itemMatchesTopicSlugs,
+  shouldIncludePropertiesForTopics,
+} from './content-topic.util';
 import type {
   ShortsFeedCursor,
   ShortsFeedItem,
@@ -64,6 +69,7 @@ export class ShortsMixedFeedService {
   async getFeed(params: {
     viewerId?: string;
     filters?: PublicPropertyListFilters;
+    topicSlugs?: string[];
     cursor?: string;
     limit?: number;
     target?: string;
@@ -76,10 +82,22 @@ export class ShortsMixedFeedService {
     const limit = Math.min(30, Math.max(1, Math.trunc(params.limit ?? 15) || 15));
     const offset = this.decodeCursor(params.cursor);
     const settings = await this.settingsService.getSettings();
-    const cacheKey = this.cacheKey(params.filters, settings);
+    const topicSlugs = (params.topicSlugs ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const cacheKey = this.cacheKey(params.filters, settings, topicSlugs);
     const pools = await this.loadPools(params.viewerId, params.filters, settings, cacheKey);
-    const properties = pools.properties.filter((item) => this.isRenderableShortItem(item));
-    const content = pools.content.filter((item) => this.isRenderableShortItem(item));
+    let properties = pools.properties.filter((item) => this.isRenderableShortItem(item));
+    let content = pools.content.filter((item) => this.isRenderableShortItem(item));
+    if (topicSlugs.length) {
+      if (!shouldIncludePropertiesForTopics(topicSlugs)) {
+        properties = [];
+      }
+      content = content.filter((item) =>
+        itemMatchesTopicSlugs(
+          typeof item.payload.topicSlug === 'string' ? item.payload.topicSlug : null,
+          topicSlugs,
+        ),
+      );
+    }
     let mixed = this.applyOpeningHook(
       this.mixPools(properties, content, settings, properties.length),
       properties.length,
@@ -146,11 +164,13 @@ export class ShortsMixedFeedService {
     const page = mixed.slice(offset, offset + limit);
     const nextOffset = offset + limit;
     const hasMore = nextOffset < mixed.length;
+    const enriched = await this.enrichItemsWithSocial(page, params.viewerId);
 
     return {
-      items: page,
+      items: enriched,
       nextCursor: hasMore ? this.encodeCursor({ offset: nextOffset }) : null,
       hasMore,
+      topicFilterEmpty: topicSlugs.length > 0 && mixed.length === 0,
     };
   }
 
@@ -219,8 +239,12 @@ export class ShortsMixedFeedService {
     return item;
   }
 
-  private cacheKey(filters: PublicPropertyListFilters | undefined, settings: ShortsFeedSettings): string {
-    return JSON.stringify({ filters: filters ?? {}, settings });
+  private cacheKey(
+    filters: PublicPropertyListFilters | undefined,
+    settings: ShortsFeedSettings,
+    topicSlugs: string[] = [],
+  ): string {
+    return JSON.stringify({ filters: filters ?? {}, settings, topicSlugs });
   }
 
   private decodeCursor(raw?: string): number {
@@ -448,6 +472,11 @@ export class ShortsMixedFeedService {
   private postRowInclude() {
     return {
       media: { orderBy: { order: 'asc' as const } },
+      newsSource: {
+        select: {
+          contentCategory: { select: { slug: true, label: true } },
+        },
+      },
       user: {
         select: {
           id: true,
@@ -601,6 +630,7 @@ export class ShortsMixedFeedService {
                 imageUrl,
                 category: row.category,
                 categoryLabel,
+                topicSlug: articleCategoryToTopicSlug(row.category),
                 sourceName: 'XXREALIT Aktuality',
                 href: row.canonicalPath?.trim() || `/aktuality/${row.slug}`,
               },
@@ -641,6 +671,9 @@ export class ShortsMixedFeedService {
     createdAt: Date;
     user: { name: string | null };
     media: Array<{ url: string; type: string }>;
+    newsSource?: {
+      contentCategory?: { slug: string; label: string } | null;
+    } | null;
   },
     settings: ShortsFeedSettings,
   ): ScoredPoolItem | null {
@@ -657,6 +690,8 @@ export class ShortsMixedFeedService {
       const thumb =
         row.youtubeThumbnailUrl?.trim() || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
       const ytBoost = this.youtubeScoreBoost(settings);
+      const topicSlug = row.newsSource?.contentCategory?.slug ?? null;
+      const categoryLabel = row.newsSource?.contentCategory?.label ?? 'YouTube';
       return {
         feedKey: `youtube:${videoId}`,
         contentType: 'youtube',
@@ -676,6 +711,8 @@ export class ShortsMixedFeedService {
             ? `YouTube • ${row.youtubeChannelTitle}`
             : 'YouTube',
           href: `/prispevek/${slug}`,
+          topicSlug,
+          categoryLabel,
         },
       };
     }
@@ -1187,6 +1224,7 @@ export class ShortsMixedFeedService {
           imageUrl,
           category: row.category,
           categoryLabel,
+          topicSlug: articleCategoryToTopicSlug(row.category),
           sourceName: 'XXREALIT Aktuality',
           href: row.canonicalPath?.trim() || `/aktuality/${row.slug}`,
         },
@@ -1194,5 +1232,54 @@ export class ShortsMixedFeedService {
     }
 
     return null;
+  }
+
+  private async enrichItemsWithSocial(
+    items: ShortsFeedItem[],
+    viewerId?: string,
+  ): Promise<ShortsFeedItem[]> {
+    const postIds = items
+      .filter((item) => item.contentType === 'youtube')
+      .map((item) => String(item.payload.id ?? '').trim())
+      .filter(Boolean);
+    if (!postIds.length) return items;
+
+    const [likeCounts, commentCounts, liked] = await Promise.all([
+      this.prisma.favorite.groupBy({
+        by: ['postId'],
+        where: { postId: { in: postIds } },
+        _count: { postId: true },
+      }),
+      this.prisma.comment.groupBy({
+        by: ['postId'],
+        where: { postId: { in: postIds } },
+        _count: { postId: true },
+      }),
+      viewerId
+        ? this.prisma.favorite.findMany({
+            where: { postId: { in: postIds }, userId: viewerId },
+            select: { postId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const likeMap = new Map(likeCounts.map((r) => [r.postId, r._count.postId]));
+    const commentMap = new Map(commentCounts.map((r) => [r.postId, r._count.postId]));
+    const likedSet = new Set(liked.map((r) => r.postId));
+
+    return items.map((item) => {
+      if (item.contentType !== 'youtube') return item;
+      const postId = String(item.payload.id ?? '').trim();
+      if (!postId) return item;
+      return {
+        ...item,
+        payload: {
+          ...item.payload,
+          likeCount: likeMap.get(postId) ?? 0,
+          commentCount: commentMap.get(postId) ?? 0,
+          likedByMe: likedSet.has(postId),
+        },
+      };
+    });
   }
 }

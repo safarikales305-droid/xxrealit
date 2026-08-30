@@ -4,8 +4,13 @@ import { ShortsEmailSignupModal } from '@/components/registration/ShortsEmailSig
 import { useShortsEmailSignup } from '@/hooks/use-shorts-email-signup';
 
 export function ShortsEmailSignupHost() {
-  const { open, settings, successMessage } = useShortsEmailSignup();
+  const { open, settings, successMessage, signupSource } = useShortsEmailSignup();
   return (
-    <ShortsEmailSignupModal open={open} settings={settings} successMessage={successMessage} />
+    <ShortsEmailSignupModal
+      open={open}
+      settings={settings}
+      successMessage={successMessage}
+      signupSource={signupSource}
+    />
   );
 }

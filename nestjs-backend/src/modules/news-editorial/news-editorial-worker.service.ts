@@ -12,6 +12,7 @@ import { NewsFetchService } from './news-fetch.service';
 import { NewsAiService } from './news-ai.service';
 import { NewsPublishService } from './news-publish.service';
 import { NewsYoutubeService } from './news-youtube.service';
+import { NewsYoutubeDiscoveryService } from './news-youtube-discovery.service';
 import { isWithinPublishWindow, pragueDayKey } from './news-publish-scheduler.util';
 import {
   getNewsWorkerHeartbeat,
@@ -41,6 +42,7 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
     private readonly ai: NewsAiService,
     private readonly publish: NewsPublishService,
     private readonly youtube: NewsYoutubeService,
+    private readonly youtubeDiscovery: NewsYoutubeDiscoveryService,
   ) {}
 
   onModuleInit(): void {
@@ -106,6 +108,7 @@ export class NewsEditorialWorkerService implements OnModuleInit, OnModuleDestroy
       if (cfg.youtubeMonitoringEnabled) {
         await this.youtube.pollDueSources(15);
       }
+      await this.youtubeDiscovery.runDiscoveryIfDue();
       if (cfg.autoAiProcessing) {
         await this.ai.analyzeNewItems(15);
         await this.generateDraftsWithinDailyLimit(cfg);

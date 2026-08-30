@@ -11,6 +11,7 @@ import {
   SHORTS_BADGE_LABELS,
   type ShortsFeedItem,
 } from '@/lib/shorts-feed';
+import { ShortsPostSocialRail } from './ShortsPostSocialRail';
 import { ShortsItemShell } from './ShortsItemShell';
 
 type Props = {
@@ -134,10 +135,26 @@ export function ShortsContentCard({ item, isActive, onSkip }: Props) {
 
   if (item.contentType === 'youtube') {
     if (!videoId) return null;
+    const postId = String(p.id ?? '').trim();
+    const likeCount = typeof p.likeCount === 'number' ? p.likeCount : 0;
+    const commentCount = typeof p.commentCount === 'number' ? p.commentCount : 0;
+    const likedByMe = Boolean(p.likedByMe);
 
     return (
       <ShortsItemShell
         badge={<Badge label={SHORTS_BADGE_LABELS.youtube} />}
+        rightRail={
+          postId ? (
+            <ShortsPostSocialRail
+              postId={postId}
+              initialLikeCount={likeCount}
+              initialCommentCount={commentCount}
+              initialLikedByMe={likedByMe}
+              shareUrl={href.startsWith('http') ? href : undefined}
+              shareTitle={title}
+            />
+          ) : undefined
+        }
         leftPanel={
           <MetaPanel
             categoryLabel={SHORTS_BADGE_LABELS.youtube}

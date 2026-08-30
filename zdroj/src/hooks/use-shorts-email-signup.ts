@@ -10,7 +10,9 @@ import {
   markShortViewed,
   markSignupCompleted,
   markSignupDismissed,
+  saveSignupPendingIntent,
   wasPopupShownThisSession,
+  type ShortsSignupPendingIntent,
 } from '@/lib/shorts-email-signup-storage';
 import { trackShortsSignupEvent } from '@/lib/shorts-email-signup-analytics';
 
@@ -29,6 +31,7 @@ type StoreState = {
   open: boolean;
   settings: EmailSignupPublicSettings | null;
   successMessage: string | null;
+  signupSource?: string;
 };
 
 let state: StoreState = { open: false, settings: null, successMessage: null };
@@ -52,15 +55,25 @@ export function closeShortsEmailSignup() {
   emit();
 }
 
-export function openShortsEmailSignup(settings: EmailSignupPublicSettings) {
-  if (wasPopupShownThisSession()) return;
-  markPopupShownThisSession();
+export function openShortsEmailSignup(settings: EmailSignupPublicSettings, signupSource = 'SHORTS_10_VIEWS') {
+  if (wasPopupShownThisSession() && signupSource === 'SHORTS_10_VIEWS') return;
+  if (signupSource === 'SHORTS_10_VIEWS') markPopupShownThisSession();
   trackShortsSignupEvent('shorts_signup_popup_shown', {
     triggerViewCount: settings.afterViews,
     variantId: settings.variantId,
+    shortType: signupSource,
   });
-  state = { ...state, open: true, settings, successMessage: null };
+  state = { ...state, open: true, settings, successMessage: null, signupSource };
   emit();
+}
+
+export function openShortsEmailSignupForInteraction(
+  settings: EmailSignupPublicSettings,
+  pending: ShortsSignupPendingIntent,
+) {
+  const signupSource = pending.intent === 'like' ? 'YOUTUBE_LIKE' : 'YOUTUBE_COMMENT';
+  saveSignupPendingIntent(pending);
+  openShortsEmailSignup(settings, signupSource);
 }
 
 export function dismissShortsEmailSignup() {
@@ -80,6 +93,7 @@ export function useShortsEmailSignup() {
     open: false,
     settings: null,
     successMessage: null,
+    signupSource: undefined,
   }));
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -121,5 +135,5 @@ export function useShortsEmailSignup() {
     [isAuthenticated, isLoading, snapshot.open],
   );
 
-  return { ...snapshot, reportShortViewed };
+  return { ...snapshot, reportShortViewed, signupSource: snapshot.signupSource };
 }

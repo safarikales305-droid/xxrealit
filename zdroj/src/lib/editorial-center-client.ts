@@ -81,6 +81,10 @@ export type EditorialReelTemplate = {
   showCategory: boolean;
   ctaText: string;
   introText: string | null;
+  hookMode?: string;
+  generateHookText?: boolean;
+  useFirstVideoAsIntro?: boolean;
+  showFirstVideoTitle?: boolean;
   musicTrackId: string | null;
   isDefault: boolean;
   updatedAt: string;

@@ -444,3 +444,75 @@ export async function fetchVideoDetails(videoIds: string[]): Promise<YoutubeVide
     };
   });
 }
+
+export type YoutubeChannelCandidate = {
+  channelId: string;
+  channelTitle: string;
+  channelUrl: string;
+  thumbnailUrl: string | null;
+  description: string | null;
+  subscriberCount: number | null;
+  videoCount: number | null;
+  lastVideoAt: Date | null;
+};
+
+/** Vyhledání kanálů přes oficiální YouTube Search API (quota-aware). */
+export async function searchYoutubeChannels(
+  query: string,
+  maxResults = 5,
+): Promise<YoutubeChannelCandidate[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const search = await youtubeGet<{
+    items?: Array<{ id?: { channelId?: string } }>;
+  }>('/search', {
+    part: 'snippet',
+    type: 'channel',
+    maxResults: String(Math.min(10, Math.max(1, maxResults))),
+    q,
+  });
+
+  const channelIds = (search.items ?? [])
+    .map((item) => item.id?.channelId ?? '')
+    .filter((id) => /^UC[\w-]+$/i.test(id));
+  if (!channelIds.length) return [];
+
+  const data = await youtubeGet<{
+    items?: Array<{
+      id: string;
+      snippet?: {
+        title?: string;
+        description?: string;
+        customUrl?: string;
+        thumbnails?: Record<string, { url?: string }>;
+        publishedAt?: string;
+      };
+      statistics?: { subscriberCount?: string; videoCount?: string };
+    }>;
+  }>('/channels', {
+    part: 'snippet,statistics',
+    id: channelIds.join(','),
+  });
+
+  return (data.items ?? []).map((item) => {
+    const custom = item.snippet?.customUrl?.trim();
+    const channelUrl = custom
+      ? `https://www.youtube.com/${custom.startsWith('@') ? custom : `@${custom}`}`
+      : `https://www.youtube.com/channel/${item.id}`;
+    return {
+      channelId: item.id,
+      channelTitle: item.snippet?.title?.trim() ?? 'YouTube kanál',
+      channelUrl,
+      thumbnailUrl: pickThumbnail(item.snippet?.thumbnails) || null,
+      description: item.snippet?.description?.trim().slice(0, 500) || null,
+      subscriberCount: item.statistics?.subscriberCount
+        ? Number.parseInt(item.statistics.subscriberCount, 10)
+        : null,
+      videoCount: item.statistics?.videoCount
+        ? Number.parseInt(item.statistics.videoCount, 10)
+        : null,
+      lastVideoAt: item.snippet?.publishedAt ? new Date(item.snippet.publishedAt) : null,
+    };
+  });
+}

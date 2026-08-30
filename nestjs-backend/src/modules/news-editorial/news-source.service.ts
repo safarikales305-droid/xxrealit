@@ -161,6 +161,9 @@ export class NewsSourceService implements OnModuleInit {
     youtubePublishMode?: NewsYoutubePublishMode;
     youtubeCreatePost?: boolean;
     youtubeFacebookPost?: boolean;
+    youtubeAutoImport?: boolean;
+    youtubePublishToShorts?: boolean;
+    contentCategoryId?: string | null;
     minRelevanceScore?: number;
   }) {
     let channelId = data.channelId?.trim() || null;
@@ -196,6 +199,9 @@ export class NewsSourceService implements OnModuleInit {
         youtubePublishMode: data.youtubePublishMode ?? NewsYoutubePublishMode.RELEVANT_ONLY,
         youtubeCreatePost: data.youtubeCreatePost ?? true,
         youtubeFacebookPost: data.youtubeFacebookPost ?? false,
+        youtubeAutoImport: data.youtubeAutoImport ?? true,
+        youtubePublishToShorts: data.youtubePublishToShorts ?? true,
+        contentCategoryId: data.contentCategoryId ?? null,
         minRelevanceScore: data.minRelevanceScore ?? null,
         health: channelId ? NewsSourceHealth.ACTIVE : undefined,
       },

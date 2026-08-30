@@ -85,4 +85,9 @@ export class EmailSignupDto {
   @IsString()
   @MaxLength(500)
   referrer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  signupSource?: string;
 }

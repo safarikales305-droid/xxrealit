@@ -67,6 +67,40 @@ export function markSignupCompleted(): void {
   localStorage.setItem(COMPLETED_KEY, '1');
 }
 
+const PENDING_INTENT_KEY = 'shorts_signup_pending_intent';
+
+export type ShortsSignupPendingIntent =
+  | { intent: 'like'; postId: string }
+  | { intent: 'comment'; postId: string; draft?: string };
+
+export function saveSignupPendingIntent(intent: ShortsSignupPendingIntent): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(PENDING_INTENT_KEY, JSON.stringify(intent));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readSignupPendingIntent(): ShortsSignupPendingIntent | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(PENDING_INTENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ShortsSignupPendingIntent;
+    if (parsed?.intent === 'like' && parsed.postId) return parsed;
+    if (parsed?.intent === 'comment' && parsed.postId) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSignupPendingIntent(): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(PENDING_INTENT_KEY);
+}
+
 export function getAnonymousSessionId(): string {
   if (typeof window === 'undefined') return '';
   const key = 'xx_anon_session';

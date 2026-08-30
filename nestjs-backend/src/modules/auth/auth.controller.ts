@@ -89,7 +89,7 @@ export class AuthController {
     @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> },
   ) {
     const meta = extractRequestClientMeta(req);
-    const result = await this.authService.emailSignupFromShorts(dto.email, meta);
+    const result = await this.authService.emailSignupFromShorts(dto.email, meta, dto.signupSource);
     if (result.success) {
       void this.shortsSignupAnalytics.track({
         eventName: result.isNewAccount ? 'shorts_signup_success' : 'shorts_signup_existing_email',

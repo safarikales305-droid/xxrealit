@@ -16,9 +16,10 @@ type Props = {
   open: boolean;
   settings: EmailSignupPublicSettings | null;
   successMessage: string | null;
+  signupSource?: string;
 };
 
-export function ShortsEmailSignupModal({ open, settings, successMessage }: Props) {
+export function ShortsEmailSignupModal({ open, settings, successMessage, signupSource }: Props) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,7 +55,7 @@ export function ShortsEmailSignupModal({ open, settings, successMessage }: Props
       triggerViewCount: settings.afterViews,
       variantId: settings.variantId,
     });
-    const result = await submitShortsEmailSignup(trimmed);
+    const result = await submitShortsEmailSignup(trimmed, signupSource);
     setLoading(false);
     if (!result.success) {
       trackShortsSignupEvent('shorts_signup_failed');

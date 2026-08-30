@@ -8,7 +8,10 @@ import { getSiteOriginForOg } from '../properties/property-og-media.util';
 import { EditorialReelRenderService } from './editorial-reel-render.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
-import type { CreateReelJobInput } from './editorial-reel.types';
+import { ReelHookService } from './reel-hook.service';
+import { shortenReelTitle } from './reel-title.util';
+import { sortPostsForReelLead } from './reel-segment-scoring.util';
+import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 
 const PENDING_KEY = 'editorial_reel_pending';
 
@@ -54,6 +57,13 @@ type PendingBuffer = {
   categoryId?: string | null;
 };
 
+type CreateReelJobInput = {
+  postIds: string[];
+  title?: string;
+  templateId?: string;
+  categoryId?: string;
+};
+
 @Injectable()
 export class EditorialReelJobService {
   private readonly log = new Logger(EditorialReelJobService.name);
@@ -65,6 +75,7 @@ export class EditorialReelJobService {
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly socialPublisher: SocialPublisherService,
     private readonly shortsMusic: ShortsMusicService,
+    private readonly reelHook: ReelHookService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -111,7 +122,7 @@ export class EditorialReelJobService {
   }
 
   async createManualJob(input: CreateReelJobInput) {
-    const posts = await this.loadPosts(input.postIds);
+    const posts = sortPostsForReelLead(await this.loadPosts(input.postIds));
     if (posts.length < 2) {
       throw new Error('Reel vyžaduje alespoň 2 videa.');
     }
@@ -186,7 +197,7 @@ export class EditorialReelJobService {
     const existing = await this.prisma.editorialReelJob.findUnique({ where: { dedupeKey } });
     if (existing) return { queued: false, reason: 'DUPLICATE', jobId: existing.id };
 
-    const posts = await this.loadPosts(postIds);
+    const posts = sortPostsForReelLead(await this.loadPosts(postIds));
     const template = await this.resolveTemplate(cfg.templateId ?? undefined);
     const collection = await this.createShortsCollection(
       posts,
@@ -245,30 +256,43 @@ export class EditorialReelJobService {
       if (!template) throw new Error('Chybí šablona Reel.');
 
       const musicPath = await this.resolveMusicPath(template.musicTrackId ?? cfg.musicTrackId);
-      const segments = job.segments.map((s) => ({
+      const segmentRows = job.segments.map((s) => ({
         thumbnailUrl:
           s.thumbnailUrl ??
           s.post.youtubeThumbnailUrl ??
           (s.post.youtubeVideoId
             ? `https://i.ytimg.com/vi/${s.post.youtubeVideoId}/hqdefault.jpg`
             : ''),
-        title: s.title ?? s.post.title ?? '',
+        title: shortenReelTitle(s.title ?? s.post.title ?? ''),
         channelTitle: s.channelTitle ?? s.post.youtubeChannelTitle ?? undefined,
         categoryLabel: s.categoryLabel ?? undefined,
       }));
 
-      this.log.log(`[REEL][JOB:${jobId}] collecting media — ${segments.length} segments`);
+      const hookText = template.generateHookText !== false
+        ? await this.reelHook.generateHookText({
+            titles: segmentRows.map((s) => s.title).filter(Boolean),
+            categoryLabel: segmentRows[0]?.categoryLabel ?? job.category?.label ?? null,
+            channelTitles: segmentRows.map((s) => s.channelTitle).filter(Boolean) as string[],
+            mode: template.hookMode ?? 'AI_FALLBACK',
+          })
+        : template.introText?.trim() || 'Novinky z realit a bydlení';
+
+      const renderTemplate = { ...template, introText: hookText };
+      const logoPath = template.showLogo ? resolveShortsLogoPath() : null;
+
+      this.log.log(`[REEL][JOB:${jobId}] collecting media — ${segmentRows.length} segments`);
 
       const rendered = await this.render.render({
-        template,
-        segments,
+        template: renderTemplate,
+        segments: segmentRows,
         musicFilePath: musicPath,
+        logoPath,
         minSegments: cfg.minVideos,
       });
       tmpRoot = rendered.tmpRoot;
 
       this.log.log(
-        `[REEL][JOB:${jobId}] valid segments ${rendered.validSegmentCount}/${segments.length}`,
+        `[REEL][JOB:${jobId}] valid segments ${rendered.validSegmentCount}/${segmentRows.length}`,
       );
 
       const mp4 = await readFile(rendered.outputPath);
@@ -427,6 +451,10 @@ export class EditorialReelJobService {
       showCategory: template.showCategory,
       ctaText: template.ctaText,
       introText: template.introText,
+      hookMode: template.hookMode,
+      generateHookText: template.generateHookText,
+      useFirstVideoAsIntro: template.useFirstVideoAsIntro,
+      showFirstVideoTitle: template.showFirstVideoTitle,
       musicTrackId: template.musicTrackId,
       narrationMode: template.narrationMode,
     };
@@ -447,6 +475,10 @@ export class EditorialReelJobService {
     | 'showCategory'
     | 'showLogo'
     | 'musicTrackId'
+    | 'hookMode'
+    | 'generateHookText'
+    | 'useFirstVideoAsIntro'
+    | 'showFirstVideoTitle'
   > | null {
     if (!raw || typeof raw !== 'object') return null;
     const o = raw as Record<string, unknown>;
@@ -462,6 +494,10 @@ export class EditorialReelJobService {
       showCategory: o.showCategory !== false,
       showLogo: o.showLogo !== false,
       musicTrackId: typeof o.musicTrackId === 'string' ? o.musicTrackId : null,
+      hookMode: (o.hookMode as EditorialReelTemplate['hookMode']) ?? 'AI_FALLBACK',
+      generateHookText: o.generateHookText !== false,
+      useFirstVideoAsIntro: o.useFirstVideoAsIntro !== false,
+      showFirstVideoTitle: o.showFirstVideoTitle !== false,
     };
   }
 

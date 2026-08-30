@@ -35,6 +35,11 @@ export function ShortsItemShell({
             ) : null}
             <div className="relative h-full w-full touch-pan-y">
               {center}
+              {rightRail ? (
+                <div className="pointer-events-none absolute inset-y-0 right-2 z-[25] flex items-center lg:hidden">
+                  {rightRail}
+                </div>
+              ) : null}
               <ShortsGestureLayer className="absolute inset-0 z-[15] lg:hidden" />
             </div>
             {mobileOverlay ? (
@@ -47,7 +52,9 @@ export function ShortsItemShell({
 
         <DesktopShortsNavButtons className="self-center" />
 
-        {rightRail ?? (
+        {rightRail ? (
+          <div className="hidden shrink-0 flex-col items-center justify-center lg:flex">{rightRail}</div>
+        ) : (
           <div className="hidden w-[3.5rem] shrink-0 lg:block" aria-hidden />
         )}
       </div>

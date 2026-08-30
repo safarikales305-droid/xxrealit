@@ -35,6 +35,7 @@ import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { MixedShortsFeed } from '@/components/video-feed/MixedShortsFeed';
+import { ShortsTopicChips } from '@/components/video-feed/ShortsTopicChips';
 import type { ShortsFeedItem } from '@/lib/shorts-feed';
 import {
   isPropertyShortsItem,
@@ -318,6 +319,12 @@ export function HomeLayout({
     () => searchParams.get('collection')?.trim() || null,
     [searchParams],
   );
+  const shortsTopicSlugs = useMemo(() => {
+    const raw = searchParams.get('topic')?.trim();
+    if (!raw) return [] as string[];
+    return raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  }, [searchParams]);
+  const [shortsTopicFilterEmpty, setShortsTopicFilterEmpty] = useState(false);
   const tipsOnlyActive = useMemo(() => {
     const raw = searchParams.get('tipsOnly')?.trim().toLowerCase();
     return raw === '1' || raw === 'true';
@@ -781,6 +788,7 @@ export function HomeLayout({
         params.set('limit', '20');
         if (sharedCollectionId) params.set('collection', sharedCollectionId);
         else if (sharedShortKey) params.set('target', sharedShortKey);
+        if (shortsTopicSlugs.length) params.set('topics', shortsTopicSlugs.join(','));
         const shortsUrl = `${API_BASE_URL}/feed/shorts/feed?${params.toString()}`;
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
@@ -810,6 +818,7 @@ export function HomeLayout({
           hasMore?: boolean;
           targetIndexInPage?: number | null;
           targetFound?: boolean;
+          topicFilterEmpty?: boolean;
         };
         const list = (Array.isArray(data.items) ? data.items : []).map(normalizeShortsFeedItem);
         const propertyCount = list.filter((x) => isPropertyShortsItem(x)).length;
@@ -821,6 +830,7 @@ export function HomeLayout({
           typeof data.targetIndexInPage === 'number' ? data.targetIndexInPage : null,
         );
         setShortsTargetMissing(Boolean(sharedShortKey && data.targetFound === false));
+        setShortsTopicFilterEmpty(Boolean(data.topicFilterEmpty));
         setShortsTotal(propertyCount > 0 ? propertyCount : list.length);
         setVideoFeed(
           list
@@ -858,13 +868,14 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce, sharedShortKey, sharedCollectionId]);
+  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce, sharedShortKey, sharedCollectionId, shortsTopicSlugs]);
 
   const loadMoreMixedShorts = useCallback(async () => {
     if (!API_BASE_URL || !shortsFeedHasMore || shortsFeedLoadingMore || !shortsFeedCursor) return;
     setShortsFeedLoadingMore(true);
     try {
       const params = new URLSearchParams(listingFilterQuery);
+      if (shortsTopicSlugs.length) params.set('topics', shortsTopicSlugs.join(','));
       params.set('limit', '15');
       params.set('cursor', shortsFeedCursor);
       const res = await fetch(`${API_BASE_URL}/feed/shorts/feed?${params.toString()}`, {
@@ -1053,6 +1064,15 @@ export function HomeLayout({
       cancelled = true;
     };
   }, [sidebarSeedPropertyId]);
+
+  function onShortsTopicsChange(slugs: string[]) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'shorts');
+    if (slugs.length) params.set('topic', slugs.join(','));
+    else params.delete('topic');
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : '/', { scroll: false });
+  }
 
   function updateUrlParams(next: { tab?: 'shorts' | 'classic' | 'posts'; category?: CommunityCategory }) {
     const params = new URLSearchParams(searchParams.toString());
@@ -1286,6 +1306,19 @@ export function HomeLayout({
                     {shortsTargetMissing ? (
                       <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
                         Toto video již není dostupné — zobrazujeme nejbližší Shorts.
+                      </p>
+                    ) : null}
+                    <ShortsTopicChips selected={shortsTopicSlugs} onChange={onShortsTopicsChange} />
+                    {shortsTopicFilterEmpty ? (
+                      <p className="shrink-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-center text-sm text-zinc-600">
+                        Pro toto téma zatím nemáme dost videí.{' '}
+                        <button
+                          type="button"
+                          className="font-semibold text-orange-700 underline"
+                          onClick={() => onShortsTopicsChange([])}
+                        >
+                          Zobrazit všechna témata
+                        </button>
                       </p>
                     ) : null}
                     <MixedShortsFeed
