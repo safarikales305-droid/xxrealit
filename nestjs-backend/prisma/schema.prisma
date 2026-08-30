@@ -7895,6 +7895,27 @@ model YouTubeSourceSuggestion {
   @@index([categoryId, status])
 }
 
+/// Historie běhů YouTube channel discovery
+model YouTubeDiscoveryRun {
+  id                 String    @id @default(cuid())
+  startedAt          DateTime  @default(now())
+  finishedAt         DateTime?
+  triggeredBy        String    @default("admin")
+  categorySlug       String?
+  queriesCount       Int       @default(0)
+  rawResults         Int       @default(0)
+  uniqueChannels     Int       @default(0)
+  existingSources    Int       @default(0)
+  existingCandidates Int       @default(0)
+  belowThreshold     Int       @default(0)
+  duplicates         Int       @default(0)
+  newCandidates      Int       @default(0)
+  errors             Int       @default(0)
+  searchRequests     Int       @default(0)
+  diagnosticsJson    Json?
+  @@index([startedAt])
+}
+
 /// Šablona Facebook Reel kompilace
 model EditorialReelTemplate {
   id              String              @id @default(cuid())

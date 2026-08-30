@@ -554,16 +554,60 @@ export class NewsEditorialAdminController {
     return this.youtubeDiscovery.getDiscoveryStats();
   }
 
+  @Get('youtube/discovery/history')
+  getYoutubeDiscoveryHistory(@Query('limit') limitRaw?: string) {
+    const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 20;
+    return this.youtubeDiscovery.listDiscoveryHistory(
+      Number.isFinite(limit) ? limit : 20,
+    );
+  }
+
   @Get('youtube/suggestions')
-  listYoutubeSuggestions(@Query('status') status?: string) {
+  listYoutubeSuggestions(
+    @Query('status') status?: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('categorySlug') categorySlug?: string,
+    @Query('minScore') minScoreRaw?: string,
+    @Query('search') search?: string,
+    @Query('sort') sort?: string,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ) {
     const allowed = ['PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const;
     const st = allowed.find((x) => x === status);
-    return this.youtubeDiscovery.listSuggestions(st);
+    const sortAllowed = ['score', 'newest', 'activity', 'videos'] as const;
+    const sortVal = sortAllowed.find((x) => x === sort);
+    const page = pageRaw ? Number.parseInt(pageRaw, 10) : 1;
+    const pageSize = pageSizeRaw ? Number.parseInt(pageSizeRaw, 10) : 30;
+    const minScore = minScoreRaw ? Number.parseInt(minScoreRaw, 10) : undefined;
+    return this.youtubeDiscovery.listSuggestions({
+      status: st,
+      categoryId: categoryId?.trim() || undefined,
+      categorySlug: categorySlug?.trim() || undefined,
+      minScore: Number.isFinite(minScore) ? minScore : undefined,
+      search: search?.trim() || undefined,
+      sort: sortVal,
+      page: Number.isFinite(page) ? page : 1,
+      pageSize: Number.isFinite(pageSize) ? pageSize : 30,
+    });
   }
 
   @Post('youtube/discovery/run')
-  runYoutubeDiscovery() {
-    return this.youtubeDiscovery.runDiscovery();
+  runYoutubeDiscovery(@Body() body?: { categorySlug?: string }) {
+    return this.youtubeDiscovery.runDiscovery({
+      categorySlug: body?.categorySlug?.trim() || undefined,
+      triggeredBy: 'admin',
+    });
+  }
+
+  @Post('youtube/suggestions/bulk-approve')
+  bulkApproveYoutubeSuggestions(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { ids?: string[] },
+  ) {
+    const ids = (body?.ids ?? []).filter((x) => typeof x === 'string' && x.trim());
+    if (!ids.length) throw new BadRequestException('ids je povinné.');
+    return this.youtubeDiscovery.approveSuggestions(ids, user.id);
   }
 
   @Post('youtube/suggestions/:id/approve')

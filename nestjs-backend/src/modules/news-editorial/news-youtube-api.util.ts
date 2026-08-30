@@ -516,3 +516,133 @@ export async function searchYoutubeChannels(
     };
   });
 }
+
+export type YoutubeDiscoverySearchResult = {
+  channelIds: string[];
+  rawResultCount: number;
+  searchRequests: number;
+};
+
+/**
+ * Kombinované hledání kanálů: type=channel + type=video → channelId.
+ * Podporuje stránkování a CZ/SK region.
+ */
+export async function searchYoutubeDiscoveryChannelIds(
+  query: string,
+  opts?: {
+    maxPages?: number;
+    maxResultsPerPage?: number;
+    regionCode?: string;
+    relevanceLanguage?: string;
+  },
+): Promise<YoutubeDiscoverySearchResult> {
+  const q = query.trim();
+  if (!q) return { channelIds: [], rawResultCount: 0, searchRequests: 0 };
+
+  const maxPages = Math.min(5, Math.max(1, opts?.maxPages ?? 2));
+  const maxResultsPerPage = Math.min(50, Math.max(1, opts?.maxResultsPerPage ?? 25));
+  const regionCode = opts?.regionCode ?? 'CZ';
+  const relevanceLanguage = opts?.relevanceLanguage ?? 'cs';
+
+  const channelIds = new Set<string>();
+  let rawResultCount = 0;
+  let searchRequests = 0;
+
+  const runSearch = async (type: 'channel' | 'video') => {
+    let pageToken: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const data = await youtubeGet<{
+        items?: Array<{
+          id?: { channelId?: string };
+          snippet?: { channelId?: string };
+        }>;
+        nextPageToken?: string;
+      }>('/search', {
+        part: 'snippet',
+        type,
+        maxResults: String(maxResultsPerPage),
+        q,
+        regionCode,
+        relevanceLanguage,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      searchRequests += 1;
+      const items = data.items ?? [];
+      rawResultCount += items.length;
+      for (const item of items) {
+        const id =
+          type === 'channel'
+            ? item.id?.channelId ?? ''
+            : item.snippet?.channelId ?? '';
+        if (/^UC[\w-]+$/i.test(id)) channelIds.add(id);
+      }
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+    }
+  };
+
+  await runSearch('channel');
+  await runSearch('video');
+
+  return {
+    channelIds: [...channelIds],
+    rawResultCount,
+    searchRequests,
+  };
+}
+
+/** Batch metadata pro až 50 channel IDs na request. */
+export async function fetchYoutubeChannelsByIds(
+  channelIds: string[],
+): Promise<YoutubeChannelCandidate[]> {
+  const unique = [...new Set(channelIds.filter((id) => /^UC[\w-]+$/i.test(id)))];
+  if (!unique.length) return [];
+
+  const out: YoutubeChannelCandidate[] = [];
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50);
+    const data = await youtubeGet<{
+      items?: Array<{
+        id: string;
+        snippet?: {
+          title?: string;
+          description?: string;
+          customUrl?: string;
+          thumbnails?: Record<string, { url?: string }>;
+          publishedAt?: string;
+          country?: string;
+        };
+        statistics?: {
+          subscriberCount?: string;
+          videoCount?: string;
+          viewCount?: string;
+        };
+      }>;
+    }>('/channels', {
+      part: 'snippet,statistics',
+      id: batch.join(','),
+    });
+
+    for (const item of data.items ?? []) {
+      const custom = item.snippet?.customUrl?.trim();
+      const channelUrl = custom
+        ? `https://www.youtube.com/${custom.startsWith('@') ? custom : `@${custom}`}`
+        : `https://www.youtube.com/channel/${item.id}`;
+      out.push({
+        channelId: item.id,
+        channelTitle: item.snippet?.title?.trim() ?? 'YouTube kanál',
+        channelUrl,
+        thumbnailUrl: pickThumbnail(item.snippet?.thumbnails) || null,
+        description: item.snippet?.description?.trim().slice(0, 500) || null,
+        subscriberCount: item.statistics?.subscriberCount
+          ? Number.parseInt(item.statistics.subscriberCount, 10)
+          : null,
+        videoCount: item.statistics?.videoCount
+          ? Number.parseInt(item.statistics.videoCount, 10)
+          : null,
+        lastVideoAt: item.snippet?.publishedAt ? new Date(item.snippet.publishedAt) : null,
+      });
+    }
+  }
+  return out;
+}

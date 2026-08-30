@@ -1222,19 +1222,146 @@ export type YoutubeSourceSuggestionRow = {
   category: { id: string; slug: string; label: string };
 };
 
+export type YoutubeSuggestionsListResponse = {
+  items: YoutubeSourceSuggestionRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
+export type YoutubeDiscoveryStats = {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  foundToday: number;
+  approvedWeek: number;
+  discoveryEnabled: boolean;
+  lastRunAt: string | null;
+  lastRun: {
+    id: string;
+    startedAt: string;
+    finishedAt: string | null;
+    newCandidates: number;
+    queriesCount: number;
+    rawResults: number;
+    uniqueChannels: number;
+  } | null;
+};
+
+export type YoutubeDiscoveryRunDiagnostics = {
+  queriesExecuted: number;
+  rawResults: number;
+  uniqueChannelIds: number;
+  existingSources: number;
+  existingCandidates: number;
+  rejectedByRelevance: number;
+  duplicates: number;
+  newCandidates: number;
+  errors: number;
+  searchRequests: number;
+  pendingInDb: number;
+};
+
+export type YoutubeDiscoveryRunResult = {
+  ok: boolean;
+  error?: string;
+  created?: number;
+  diagnostics?: YoutubeDiscoveryRunDiagnostics;
+  runId?: string;
+};
+
+export type YoutubeDiscoveryHistoryRow = {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  triggeredBy: string | null;
+  categorySlug: string | null;
+  queriesCount: number;
+  rawResults: number;
+  uniqueChannels: number;
+  newCandidates: number;
+  duplicates: number;
+  belowThreshold: number;
+  errors: number;
+  searchRequests: number;
+};
+
+export type YoutubeSuggestionsListParams = {
+  status?: string;
+  categoryId?: string;
+  categorySlug?: string;
+  minScore?: number;
+  search?: string;
+  sort?: 'score' | 'newest' | 'activity' | 'videos';
+  page?: number;
+  pageSize?: number;
+};
+
 function newsAdminBase(): string {
   return API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
 }
 
 export async function nestAdminListYoutubeSuggestions(
   token: string,
-  status?: string,
-): Promise<YoutubeSourceSuggestionRow[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
-  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/suggestions${qs}`, {
+  params: YoutubeSuggestionsListParams = {},
+): Promise<YoutubeSuggestionsListResponse> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.categoryId) qs.set('categoryId', params.categoryId);
+  if (params.categorySlug) qs.set('categorySlug', params.categorySlug);
+  if (params.minScore != null) qs.set('minScore', String(params.minScore));
+  if (params.search) qs.set('search', params.search);
+  if (params.sort) qs.set('sort', params.sort);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const query = qs.toString();
+  const res = await fetch(
+    `${newsAdminBase()}/admin/news-editorial/youtube/suggestions${query ? `?${query}` : ''}`,
+    {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    },
+  );
+  if (!res.ok) {
+    return { items: [], total: 0, page: 1, pageSize: params.pageSize ?? 30, hasMore: false };
+  }
+  const data = await res.json();
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length, page: 1, pageSize: data.length, hasMore: false };
+  }
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    total: typeof data.total === 'number' ? data.total : 0,
+    page: typeof data.page === 'number' ? data.page : 1,
+    pageSize: typeof data.pageSize === 'number' ? data.pageSize : 30,
+    hasMore: Boolean(data.hasMore),
+  };
+}
+
+export async function nestAdminGetYoutubeDiscoveryStats(
+  token: string,
+): Promise<YoutubeDiscoveryStats | null> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/discovery/stats`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     cache: 'no-store',
   });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function nestAdminGetYoutubeDiscoveryHistory(
+  token: string,
+  limit = 10,
+): Promise<YoutubeDiscoveryHistoryRow[]> {
+  const res = await fetch(
+    `${newsAdminBase()}/admin/news-editorial/youtube/discovery/history?limit=${limit}`,
+    {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    },
+  );
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data) ? data : [];
@@ -1265,10 +1392,39 @@ export async function nestAdminRejectYoutubeSuggestion(token: string, id: string
   return res.ok;
 }
 
-export async function nestAdminRunYoutubeDiscovery(token: string): Promise<boolean> {
+export async function nestAdminRunYoutubeDiscovery(
+  token: string,
+  categorySlug?: string,
+): Promise<YoutubeDiscoveryRunResult> {
   const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/discovery/run`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(categorySlug ? { categorySlug } : {}),
   });
-  return res.ok;
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+  return res.json();
+}
+
+export async function nestAdminBulkApproveYoutubeSuggestions(
+  token: string,
+  ids: string[],
+): Promise<Array<{ id: string; ok: boolean; error?: string }>> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/suggestions/bulk-approve`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }
