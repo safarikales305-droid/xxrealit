@@ -26,6 +26,7 @@ import {
 import { isValidNewsHeroImageUrl } from './news-hero-image.util';
 import { NewsSystemUserService } from './news-system-user.service';
 import type { YoutubeVideoMeta } from './news-youtube-api.util';
+import { EditorialReelJobService } from '../editorial-reel/editorial-reel-job.service';
 
 export type EditorialPostResult = {
   ok: boolean;
@@ -70,6 +71,7 @@ export class EditorialPortalPostService {
     private readonly systemUser: NewsSystemUserService,
     private readonly posts: PostsService,
     private readonly socialPublish: SocialPublishEnqueueService,
+    private readonly reelJobs: EditorialReelJobService,
   ) {}
 
   private async systemUserId(): Promise<string> {
@@ -82,6 +84,7 @@ export class EditorialPortalPostService {
     forcePublish?: boolean,
   ): boolean {
     if (forcePublish) return true;
+    if (source.youtubePublishToShorts === false) return false;
     if (source.youtubeCreatePost !== false) return true;
     return (
       cfg.publishMode === NewsPublishMode.AUTOMATIC ||
@@ -337,6 +340,23 @@ export class EditorialPortalPostService {
     const feedVisible = publishedAt
       ? await this.posts.isPostVisibleInCommunityFeed(post.id)
       : false;
+
+    if (publishedAt && post.id) {
+      await this.prisma.newsSource.update({
+        where: { id: input.source.id },
+        data: {
+          lastAutoImportedAt: new Date(),
+          lastPublishedToShortsAt: new Date(),
+        },
+      });
+      try {
+        await this.reelJobs.enqueueFromNewPost(post.id, input.source.id);
+      } catch (err) {
+        this.log.warn(
+          `Reel enqueue failed for post ${post.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
 
     return { ok: true, postId: post.id, created: true, feedVisible };
   }

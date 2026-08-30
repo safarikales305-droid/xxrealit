@@ -141,6 +141,10 @@ export class NewsEditorialAdminController {
       youtubePublishMode: NewsYoutubePublishMode;
       youtubeCreatePost: boolean;
       youtubeFacebookPost: boolean;
+      youtubeAutoImport: boolean;
+      youtubePublishToShorts: boolean;
+      youtubeUseForReel: boolean;
+      contentCategoryId: string | null;
       minRelevanceScore: number | null;
     }>,
   ) {

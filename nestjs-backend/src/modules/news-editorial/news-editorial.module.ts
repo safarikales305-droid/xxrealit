@@ -22,6 +22,7 @@ import { EditorialPortalPostService } from './editorial-portal-post.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsEditorialAdminController } from './news-editorial-admin.controller';
 import { NewsEditorialPublicController } from './news-editorial-public.controller';
+import { EditorialReelModule } from '../editorial-reel/editorial-reel.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { NewsEditorialPublicController } from './news-editorial-public.controlle
     UploadModule,
     forwardRef(() => AuthModule),
     NewsEditorialSettingsModule,
+    forwardRef(() => EditorialReelModule),
   ],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [

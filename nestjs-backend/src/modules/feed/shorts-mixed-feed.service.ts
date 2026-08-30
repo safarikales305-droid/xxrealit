@@ -61,7 +61,12 @@ export class ShortsMixedFeedService {
     cursor?: string;
     limit?: number;
     target?: string;
+    collection?: string;
   }): Promise<ShortsFeedResponse> {
+    const collectionId = params.collection?.trim();
+    if (collectionId) {
+      return this.getFeedForCollection(collectionId, params);
+    }
     const limit = Math.min(30, Math.max(1, Math.trunc(params.limit ?? 15) || 15));
     const offset = this.decodeCursor(params.cursor);
     const settings = await this.settingsService.getSettings();
@@ -140,6 +145,59 @@ export class ShortsMixedFeedService {
       items: page,
       nextCursor: hasMore ? this.encodeCursor({ offset: nextOffset }) : null,
       hasMore,
+    };
+  }
+
+  private async getFeedForCollection(
+    collectionId: string,
+    params: {
+      viewerId?: string;
+      filters?: PublicPropertyListFilters;
+      limit?: number;
+    },
+  ): Promise<ShortsFeedResponse> {
+    const limit = Math.min(30, Math.max(1, Math.trunc(params.limit ?? 15) || 15));
+    const collection = await this.prisma.shortsCollection.findUnique({
+      where: { id: collectionId },
+      include: { items: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!collection || collection.items.length === 0) {
+      return { items: [], nextCursor: null, hasMore: false, targetFound: false };
+    }
+
+    const settings = await this.settingsService.getSettings();
+    const collected: ScoredPoolItem[] = [];
+    for (const row of collection.items) {
+      const parsed = parseShortPublicId(row.feedKey);
+      if (!parsed) continue;
+      const item = await this.fetchItemByPublicId(parsed, params.viewerId, settings);
+      if (item && this.isRenderableShortItem(item)) collected.push(item);
+    }
+
+    const pools = await this.loadPools(
+      params.viewerId,
+      params.filters,
+      settings,
+      this.cacheKey(params.filters, settings),
+    );
+    const properties = pools.properties.filter((item) => this.isRenderableShortItem(item));
+    const content = pools.content.filter((item) => this.isRenderableShortItem(item));
+    let mixed = this.applyOpeningHook(
+      this.mixPools(properties, content, settings, properties.length),
+      properties.length,
+      settings,
+    );
+
+    const seen = new Set(collected.map((x) => x.feedKey));
+    const rest = mixed.filter((x) => !seen.has(x.feedKey));
+    mixed = [...collected, ...rest];
+    const page = mixed.slice(0, limit);
+    return {
+      items: page,
+      nextCursor: mixed.length > limit ? this.encodeCursor({ offset: limit }) : null,
+      hasMore: mixed.length > limit,
+      targetIndexInPage: 0,
+      targetFound: collected.length > 0,
     };
   }
 

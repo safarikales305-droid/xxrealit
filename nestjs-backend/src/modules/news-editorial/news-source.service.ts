@@ -20,6 +20,13 @@ export type NewsSourceListRow = {
   youtubePublishMode: string;
   youtubeCreatePost: boolean;
   youtubeFacebookPost: boolean;
+  youtubeAutoImport: boolean;
+  youtubePublishToShorts: boolean;
+  youtubeUseForReel: boolean;
+  contentCategoryId: string | null;
+  lastAutoImportedAt: Date | null;
+  lastPublishedToShortsAt: Date | null;
+  contentCategory?: { id: string; slug: string; label: string } | null;
   minRelevanceScore: number | null;
   lastVideoPublishedAt: Date | null;
   lastVideoId: string | null;
@@ -104,6 +111,9 @@ export class NewsSourceService implements OnModuleInit {
 
     const sources = await this.prisma.newsSource.findMany({
       orderBy: [{ enabled: 'desc' }, { priority: 'desc' }, { name: 'asc' }],
+      include: {
+        contentCategory: { select: { id: true, slug: true, label: true } },
+      },
     });
 
     const stats = await Promise.all(
@@ -209,6 +219,10 @@ export class NewsSourceService implements OnModuleInit {
       youtubePublishMode: NewsYoutubePublishMode;
       youtubeCreatePost: boolean;
       youtubeFacebookPost: boolean;
+      youtubeAutoImport: boolean;
+      youtubePublishToShorts: boolean;
+      youtubeUseForReel: boolean;
+      contentCategoryId: string | null;
       minRelevanceScore: number | null;
     }>,
   ) {
@@ -228,6 +242,17 @@ export class NewsSourceService implements OnModuleInit {
     if (patch.youtubePublishMode != null) data.youtubePublishMode = patch.youtubePublishMode;
     if (patch.youtubeCreatePost != null) data.youtubeCreatePost = patch.youtubeCreatePost;
     if (patch.youtubeFacebookPost != null) data.youtubeFacebookPost = patch.youtubeFacebookPost;
+    if (patch.youtubeAutoImport != null) data.youtubeAutoImport = patch.youtubeAutoImport;
+    if (patch.youtubePublishToShorts != null) {
+      data.youtubePublishToShorts = patch.youtubePublishToShorts;
+      data.youtubeCreatePost = patch.youtubePublishToShorts;
+    }
+    if (patch.youtubeUseForReel != null) data.youtubeUseForReel = patch.youtubeUseForReel;
+    if (patch.contentCategoryId !== undefined) {
+      data.contentCategory = patch.contentCategoryId
+        ? { connect: { id: patch.contentCategoryId } }
+        : { disconnect: true };
+    }
     if (patch.minRelevanceScore !== undefined) data.minRelevanceScore = patch.minRelevanceScore;
 
     return this.prisma.newsSource.update({ where: { id }, data });

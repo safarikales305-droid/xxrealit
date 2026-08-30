@@ -58,6 +58,7 @@ export class FeedController {
     @Query('cursor') cursor?: string,
     @Query('limit') limitRaw?: string,
     @Query('target') target?: string,
+    @Query('collection') collection?: string,
   ) {
     const filters = parsePublicPropertyListFiltersQuery({
       city,
@@ -77,6 +78,7 @@ export class FeedController {
       cursor,
       limit: Number.isFinite(limit) ? limit : undefined,
       target: target?.trim() || undefined,
+      collection: collection?.trim() || undefined,
     });
   }
 

@@ -314,6 +314,10 @@ export function HomeLayout({
       resolveShortDeepLinkParam(searchParams.get('short'), searchParams.get('video')),
     [searchParams],
   );
+  const sharedCollectionId = useMemo(
+    () => searchParams.get('collection')?.trim() || null,
+    [searchParams],
+  );
   const tipsOnlyActive = useMemo(() => {
     const raw = searchParams.get('tipsOnly')?.trim().toLowerCase();
     return raw === '1' || raw === 'true';
@@ -775,7 +779,8 @@ export function HomeLayout({
         const qs = listingFilterQuery;
         const params = new URLSearchParams(qs);
         params.set('limit', '20');
-        if (sharedShortKey) params.set('target', sharedShortKey);
+        if (sharedCollectionId) params.set('collection', sharedCollectionId);
+        else if (sharedShortKey) params.set('target', sharedShortKey);
         const shortsUrl = `${API_BASE_URL}/feed/shorts/feed?${params.toString()}`;
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
@@ -853,7 +858,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce, sharedShortKey]);
+  }, [viewMode, apiAccessToken, listingFilterQuery, shortsFeedRetryNonce, sharedShortKey, sharedCollectionId]);
 
   const loadMoreMixedShorts = useCallback(async () => {
     if (!API_BASE_URL || !shortsFeedHasMore || shortsFeedLoadingMore || !shortsFeedCursor) return;
@@ -1284,7 +1289,7 @@ export function HomeLayout({
                       </p>
                     ) : null}
                     <MixedShortsFeed
-                      key={sharedShortKey ?? 'mixed-feed'}
+                      key={sharedCollectionId ?? sharedShortKey ?? 'mixed-feed'}
                       items={mixedItemsForFeed}
                       initialFeedKey={sharedShortKey}
                       initialIndex={shortsTargetIndexInPage}

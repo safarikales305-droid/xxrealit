@@ -125,9 +125,17 @@ export type NewsSourceRow = {
   checkIntervalMinutes: number;
   note: string | null;
   channelId?: string | null;
+  youtubeChannelTitle?: string | null;
   youtubePublishMode?: NewsYoutubePublishMode;
   youtubeCreatePost?: boolean;
   youtubeFacebookPost?: boolean;
+  youtubeAutoImport?: boolean;
+  youtubePublishToShorts?: boolean;
+  youtubeUseForReel?: boolean;
+  contentCategoryId?: string | null;
+  contentCategory?: { id: string; slug: string; label: string } | null;
+  lastAutoImportedAt?: string | null;
+  lastPublishedToShortsAt?: string | null;
   minRelevanceScore?: number | null;
   lastVideoPublishedAt?: string | null;
   lastVideoId?: string | null;
@@ -372,6 +380,10 @@ export async function nestAdminUpdateNewsSource(
     youtubePublishMode: NewsYoutubePublishMode;
     youtubeCreatePost: boolean;
     youtubeFacebookPost: boolean;
+    youtubeAutoImport: boolean;
+    youtubePublishToShorts: boolean;
+    youtubeUseForReel: boolean;
+    contentCategoryId: string | null;
     minRelevanceScore: number | null;
   }>,
 ): Promise<NewsSourceRow | null> {

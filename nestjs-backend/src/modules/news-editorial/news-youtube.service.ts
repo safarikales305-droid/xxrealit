@@ -261,6 +261,7 @@ export class NewsYoutubeService {
       where: {
         type: NewsSourceType.YOUTUBE_CHANNEL,
         enabled: true,
+        youtubeAutoImport: true,
         health: { notIn: [NewsSourceHealth.DISABLED] },
       },
       orderBy: [{ priority: 'desc' }, { lastCheckedAt: 'asc' }],

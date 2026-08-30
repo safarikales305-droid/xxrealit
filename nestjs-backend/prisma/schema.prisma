@@ -1055,6 +1055,13 @@ model Post {
   editorialSourceName String?
   editorialSourceUrl  String?
   editorialExternalId String?
+  /// Poslední použití v automatické Facebook Reel kompilaci
+  lastUsedInReelAt    DateTime?
+  reelUsageCount      Int              @default(0)
+  /// Skrytí z veřejného Shorts feedu (admin)
+  hiddenFromShorts    Boolean          @default(false)
+  reelSegments        EditorialReelSegment[]
+  shortsCollectionItems ShortsCollectionItem[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -7596,6 +7603,17 @@ model NewsSource {
   lastVideoPublishedAt DateTime?
   lastVideoId          String?
   youtubeImportedCount Int              @default(0)
+  /// Spravovaná kategorie zdroje (YouTube / RSS)
+  contentCategoryId    String?
+  contentCategory      ContentSourceCategory? @relation(fields: [contentCategoryId], references: [id], onDelete: SetNull)
+  /// Automaticky kontrolovat nová videa (nezávisle na enabled)
+  youtubeAutoImport    Boolean          @default(true)
+  /// Automaticky publikovat importovaná videa do Shorts
+  youtubePublishToShorts Boolean        @default(true)
+  /// Zařadit nová videa do Facebook Reel kompilací
+  youtubeUseForReel    Boolean          @default(true)
+  lastAutoImportedAt   DateTime?
+  lastPublishedToShortsAt DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
   items                NewsSourceItem[]
@@ -7767,4 +7785,146 @@ model NewsAuditLog {
   createdAt DateTime     @default(now())
   @@index([event, createdAt])
   @@index([articleId, createdAt])
+}
+
+enum EditorialReelJobStatus {
+  DRAFT
+  QUEUED
+  RENDERING
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum ReelNarrationMode {
+  NONE
+  MUSIC
+  AI_VOICE
+  AI_AVATAR
+}
+
+enum ReelTransitionStyle {
+  FADE
+  ZOOM
+  SLIDE
+  CROSSFADE
+}
+
+/// Spravovatelné kategorie redakčních zdrojů (YouTube kanály, RSS)
+model ContentSourceCategory {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  label     String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sources   NewsSource[]
+  reelJobs  EditorialReelJob[]
+}
+
+/// Hudební podkres pro Facebook Reel kompilace
+model EditorialReelMusicTrack {
+  id          String   @id @default(cuid())
+  title       String
+  fileKey     String
+  durationSec Int?
+  active      Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  templates   EditorialReelTemplate[]
+}
+
+/// Šablona Facebook Reel kompilace
+model EditorialReelTemplate {
+  id              String              @id @default(cuid())
+  name            String
+  introSec        Float               @default(2)
+  segmentSec      Float               @default(4)
+  outroSec        Float               @default(3)
+  videosPerReel   Int                 @default(5)
+  transition      ReelTransitionStyle @default(FADE)
+  showLogo        Boolean             @default(true)
+  showVideoTitle  Boolean             @default(true)
+  showChannelTitle Boolean            @default(true)
+  showCategory    Boolean             @default(true)
+  ctaText         String              @default("Další videa najdete na XXREALIT.cz")
+  introText       String?
+  musicTrackId    String?
+  musicTrack      EditorialReelMusicTrack? @relation(fields: [musicTrackId], references: [id], onDelete: SetNull)
+  narrationMode   ReelNarrationMode   @default(MUSIC)
+  isDefault       Boolean             @default(false)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  jobs            EditorialReelJob[]
+}
+
+/// Fronta / historie Facebook Reel kompilací z YouTube obsahu
+model EditorialReelJob {
+  id                   String                 @id @default(cuid())
+  status               EditorialReelJobStatus @default(DRAFT)
+  title                String?
+  templateId           String?
+  template             EditorialReelTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  categoryId           String?
+  category             ContentSourceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  videoCount           Int                    @default(0)
+  renderError          String?                @db.Text
+  publishError         String?                @db.Text
+  videoPath            String?
+  videoUrl             String?
+  facebookPostId       String?
+  facebookPermalink      String?
+  shortsCollectionId   String?
+  shortsCollection     ShortsCollection?      @relation(fields: [shortsCollectionId], references: [id], onDelete: SetNull)
+  dedupeKey            String?                @unique
+  scheduledAt          DateTime?
+  renderedAt           DateTime?
+  publishedAt          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  segments             EditorialReelSegment[]
+  @@index([status, createdAt])
+  @@index([categoryId, status])
+}
+
+model EditorialReelSegment {
+  id             String           @id @default(cuid())
+  jobId          String
+  job            EditorialReelJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  postId         String
+  post           Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  sortOrder      Int              @default(0)
+  thumbnailUrl   String?
+  title          String?
+  channelTitle   String?
+  categoryLabel  String?
+  @@index([jobId, sortOrder])
+  @@index([postId])
+}
+
+/// Kurátorovaná sada Shorts pro deep-link (např. z Facebook Reel)
+model ShortsCollection {
+  id        String   @id @default(cuid())
+  title     String
+  source    String   @default("facebook-reel")
+  slug      String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     ShortsCollectionItem[]
+  reelJobs  EditorialReelJob[]
+}
+
+model ShortsCollectionItem {
+  id           String           @id @default(cuid())
+  collectionId String
+  collection   ShortsCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  postId       String?
+  post         Post?            @relation(fields: [postId], references: [id], onDelete: SetNull)
+  feedKey      String
+  sortOrder    Int              @default(0)
+  @@index([collectionId, sortOrder])
+  @@index([feedKey])
 }
