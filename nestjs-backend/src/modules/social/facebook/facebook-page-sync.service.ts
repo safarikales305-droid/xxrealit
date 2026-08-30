@@ -725,7 +725,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           previewTitle: message.slice(0, 200) || 'Facebook',
           previewDescription: message.slice(0, 500) || null,
           previewImage: mediaPlan.thumbnailUrl,
-          previewSiteName: 'Facebook',
+        previewSiteName: 'Facebook',
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,
           publishedAt,

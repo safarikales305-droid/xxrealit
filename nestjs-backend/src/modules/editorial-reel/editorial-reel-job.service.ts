@@ -1,15 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EditorialReelJobStatus, NewsSourceType, type EditorialReelTemplate } from '@prisma/client';
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { SocialPublisherService } from '../social/autopost/social-publisher.service';
 import { getSiteOriginForOg } from '../properties/property-og-media.util';
 import { EditorialReelRenderService } from './editorial-reel-render.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
+import { ShortsMusicService } from '../shorts-music/shorts-music.service';
 import type { CreateReelJobInput } from './editorial-reel.types';
 
 const PENDING_KEY = 'editorial_reel_pending';
@@ -29,6 +27,14 @@ function parseReelError(err: unknown): { message: string; code: string; stage: R
   } else if (message.includes('thumbnail') || message.includes('Thumbnail')) {
     code = 'THUMBNAIL_ERROR';
     stage = 'COLLECTING';
+  } else if (
+    message.includes('IMAGE_PROCESSING_ERROR') ||
+    message.includes('sharp') ||
+    message.includes('Sharp') ||
+    message.includes('SHARP_RUNTIME')
+  ) {
+    code = message.includes('SHARP_RUNTIME') ? 'SHARP_RUNTIME_ERROR' : 'IMAGE_PROCESSING_ERROR';
+    stage = 'RENDERING';
   } else if (message.includes('Cloudinary') || message.includes('upload')) {
     code = 'STORAGE_UPLOAD_ERROR';
     stage = 'RENDERING';
@@ -58,6 +64,7 @@ export class EditorialReelJobService {
     private readonly render: EditorialReelRenderService,
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly socialPublisher: SocialPublisherService,
+    private readonly shortsMusic: ShortsMusicService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -66,7 +73,7 @@ export class EditorialReelJobService {
       take: limit,
       include: {
         category: true,
-        template: true,
+        template: { include: { musicTrack: { select: { id: true, title: true } } } },
         shortsCollection: { include: { items: { orderBy: { sortOrder: 'asc' } } } },
         segments: {
           orderBy: { sortOrder: 'asc' },
@@ -91,7 +98,7 @@ export class EditorialReelJobService {
       where: { id },
       include: {
         category: true,
-        template: true,
+        template: { include: { musicTrack: { select: { id: true, title: true } } } },
         shortsCollection: { include: { items: { orderBy: { sortOrder: 'asc' } } } },
         segments: {
           orderBy: { sortOrder: 'asc' },
@@ -532,24 +539,7 @@ export class EditorialReelJobService {
   }
 
   private async resolveMusicPath(musicTrackId?: string | null): Promise<string | null> {
-    let fileKey: string | null = null;
-    if (musicTrackId) {
-      const track = await this.prisma.editorialReelMusicTrack.findUnique({ where: { id: musicTrackId } });
-      if (track?.active && track.fileKey) fileKey = track.fileKey;
-    } else {
-      const track = await this.prisma.editorialReelMusicTrack.findFirst({
-        where: { isDefault: true, active: true },
-      });
-      if (track?.fileKey) fileKey = track.fileKey;
-    }
-    if (!fileKey) return null;
-    if (!fileKey.startsWith('http')) return fileKey;
-    const tmp = join(tmpdir(), `reel-music-${randomBytes(6).toString('hex')}.mp3`);
-    const res = await fetch(fileKey, { redirect: 'follow' });
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    await writeFile(tmp, buf);
-    return tmp;
+    return this.shortsMusic.resolveActiveTrackFilePath(musicTrackId);
   }
 
   private async getPendingBuffer(): Promise<PendingBuffer> {

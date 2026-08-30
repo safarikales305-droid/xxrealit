@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import sharp from 'sharp';
+import sharp, { assertSharpReady } from '../../lib/sharp-instance';
 import { resolveFfmpegBinary } from '../../lib/ffmpeg-binary';
 import { runFfmpegCapture } from '../../lib/ffmpeg-run';
 import type { EditorialReelTemplate } from '@prisma/client';
@@ -53,6 +53,7 @@ export class EditorialReelRenderService {
   private readonly log = new Logger(EditorialReelRenderService.name);
 
   async render(input: ReelRenderInput): Promise<ReelRenderResult> {
+    assertSharpReady('editorial-reel-render');
     const ffmpeg = resolveFfmpegBinary();
     if (!ffmpeg.path) {
       throw new Error('ffmpeg není dostupný — nelze vytvořit Facebook Reel.');
@@ -127,15 +128,21 @@ export class EditorialReelRenderService {
       const silentPath = join(tmpRoot, 'silent.mp4');
       await this.encodeSlideshow(ffmpeg.path, ffconcatPath, silentPath);
 
+      const durationSec = durations.reduce((a, b) => a + b, 0);
       const outputPath = join(tmpRoot, 'reel-final.mp4');
       if (input.musicFilePath) {
-        await this.muxMusic(ffmpeg.path, silentPath, input.musicFilePath, outputPath);
+        await this.muxMusic(
+          ffmpeg.path,
+          silentPath,
+          input.musicFilePath,
+          outputPath,
+          durationSec,
+        );
       } else {
         const { readFile: rf, writeFile: wf } = await import('node:fs/promises');
         await wf(outputPath, await rf(silentPath));
       }
 
-      const durationSec = durations.reduce((a, b) => a + b, 0);
       return { outputPath, tmpRoot, durationSec, validSegmentCount, skippedSegmentCount };
     } catch (err) {
       await this.safeRm(tmpRoot);
@@ -177,6 +184,22 @@ export class EditorialReelRenderService {
   }
 
   private async composeThumbnailSlide(
+    thumbPath: string,
+    outPath: string,
+    overlay: { title?: string; channelTitle?: string; categoryLabel?: string },
+  ) {
+    try {
+      await this.composeThumbnailSlideInner(thumbPath, outPath, overlay);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('sharp') || msg.includes('Sharp') || msg.includes('IMAGE_PROCESSING')) {
+        throw new Error(`IMAGE_PROCESSING_ERROR: ${msg}`);
+      }
+      throw err;
+    }
+  }
+
+  private async composeThumbnailSlideInner(
     thumbPath: string,
     outPath: string,
     overlay: { title?: string; channelTitle?: string; categoryLabel?: string },
@@ -231,18 +254,23 @@ export class EditorialReelRenderService {
         <text x="50%" y="45%" text-anchor="middle" fill="white" font-size="52" font-family="Arial, sans-serif" font-weight="700">${title}</text>
         ${subtitle ? `<text x="50%" y="55%" text-anchor="middle" fill="#f97316" font-size="32" font-family="Arial, sans-serif">${subtitle}</text>` : ''}
       </svg>`;
-    let pipeline = sharp(Buffer.from(svg)).resize(WIDTH, HEIGHT).jpeg({ quality: 90 });
-    if (input.logoPath) {
-      try {
-        const logo = await sharp(input.logoPath).resize(200, 200, { fit: 'inside' }).png().toBuffer();
-        pipeline = sharp(await pipeline.toBuffer()).composite([
-          { input: logo, top: 80, left: Math.floor((WIDTH - 200) / 2) },
-        ]);
-      } catch {
-        /* logo optional */
+    try {
+      let pipeline = sharp(Buffer.from(svg)).resize(WIDTH, HEIGHT).jpeg({ quality: 90 });
+      if (input.logoPath) {
+        try {
+          const logo = await sharp(input.logoPath).resize(200, 200, { fit: 'inside' }).png().toBuffer();
+          pipeline = sharp(await pipeline.toBuffer()).composite([
+            { input: logo, top: 80, left: Math.floor((WIDTH - 200) / 2) },
+          ]);
+        } catch {
+          /* logo optional */
+        }
       }
+      await pipeline.toFile(outPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`IMAGE_PROCESSING_ERROR: ${msg}`);
     }
-    await pipeline.toFile(outPath);
     return outPath;
   }
 
@@ -301,14 +329,30 @@ export class EditorialReelRenderService {
     }
   }
 
-  private async muxMusic(ffmpegBin: string, videoPath: string, musicPath: string, outPath: string) {
+  private async muxMusic(
+    ffmpegBin: string,
+    videoPath: string,
+    musicPath: string,
+    outPath: string,
+    videoDurationSec: number,
+  ) {
+    const fadeOutStart = Math.max(0, videoDurationSec - 1);
+    const audioFilter = `[1:a]volume=0.85,afade=t=in:st=0:d=0.5,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=1[a]`;
     const args = [
       '-hide_banner',
       '-y',
       '-i',
       videoPath,
+      '-stream_loop',
+      '-1',
       '-i',
       musicPath,
+      '-filter_complex',
+      audioFilter,
+      '-map',
+      '0:v:0',
+      '-map',
+      '[a]',
       '-c:v',
       'copy',
       '-c:a',
@@ -316,10 +360,6 @@ export class EditorialReelRenderService {
       '-b:a',
       '192k',
       '-shortest',
-      '-map',
-      '0:v:0',
-      '-map',
-      '1:a:0',
       outPath,
     ];
     const { code, stderr } = await runFfmpegCapture(ffmpegBin, args);

@@ -146,6 +146,34 @@ export class ShortsMusicService {
     });
   }
 
+  /** Stáhne aktivní skladbu do temp souboru pro server-side FFmpeg render (Reels, shorts). */
+  async resolveActiveTrackFilePath(trackId?: string | null): Promise<string | null> {
+    if (!trackId?.trim()) return null;
+    const track = await this.prisma.shortsMusicTrack.findFirst({
+      where: { id: trackId.trim(), isActive: true },
+    });
+    if (!track?.fileUrl?.trim()) return null;
+    const url = track.fileUrl.trim();
+    if (!url.startsWith('http')) {
+      return url;
+    }
+    try {
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 256) return null;
+      const ext = extname(new URL(url).pathname) || '.mp3';
+      const tmp = join(tmpdir(), `shorts-music-${randomBytes(6).toString('hex')}${ext}`);
+      await writeFile(tmp, buf);
+      return tmp;
+    } catch (e) {
+      this.log.warn(
+        `resolveActiveTrackFilePath failed (${trackId}): ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
+    }
+  }
+
   async updateTrack(id: string, body: Record<string, unknown>) {
     const existing = await this.prisma.shortsMusicTrack.findUnique({ where: { id } });
     if (!existing) {

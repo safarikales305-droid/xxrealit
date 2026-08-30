@@ -6,18 +6,15 @@ import {
   Param,
   Patch,
   Post,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ContentSourceCategoryService } from './content-source-category.service';
 import { EditorialCenterDashboardService } from './editorial-center-dashboard.service';
 import { EditorialReelJobService } from './editorial-reel-job.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
+import { ShortsMusicService } from '../shorts-music/shorts-music.service';
 import { PrismaService } from '../../database/prisma.service';
 
 @Controller('admin/editorial-center')
@@ -29,7 +26,7 @@ export class EditorialReelAdminController {
     private readonly reelSettings: EditorialReelSettingsService,
     private readonly reelJobs: EditorialReelJobService,
     private readonly prisma: PrismaService,
-    private readonly cloudinary: PropertyMediaCloudinaryService,
+    private readonly shortsMusic: ShortsMusicService,
   ) {}
 
   @Get('dashboard')
@@ -210,37 +207,6 @@ export class EditorialReelAdminController {
 
   @Get('reel/music')
   listMusic() {
-    return this.prisma.editorialReelMusicTrack.findMany({ orderBy: [{ isDefault: 'desc' }, { title: 'asc' }] });
-  }
-
-  @Post('reel/music')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadMusic(
-    @UploadedFile() file: Express.Multer.File,
-    @Body() body: { title?: string; isDefault?: string },
-  ) {
-    if (!file?.buffer?.length) throw new Error('Soubor hudby chybí.');
-    const { url } = await this.cloudinary.uploadShortsMusicBuffer(
-      file.buffer,
-      file.originalname || 'reel-music.mp3',
-      file.mimetype || 'audio/mpeg',
-    );
-    if (body.isDefault === 'true') {
-      await this.prisma.editorialReelMusicTrack.updateMany({ data: { isDefault: false } });
-    }
-    return this.prisma.editorialReelMusicTrack.create({
-      data: {
-        title: (body.title ?? file.originalname ?? 'Skladba').trim().slice(0, 200),
-        fileKey: url,
-        active: true,
-        isDefault: body.isDefault === 'true',
-      },
-    });
-  }
-
-  @Delete('reel/music/:id')
-  async deleteMusic(@Param('id') id: string) {
-    await this.prisma.editorialReelMusicTrack.delete({ where: { id } });
-    return { ok: true };
+    return this.shortsMusic.listActiveForPicker();
   }
 }
