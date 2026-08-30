@@ -7873,6 +7873,11 @@ model EditorialReelJob {
   videoCount           Int                    @default(0)
   renderError          String?                @db.Text
   publishError         String?                @db.Text
+  failedStage          String?
+  errorCode            String?
+  lastAttemptAt        DateTime?
+  attemptCount         Int                    @default(0)
+  templateSnapshot     Json?
   videoPath            String?
   videoUrl             String?
   facebookPostId       String?

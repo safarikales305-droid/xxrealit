@@ -25,23 +25,43 @@ export default function RedakceNastaveniPage() {
 
   return (
     <EditorialCenterShell title="Nastavení" subtitle="Šablony, Facebook a AI redakce.">
-      <ul className="space-y-2 text-sm">
-        <li>
-          <Link href="/admin/redakce/automatizace" className="text-orange-700 underline">
-            Automatické publikování a Reels
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">Reel šablony</p>
+          <h2 className="mt-1 font-semibold text-zinc-900">Správa vzhledu automatických Facebook Reels</h2>
+          <p className="mt-2 text-sm text-zinc-600">
+            Intro, segmenty, CTA, logo a hudební podkres pro kompilace z YouTube thumbnailů.
+          </p>
+          <Link
+            href="/admin/redakce/facebook-reels/sablony"
+            className="mt-4 inline-block rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+          >
+            Spravovat šablony
           </Link>
-        </li>
-        <li>
-          <Link href="/admin/aktuality?tab=settings" className="text-orange-700 underline">
-            Facebook šablony a link targets (legacy)
+        </div>
+
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">Automatické publikování</h2>
+          <p className="mt-2 text-sm text-zinc-600">YouTube → Shorts, Reels a RSS import.</p>
+          <Link href="/admin/redakce/automatizace" className="mt-4 inline-block text-sm text-orange-700 underline">
+            Otevřít automatizaci →
           </Link>
-        </li>
-        <li>
-          <Link href="/admin/shorts-feed" className="text-orange-700 underline">
-            Shorts feed mix
+        </div>
+
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">AI redakce a články</h2>
+          <Link href="/admin/aktuality?tab=ai" className="mt-2 inline-block text-sm text-orange-700 underline">
+            Legacy AI redakce →
           </Link>
-        </li>
-      </ul>
+        </div>
+
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">Shorts feed mix</h2>
+          <Link href="/admin/shorts-feed" className="mt-2 inline-block text-sm text-orange-700 underline">
+            Nastavení Shorts feedu →
+          </Link>
+        </div>
+      </div>
     </EditorialCenterShell>
   );
 }

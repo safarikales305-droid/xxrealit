@@ -37,12 +37,15 @@ export type ReelRenderInput = {
   segments: ReelRenderSegment[];
   musicFilePath?: string | null;
   logoPath?: string | null;
+  minSegments?: number;
 };
 
 export type ReelRenderResult = {
   outputPath: string;
   tmpRoot: string;
   durationSec: number | null;
+  validSegmentCount: number;
+  skippedSegmentCount: number;
 };
 
 @Injectable()
@@ -73,17 +76,41 @@ export class EditorialReelRenderService {
       });
       slidePaths.push(introSlide);
 
+      let skippedSegmentCount = 0;
+      const segmentDurations: number[] = [];
+
       for (const seg of input.segments) {
-        const thumbPath = join(tmpRoot, `thumb-${idx}.jpg`);
-        await this.downloadThumbnail(seg.thumbnailUrl, thumbPath);
-        const slidePath = join(tmpRoot, `slide-${idx}.jpg`);
-        await this.composeThumbnailSlide(thumbPath, slidePath, {
-          title: input.template.showVideoTitle ? seg.title : '',
-          channelTitle: input.template.showChannelTitle ? seg.channelTitle : '',
-          categoryLabel: input.template.showCategory ? seg.categoryLabel : '',
-        });
-        slidePaths.push(slidePath);
-        idx += 1;
+        try {
+          const thumbPath = join(tmpRoot, `thumb-${idx}.jpg`);
+          const downloaded = await this.tryDownloadThumbnail(seg.thumbnailUrl, thumbPath);
+          if (!downloaded) {
+            skippedSegmentCount += 1;
+            this.log.warn(`Reel segment skipped — thumbnail unavailable: ${seg.title?.slice(0, 40)}`);
+            continue;
+          }
+          const slidePath = join(tmpRoot, `slide-${idx}.jpg`);
+          await this.composeThumbnailSlide(thumbPath, slidePath, {
+            title: input.template.showVideoTitle ? seg.title : '',
+            channelTitle: input.template.showChannelTitle ? seg.channelTitle : '',
+            categoryLabel: input.template.showCategory ? seg.categoryLabel : '',
+          });
+          slidePaths.push(slidePath);
+          segmentDurations.push(segmentSec);
+          idx += 1;
+        } catch (err) {
+          skippedSegmentCount += 1;
+          this.log.warn(
+            `Reel segment skipped: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+
+      const minSegments = input.minSegments ?? 2;
+      const validSegmentCount = segmentDurations.length;
+      if (validSegmentCount < minSegments) {
+        throw new Error(
+          `NOT_ENOUGH_VALID_SEGMENTS: pouze ${validSegmentCount} z ${input.segments.length} segmentů (minimum ${minSegments})`,
+        );
       }
 
       const outroSlide = await this.buildTextSlide(tmpRoot, idx++, {
@@ -94,9 +121,7 @@ export class EditorialReelRenderService {
       });
       slidePaths.push(outroSlide);
 
-      const durations: number[] = [introSec];
-      for (let i = 0; i < input.segments.length; i += 1) durations.push(segmentSec);
-      durations.push(outroSec);
+      const durations: number[] = [introSec, ...segmentDurations, outroSec];
 
       const ffconcatPath = await this.writeFfconcat(tmpRoot, slidePaths, durations);
       const silentPath = join(tmpRoot, 'silent.mp4');
@@ -111,7 +136,7 @@ export class EditorialReelRenderService {
       }
 
       const durationSec = durations.reduce((a, b) => a + b, 0);
-      return { outputPath, tmpRoot, durationSec };
+      return { outputPath, tmpRoot, durationSec, validSegmentCount, skippedSegmentCount };
     } catch (err) {
       await this.safeRm(tmpRoot);
       throw err;
@@ -130,10 +155,25 @@ export class EditorialReelRenderService {
     }
   }
 
+  private async tryDownloadThumbnail(url: string, dest: string): Promise<boolean> {
+    const trimmed = url?.trim();
+    if (!trimmed) return false;
+    try {
+      const res = await fetch(trimmed, { redirect: 'follow' });
+      if (!res.ok || !res.body) return false;
+      const contentType = res.headers.get('content-type') ?? '';
+      if (contentType && !contentType.startsWith('image/')) return false;
+      await pipeline(res.body as unknown as NodeJS.ReadableStream, createWriteStream(dest));
+      const buf = await readFile(dest);
+      return buf.length > 512;
+    } catch {
+      return false;
+    }
+  }
+
   private async downloadThumbnail(url: string, dest: string) {
-    const res = await fetch(url, { redirect: 'follow' });
-    if (!res.ok || !res.body) throw new Error(`Stažení thumbnailu selhalo (${res.status})`);
-    await pipeline(res.body as unknown as NodeJS.ReadableStream, createWriteStream(dest));
+    const ok = await this.tryDownloadThumbnail(url, dest);
+    if (!ok) throw new Error(`Stažení thumbnailu selhalo (${url.slice(0, 80)})`);
   }
 
   private async composeThumbnailSlide(

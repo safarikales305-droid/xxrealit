@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { EditorialReelJobStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { describeFfmpegPathForLog, resolveFfmpegBinary } from '../../lib/ffmpeg-binary';
 import { EDITORIAL_REEL_WORKER_TICK_MS } from './editorial-reel.constants';
 import { EditorialReelJobService } from './editorial-reel-job.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
@@ -18,6 +19,8 @@ export class EditorialReelWorkerService implements OnModuleInit, OnModuleDestroy
   ) {}
 
   onModuleInit() {
+    const ffmpeg = resolveFfmpegBinary();
+    this.log.log(`FFmpeg available: ${ffmpeg.path ? 'YES' : 'NO'} — ${describeFfmpegPathForLog(ffmpeg.path, ffmpeg.source)}`);
     this.timer = setInterval(() => void this.tick(), EDITORIAL_REEL_WORKER_TICK_MS);
     void this.ensureDefaultTemplate();
   }

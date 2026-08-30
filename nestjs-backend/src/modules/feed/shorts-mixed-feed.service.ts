@@ -55,6 +55,12 @@ export class ShortsMixedFeedService {
     private readonly settingsService: ShortsFeedSettingsService,
   ) {}
 
+  /** Okamžitá invalidace cache po smazání zdroje / příspěvků. */
+  invalidatePoolCache() {
+    this.poolCache.clear();
+    this.log.log('Shorts pool cache invalidated');
+  }
+
   async getFeed(params: {
     viewerId?: string;
     filters?: PublicPropertyListFilters;

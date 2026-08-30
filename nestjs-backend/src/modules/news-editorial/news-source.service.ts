@@ -264,6 +264,8 @@ export class NewsSourceService implements OnModuleInit {
     return { ok: true };
   }
 
+  /** @deprecated Use NewsSourceDeleteService.removeWithContent for YouTube sources */
+
   async listDueForFetch(limit = 10) {
     const now = new Date();
     const sources = await this.prisma.newsSource.findMany({

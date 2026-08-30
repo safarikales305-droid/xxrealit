@@ -5,10 +5,12 @@ import { PostsModule } from '../posts/posts.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
 import { UploadModule } from '../upload/upload.module';
+import { FeedModule } from '../feed/feed.module';
 import { NewsAuditService } from './news-audit.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsEditorialSettingsModule } from './news-editorial-settings.module';
 import { NewsSourceService } from './news-source.service';
+import { NewsSourceDeleteService } from './news-source-delete.service';
 import { NewsFetchService } from './news-fetch.service';
 import { NewsAiService } from './news-ai.service';
 import { NewsArticleService } from './news-article.service';
@@ -34,12 +36,14 @@ import { EditorialReelModule } from '../editorial-reel/editorial-reel.module';
     forwardRef(() => AuthModule),
     NewsEditorialSettingsModule,
     forwardRef(() => EditorialReelModule),
+    forwardRef(() => FeedModule),
   ],
   controllers: [NewsEditorialPublicController, NewsEditorialAdminController],
   providers: [
     NewsAuditService,
     NewsBackfillService,
     NewsSourceService,
+    NewsSourceDeleteService,
     NewsFetchService,
     NewsImageService,
     NewsAiService,

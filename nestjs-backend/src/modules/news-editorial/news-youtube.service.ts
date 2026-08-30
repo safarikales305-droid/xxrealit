@@ -447,6 +447,15 @@ export class NewsYoutubeService {
     for (const video of videos.sort(
       (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
     )) {
+      const stillActive = await this.prisma.newsSource.findFirst({
+        where: { id: sourceId, enabled: true },
+        select: { id: true },
+      });
+      if (!stillActive) {
+        this.log.warn(`YouTube poll ${sourceId} stopped — source deleted or disabled`);
+        break;
+      }
+
       const result = await this.processVideo(source, video, channel.channelTitle, {
         enqueueFacebook: opts?.enqueueFacebook ?? false,
         forceAll,
@@ -542,6 +551,14 @@ export class NewsYoutubeService {
       skipDailyLimit?: boolean;
     },
   ): Promise<{ created: boolean; reason?: string; relevanceScore?: number; postId?: string }> {
+    const activeSource = await this.prisma.newsSource.findUnique({
+      where: { id: source.id },
+      select: { id: true, enabled: true },
+    });
+    if (!activeSource?.enabled) {
+      return { created: false, reason: 'SOURCE_DELETED' };
+    }
+
     if (!isValidYoutubeVideoId(video.videoId)) {
       return { created: false, reason: 'INVALID_VIDEO_ID' };
     }

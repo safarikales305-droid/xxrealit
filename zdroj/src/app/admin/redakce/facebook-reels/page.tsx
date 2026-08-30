@@ -1,33 +1,53 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { EditorialCenterShell } from '@/components/admin/redakce/EditorialCenterShell';
+import { AutoStatusBanner, EditorialCenterShell } from '@/components/admin/redakce/EditorialCenterShell';
 import {
   nestEditorialPublishReelJob,
   nestEditorialReelJobs,
+  nestEditorialReelPending,
   nestEditorialReelSettings,
+  nestEditorialReelTemplates,
+  nestEditorialRenderReelJob,
   nestEditorialUpdateReelSettings,
   type EditorialReelAutomationSettings,
   type EditorialReelJobRow,
+  type EditorialReelTemplate,
+  type ReelPendingBuffer,
 } from '@/lib/editorial-center-client';
+
+function statusTone(status: string) {
+  if (status === 'PUBLISHED') return 'bg-emerald-100 text-emerald-800';
+  if (status === 'FAILED') return 'bg-red-100 text-red-800';
+  if (status === 'READY') return 'bg-blue-100 text-blue-800';
+  if (status === 'RENDERING' || status === 'PUBLISHING') return 'bg-amber-100 text-amber-800';
+  return 'bg-zinc-100 text-zinc-700';
+}
 
 export default function RedakceFacebookReelsPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
   const [jobs, setJobs] = useState<EditorialReelJobRow[]>([]);
   const [settings, setSettings] = useState<EditorialReelAutomationSettings | null>(null);
+  const [pending, setPending] = useState<ReelPendingBuffer | null>(null);
+  const [templates, setTemplates] = useState<EditorialReelTemplate[]>([]);
 
   const load = () => {
     if (!apiAccessToken) return;
     void Promise.all([
       nestEditorialReelJobs(apiAccessToken),
       nestEditorialReelSettings(apiAccessToken),
-    ]).then(([j, s]) => {
+      nestEditorialReelPending(apiAccessToken),
+      nestEditorialReelTemplates(apiAccessToken),
+    ]).then(([j, s, p, t]) => {
       if (j) setJobs(j);
       if (s) setSettings(s);
+      if (p) setPending(p);
+      if (t) setTemplates(t);
     });
   };
 
@@ -36,6 +56,9 @@ export default function RedakceFacebookReelsPage() {
   }, [isLoading, user, router]);
 
   useEffect(load, [apiAccessToken]);
+
+  const defaultTemplate = templates.find((t) => t.isDefault);
+  const lastJob = jobs[0];
 
   if (isLoading || !user) {
     return (
@@ -47,23 +70,96 @@ export default function RedakceFacebookReelsPage() {
 
   return (
     <EditorialCenterShell title="Facebook Reels" subtitle="Automatické kompilace z YouTube thumbnailů a historie.">
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/admin/redakce/facebook-reels/sablony"
+          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+        >
+          Šablony
+        </Link>
+        <Link
+          href="/admin/redakce/automatizace"
+          className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+        >
+          Nastavení automatizace
+        </Link>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <AutoStatusBanner active={settings?.enabled ?? false} label="AUTOMATICKÉ REELS" />
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Čekající videa</p>
+          <p className="text-lg font-bold text-zinc-900">
+            {pending?.count ?? 0} / {pending?.threshold ?? 5}
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Poslední Reel</p>
+          <p className="text-lg font-bold text-zinc-900">{lastJob?.status ?? '—'}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Výchozí šablona</p>
+          <p className="text-lg font-bold text-zinc-900">{defaultTemplate?.name ?? '—'}</p>
+        </div>
+      </div>
+
+      {pending && pending.count > 0 ? (
+        <div className="rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">
+            {pending.count} / {pending.threshold} videí připraveno
+          </h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            {pending.count >= pending.threshold
+              ? 'Další Reel bude vytvořen při nejbližším běhu workeru.'
+              : 'Čeká se na další video.'}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pending.posts.map((p) => (
+              <div key={p.id} className="w-20 overflow-hidden rounded-lg border border-zinc-200">
+                {p.youtubeThumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.youtubeThumbnailUrl} alt="" className="aspect-[9/16] w-full object-cover" />
+                ) : (
+                  <div className="flex aspect-[9/16] items-center justify-center bg-zinc-100 text-[10px] text-zinc-500">
+                    bez náhledu
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold text-zinc-900">Automatický režim</h2>
-        <p className="mt-1 text-sm text-zinc-600">
-          Reel po {settings?.videosPerReel ?? 5} videích · min. {settings?.minVideos ?? 3} · max. čekání{' '}
-          {settings?.maxWaitHours ?? 24} h
-        </p>
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings?.enabled ?? false}
-            onChange={(e) => {
-              if (!apiAccessToken) return;
-              void nestEditorialUpdateReelSettings(apiAccessToken, { enabled: e.target.checked }).then(setSettings);
-            }}
-          />
-          Automaticky vytvářet Facebook Reels
-        </label>
+        <div className="mt-3 space-y-2 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings?.enabled ?? false}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, { enabled: e.target.checked }).then(
+                  (s) => s && setSettings(s),
+                );
+              }}
+            />
+            Automaticky vytvářet Reels
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings?.autoPublish ?? false}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, { autoPublish: e.target.checked }).then(
+                  (s) => s && setSettings(s),
+                );
+              }}
+            />
+            Automaticky publikovat na Facebook
+          </label>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -72,7 +168,9 @@ export default function RedakceFacebookReelsPage() {
             <tr>
               <th className="px-4 py-3">Název</th>
               <th className="px-4 py-3">Segmentů</th>
+              <th className="px-4 py-3">Šablona</th>
               <th className="px-4 py-3">Stav</th>
+              <th className="px-4 py-3">Fáze / chyba</th>
               <th className="px-4 py-3">Datum</th>
               <th className="px-4 py-3">Akce</th>
             </tr>
@@ -80,32 +178,52 @@ export default function RedakceFacebookReelsPage() {
           <tbody>
             {jobs.map((job) => (
               <tr key={job.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3">{job.title ?? 'Reel'}</td>
+                <td className="px-4 py-3">
+                  <Link href={`/admin/redakce/facebook-reels/${job.id}`} className="font-medium text-orange-700 hover:underline">
+                    {job.title ?? 'Reel'}
+                  </Link>
+                </td>
                 <td className="px-4 py-3">{job.videoCount}</td>
+                <td className="px-4 py-3 text-xs">{job.template?.name ?? '—'}</td>
                 <td className="px-4 py-3">
-                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold">{job.status}</span>
-                  {job.publishError ? (
-                    <p className="mt-1 text-xs text-red-600">{job.publishError}</p>
-                  ) : null}
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(job.status)}`}>
+                    {job.status}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-xs">
-                  {new Date(job.createdAt).toLocaleString('cs-CZ')}
+                <td className="px-4 py-3 text-xs text-red-600">
+                  {job.failedStage ? `${job.failedStage}` : ''}
+                  {job.renderError ? <p>{job.renderError}</p> : null}
+                  {job.publishError ? <p>{job.publishError}</p> : null}
+                  {job.errorCode ? <p className="text-zinc-500">{job.errorCode}</p> : null}
                 </td>
+                <td className="px-4 py-3 text-xs">{new Date(job.createdAt).toLocaleString('cs-CZ')}</td>
                 <td className="px-4 py-3">
-                  {job.status === 'READY' && apiAccessToken ? (
-                    <button
-                      type="button"
-                      className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white"
-                      onClick={() => void nestEditorialPublishReelJob(apiAccessToken, job.id).then(load)}
+                  <div className="flex flex-wrap gap-1">
+                    <Link
+                      href={`/admin/redakce/facebook-reels/${job.id}`}
+                      className="rounded border border-zinc-300 px-2 py-1 text-xs"
                     >
-                      Publikovat
-                    </button>
-                  ) : null}
-                  {job.facebookPermalink ? (
-                    <a href={job.facebookPermalink} target="_blank" rel="noreferrer" className="ml-2 text-xs text-orange-700 underline">
-                      Facebook
-                    </a>
-                  ) : null}
+                      Detail
+                    </Link>
+                    {job.status === 'FAILED' && apiAccessToken ? (
+                      <button
+                        type="button"
+                        className="rounded bg-amber-600 px-2 py-1 text-xs font-semibold text-white"
+                        onClick={() => void nestEditorialRenderReelJob(apiAccessToken, job.id).then(load)}
+                      >
+                        Zkusit znovu
+                      </button>
+                    ) : null}
+                    {job.status === 'READY' && apiAccessToken ? (
+                      <button
+                        type="button"
+                        className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white"
+                        onClick={() => void nestEditorialPublishReelJob(apiAccessToken, job.id).then(load)}
+                      >
+                        Publikovat
+                      </button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}

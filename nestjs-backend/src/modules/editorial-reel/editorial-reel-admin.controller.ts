@@ -82,17 +82,125 @@ export class EditorialReelAdminController {
 
   @Post('reel/jobs/:id/render')
   renderReelJob(@Param('id') id: string) {
-    return this.reelJobs.processQueuedJob(id);
+    return this.reelJobs.retryRender(id);
   }
 
   @Post('reel/jobs/:id/publish')
   publishReelJob(@Param('id') id: string) {
-    return this.reelJobs.publishJob(id);
+    return this.reelJobs.retryPublish(id);
+  }
+
+  @Delete('reel/jobs/:id')
+  async deleteReelJob(@Param('id') id: string) {
+    await this.prisma.editorialReelJob.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  @Get('reel/pending')
+  async getPendingVideos() {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: 'editorial_reel_pending' } });
+    const raw = row?.valueJson as { postIds?: string[]; since?: string } | undefined;
+    const postIds = raw?.postIds?.filter((x) => typeof x === 'string') ?? [];
+    const cfg = await this.reelSettings.getSettings();
+    const posts = postIds.length
+      ? await this.prisma.post.findMany({
+          where: { id: { in: postIds } },
+          select: {
+            id: true,
+            title: true,
+            youtubeThumbnailUrl: true,
+            youtubeVideoId: true,
+          },
+        })
+      : [];
+    return {
+      count: postIds.length,
+      threshold: cfg.videosPerReel,
+      minVideos: cfg.minVideos,
+      since: raw?.since ?? null,
+      posts,
+    };
   }
 
   @Get('reel/templates')
   listTemplates() {
-    return this.prisma.editorialReelTemplate.findMany({ orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] });
+    return this.prisma.editorialReelTemplate.findMany({
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      include: { musicTrack: { select: { id: true, title: true } } },
+    });
+  }
+
+  @Post('reel/templates')
+  createTemplate(@Body() body: Record<string, unknown>) {
+    return this.prisma.editorialReelTemplate.create({
+      data: {
+        name: String(body.name ?? 'Nová šablona').trim().slice(0, 200),
+        introSec: Number(body.introSec) || 2,
+        segmentSec: Number(body.segmentSec) || 4,
+        outroSec: Number(body.outroSec) || 3,
+        videosPerReel: Number(body.videosPerReel) || 5,
+        transition: (body.transition as 'FADE' | 'ZOOM' | 'SLIDE' | 'CROSSFADE') ?? 'FADE',
+        showLogo: body.showLogo !== false,
+        showVideoTitle: body.showVideoTitle !== false,
+        showChannelTitle: body.showChannelTitle !== false,
+        showCategory: body.showCategory !== false,
+        ctaText: String(body.ctaText ?? 'Další videa najdete na XXREALIT.cz'),
+        introText: body.introText ? String(body.introText) : null,
+        musicTrackId: typeof body.musicTrackId === 'string' ? body.musicTrackId : null,
+        isDefault: body.isDefault === true,
+      },
+    });
+  }
+
+  @Post('reel/templates/:id/duplicate')
+  async duplicateTemplate(@Param('id') id: string) {
+    const src = await this.prisma.editorialReelTemplate.findUnique({ where: { id } });
+    if (!src) throw new Error('Šablona nenalezena.');
+    const { id: _id, createdAt, updatedAt, ...data } = src;
+    return this.prisma.editorialReelTemplate.create({
+      data: { ...data, name: `${src.name} (kopie)`, isDefault: false },
+    });
+  }
+
+  @Post('reel/templates/:id/set-default')
+  async setDefaultTemplate(@Param('id') id: string) {
+    await this.prisma.editorialReelTemplate.updateMany({ data: { isDefault: false } });
+    return this.prisma.editorialReelTemplate.update({
+      where: { id },
+      data: { isDefault: true },
+    });
+  }
+
+  @Delete('reel/templates/:id')
+  async deleteTemplate(@Param('id') id: string) {
+    const tpl = await this.prisma.editorialReelTemplate.findUnique({ where: { id } });
+    if (tpl?.isDefault) throw new Error('Výchozí šablonu nelze smazat — nejdříve nastavte jinou jako výchozí.');
+    await this.prisma.editorialReelTemplate.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  @Post('reel/templates/:id/test-render')
+  async testRenderTemplate(@Param('id') id: string) {
+    const posts = await this.prisma.post.findMany({
+      where: { type: 'YOUTUBE_VIDEO', publishedAt: { not: null }, hiddenFromShorts: false },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+      select: { id: true },
+    });
+    if (posts.length < 2) throw new Error('Pro testovací render jsou potřeba alespoň 2 YouTube videa.');
+    const prevAutoPublish = (await this.reelSettings.getSettings()).autoPublish;
+    await this.reelSettings.updateSettings({ autoPublish: false });
+    try {
+      const job = await this.reelJobs.createManualJob({
+        postIds: posts.map((p) => p.id),
+        title: 'Testovací náhled šablony',
+        templateId: id,
+      });
+      await this.reelJobs.processQueuedJob(job.id);
+      return this.reelJobs.getJob(job.id);
+    } finally {
+      await this.reelSettings.updateSettings({ autoPublish: prevAutoPublish });
+    }
   }
 
   @Patch('reel/templates/:id')

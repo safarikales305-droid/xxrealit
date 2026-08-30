@@ -46,17 +46,53 @@ export type EditorialReelJobRow = {
   videoUrl: string | null;
   renderError: string | null;
   publishError: string | null;
+  failedStage: string | null;
+  errorCode: string | null;
+  lastAttemptAt: string | null;
+  attemptCount: number;
   facebookPermalink: string | null;
+  facebookPostId: string | null;
+  renderedAt: string | null;
   createdAt: string;
   publishedAt: string | null;
+  template?: { id: string; name: string } | null;
   category?: { label: string } | null;
   segments?: Array<{
     id: string;
     sortOrder: number;
     title: string | null;
     thumbnailUrl: string | null;
-    post?: { id: string; title: string; youtubeVideoId: string | null };
+    channelTitle?: string | null;
+    post?: { id: string; title: string; youtubeVideoId: string | null; youtubeChannelTitle?: string | null };
   }>;
+};
+
+export type EditorialReelTemplate = {
+  id: string;
+  name: string;
+  introSec: number;
+  segmentSec: number;
+  outroSec: number;
+  videosPerReel: number;
+  transition: string;
+  showLogo: boolean;
+  showVideoTitle: boolean;
+  showChannelTitle: boolean;
+  showCategory: boolean;
+  ctaText: string;
+  introText: string | null;
+  musicTrackId: string | null;
+  isDefault: boolean;
+  updatedAt: string;
+  musicTrack?: { id: string; title: string } | null;
+};
+
+export type ReelPendingBuffer = {
+  count: number;
+  threshold: number;
+  minVideos: number;
+  since: string | null;
+  posts: Array<{ id: string; title: string; youtubeThumbnailUrl: string | null; youtubeVideoId: string | null }>;
 };
 
 async function editorialFetch<T>(
@@ -146,6 +182,69 @@ export function nestEditorialPublishReelJob(token: string, id: string) {
 export function nestEditorialRenderReelJob(token: string, id: string) {
   return editorialFetch<{ ok?: boolean }>(token, `/reel/jobs/${encodeURIComponent(id)}/render`, {
     method: 'POST',
+  });
+}
+
+export function nestEditorialReelJob(token: string, id: string) {
+  return editorialFetch<EditorialReelJobRow>(token, `/reel/jobs/${encodeURIComponent(id)}`);
+}
+
+export function nestEditorialReelPending(token: string) {
+  return editorialFetch<ReelPendingBuffer>(token, '/reel/pending');
+}
+
+export function nestEditorialReelTemplates(token: string) {
+  return editorialFetch<EditorialReelTemplate[]>(token, '/reel/templates');
+}
+
+export function nestEditorialCreateReelTemplate(
+  token: string,
+  body: Partial<EditorialReelTemplate>,
+) {
+  return editorialFetch<EditorialReelTemplate>(token, '/reel/templates', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestEditorialUpdateReelTemplate(
+  token: string,
+  id: string,
+  body: Partial<EditorialReelTemplate>,
+) {
+  return editorialFetch<EditorialReelTemplate>(token, `/reel/templates/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestEditorialDuplicateReelTemplate(token: string, id: string) {
+  return editorialFetch<EditorialReelTemplate>(token, `/reel/templates/${encodeURIComponent(id)}/duplicate`, {
+    method: 'POST',
+  });
+}
+
+export function nestEditorialSetDefaultReelTemplate(token: string, id: string) {
+  return editorialFetch<EditorialReelTemplate>(token, `/reel/templates/${encodeURIComponent(id)}/set-default`, {
+    method: 'POST',
+  });
+}
+
+export function nestEditorialDeleteReelTemplate(token: string, id: string) {
+  return editorialFetch<{ ok: boolean }>(token, `/reel/templates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function nestEditorialTestReelTemplate(token: string, id: string) {
+  return editorialFetch<EditorialReelJobRow>(token, `/reel/templates/${encodeURIComponent(id)}/test-render`, {
+    method: 'POST',
+  });
+}
+
+export function nestEditorialDeleteReelJob(token: string, id: string) {
+  return editorialFetch<{ ok: boolean }>(token, `/reel/jobs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   });
 }
 

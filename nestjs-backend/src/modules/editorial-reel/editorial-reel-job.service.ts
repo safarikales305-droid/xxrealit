@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EditorialReelJobStatus, NewsSourceType } from '@prisma/client';
+import { EditorialReelJobStatus, NewsSourceType, type EditorialReelTemplate } from '@prisma/client';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,34 @@ import { EditorialReelSettingsService } from './editorial-reel-settings.service'
 import type { CreateReelJobInput } from './editorial-reel.types';
 
 const PENDING_KEY = 'editorial_reel_pending';
+
+type ReelFailedStage = 'COLLECTING' | 'RENDERING' | 'VALIDATION' | 'PUBLISHING';
+
+function parseReelError(err: unknown): { message: string; code: string; stage: ReelFailedStage } {
+  const message = err instanceof Error ? err.message : String(err);
+  let code = 'UNKNOWN_ERROR';
+  let stage: ReelFailedStage = 'RENDERING';
+  if (message.includes('NOT_ENOUGH_VALID_SEGMENTS')) {
+    code = 'NOT_ENOUGH_VALID_SEGMENTS';
+    stage = 'COLLECTING';
+  } else if (message.includes('ffmpeg') || message.includes('FFmpeg') || message.includes('FFMPEG')) {
+    code = message.includes('není dostupný') ? 'FFMPEG_NOT_FOUND' : 'FFMPEG_RENDER_ERROR';
+    stage = 'RENDERING';
+  } else if (message.includes('thumbnail') || message.includes('Thumbnail')) {
+    code = 'THUMBNAIL_ERROR';
+    stage = 'COLLECTING';
+  } else if (message.includes('Cloudinary') || message.includes('upload')) {
+    code = 'STORAGE_UPLOAD_ERROR';
+    stage = 'RENDERING';
+  } else if (message.includes('Meta') || message.includes('Facebook') || message.includes('Graph')) {
+    code = 'META_API_ERROR';
+    stage = 'PUBLISHING';
+  } else if (message.includes('šablona') || message.includes('template')) {
+    code = 'TEMPLATE_MISSING';
+    stage = 'COLLECTING';
+  }
+  return { message, code, stage };
+}
 
 type PendingBuffer = {
   postIds: string[];
@@ -88,6 +116,7 @@ export class EditorialReelJobService {
         status: EditorialReelJobStatus.QUEUED,
         title: input.title ?? `Reel — ${posts.length} videí`,
         templateId: template?.id,
+        templateSnapshot: template ? this.snapshotTemplate(template) : undefined,
         categoryId: input.categoryId ?? null,
         videoCount: posts.length,
         shortsCollectionId: collection.id,
@@ -162,6 +191,7 @@ export class EditorialReelJobService {
         status: EditorialReelJobStatus.QUEUED,
         title: `${cfg.introText} — ${posts.length} nových videí`,
         templateId: template?.id,
+        templateSnapshot: template ? this.snapshotTemplate(template) : undefined,
         categoryId: buffer.categoryId ?? null,
         videoCount: posts.length,
         shortsCollectionId: collection.id,
@@ -177,21 +207,37 @@ export class EditorialReelJobService {
 
   async processQueuedJob(jobId: string) {
     const job = await this.getJob(jobId);
-    if (job.status !== EditorialReelJobStatus.QUEUED && job.status !== EditorialReelJobStatus.FAILED) {
+    if (
+      job.status !== EditorialReelJobStatus.QUEUED &&
+      job.status !== EditorialReelJobStatus.FAILED
+    ) {
       return { skipped: true, status: job.status };
     }
 
+    this.log.log(`[REEL][JOB:${jobId}] render started`);
     await this.prisma.editorialReelJob.update({
       where: { id: jobId },
-      data: { status: EditorialReelJobStatus.RENDERING, renderError: null },
+      data: {
+        status: EditorialReelJobStatus.RENDERING,
+        renderError: null,
+        publishError: null,
+        failedStage: null,
+        errorCode: null,
+        lastAttemptAt: new Date(),
+        attemptCount: { increment: 1 },
+      },
     });
 
     let tmpRoot: string | null = null;
     try {
-      const template = job.template ?? (await this.resolveTemplate());
+      const cfg = this.settings.getCached();
+      const template =
+        this.templateFromSnapshot(job.templateSnapshot) ??
+        job.template ??
+        (await this.resolveTemplate(job.templateId ?? cfg.templateId ?? undefined));
       if (!template) throw new Error('Chybí šablona Reel.');
 
-      const musicPath = await this.resolveMusicPath(template.musicTrackId);
+      const musicPath = await this.resolveMusicPath(template.musicTrackId ?? cfg.musicTrackId);
       const segments = job.segments.map((s) => ({
         thumbnailUrl:
           s.thumbnailUrl ??
@@ -204,12 +250,19 @@ export class EditorialReelJobService {
         categoryLabel: s.categoryLabel ?? undefined,
       }));
 
+      this.log.log(`[REEL][JOB:${jobId}] collecting media — ${segments.length} segments`);
+
       const rendered = await this.render.render({
         template,
         segments,
         musicFilePath: musicPath,
+        minSegments: cfg.minVideos,
       });
       tmpRoot = rendered.tmpRoot;
+
+      this.log.log(
+        `[REEL][JOB:${jobId}] valid segments ${rendered.validSegmentCount}/${segments.length}`,
+      );
 
       const mp4 = await readFile(rendered.outputPath);
       const videoUrl = await this.cloudinary.uploadVideoBuffer(mp4, `editorial-reel-${jobId}.mp4`);
@@ -220,27 +273,39 @@ export class EditorialReelJobService {
           status: EditorialReelJobStatus.READY,
           videoUrl,
           renderedAt: new Date(),
-          videoCount: segments.length,
+          videoCount: rendered.validSegmentCount,
+          renderError: null,
+          failedStage: null,
+          errorCode: null,
         },
       });
 
-      const cfg = this.settings.getCached();
+      this.log.log(`[REEL][JOB:${jobId}] render completed`);
+
       if (cfg.autoPublish) {
-        await this.publishJob(jobId);
+        try {
+          await this.publishJob(jobId);
+        } catch (publishErr) {
+          const parsed = parseReelError(publishErr);
+          this.log.error(`[REEL][JOB:${jobId}][FAILED][PUBLISHING] ${parsed.message}`);
+          return { ok: false, error: parsed.message, stage: 'PUBLISHING' };
+        }
       }
 
       return { ok: true, videoUrl };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.log.error(`Reel render failed ${jobId}: ${message}`);
+      const parsed = parseReelError(err);
+      this.log.error(`[REEL][JOB:${jobId}][FAILED][${parsed.stage}] ${parsed.message}`);
       await this.prisma.editorialReelJob.update({
         where: { id: jobId },
         data: {
           status: EditorialReelJobStatus.FAILED,
-          renderError: message.slice(0, 4000),
+          failedStage: parsed.stage,
+          errorCode: parsed.code,
+          renderError: parsed.message.slice(0, 4000),
         },
       });
-      return { ok: false, error: message };
+      return { ok: false, error: parsed.message, stage: parsed.stage };
     } finally {
       if (tmpRoot) await this.render.cleanup(tmpRoot);
     }
@@ -255,9 +320,15 @@ export class EditorialReelJobService {
       return { alreadyPublished: true, permalink: job.facebookPermalink };
     }
 
+    this.log.log(`[REEL][JOB:${jobId}] publish started`);
     await this.prisma.editorialReelJob.update({
       where: { id: jobId },
-      data: { status: EditorialReelJobStatus.PUBLISHING, publishError: null },
+      data: {
+        status: EditorialReelJobStatus.PUBLISHING,
+        publishError: null,
+        failedStage: null,
+        errorCode: null,
+      },
     });
 
     try {
@@ -280,8 +351,13 @@ export class EditorialReelJobService {
           publishedAt: new Date(),
           facebookPostId: result.externalPostId ?? result.externalReelId ?? null,
           facebookPermalink: result.reelPublishedUrl ?? result.publishedUrl ?? null,
+          publishError: null,
+          failedStage: null,
+          errorCode: null,
         },
       });
+
+      this.log.log(`[REEL][JOB:${jobId}] published`);
 
       const now = new Date();
       for (const seg of job.segments) {
@@ -296,16 +372,90 @@ export class EditorialReelJobService {
 
       return { ok: true, permalink: result.reelPublishedUrl ?? result.publishedUrl ?? undefined };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const parsed = parseReelError(err);
       await this.prisma.editorialReelJob.update({
         where: { id: jobId },
         data: {
           status: EditorialReelJobStatus.READY,
-          publishError: message.slice(0, 4000),
+          failedStage: 'PUBLISHING',
+          errorCode: parsed.code,
+          publishError: parsed.message.slice(0, 4000),
         },
       });
       throw err;
     }
+  }
+
+  async retryRender(jobId: string) {
+    const job = await this.getJob(jobId);
+    if (job.status !== EditorialReelJobStatus.FAILED && job.status !== EditorialReelJobStatus.QUEUED) {
+      await this.prisma.editorialReelJob.update({
+        where: { id: jobId },
+        data: { status: EditorialReelJobStatus.QUEUED },
+      });
+    }
+    return this.processQueuedJob(jobId);
+  }
+
+  async retryPublish(jobId: string) {
+    const job = await this.getJob(jobId);
+    if (!job.videoUrl?.trim()) {
+      throw new Error('Reel nemá vyrenderované video — nejdříve spusťte render.');
+    }
+    return this.publishJob(jobId);
+  }
+
+  private snapshotTemplate(template: EditorialReelTemplate) {
+    return {
+      id: template.id,
+      name: template.name,
+      introSec: template.introSec,
+      segmentSec: template.segmentSec,
+      outroSec: template.outroSec,
+      videosPerReel: template.videosPerReel,
+      transition: template.transition,
+      showLogo: template.showLogo,
+      showVideoTitle: template.showVideoTitle,
+      showChannelTitle: template.showChannelTitle,
+      showCategory: template.showCategory,
+      ctaText: template.ctaText,
+      introText: template.introText,
+      musicTrackId: template.musicTrackId,
+      narrationMode: template.narrationMode,
+    };
+  }
+
+  private templateFromSnapshot(
+    raw: unknown,
+  ): Pick<
+    EditorialReelTemplate,
+    | 'introSec'
+    | 'segmentSec'
+    | 'outroSec'
+    | 'introText'
+    | 'ctaText'
+    | 'transition'
+    | 'showVideoTitle'
+    | 'showChannelTitle'
+    | 'showCategory'
+    | 'showLogo'
+    | 'musicTrackId'
+  > | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const o = raw as Record<string, unknown>;
+    return {
+      introSec: Number(o.introSec) || 2,
+      segmentSec: Number(o.segmentSec) || 4,
+      outroSec: Number(o.outroSec) || 3,
+      introText: typeof o.introText === 'string' ? o.introText : null,
+      ctaText: typeof o.ctaText === 'string' ? o.ctaText : 'Další videa najdete na XXREALIT.cz',
+      transition: (o.transition as EditorialReelTemplate['transition']) ?? 'FADE',
+      showVideoTitle: o.showVideoTitle !== false,
+      showChannelTitle: o.showChannelTitle !== false,
+      showCategory: o.showCategory !== false,
+      showLogo: o.showLogo !== false,
+      musicTrackId: typeof o.musicTrackId === 'string' ? o.musicTrackId : null,
+    };
   }
 
   private segmentData(

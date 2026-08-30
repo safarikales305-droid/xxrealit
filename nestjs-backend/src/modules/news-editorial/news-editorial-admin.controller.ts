@@ -30,6 +30,7 @@ import { NewsFetchService } from './news-fetch.service';
 import { NewsPublishService } from './news-publish.service';
 import { NewsRssTestService } from './news-rss-test.service';
 import { NewsSourceService } from './news-source.service';
+import { NewsSourceDeleteService } from './news-source-delete.service';
 import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsYoutubeService } from './news-youtube.service';
@@ -52,6 +53,7 @@ export class NewsEditorialAdminController {
   constructor(
     private readonly articles: NewsArticleService,
     private readonly sources: NewsSourceService,
+    private readonly sourceDelete: NewsSourceDeleteService,
     private readonly settings: NewsEditorialSettingsService,
     private readonly fetchService: NewsFetchService,
     private readonly publish: NewsPublishService,
@@ -151,9 +153,14 @@ export class NewsEditorialAdminController {
     return this.sources.update(id, body);
   }
 
+  @Get('sources/:id/delete-preview')
+  deleteSourcePreview(@Param('id') id: string) {
+    return this.sourceDelete.getDeletePreview(id);
+  }
+
   @Delete('sources/:id')
   deleteSource(@Param('id') id: string) {
-    return this.sources.remove(id);
+    return this.sourceDelete.removeWithContent(id);
   }
 
   @Get('settings')

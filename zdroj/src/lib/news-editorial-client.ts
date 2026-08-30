@@ -393,14 +393,33 @@ export async function nestAdminUpdateNewsSource(
   });
 }
 
-export async function nestAdminDeleteNewsSource(token: string, id: string): Promise<boolean> {
-  if (!API_BASE_URL) return false;
-  const res = await fetch(`${API_BASE_URL}/admin/news-editorial/sources/${encodeURIComponent(id)}`, {
+export async function nestAdminDeleteSourcePreview(
+  token: string,
+  id: string,
+): Promise<{
+  sourceName: string;
+  videosCount: number;
+  postsCount: number;
+  shortsCount: number;
+} | null> {
+  return adminFetch(token, `/sources/${encodeURIComponent(id)}/delete-preview`);
+}
+
+export type NewsSourceDeleteResult = {
+  success: boolean;
+  sourceDeleted: boolean;
+  videosDeleted: number;
+  postsDeleted: number;
+  shortsRemoved: number;
+};
+
+export async function nestAdminDeleteNewsSource(
+  token: string,
+  id: string,
+): Promise<NewsSourceDeleteResult | null> {
+  return adminFetch<NewsSourceDeleteResult>(token, `/sources/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    cache: 'no-store',
   });
-  return res.ok;
 }
 
 export async function nestAdminNewsSettings(token: string): Promise<NewsAutomationSettings | null> {

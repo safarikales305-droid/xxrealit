@@ -11,6 +11,8 @@ import {
 } from '@/components/admin/redakce/EditorialCenterShell';
 import { nestEditorialCategories, type ContentSourceCategory } from '@/lib/editorial-center-client';
 import {
+  nestAdminDeleteNewsSource,
+  nestAdminDeleteSourcePreview,
   nestAdminUpdateNewsSource,
   nestAdminYoutubePollNow,
   type NewsSourceRow,
@@ -22,12 +24,43 @@ function SourceMenu({
   source,
   token,
   onChanged,
+  onDeleted,
 }: {
   source: NewsSourceRow;
   token: string;
   onChanged: () => void;
+  onDeleted: (msg: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [preview, setPreview] = useState<{
+    sourceName: string;
+    videosCount: number;
+    postsCount: number;
+    shortsCount: number;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const openDelete = async () => {
+    setOpen(false);
+    const p = await nestAdminDeleteSourcePreview(token, source.id);
+    if (p) {
+      setPreview(p);
+      setConfirmOpen(true);
+    }
+  };
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    const result = await nestAdminDeleteNewsSource(token, source.id);
+    setDeleting(false);
+    setConfirmOpen(false);
+    if (result?.success) {
+      onDeleted(
+        `Kanál odstraněn. Z portálu bylo odstraněno ${result.videosDeleted} importovaných videí.`,
+      );
+    }
+  };
 
   return (
     <div className="relative">
@@ -61,6 +94,13 @@ function SourceMenu({
           <button
             type="button"
             className="block w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+            onClick={() => void openDelete()}
+          >
+            Smazat kanál a obsah
+          </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
             onClick={() => {
               setOpen(false);
               void nestAdminUpdateNewsSource(token, source.id, { enabled: false }).then(onChanged);
@@ -68,6 +108,53 @@ function SourceMenu({
           >
             Vypnout
           </button>
+        </div>
+      ) : null}
+      {confirmOpen && preview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-zinc-900">Smazat YouTube zdroj?</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Smazáním YouTube zdroje budou z XXREALIT odstraněna také všechna videa a příspěvky
+              importované z tohoto kanálu.
+            </p>
+            <dl className="mt-4 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-zinc-500">Kanál</dt>
+                <dd className="font-medium">{preview.sourceName}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-zinc-500">Importovaných videí</dt>
+                <dd className="font-medium">{preview.videosCount}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-zinc-500">Příspěvků</dt>
+                <dd className="font-medium">{preview.postsCount}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-zinc-500">Shorts položek</dt>
+                <dd className="font-medium">{preview.shortsCount}</dd>
+              </div>
+            </dl>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm"
+                onClick={() => setConfirmOpen(false)}
+                disabled={deleting}
+              >
+                Zrušit
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+              >
+                {deleting ? 'Mažu…' : 'Smazat kanál a jeho obsah'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -82,6 +169,7 @@ export default function RedakceYoutubePage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken || !API_BASE_URL) return;
@@ -132,6 +220,11 @@ export default function RedakceYoutubePage() {
 
   return (
     <EditorialCenterShell title="YouTube kanály" subtitle="Automatický import, Shorts a Facebook Reel kompilace.">
+      {toast ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          {toast}
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-3">
         <input
           type="search"
@@ -259,7 +352,15 @@ export default function RedakceYoutubePage() {
                         Sync
                       </button>
                       {apiAccessToken ? (
-                        <SourceMenu source={s} token={apiAccessToken} onChanged={load} />
+                        <SourceMenu
+                          source={s}
+                          token={apiAccessToken}
+                          onChanged={load}
+                          onDeleted={(msg) => {
+                            setToast(msg);
+                            void load();
+                          }}
+                        />
                       ) : null}
                     </div>
                   </td>
