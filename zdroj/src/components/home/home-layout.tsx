@@ -35,7 +35,9 @@ import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { MixedShortsFeed } from '@/components/video-feed/MixedShortsFeed';
-import { ShortsTopicChips } from '@/components/video-feed/ShortsTopicChips';
+import { DesktopShortsTopicBar } from '@/components/video-feed/DesktopShortsTopicBar';
+import { MobileShortsHeaderExtras } from '@/components/video-feed/MobileShortsHeaderExtras';
+import { MobileShortsHeaderProvider } from '@/components/video-feed/mobile-shorts-header-context';
 import type { ShortsFeedItem } from '@/lib/shorts-feed';
 import {
   isPropertyShortsItem,
@@ -1143,6 +1145,7 @@ export function HomeLayout({
   }
 
   return (
+    <MobileShortsHeaderProvider>
     <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
       <PostUploadQueueRunner />
       {apiConfigMissing ? (
@@ -1166,6 +1169,18 @@ export function HomeLayout({
           viewMode === 'classic' ? () => setMobileFiltersOpen(true) : undefined
         }
         activePostsCategoryLabel={viewMode === 'posts' ? activeCategoryLabel : undefined}
+        shortsTopicSlot={
+          viewMode === 'shorts' ? (
+            <MobileShortsHeaderExtras
+              selected={shortsTopicSlugs}
+              onChange={onShortsTopicsChange}
+              topicFilterEmpty={shortsTopicFilterEmpty}
+              onClearTopics={() => onShortsTopicsChange([])}
+              activeLocationLabel={activeLocationLabel}
+              shortsTargetMissing={shortsTargetMissing}
+            />
+          ) : undefined
+        }
       />
 
       <MobileFiltersSheet
@@ -1297,30 +1312,25 @@ export function HomeLayout({
                     </button>
                   </div>
                 ) : mixedItemsForFeed.length > 0 ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {activeLocationLabel ? (
-                      <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2 text-center text-sm text-zinc-700">
-                        Aktivní lokalita: <span className="font-semibold">{activeLocationLabel}</span>
-                      </p>
-                    ) : null}
-                    {shortsTargetMissing ? (
-                      <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
-                        Toto video již není dostupné — zobrazujeme nejbližší Shorts.
-                      </p>
-                    ) : null}
-                    <ShortsTopicChips selected={shortsTopicSlugs} onChange={onShortsTopicsChange} />
-                    {shortsTopicFilterEmpty ? (
-                      <p className="shrink-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-center text-sm text-zinc-600">
-                        Pro toto téma zatím nemáme dost videí.{' '}
-                        <button
-                          type="button"
-                          className="font-semibold text-orange-700 underline"
-                          onClick={() => onShortsTopicsChange([])}
-                        >
-                          Zobrazit všechna témata
-                        </button>
-                      </p>
-                    ) : null}
+                  <div className="shorts-feed-mobile-pad flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="hidden md:block">
+                      {activeLocationLabel ? (
+                        <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2 text-center text-sm text-zinc-700">
+                          Aktivní lokalita: <span className="font-semibold">{activeLocationLabel}</span>
+                        </p>
+                      ) : null}
+                      {shortsTargetMissing ? (
+                        <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
+                          Toto video již není dostupné — zobrazujeme nejbližší Shorts.
+                        </p>
+                      ) : null}
+                      <DesktopShortsTopicBar
+                        selected={shortsTopicSlugs}
+                        onChange={onShortsTopicsChange}
+                        topicFilterEmpty={shortsTopicFilterEmpty}
+                        onClearTopics={() => onShortsTopicsChange([])}
+                      />
+                    </div>
                     <MixedShortsFeed
                       key={sharedCollectionId ?? sharedShortKey ?? 'mixed-feed'}
                       items={mixedItemsForFeed}
@@ -1688,5 +1698,6 @@ export function HomeLayout({
       ) : null}
 
     </div>
+    </MobileShortsHeaderProvider>
   );
 }

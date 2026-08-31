@@ -186,6 +186,22 @@ body {
   touch-action: pan-y;
 }
 
+@media (max-width: 767px) {
+  [data-mobile-shorts-header='visible'] .shorts-feed-mobile-pad {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10.5rem);
+    transition: padding-top 200ms ease-out;
+  }
+
+  [data-mobile-shorts-header='hidden'] .shorts-feed-mobile-pad {
+    padding-top: 0;
+    transition: padding-top 200ms ease-out;
+  }
+
+  .shorts-topic-scroller {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .desktop-shorts-nav {
   display: none;
   flex-direction: column;

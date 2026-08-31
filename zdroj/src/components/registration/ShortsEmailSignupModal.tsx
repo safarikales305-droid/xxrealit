@@ -68,6 +68,7 @@ export function ShortsEmailSignupModal({ open, settings, successMessage, signupS
   };
 
   if (successMessage) {
+    const isCommentFlow = signupSource === 'YOUTUBE_COMMENT';
     return (
       <div
         className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/50 p-4 sm:items-center"
@@ -76,7 +77,11 @@ export function ShortsEmailSignupModal({ open, settings, successMessage, signupS
       >
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
           <h2 className="text-xl font-bold text-zinc-900">Hotovo.</h2>
-          <p className="mt-2 text-sm text-zinc-600">{successMessage}</p>
+          <p className="mt-2 text-sm text-zinc-600">
+            {isCommentFlow
+              ? 'Účet jsme připravili. Dokončete přihlášení přes e-mail a pak můžete komentář odeslat. Váš text zůstává uložený.'
+              : successMessage}
+          </p>
           <button
             type="button"
             className="mt-6 w-full rounded-xl bg-orange-600 py-3 text-sm font-semibold text-white hover:bg-orange-700"
@@ -88,6 +93,17 @@ export function ShortsEmailSignupModal({ open, settings, successMessage, signupS
       </div>
     );
   }
+
+  const interactionTitle =
+    signupSource === 'YOUTUBE_COMMENT'
+      ? 'Připojte se k XXREALIT'
+      : signupSource === 'YOUTUBE_LIKE'
+        ? 'Připojte se k XXREALIT'
+        : settings.title;
+  const interactionDescription =
+    signupSource === 'YOUTUBE_COMMENT' || signupSource === 'YOUTUBE_LIKE'
+      ? 'Pro pokračování stačí zadat e-mail. Heslo si nastavíte později z odkazu v e-mailu.'
+      : settings.description;
 
   return (
     <div
@@ -112,9 +128,9 @@ export function ShortsEmailSignupModal({ open, settings, successMessage, signupS
           ✕
         </button>
         <h2 id="shorts-email-signup-title" className="pr-8 text-xl font-bold text-zinc-900">
-          {settings.title}
+          {interactionTitle}
         </h2>
-        <p className="mt-2 text-sm text-zinc-600">{settings.description}</p>
+        <p className="mt-2 text-sm text-zinc-600">{interactionDescription}</p>
         <form className="mt-5 space-y-3" onSubmit={(e) => void onSubmit(e)}>
           <label className="block text-sm font-medium text-zinc-700">
             Email

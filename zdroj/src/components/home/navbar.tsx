@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { type MouseEvent, useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
 import {
@@ -20,6 +20,7 @@ import {
   buildPortalContentTabs,
   PortalContentTypeTabs,
 } from '@/components/navigation/PortalContentTypeTabs';
+import { useMobileShortsHeader } from '@/components/video-feed/mobile-shorts-header-context';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
@@ -34,6 +35,7 @@ type NavbarProps = {
   onViewModeChange?: (mode: ViewMode) => void;
   onMobileFiltersOpen?: () => void;
   activePostsCategoryLabel?: string;
+  shortsTopicSlot?: ReactNode;
 };
 
 const mobileMenuBtn =
@@ -48,9 +50,11 @@ export function Navbar({
   onViewModeChange,
   onMobileFiltersOpen,
   activePostsCategoryLabel,
+  shortsTopicSlot,
 }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const mobileShortsHeader = useMobileShortsHeader();
   const isAccommodationSection = pathname?.startsWith('/ubytovani');
   const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -93,6 +97,8 @@ export function Navbar({
   }
 
   const isMobileCompactHeader = viewMode === 'shorts' || viewMode === 'posts';
+  const mobileShortsHeaderHidden =
+    viewMode === 'shorts' && mobileShortsHeader != null && !mobileShortsHeader.headerVisible;
 
   const portalTabs = useMemo(() => {
     if (viewMode == null || onViewModeChange == null) return null;
@@ -184,9 +190,19 @@ export function Navbar({
   ]);
 
   return (
-    <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+    <header
+      className={`sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)] ${
+        viewMode === 'shorts' ? 'max-md:fixed max-md:left-0 max-md:right-0' : ''
+      }`}
+    >
       {isMobileCompactHeader && viewMode != null && onViewModeChange != null ? (
-        <div className="mx-auto hidden w-full max-w-[100rem] min-w-0 px-3 pb-2 pt-1 max-md:block md:hidden">
+        <div
+          className={`mobile-shorts-header-shell mx-auto hidden w-full max-w-[100rem] min-w-0 px-3 pb-2 pt-1 transition-[transform,opacity] duration-200 ease-out max-md:block md:hidden ${
+            mobileShortsHeaderHidden
+              ? 'max-md:pointer-events-none max-md:-translate-y-full max-md:opacity-0'
+              : ''
+          }`}
+        >
           <div className="flex w-full min-w-0 items-center gap-1.5">
             <div className="shrink-0 [&_img]:h-[1.35rem]">
               <Link
@@ -245,6 +261,9 @@ export function Navbar({
               activeId={portalTabs.activeId}
               className="-mx-3 mt-2"
             />
+          ) : null}
+          {viewMode === 'shorts' && shortsTopicSlot ? (
+            <div className="mobile-shorts-topic-slot -mx-3">{shortsTopicSlot}</div>
           ) : null}
         </div>
       ) : null}

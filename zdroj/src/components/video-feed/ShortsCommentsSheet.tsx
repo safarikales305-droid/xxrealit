@@ -10,6 +10,8 @@ type Props = {
   comments: PostComment[];
   loading?: boolean;
   isLoggedIn: boolean;
+  initialDraft?: string;
+  onDraftChange?: (text: string) => void;
   onSubmit: (text: string) => Promise<{ ok: boolean; error?: string }>;
   onRequestSignup: (draft: string) => void;
 };
@@ -20,18 +22,25 @@ export function ShortsCommentsSheet({
   comments,
   loading,
   isLoggedIn,
+  initialDraft = '',
+  onDraftChange,
   onSubmit,
   onRequestSignup,
 }: Props) {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initialDraft);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!open) setDraft('');
-  }, [open]);
+    if (open) setDraft(initialDraft);
+  }, [open, initialDraft]);
 
   if (!open) return null;
+
+  const updateDraft = (text: string) => {
+    setDraft(text);
+    onDraftChange?.(text);
+  };
 
   const handleSubmit = async () => {
     const text = draft.trim();
@@ -44,12 +53,18 @@ export function ShortsCommentsSheet({
     const res = await onSubmit(text);
     setSubmitting(false);
     if (res.ok) {
-      setDraft('');
+      updateDraft('');
+    }
+  };
+
+  const handleFocus = () => {
+    if (!isLoggedIn) {
+      onRequestSignup(draft);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center lg:items-stretch lg:justify-end">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center lg:items-stretch lg:justify-end" data-no-swipe>
       <button
         type="button"
         className="absolute inset-0 bg-black/50"
@@ -60,6 +75,7 @@ export function ShortsCommentsSheet({
         className="relative flex max-h-[min(85dvh,640px)] w-full flex-col rounded-t-2xl bg-white shadow-2xl lg:my-8 lg:mr-8 lg:h-[min(88vh,calc(100dvh-4rem))] lg:max-h-none lg:w-[min(420px,38vw)] lg:rounded-2xl"
         role="dialog"
         aria-labelledby="shorts-comments-title"
+        data-no-swipe
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <h2 id="shorts-comments-title" className="text-base font-bold text-zinc-900">
@@ -70,6 +86,7 @@ export function ShortsCommentsSheet({
             onClick={onClose}
             className="rounded-full p-2 text-zinc-500 hover:bg-zinc-100"
             aria-label="Zavřít"
+            data-no-swipe
           >
             <X className="size-5" />
           </button>
@@ -98,10 +115,12 @@ export function ShortsCommentsSheet({
           <textarea
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => updateDraft(e.target.value)}
+            onFocus={handleFocus}
             rows={2}
-            placeholder={isLoggedIn ? 'Napište komentář…' : 'Pro komentář zadejte e-mail…'}
+            placeholder={isLoggedIn ? 'Napište komentář…' : 'Napište komentář…'}
             className="w-full resize-none rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-orange-400"
+            data-no-swipe
           />
           <button
             type="button"

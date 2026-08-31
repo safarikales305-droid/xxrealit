@@ -101,6 +101,33 @@ export function clearSignupPendingIntent(): void {
   sessionStorage.removeItem(PENDING_INTENT_KEY);
 }
 
+export function pendingCommentStorageKey(postId: string): string {
+  return `pending_comment:${postId}`;
+}
+
+export function savePendingCommentDraft(postId: string, draft: string): void {
+  if (typeof window === 'undefined' || !postId) return;
+  try {
+    sessionStorage.setItem(pendingCommentStorageKey(postId), draft);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readPendingCommentDraft(postId: string): string {
+  if (typeof window === 'undefined' || !postId) return '';
+  try {
+    return sessionStorage.getItem(pendingCommentStorageKey(postId)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function clearPendingCommentDraft(postId: string): void {
+  if (typeof window === 'undefined' || !postId) return;
+  sessionStorage.removeItem(pendingCommentStorageKey(postId));
+}
+
 export function getAnonymousSessionId(): string {
   if (typeof window === 'undefined') return '';
   const key = 'xx_anon_session';
