@@ -67,6 +67,13 @@ export type NewsAutomationSettings = {
   facebookPostTemplate: string;
   facebookYoutubePostTemplate: string;
   facebookHashtags: string;
+  youtubeSeoShortsOnlyMax: number;
+  youtubeSeoPostAndShortsMax: number;
+  youtubeSeoArticleFeatureMin: number;
+  youtubeSeoIndexableMin: number;
+  youtubeSeoMinArticleWords: number;
+  youtubeSeoMaxArticleWords: number;
+  youtubeSeoTopicClusterDays: number;
 };
 
 export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
@@ -105,6 +112,13 @@ export const DEFAULT_NEWS_AUTOMATION_SETTINGS: NewsAutomationSettings = {
   facebookPostTemplate: DEFAULT_FACEBOOK_POST_TEMPLATE,
   facebookYoutubePostTemplate: DEFAULT_FACEBOOK_YOUTUBE_TEMPLATE,
   facebookHashtags: DEFAULT_FACEBOOK_HASHTAGS,
+  youtubeSeoShortsOnlyMax: 49,
+  youtubeSeoPostAndShortsMax: 74,
+  youtubeSeoArticleFeatureMin: 75,
+  youtubeSeoIndexableMin: 75,
+  youtubeSeoMinArticleWords: 300,
+  youtubeSeoMaxArticleWords: 800,
+  youtubeSeoTopicClusterDays: 90,
 };
 
 export const NEWS_ARTICLES_PER_DAY_MIN = 0;

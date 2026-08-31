@@ -355,8 +355,18 @@ export class SeoService {
         where: {
           slug: { not: null },
           type: { not: 'short' },
-          user: communityPostAuthorUserWhere(),
-        },
+          OR: [
+            {
+              type: 'YOUTUBE_VIDEO',
+              isIndexable: true,
+              publishedAt: { not: null },
+            },
+            {
+              type: { not: 'YOUTUBE_VIDEO' },
+              user: communityPostAuthorUserWhere(),
+            },
+          ],
+        } as Prisma.PostWhereInput,
         select: {
           slug: true,
           videoUrl: true,
@@ -642,12 +652,15 @@ export class SeoService {
       post.media.find((m) => String(m.type).toLowerCase() !== 'video')?.url ??
       post.facebookVideoThumbnail ??
       null;
+    const seoPost = post as typeof post & { isIndexable?: boolean; robots?: string | null };
     return {
       id: post.id,
       slug: post.slug,
       hasVideo,
       canonicalPath,
       canonicalUrl: `${origin}${canonicalPath}`,
+      indexable: seoPost.isIndexable ?? false,
+      robots: seoPost.robots ?? (seoPost.isIndexable ? 'index,follow' : 'noindex,nofollow'),
       seoTitle:
         post.seoTitle ??
         buildPostSeoTitle({

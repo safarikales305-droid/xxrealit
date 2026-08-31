@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { NewsArticleStatus, NewsSourceType, NewsYoutubePublishMode } from '@prisma/client';
+import type { EditorialContentMode } from './news-youtube-seo-gate.constants';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,6 +38,7 @@ import { NewsEditorialWorkerService } from './news-editorial-worker.service';
 import { NewsBackfillService } from './news-backfill.service';
 import { NewsYoutubeService } from './news-youtube.service';
 import { NewsYoutubeDiscoveryService } from './news-youtube-discovery.service';
+import { NewsYoutubeSeoGateService } from './news-youtube-seo-gate.service';
 import { NewsSystemUserService } from './news-system-user.service';
 import { EditorialPortalPostService } from './editorial-portal-post.service';
 import type { NewsAutomationSettings } from './news-editorial-settings.types';
@@ -66,6 +68,7 @@ export class NewsEditorialAdminController {
     private readonly backfill: NewsBackfillService,
     private readonly youtube: NewsYoutubeService,
     private readonly youtubeDiscovery: NewsYoutubeDiscoveryService,
+    private readonly youtubeSeoGate: NewsYoutubeSeoGateService,
     private readonly systemUser: NewsSystemUserService,
     private readonly editorialPosts: EditorialPortalPostService,
     private readonly prisma: PrismaService,
@@ -628,5 +631,50 @@ export class NewsEditorialAdminController {
   patchYoutubeSuggestion(@Param('id') id: string, @Body() body: { categoryId?: string }) {
     if (!body.categoryId) throw new BadRequestException('categoryId je povinné.');
     return this.youtubeDiscovery.patchSuggestionCategory(id, body.categoryId);
+  }
+
+  @Get('youtube/posts/seo')
+  listYoutubePostsSeo(
+    @Query('contentMode') contentMode?: string,
+    @Query('minScore') minScoreRaw?: string,
+    @Query('indexable') indexableRaw?: string,
+    @Query('category') category?: string,
+    @Query('location') location?: string,
+    @Query('sourceId') sourceId?: string,
+    @Query('search') search?: string,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ) {
+    const modes = ['SHORTS_ONLY', 'POST_AND_SHORTS', 'ARTICLE_FEATURE'] as const;
+    const mode = modes.find((m) => m === contentMode);
+    const minScore = minScoreRaw ? Number.parseInt(minScoreRaw, 10) : undefined;
+    const page = pageRaw ? Number.parseInt(pageRaw, 10) : 1;
+    const pageSize = pageSizeRaw ? Number.parseInt(pageSizeRaw, 10) : 30;
+    const indexable =
+      indexableRaw === 'true' ? true : indexableRaw === 'false' ? false : undefined;
+    return this.youtubeSeoGate.listPostsSeo({
+      contentMode: mode as EditorialContentMode | undefined,
+      minScore: Number.isFinite(minScore) ? minScore : undefined,
+      indexable,
+      category: category?.trim() || undefined,
+      location: location?.trim() || undefined,
+      sourceId: sourceId?.trim() || undefined,
+      search: search?.trim() || undefined,
+      page: Number.isFinite(page) ? page : 1,
+      pageSize: Number.isFinite(pageSize) ? pageSize : 30,
+    });
+  }
+
+  @Get('youtube/posts/:postId/seo')
+  getYoutubePostSeo(@Param('postId') postId: string) {
+    return this.youtubeSeoGate.getPostSeoDetail(postId);
+  }
+
+  @Patch('youtube/posts/:postId/seo')
+  patchYoutubePostSeo(
+    @Param('postId') postId: string,
+    @Body() body: { contentMode?: EditorialContentMode; isIndexable?: boolean },
+  ) {
+    return this.youtubeSeoGate.patchPostSeo(postId, body);
   }
 }

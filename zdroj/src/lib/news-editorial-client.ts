@@ -1428,3 +1428,96 @@ export async function nestAdminBulkApproveYoutubeSuggestions(
   const data = await res.json();
   return Array.isArray(data) ? data : [];
 }
+
+export type YoutubePostSeoRow = {
+  id: string;
+  title: string;
+  youtubeVideoId: string | null;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  publishedAt: string | null;
+  seoQualityScore: number;
+  contentMode: string;
+  isIndexable: boolean;
+  robots: string | null;
+  location: string | null;
+  topicCluster: string | null;
+  badge: string;
+  slug?: string | null;
+  wordCount: number;
+  internalLinksCount: number;
+  relatedCount: number;
+  source: { id: string; name: string; category: string | null } | null;
+};
+
+export type YoutubePostSeoDetail = YoutubePostSeoRow & {
+  category: string | null;
+  locationConfidence: number | null;
+  h1: string | null;
+  perex: string | null;
+  bodyMarkdown: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  canonicalPath: string | null;
+  slug: string | null;
+  checks: Array<{ id: string; label: string; pass: boolean; detail?: string }>;
+  breakdown: Record<string, number> | null;
+  duplicateTopicBlocked: boolean;
+  contentModeManual: boolean;
+  indexableManual: boolean;
+};
+
+export async function nestAdminListYoutubePostsSeo(
+  token: string,
+  params: {
+    contentMode?: string;
+    minScore?: number;
+    indexable?: boolean;
+    category?: string;
+    location?: string;
+    sourceId?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<{ items: YoutubePostSeoRow[]; total: number; page: number; hasMore: boolean }> {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== '') qs.set(k, String(v));
+  });
+  const res = await fetch(
+    `${newsAdminBase()}/admin/news-editorial/youtube/posts/seo?${qs.toString()}`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store' },
+  );
+  if (!res.ok) return { items: [], total: 0, page: 1, hasMore: false };
+  return res.json();
+}
+
+export async function nestAdminGetYoutubePostSeo(
+  token: string,
+  postId: string,
+): Promise<YoutubePostSeoDetail | null> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/posts/${postId}/seo`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function nestAdminPatchYoutubePostSeo(
+  token: string,
+  postId: string,
+  patch: { contentMode?: string; isIndexable?: boolean },
+): Promise<boolean> {
+  const res = await fetch(`${newsAdminBase()}/admin/news-editorial/youtube/posts/${postId}/seo`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patch),
+  });
+  return res.ok;
+}

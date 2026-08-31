@@ -36,6 +36,7 @@ import {
   setNewsWorkerLastError,
 } from './news-editorial-worker.state';
 import { NewsSystemUserService } from './news-system-user.service';
+import { NewsYoutubeSeoGateService } from './news-youtube-seo-gate.service';
 
 export function isStaleYoutubeApiKeyError(message: string | null | undefined): boolean {
   if (!message?.trim()) return false;
@@ -158,6 +159,7 @@ export class NewsYoutubeService {
     private readonly systemUser: NewsSystemUserService,
     private readonly posts: PostsService,
     private readonly editorialPosts: EditorialPortalPostService,
+    private readonly seoGate: NewsYoutubeSeoGateService,
   ) {}
 
   private editorialError(code: string, message: string): Error {
@@ -604,6 +606,14 @@ export class NewsYoutubeService {
     let postId: string;
     try {
       const bodyText = await this.generateVideoBody(video, teaser);
+      const seoGate = await this.seoGate.prepareForImport({
+        video,
+        source,
+        channelTitle,
+        teaser,
+        bodyText,
+        relevanceScore,
+      });
       const created = await this.editorialPosts.createPostFromYoutubeVideo({
         video,
         channelTitle,
@@ -611,6 +621,7 @@ export class NewsYoutubeService {
         bodyText,
         source,
         forcePublish: opts.forceImportForTest,
+        seoGate,
       });
       if (!created.ok || !created.postId) {
         return {
@@ -712,7 +723,7 @@ export class NewsYoutubeService {
       const ai = await this.openai.complete({
         feature: 'editorial_news',
         systemPrompt:
-          'Jsi redaktor českého realitního portálu XXREALIT. Napiš 2–4 odstavce českého doprovodného textu k YouTube videu. Používej pouze fakta z metadat. Bez URL, hashtagů a technického JSON. Text musí být čitelný a věcný.',
+          'Jsi redaktor českého realitního portálu XXREALIT. Napiš 2–4 odstavce českého doprovodného textu k YouTube videu. Používej pouze fakta z metadat. NIKDY nekopíruj YouTube popis — vytvoř nový originální text. Bez URL, hashtagů a technického JSON. Text musí být čitelný a věcný.',
         userPrompt: `Kanál: ${video.channelTitle}\nTitulek: ${cleaned.title}\nPerex: ${teaser}\nPopis videa:\n${description}`,
         maxOutputTokens: 600,
       });

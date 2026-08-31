@@ -231,6 +231,12 @@ export default function RedakceYoutubePage() {
       >
         Návrhy AI →
       </Link>
+      <Link
+        href="/admin/redakce/youtube/seo"
+        className="inline-flex rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+      >
+        SEO kvalita videí →
+      </Link>
       <div className="flex flex-wrap gap-3">
         <input
           type="search"

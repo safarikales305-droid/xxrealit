@@ -26,6 +26,7 @@ import {
 import { isValidNewsHeroImageUrl } from './news-hero-image.util';
 import { NewsSystemUserService } from './news-system-user.service';
 import type { YoutubeVideoMeta } from './news-youtube-api.util';
+import type { YoutubeSeoGateResult } from './news-youtube-seo-gate.constants';
 import { EditorialReelJobService } from '../editorial-reel/editorial-reel-job.service';
 
 export type EditorialPostResult = {
@@ -252,6 +253,7 @@ export class EditorialPortalPostService {
     bodyText: string;
     source: NewsSource;
     forcePublish?: boolean;
+    seoGate?: YoutubeSeoGateResult;
   }): Promise<EditorialPostResult> {
     if (!input.video.videoId?.trim()) {
       return { ok: false, reason: 'INVALID_VIDEO_ID' };
@@ -289,27 +291,48 @@ export class EditorialPortalPostService {
     const publishToFeed = this.shouldPublishYoutubeToFeed(cfg, input.source, input.forcePublish);
     const publishedAt = publishToFeed ? input.video.publishedAt ?? new Date() : null;
 
-    const portalContent = [
-      input.teaser,
-      '',
-      input.bodyText,
-      '',
-      `Zdroj: ${input.source.name}`,
-      `Kanál: ${input.channelTitle}`,
-      `Originál: ${input.video.videoUrl}`,
-    ].join('\n');
+    const seo = input.seoGate;
+    const contentMode = seo?.contentMode ?? 'SHORTS_ONLY';
+    const portalContent = seo?.bodyMarkdown
+      ? [
+          seo.perex ?? input.teaser,
+          '',
+          seo.bodyMarkdown,
+          '',
+          ...(seo.internalLinks?.length
+            ? [
+                '## Další na portálu',
+                ...seo.internalLinks
+                  .filter((l) => l.valid)
+                  .map((l) => `- [${l.label}](${l.path})`),
+                '',
+              ]
+            : []),
+          `Zdroj: ${input.source.name}`,
+          `Kanál: ${input.channelTitle}`,
+          `Originál: ${input.video.videoUrl}`,
+        ].join('\n')
+      : [
+          input.teaser,
+          '',
+          input.bodyText,
+          '',
+          `Zdroj: ${input.source.name}`,
+          `Kanál: ${input.channelTitle}`,
+          `Originál: ${input.video.videoUrl}`,
+        ].join('\n');
 
     const post = await this.prisma.post.create({
       data: {
         userId: systemUserId,
         type: 'YOUTUBE_VIDEO',
         source: PostSource.YOUTUBE,
-        title: input.video.title.slice(0, 200),
-        description: input.teaser,
+        title: (seo?.h1 ?? input.video.title).slice(0, 200),
+        description: seo?.perex ?? input.teaser,
         content: portalContent,
         externalUrl: input.video.videoUrl,
-        previewTitle: input.video.title,
-        previewDescription: input.teaser,
+        previewTitle: seo?.h1 ?? input.video.title,
+        previewDescription: seo?.perex ?? input.teaser,
         previewImage: input.video.thumbnailUrl,
         previewSiteName: systemUser.name || cfg.portalPostAuthorLabel,
         imageUrl: input.video.thumbnailUrl,
@@ -319,14 +342,35 @@ export class EditorialPortalPostService {
         youtubeThumbnailUrl: input.video.thumbnailUrl,
         youtubeEmbeddable: input.video.embeddable,
         publishedAt,
-        slug: `video-${input.video.videoId}`,
+        slug: seo?.slug ?? (contentMode === 'SHORTS_ONLY' ? null : `video-${input.video.videoId}`),
+        seoTitle: seo?.seoTitle ?? null,
+        seoDescription: seo?.seoDescription ?? null,
+        canonicalPath: seo?.canonicalPath ?? null,
+        editorialContentMode: contentMode,
+        seoQualityScore: seo?.seoQualityScore ?? 0,
+        isIndexable: seo?.isIndexable ?? false,
+        robots: seo?.robots ?? 'noindex,nofollow',
+        editorialTopicCluster: seo?.topicCluster ?? null,
+        editorialLocation: seo?.location ?? null,
+        editorialLocationConfidence: seo?.locationConfidence ?? null,
+        editorialH1: seo?.h1 ?? null,
+        editorialPerex: seo?.perex ?? input.teaser,
+        editorialBodyMarkdown: seo?.bodyMarkdown ?? input.bodyText,
+        editorialSeoDiagnosticsJson: seo
+          ? ({ checks: seo.checks, breakdown: seo.breakdown, wordCount: seo.wordCount } as object)
+          : undefined,
+        editorialRelatedPostIds: seo?.relatedPostIds ?? [],
+        editorialInternalLinksJson: seo?.internalLinks ?? undefined,
+        duplicateTopicBlocked: seo?.duplicateTopicBlocked ?? false,
+        editorialSchemaJson: seo?.schemaJson ?? undefined,
+        editorialOgImageUrl: input.video.thumbnailUrl,
         newsSourceId: input.source.id,
         editorialSourceName: input.source.name,
         editorialSourceUrl: input.source.url,
         editorialExternalId: input.video.videoId,
         likesAutopilotEnabled: true,
         lastAutopilotLikesAt: new Date(),
-      },
+      } as Prisma.PostUncheckedCreateInput,
     });
 
     if (publishedAt) {

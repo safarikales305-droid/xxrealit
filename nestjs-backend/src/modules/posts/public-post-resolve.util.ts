@@ -18,8 +18,12 @@ export function parseLegacyYoutubeSlug(slug: string): string | null {
 export function isPublicPostDetailVisible(post: {
   type?: string | null;
   publishedAt?: Date | null;
+  editorialContentMode?: string | null;
   user: PublicVisibilityUser | null;
 }): boolean {
+  if (post.type === 'YOUTUBE_VIDEO' && post.editorialContentMode === 'SHORTS_ONLY') {
+    return false;
+  }
   if (isEditorialFeedPostType(post.type) && post.publishedAt) {
     return true;
   }

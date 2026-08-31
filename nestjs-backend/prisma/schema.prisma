@@ -139,6 +139,12 @@ enum PostSource {
   YOUTUBE
 }
 
+enum EditorialContentMode {
+  SHORTS_ONLY
+  POST_AND_SHORTS
+  ARTICLE_FEATURE
+}
+
 enum FacebookImportStatus {
   IDLE
   RUNNING
@@ -1061,6 +1067,26 @@ model Post {
   reelUsageCount      Int              @default(0)
   /// Skrytí z veřejného Shorts feedu (admin)
   hiddenFromShorts    Boolean          @default(false)
+  /// Režim publikace YouTube/redakčního obsahu
+  editorialContentMode EditorialContentMode @default(SHORTS_ONLY)
+  seoQualityScore      Int              @default(0)
+  isIndexable          Boolean          @default(false)
+  robots               String?
+  canonicalPath        String?
+  editorialTopicCluster String?
+  editorialLocation    String?
+  editorialLocationConfidence Float?
+  editorialH1          String?
+  editorialPerex       String?          @db.Text
+  editorialBodyMarkdown String?         @db.Text
+  editorialSeoDiagnosticsJson Json?
+  editorialRelatedPostIds String[]      @default([])
+  editorialInternalLinksJson Json?
+  duplicateTopicBlocked Boolean         @default(false)
+  contentModeManual    Boolean          @default(false)
+  indexableManual      Boolean          @default(false)
+  editorialSchemaJson  Json?
+  editorialOgImageUrl  String?
   reelSegments        EditorialReelSegment[]
   shortsCollectionItems ShortsCollectionItem[]
   createdAt   DateTime @default(now())

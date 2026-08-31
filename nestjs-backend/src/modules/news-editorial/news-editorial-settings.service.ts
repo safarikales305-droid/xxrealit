@@ -161,6 +161,13 @@ export class NewsEditorialSettingsService implements OnModuleInit {
       facebookPostTemplate: this.str(o.facebookPostTemplate, d.facebookPostTemplate),
       facebookYoutubePostTemplate: this.str(o.facebookYoutubePostTemplate, d.facebookYoutubePostTemplate),
       facebookHashtags: this.str(o.facebookHashtags, d.facebookHashtags),
+      youtubeSeoShortsOnlyMax: this.num(o.youtubeSeoShortsOnlyMax, d.youtubeSeoShortsOnlyMax, 0, 100),
+      youtubeSeoPostAndShortsMax: this.num(o.youtubeSeoPostAndShortsMax, d.youtubeSeoPostAndShortsMax, 0, 100),
+      youtubeSeoArticleFeatureMin: this.num(o.youtubeSeoArticleFeatureMin, d.youtubeSeoArticleFeatureMin, 0, 100),
+      youtubeSeoIndexableMin: this.num(o.youtubeSeoIndexableMin, d.youtubeSeoIndexableMin, 0, 100),
+      youtubeSeoMinArticleWords: this.num(o.youtubeSeoMinArticleWords, d.youtubeSeoMinArticleWords, 100, 2000),
+      youtubeSeoMaxArticleWords: this.num(o.youtubeSeoMaxArticleWords, d.youtubeSeoMaxArticleWords, 200, 3000),
+      youtubeSeoTopicClusterDays: this.num(o.youtubeSeoTopicClusterDays, d.youtubeSeoTopicClusterDays, 7, 365),
     };
 
     return settings;

@@ -13,6 +13,8 @@ export type PostOgMeta = {
   videoDurationSec: number | null;
   publishedAt: string;
   authorName: string | null;
+  indexable?: boolean;
+  robots?: string | null;
 };
 
 export async function fetchPostOgMeta(postId: string): Promise<PostOgMeta | null> {

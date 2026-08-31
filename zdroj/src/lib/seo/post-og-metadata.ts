@@ -1,15 +1,20 @@
 import type { Metadata } from 'next';
-import { buildSiteMetadata } from '@/lib/seo/metadata';
+import { buildSiteMetadata, getRobotsMetadata } from '@/lib/seo/metadata';
 import type { PostOgMeta } from '@/lib/post-public';
 
 export function buildPostOpenGraphMetadata(meta: PostOgMeta): Metadata {
   const ogType = meta.hasVideo ? 'video.other' : 'article';
+  const robotsMeta = getRobotsMetadata({
+    indexable: meta.indexable !== false,
+    robots: meta.robots,
+  });
   const base = buildSiteMetadata({
     title: meta.seoTitle,
     description: meta.seoDescription,
     path: meta.canonicalPath,
     image: meta.imageUrl,
     type: meta.hasVideo ? 'article' : 'article',
+    noindex: !robotsMeta.index,
   });
   return {
     ...base,
