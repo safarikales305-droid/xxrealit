@@ -9,7 +9,11 @@ import {
   nestEditorialDashboard,
   nestEditorialReelSettings,
   nestEditorialUpdateReelSettings,
+  nestEditorialYoutubePublishSummary,
+  nestEditorialYoutubeStatus,
+  nestYoutubeOAuthConnectUrl,
   type EditorialReelAutomationSettings,
+  type YouTubeConnectionStatus,
 } from '@/lib/editorial-center-client';
 import {
   nestAdminNewsSettings,
@@ -23,6 +27,23 @@ export default function RedakceAutomatizacePage() {
   const [news, setNews] = useState<NewsAutomationSettings | null>(null);
   const [reel, setReel] = useState<EditorialReelAutomationSettings | null>(null);
   const [dashAuto, setDashAuto] = useState(false);
+  const [youtube, setYoutube] = useState<YouTubeConnectionStatus | null>(null);
+  const [youtubeSummary, setYoutubeSummary] = useState<{
+    lastUploadAt: string | null;
+    lastUploadVideoId: string | null;
+    lastError: string | null;
+  } | null>(null);
+
+  const loadYoutube = () => {
+    if (!apiAccessToken) return;
+    void Promise.all([
+      nestEditorialYoutubeStatus(apiAccessToken),
+      nestEditorialYoutubePublishSummary(apiAccessToken),
+    ]).then(([s, summary]) => {
+      if (s) setYoutube(s);
+      if (summary) setYoutubeSummary(summary);
+    });
+  };
 
   useEffect(() => {
     if (!isLoading && user?.role !== 'ADMIN') router.replace('/');
@@ -38,7 +59,14 @@ export default function RedakceAutomatizacePage() {
       if (n) setNews(n);
       if (r) setReel(r);
       if (d) setDashAuto(d.autoPublishingActive);
+      loadYoutube();
     });
+  }, [apiAccessToken]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('youtube')) loadYoutube();
   }, [apiAccessToken]);
 
   if (isLoading || !user) {
@@ -129,6 +157,91 @@ export default function RedakceAutomatizacePage() {
               />
             </label>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <AutoStatusBanner
+          active={Boolean(youtube?.autoPublishReady && reel?.autoPublishYoutube)}
+          label="YOUTUBE — vlastní Reels"
+        />
+        <h2 className="mt-3 font-semibold text-zinc-900">YouTube publikování</h2>
+        <div className="mt-3 space-y-2 text-sm">
+          <p>
+            <span className="text-zinc-500">Připojený kanál:</span>{' '}
+            <span className="font-medium">{youtube?.channelTitle ?? '—'}</span>
+          </p>
+          {youtube?.channelId ? (
+            <p className="text-xs text-zinc-500">Channel ID: {youtube.channelId}</p>
+          ) : null}
+          <p>
+            Upload oprávnění:{' '}
+            <span className={youtube?.uploadScopeOk ? 'text-emerald-700' : 'text-red-700'}>
+              {youtube?.uploadScopeOk ? 'OK' : 'CHYBÍ'}
+            </span>
+          </p>
+          <p>
+            Refresh token:{' '}
+            <span className={youtube?.refreshTokenOk ? 'text-emerald-700' : 'text-red-700'}>
+              {youtube?.refreshTokenOk ? 'OK' : 'CHYBÍ'}
+            </span>
+          </p>
+          {youtube?.channelMismatch ? (
+            <p className="text-red-700">Připojený kanál neodpovídá očekávanému XXREALIT kanálu.</p>
+          ) : null}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={reel?.autoPublishYoutube ?? false}
+              disabled={!youtube?.autoPublishReady}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, {
+                  autoPublishYoutube: e.target.checked,
+                }).then(setReel);
+              }}
+            />
+            Automaticky publikovat vlastní Reels na YouTube
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium">Výchozí viditelnost</span>
+            <select
+              className="w-full max-w-xs rounded-lg border border-zinc-300 px-3 py-2"
+              value={reel?.youtubePrivacyStatus ?? 'private'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, {
+                  youtubePrivacyStatus: e.target.value as 'public' | 'unlisted' | 'private',
+                }).then(setReel);
+              }}
+            >
+              <option value="private">Private (test)</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="public">Public</option>
+            </select>
+          </label>
+          <p className="text-xs text-zinc-500">
+            Poslední upload:{' '}
+            {youtubeSummary?.lastUploadAt
+              ? new Date(youtubeSummary.lastUploadAt).toLocaleString('cs-CZ')
+              : '—'}
+          </p>
+          {youtubeSummary?.lastError ? (
+            <p className="text-xs text-red-600">Poslední chyba: {youtubeSummary.lastError}</p>
+          ) : null}
+          {apiAccessToken ? (
+            <button
+              type="button"
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              onClick={() => {
+                void nestYoutubeOAuthConnectUrl(apiAccessToken).then((url) => {
+                  if (url) window.location.href = url;
+                });
+              }}
+            >
+              Připojit / obnovit oprávnění YouTube
+            </button>
+          ) : null}
         </div>
       </div>
     </EditorialCenterShell>

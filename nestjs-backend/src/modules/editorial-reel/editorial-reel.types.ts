@@ -18,6 +18,8 @@ export type EditorialReelAutomationSettings = {
   maxWaitHours: number;
   minVideos: number;
   autoPublish: boolean;
+  autoPublishYoutube: boolean;
+  youtubePrivacyStatus: 'public' | 'unlisted' | 'private';
   categorySlugs: string[];
   templateId?: string | null;
   musicTrackId?: string | null;
@@ -32,6 +34,8 @@ export const DEFAULT_EDITORIAL_REEL_SETTINGS: EditorialReelAutomationSettings = 
   maxWaitHours: 24,
   minVideos: 3,
   autoPublish: true,
+  autoPublishYoutube: false,
+  youtubePrivacyStatus: 'private',
   categorySlugs: [],
   ctaUrl: 'https://www.xxrealit.cz/?tab=shorts&source=facebook-reel',
   introText: 'Co je nového ve světě realit',

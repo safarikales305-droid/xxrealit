@@ -61,6 +61,14 @@ export class EditorialReelSettingsService implements OnModuleInit {
       maxWaitHours: num(o.maxWaitHours, d.maxWaitHours, 1, 168),
       minVideos: num(o.minVideos, d.minVideos, 1, 10),
       autoPublish: typeof o.autoPublish === 'boolean' ? o.autoPublish : d.autoPublish,
+      autoPublishYoutube:
+        typeof o.autoPublishYoutube === 'boolean' ? o.autoPublishYoutube : d.autoPublishYoutube,
+      youtubePrivacyStatus:
+        o.youtubePrivacyStatus === 'public' ||
+        o.youtubePrivacyStatus === 'unlisted' ||
+        o.youtubePrivacyStatus === 'private'
+          ? o.youtubePrivacyStatus
+          : d.youtubePrivacyStatus,
       categorySlugs,
       templateId: typeof o.templateId === 'string' ? o.templateId : d.templateId ?? null,
       musicTrackId: typeof o.musicTrackId === 'string' ? o.musicTrackId : d.musicTrackId ?? null,

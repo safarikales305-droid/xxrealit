@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SocialModule } from '../social/social.module';
+import { YouTubeModule } from '../social/youtube/youtube.module';
 import { OpenAiModule } from '../openai/openai.module';
 import { ShortsMusicModule } from '../shorts-music/shorts-music.module';
 import { NewsEditorialSettingsModule } from '../news-editorial/news-editorial-settings.module';
@@ -19,6 +20,7 @@ import { ReelHookService } from './reel-hook.service';
     forwardRef(() => AuthModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => SocialModule),
+    YouTubeModule,
     ShortsMusicModule,
     OpenAiModule,
     NewsEditorialSettingsModule,

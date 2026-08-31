@@ -5792,6 +5792,57 @@ model TikTokOAuthSession {
   @@index([expiresAt])
 }
 
+/// OAuth připojení XXREALIT YouTube kanálu pro upload vlastních Reels.
+model YouTubeOAuthConnection {
+  id                    String   @id @default(cuid())
+  channelId             String   @unique
+  channelTitle          String
+  channelHandle         String?
+  accessTokenEncrypted  String   @db.Text
+  refreshTokenEncrypted String   @db.Text
+  scopes                String
+  expiresAt             DateTime
+  expectedChannelId     String?
+  isActive              Boolean  @default(true)
+  lastError             String?  @db.Text
+  connectedByUserId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model YouTubeOAuthSession {
+  id          String   @id
+  adminUserId String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+/// Upload vlastního Reel MP4 na XXREALIT YouTube kanál.
+model YouTubePublishJob {
+  id                String                  @id @default(cuid())
+  reelJobId         String                  @unique
+  reelJob           EditorialReelJob        @relation(fields: [reelJobId], references: [id], onDelete: Cascade)
+  status            YouTubePublishJobStatus @default(QUEUED)
+  title             String?
+  description       String?                 @db.Text
+  privacyStatus     String?
+  youtubeVideoId    String?
+  youtubeUrl        String?
+  thumbnailUploaded Boolean                 @default(false)
+  errorMessage      String?                 @db.Text
+  errorCode         String?
+  attemptCount      Int                     @default(0)
+  lastAttemptAt     DateTime?
+  publishedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([status, createdAt])
+}
+
 /// Fronta publikování inzerátů na TikTok.
 model TikTokPublishJob {
   id              String                 @id @default(cuid())
@@ -7851,6 +7902,32 @@ enum EditorialReelJobStatus {
   FAILED
 }
 
+enum EditorialReelOwnershipType {
+  OWNED
+  EXTERNAL
+}
+
+enum ReelPlatformPublishStatus {
+  SKIPPED
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  AUTH_REQUIRED
+  QUOTA_EXCEEDED
+}
+
+enum YouTubePublishJobStatus {
+  QUEUED
+  AUTHENTICATING
+  UPLOADING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  AUTH_REQUIRED
+  QUOTA_EXCEEDED
+}
+
 enum ReelNarrationMode {
   NONE
   MUSIC
@@ -7991,6 +8068,13 @@ model EditorialReelJob {
   videoUrl             String?
   facebookPostId       String?
   facebookPermalink      String?
+  facebookPublishStatus  ReelPlatformPublishStatus @default(SKIPPED)
+  ownershipType          EditorialReelOwnershipType @default(OWNED)
+  youtubeVideoId         String?
+  youtubePermalink       String?
+  youtubePublishStatus   ReelPlatformPublishStatus @default(SKIPPED)
+  youtubePublishError    String?                @db.Text
+  youtubePublishedAt     DateTime?
   shortsCollectionId   String?
   shortsCollection     ShortsCollection?      @relation(fields: [shortsCollectionId], references: [id], onDelete: SetNull)
   dedupeKey            String?                @unique
@@ -8000,6 +8084,7 @@ model EditorialReelJob {
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
   segments             EditorialReelSegment[]
+  youtubePublishJobs   YouTubePublishJob[]
   @@index([status, createdAt])
   @@index([categoryId, status])
 }

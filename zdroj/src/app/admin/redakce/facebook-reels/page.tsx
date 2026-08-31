@@ -8,6 +8,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { AutoStatusBanner, EditorialCenterShell } from '@/components/admin/redakce/EditorialCenterShell';
 import {
   nestEditorialPublishReelJob,
+  nestEditorialPublishReelYoutube,
+  nestEditorialRetryReelYoutube,
   nestEditorialReelJobs,
   nestEditorialReelMusic,
   nestEditorialReelPending,
@@ -20,6 +22,13 @@ import {
   type EditorialReelTemplate,
   type ReelPendingBuffer,
 } from '@/lib/editorial-center-client';
+
+function platformTone(status?: string | null) {
+  if (status === 'PUBLISHED') return 'text-emerald-700';
+  if (status === 'FAILED' || status === 'AUTH_REQUIRED') return 'text-red-700';
+  if (status === 'QUEUED' || status === 'PUBLISHING') return 'text-amber-700';
+  return 'text-zinc-500';
+}
 
 function statusTone(status: string) {
   if (status === 'PUBLISHED') return 'bg-emerald-100 text-emerald-800';
@@ -168,6 +177,19 @@ export default function RedakceFacebookReelsPage() {
             />
             Automaticky publikovat na Facebook
           </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings?.autoPublishYoutube ?? false}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestEditorialUpdateReelSettings(apiAccessToken, {
+                  autoPublishYoutube: e.target.checked,
+                }).then((s) => s && setSettings(s));
+              }}
+            />
+            Automaticky publikovat na YouTube
+          </label>
           <label className="block">
             <span className="mb-1 block font-medium">Výchozí hudba</span>
             <select
@@ -199,6 +221,8 @@ export default function RedakceFacebookReelsPage() {
               <th className="px-4 py-3">Segmentů</th>
               <th className="px-4 py-3">Šablona</th>
               <th className="px-4 py-3">Hudba</th>
+              <th className="px-4 py-3">Facebook</th>
+              <th className="px-4 py-3">YouTube</th>
               <th className="px-4 py-3">Stav</th>
               <th className="px-4 py-3">Fáze / chyba</th>
               <th className="px-4 py-3">Datum</th>
@@ -216,6 +240,19 @@ export default function RedakceFacebookReelsPage() {
                 <td className="px-4 py-3">{job.videoCount}</td>
                 <td className="px-4 py-3 text-xs">{job.template?.name ?? '—'}</td>
                 <td className="px-4 py-3 text-xs">{job.template?.musicTrack?.title ?? 'Bez hudby'}</td>
+                <td className="px-4 py-3 text-xs">
+                  <span className={platformTone(job.facebookPublishStatus)}>
+                    {job.facebookPublishStatus ?? (job.facebookPermalink ? 'PUBLISHED' : 'SKIPPED')}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  <span className={platformTone(job.youtubePublishStatus)}>
+                    {job.youtubePublishStatus ?? 'SKIPPED'}
+                  </span>
+                  {job.youtubePublishError ? (
+                    <p className="text-red-600">{job.youtubePublishError.slice(0, 80)}</p>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusTone(job.status)}`}>
                     {job.status}
@@ -245,14 +282,34 @@ export default function RedakceFacebookReelsPage() {
                         Zkusit znovu
                       </button>
                     ) : null}
-                    {job.status === 'READY' && apiAccessToken ? (
-                      <button
-                        type="button"
-                        className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white"
-                        onClick={() => void nestEditorialPublishReelJob(apiAccessToken, job.id).then(load)}
-                      >
-                        Publikovat
-                      </button>
+                    {(job.status === 'READY' || job.status === 'PUBLISHED') && apiAccessToken ? (
+                      <>
+                        {job.facebookPublishStatus !== 'PUBLISHED' ? (
+                          <button
+                            type="button"
+                            className="rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white"
+                            onClick={() => void nestEditorialPublishReelJob(apiAccessToken, job.id).then(load)}
+                          >
+                            Facebook
+                          </button>
+                        ) : null}
+                        {job.youtubePublishStatus !== 'PUBLISHED' ? (
+                          <button
+                            type="button"
+                            className="rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white"
+                            onClick={() =>
+                              void (
+                                job.youtubePublishStatus === 'FAILED' ||
+                                job.youtubePublishStatus === 'AUTH_REQUIRED'
+                                  ? nestEditorialRetryReelYoutube(apiAccessToken, job.id)
+                                  : nestEditorialPublishReelYoutube(apiAccessToken, job.id)
+                              ).then(load)
+                            }
+                          >
+                            YouTube
+                          </button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 </td>

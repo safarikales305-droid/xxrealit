@@ -9,6 +9,8 @@ import { EditorialCenterShell } from '@/components/admin/redakce/EditorialCenter
 import {
   nestEditorialDeleteReelJob,
   nestEditorialPublishReelJob,
+  nestEditorialPublishReelYoutube,
+  nestEditorialRetryReelYoutube,
   nestEditorialReelJob,
   nestEditorialRenderReelJob,
   type EditorialReelJobRow,
@@ -128,20 +130,42 @@ export default function ReelJobDetailPage() {
                 Zkusit znovu render
               </button>
             ) : null}
-            {(job.status === 'READY' || job.publishError) && apiAccessToken ? (
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                onClick={() => {
-                  setBusy(true);
-                  void nestEditorialPublishReelJob(apiAccessToken, job.id)
-                    .then(load)
-                    .finally(() => setBusy(false));
-                }}
-              >
-                {job.publishError ? 'Publikovat znovu' : 'Publikovat'}
-              </button>
+            {(job.status === 'READY' || job.status === 'PUBLISHED' || job.publishError) && apiAccessToken ? (
+              <>
+                {job.facebookPublishStatus !== 'PUBLISHED' ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    onClick={() => {
+                      setBusy(true);
+                      void nestEditorialPublishReelJob(apiAccessToken, job.id)
+                        .then(load)
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    Publikovat na Facebook
+                  </button>
+                ) : null}
+                {job.youtubePublishStatus !== 'PUBLISHED' ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    onClick={() => {
+                      setBusy(true);
+                      const fn =
+                        job.youtubePublishStatus === 'FAILED' ||
+                        job.youtubePublishStatus === 'AUTH_REQUIRED'
+                          ? nestEditorialRetryReelYoutube
+                          : nestEditorialPublishReelYoutube;
+                      void fn(apiAccessToken, job.id).then(load).finally(() => setBusy(false));
+                    }}
+                  >
+                    Publikovat na YouTube
+                  </button>
+                ) : null}
+              </>
             ) : null}
             {apiAccessToken ? (
               <button
@@ -166,6 +190,45 @@ export default function ReelJobDetailPage() {
               Otevřít na Facebooku
             </a>
           ) : null}
+
+          <div className="mt-4 space-y-3 rounded-lg border border-zinc-200 p-3 text-sm">
+            <h3 className="font-semibold">Facebook</h3>
+            <p>Status: {job.facebookPublishStatus ?? (job.facebookPermalink ? 'PUBLISHED' : '—')}</p>
+            {job.facebookPermalink ? (
+              <a href={job.facebookPermalink} target="_blank" rel="noreferrer" className="text-orange-700 underline">
+                {job.facebookPermalink}
+              </a>
+            ) : null}
+            {job.publishedAt ? (
+              <p className="text-xs text-zinc-500">
+                Publikováno: {new Date(job.publishedAt).toLocaleString('cs-CZ')}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-zinc-200 p-3 text-sm">
+            <h3 className="font-semibold">YouTube</h3>
+            <p>Status: {job.youtubePublishStatus ?? 'SKIPPED'}</p>
+            {job.youtubeVideoId ? <p>Video ID: {job.youtubeVideoId}</p> : null}
+            {job.youtubePermalink ? (
+              <a href={job.youtubePermalink} target="_blank" rel="noreferrer" className="text-red-700 underline">
+                {job.youtubePermalink}
+              </a>
+            ) : null}
+            {job.youtubePublishedAt ? (
+              <p className="text-xs text-zinc-500">
+                Publikováno: {new Date(job.youtubePublishedAt).toLocaleString('cs-CZ')}
+              </p>
+            ) : null}
+            {job.youtubePublishError ? (
+              <p className="text-red-700">{job.youtubePublishError}</p>
+            ) : null}
+            {job.youtubePermalink ? (
+              <a href={job.youtubePermalink} target="_blank" rel="noreferrer" className="inline-block text-sm text-red-700 underline">
+                Otevřít na YouTube
+              </a>
+            ) : null}
+          </div>
         </div>
 
         <div className="rounded-xl border border-zinc-200 bg-white p-4">

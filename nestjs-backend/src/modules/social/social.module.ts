@@ -26,8 +26,8 @@ import { FacebookService } from './facebook/facebook.service';
 import { InstagramController } from './instagram/instagram.controller';
 import { SocialPlatformStubService } from './social-platform.stub';
 import { TikTokModule } from './tiktok/tiktok.module';
+import { YouTubeModule } from './youtube/youtube.module';
 import { TokenEncryptionService } from './token-encryption.service';
-import { YoutubeController } from './youtube/youtube.controller';
 import { SocialAutopostAdminController } from './autopost/social-autopost-admin.controller';
 import { FacebookAdminController } from './autopost/facebook-admin.controller';
 import { SocialAutopostSettingsService } from './autopost/social-autopost-settings.service';
@@ -61,6 +61,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     forwardRef(() => PostsModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => TikTokModule),
+    YouTubeModule,
     NewsEditorialSettingsModule,
     BonusCampaignModule,
     ShareModule,
@@ -73,7 +74,6 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookUrlImportController,
     SocialAutopostAdminController,
     FacebookAdminController,
-    YoutubeController,
     InstagramController,
   ],
   providers: [
@@ -126,6 +126,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     SocialPublishEnqueueService,
     SocialPublisherService,
     TikTokModule,
+    YouTubeModule,
   ],
 })
 export class SocialModule {}

@@ -46,7 +46,16 @@ export default function RedakceHistoriePage() {
             <li key={j.id} className="px-4 py-3 text-sm">
               <span className="font-medium">{j.title ?? j.id}</span>
               <span className="ml-2 text-xs text-zinc-500">{j.status}</span>
+              <span className="ml-2 text-xs text-zinc-500">
+                FB: {j.facebookPublishStatus ?? '—'} · YT: {j.youtubePublishStatus ?? '—'}
+              </span>
+              {j.youtubeVideoId ? (
+                <span className="ml-2 font-mono text-xs text-zinc-400">{j.youtubeVideoId}</span>
+              ) : null}
               <span className="ml-2 text-xs text-zinc-400">{new Date(j.createdAt).toLocaleString('cs-CZ')}</span>
+              {j.youtubePublishError ? (
+                <p className="text-xs text-red-600">{j.youtubePublishError}</p>
+              ) : null}
             </li>
           ))}
         </ul>

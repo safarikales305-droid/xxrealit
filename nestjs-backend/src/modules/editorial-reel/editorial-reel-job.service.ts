@@ -1,9 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EditorialReelJobStatus, NewsSourceType, type EditorialReelTemplate } from '@prisma/client';
+import { EditorialReelJobStatus, EditorialReelOwnershipType, NewsSourceType, ReelPlatformPublishStatus, type EditorialReelTemplate } from '@prisma/client';
 import { readFile } from 'node:fs/promises';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { SocialPublisherService } from '../social/autopost/social-publisher.service';
+import { YouTubePublishJobService } from '../social/youtube/youtube-publish-job.service';
 import { getSiteOriginForOg } from '../properties/property-og-media.util';
 import { EditorialReelRenderService } from './editorial-reel-render.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
@@ -76,6 +77,7 @@ export class EditorialReelJobService {
     private readonly socialPublisher: SocialPublisherService,
     private readonly shortsMusic: ShortsMusicService,
     private readonly reelHook: ReelHookService,
+    private readonly youtubePublish: YouTubePublishJobService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -313,13 +315,15 @@ export class EditorialReelJobService {
 
       this.log.log(`[REEL][JOB:${jobId}] render completed`);
 
-      if (cfg.autoPublish) {
+      if (cfg.autoPublish || cfg.autoPublishYoutube) {
         try {
-          await this.publishJob(jobId);
+          await this.publishJob(jobId, {
+            facebook: cfg.autoPublish,
+            youtube: cfg.autoPublishYoutube,
+          });
         } catch (publishErr) {
           const parsed = parseReelError(publishErr);
           this.log.error(`[REEL][JOB:${jobId}][FAILED][PUBLISHING] ${parsed.message}`);
-          return { ok: false, error: parsed.message, stage: 'PUBLISHING' };
         }
       }
 
@@ -342,16 +346,33 @@ export class EditorialReelJobService {
     }
   }
 
-  async publishJob(jobId: string) {
+  async publishJob(
+    jobId: string,
+    options?: { facebook?: boolean; youtube?: boolean },
+  ) {
     const job = await this.getJob(jobId);
     if (!job.videoUrl?.trim()) {
       throw new Error('Reel nemá vyrenderované video.');
     }
-    if (job.status === EditorialReelJobStatus.PUBLISHED) {
+
+    const cfg = this.settings.getCached();
+    const wantFacebook = options?.facebook ?? true;
+    const wantYoutube = options?.youtube ?? false;
+
+    const fbDone = job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    const ytDone = job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+
+    if ((wantFacebook && fbDone) && (wantYoutube && ytDone)) {
       return { alreadyPublished: true, permalink: job.facebookPermalink };
     }
+    if (wantFacebook && !wantYoutube && fbDone) {
+      return { alreadyPublished: true, permalink: job.facebookPermalink };
+    }
+    if (wantYoutube && !wantFacebook && ytDone) {
+      return { alreadyPublished: true, youtubeUrl: job.youtubePermalink };
+    }
 
-    this.log.log(`[REEL][JOB:${jobId}] publish started`);
+    this.log.log(`[REEL][JOB:${jobId}] publish started (fb=${wantFacebook}, yt=${wantYoutube})`);
     await this.prisma.editorialReelJob.update({
       where: { id: jobId },
       data: {
@@ -362,36 +383,65 @@ export class EditorialReelJobService {
       },
     });
 
-    try {
-      const cfg = this.settings.getCached();
-      const collectionUrl = job.shortsCollectionId
-        ? `${getSiteOriginForOg()}/?tab=shorts&collection=${encodeURIComponent(job.shortsCollectionId)}&source=facebook-reel`
-        : cfg.ctaUrl;
-      const message = `${job.title ?? 'Novinky z XXREALIT'}\n\n${collectionUrl}`;
+    let facebookError: string | null = null;
+    let youtubeError: string | null = null;
 
-      const result = await this.socialPublisher.publishPropertyAsFacebookReel({
-        videoUrl: job.videoUrl,
-        message,
-        title: job.title ?? 'XXREALIT Reel',
-      });
+    if (wantFacebook && !fbDone) {
+      try {
+        await this.publishToFacebook(jobId, job, cfg);
+      } catch (err) {
+        const parsed = parseReelError(err);
+        facebookError = parsed.message;
+        await this.prisma.editorialReelJob.update({
+          where: { id: jobId },
+          data: {
+            facebookPublishStatus: ReelPlatformPublishStatus.FAILED,
+            publishError: parsed.message.slice(0, 4000),
+            failedStage: 'PUBLISHING',
+            errorCode: parsed.code,
+          },
+        });
+        this.log.warn(`[REEL][JOB:${jobId}] Facebook publish failed: ${parsed.message}`);
+      }
+    }
 
-      await this.prisma.editorialReelJob.update({
-        where: { id: jobId },
-        data: {
-          status: EditorialReelJobStatus.PUBLISHED,
-          publishedAt: new Date(),
-          facebookPostId: result.externalPostId ?? result.externalReelId ?? null,
-          facebookPermalink: result.reelPublishedUrl ?? result.publishedUrl ?? null,
-          publishError: null,
-          failedStage: null,
-          errorCode: null,
-        },
-      });
+    if (wantYoutube && !ytDone) {
+      if (job.ownershipType !== EditorialReelOwnershipType.OWNED) {
+        youtubeError = 'OWNERSHIP_BLOCKED: Pouze vlastní Reels lze publikovat na YouTube.';
+        await this.prisma.editorialReelJob.update({
+          where: { id: jobId },
+          data: {
+            youtubePublishStatus: ReelPlatformPublishStatus.FAILED,
+            youtubePublishError: youtubeError,
+          },
+        });
+      } else {
+        try {
+          await this.youtubePublish.enqueueForReel(jobId);
+        } catch (err) {
+          youtubeError = err instanceof Error ? err.message : String(err);
+          this.log.warn(`[REEL][JOB:${jobId}] YouTube enqueue failed: ${youtubeError}`);
+        }
+      }
+    }
 
-      this.log.log(`[REEL][JOB:${jobId}] published`);
+    const updated = await this.getJob(jobId);
+    const fbPublished = updated.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    const ytPublished = updated.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    const ytQueued = updated.youtubePublishStatus === ReelPlatformPublishStatus.QUEUED;
+    const anyPublished = fbPublished || ytPublished;
 
+    await this.prisma.editorialReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: anyPublished || ytQueued ? EditorialReelJobStatus.PUBLISHED : EditorialReelJobStatus.READY,
+        publishedAt: anyPublished ? updated.publishedAt ?? new Date() : updated.publishedAt,
+      },
+    });
+
+    if (fbPublished) {
       const now = new Date();
-      for (const seg of job.segments) {
+      for (const seg of updated.segments) {
         await this.prisma.post.update({
           where: { id: seg.postId },
           data: {
@@ -400,21 +450,60 @@ export class EditorialReelJobService {
           },
         });
       }
-
-      return { ok: true, permalink: result.reelPublishedUrl ?? result.publishedUrl ?? undefined };
-    } catch (err) {
-      const parsed = parseReelError(err);
-      await this.prisma.editorialReelJob.update({
-        where: { id: jobId },
-        data: {
-          status: EditorialReelJobStatus.READY,
-          failedStage: 'PUBLISHING',
-          errorCode: parsed.code,
-          publishError: parsed.message.slice(0, 4000),
-        },
-      });
-      throw err;
+      this.log.log(`[REEL][JOB:${jobId}] Facebook published`);
     }
+
+    if (facebookError && !wantYoutube) throw new Error(facebookError);
+    if (youtubeError && !wantFacebook) throw new Error(youtubeError);
+
+    return {
+      ok: true,
+      permalink: updated.facebookPermalink ?? undefined,
+      youtubeQueued: ytQueued,
+      facebookError,
+      youtubeError,
+    };
+  }
+
+  private async publishToFacebook(
+    jobId: string,
+    job: Awaited<ReturnType<typeof this.getJob>>,
+    cfg: ReturnType<EditorialReelSettingsService['getCached']>,
+  ) {
+    await this.prisma.editorialReelJob.update({
+      where: { id: jobId },
+      data: { facebookPublishStatus: ReelPlatformPublishStatus.PUBLISHING },
+    });
+
+    const collectionUrl = job.shortsCollectionId
+      ? `${getSiteOriginForOg()}/?tab=shorts&collection=${encodeURIComponent(job.shortsCollectionId)}&source=facebook-reel`
+      : cfg.ctaUrl;
+    const message = `${job.title ?? 'Novinky z XXREALIT'}\n\n${collectionUrl}`;
+
+    const result = await this.socialPublisher.publishPropertyAsFacebookReel({
+      videoUrl: job.videoUrl!,
+      message,
+      title: job.title ?? 'XXREALIT Reel',
+    });
+
+    await this.prisma.editorialReelJob.update({
+      where: { id: jobId },
+      data: {
+        facebookPublishStatus: ReelPlatformPublishStatus.PUBLISHED,
+        facebookPostId: result.externalPostId ?? result.externalReelId ?? null,
+        facebookPermalink: result.reelPublishedUrl ?? result.publishedUrl ?? null,
+        publishedAt: new Date(),
+        publishError: null,
+      },
+    });
+  }
+
+  async publishToFacebookOnly(jobId: string) {
+    return this.publishJob(jobId, { facebook: true, youtube: false });
+  }
+
+  async publishToYoutubeOnly(jobId: string) {
+    return this.publishJob(jobId, { facebook: false, youtube: true });
   }
 
   async retryRender(jobId: string) {
@@ -433,7 +522,11 @@ export class EditorialReelJobService {
     if (!job.videoUrl?.trim()) {
       throw new Error('Reel nemá vyrenderované video — nejdříve spusťte render.');
     }
-    return this.publishJob(jobId);
+    const cfg = this.settings.getCached();
+    return this.publishJob(jobId, {
+      facebook: job.facebookPublishStatus !== ReelPlatformPublishStatus.PUBLISHED,
+      youtube: job.youtubePublishStatus !== ReelPlatformPublishStatus.PUBLISHED && cfg.autoPublishYoutube,
+    });
   }
 
   private snapshotTemplate(template: EditorialReelTemplate) {

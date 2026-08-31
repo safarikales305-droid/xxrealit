@@ -15,6 +15,8 @@ import { EditorialCenterDashboardService } from './editorial-center-dashboard.se
 import { EditorialReelJobService } from './editorial-reel-job.service';
 import { EditorialReelSettingsService } from './editorial-reel-settings.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
+import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
+import { YouTubePublishJobService } from '../social/youtube/youtube-publish-job.service';
 import { PrismaService } from '../../database/prisma.service';
 
 @Controller('admin/editorial-center')
@@ -27,6 +29,8 @@ export class EditorialReelAdminController {
     private readonly reelJobs: EditorialReelJobService,
     private readonly prisma: PrismaService,
     private readonly shortsMusic: ShortsMusicService,
+    private readonly youtubeOAuth: YouTubeOAuthService,
+    private readonly youtubePublish: YouTubePublishJobService,
   ) {}
 
   @Get('dashboard')
@@ -84,7 +88,32 @@ export class EditorialReelAdminController {
 
   @Post('reel/jobs/:id/publish')
   publishReelJob(@Param('id') id: string) {
-    return this.reelJobs.retryPublish(id);
+    return this.reelJobs.publishToFacebookOnly(id);
+  }
+
+  @Post('reel/jobs/:id/publish/facebook')
+  publishReelFacebook(@Param('id') id: string) {
+    return this.reelJobs.publishToFacebookOnly(id);
+  }
+
+  @Post('reel/jobs/:id/publish/youtube')
+  publishReelYoutube(@Param('id') id: string) {
+    return this.reelJobs.publishToYoutubeOnly(id);
+  }
+
+  @Post('reel/jobs/:id/publish/youtube/retry')
+  retryReelYoutube(@Param('id') id: string) {
+    return this.youtubePublish.retry(id);
+  }
+
+  @Get('youtube/status')
+  getYoutubeStatus() {
+    return this.youtubeOAuth.getConnectionStatus();
+  }
+
+  @Get('youtube/publish-summary')
+  getYoutubePublishSummary() {
+    return this.youtubePublish.getPublishSummary();
   }
 
   @Delete('reel/jobs/:id')

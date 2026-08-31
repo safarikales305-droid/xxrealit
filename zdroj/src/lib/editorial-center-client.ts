@@ -30,12 +30,29 @@ export type EditorialReelAutomationSettings = {
   maxWaitHours: number;
   minVideos: number;
   autoPublish: boolean;
+  autoPublishYoutube: boolean;
+  youtubePrivacyStatus: 'public' | 'unlisted' | 'private';
   categorySlugs: string[];
   templateId?: string | null;
   musicTrackId?: string | null;
   ctaUrl: string;
   introText: string;
   outroText: string;
+};
+
+export type YouTubeConnectionStatus = {
+  connected: boolean;
+  configured: boolean;
+  channelId: string | null;
+  channelTitle: string | null;
+  channelHandle?: string | null;
+  uploadScopeOk: boolean;
+  refreshTokenOk: boolean;
+  autoPublishReady: boolean;
+  channelMismatch?: boolean;
+  lastError?: string | null;
+  lastUploadAt?: string | null;
+  lastUploadVideoId?: string | null;
 };
 
 export type EditorialReelJobRow = {
@@ -52,6 +69,13 @@ export type EditorialReelJobRow = {
   attemptCount: number;
   facebookPermalink: string | null;
   facebookPostId: string | null;
+  facebookPublishStatus?: string | null;
+  youtubeVideoId?: string | null;
+  youtubePermalink?: string | null;
+  youtubePublishStatus?: string | null;
+  youtubePublishError?: string | null;
+  youtubePublishedAt?: string | null;
+  ownershipType?: string | null;
   renderedAt: string | null;
   createdAt: string;
   publishedAt: string | null;
@@ -178,9 +202,51 @@ export function nestEditorialCreateReelJob(
 export function nestEditorialPublishReelJob(token: string, id: string) {
   return editorialFetch<{ ok?: boolean; permalink?: string }>(
     token,
-    `/reel/jobs/${encodeURIComponent(id)}/publish`,
+    `/reel/jobs/${encodeURIComponent(id)}/publish/facebook`,
     { method: 'POST' },
   );
+}
+
+export function nestEditorialPublishReelFacebook(token: string, id: string) {
+  return nestEditorialPublishReelJob(token, id);
+}
+
+export function nestEditorialPublishReelYoutube(token: string, id: string) {
+  return editorialFetch<{ ok?: boolean; youtubeQueued?: boolean }>(
+    token,
+    `/reel/jobs/${encodeURIComponent(id)}/publish/youtube`,
+    { method: 'POST' },
+  );
+}
+
+export function nestEditorialRetryReelYoutube(token: string, id: string) {
+  return editorialFetch<{ queued?: boolean }>(
+    token,
+    `/reel/jobs/${encodeURIComponent(id)}/publish/youtube/retry`,
+    { method: 'POST' },
+  );
+}
+
+export function nestEditorialYoutubeStatus(token: string) {
+  return editorialFetch<YouTubeConnectionStatus>(token, '/youtube/status');
+}
+
+export function nestEditorialYoutubePublishSummary(token: string) {
+  return editorialFetch<{
+    lastUploadAt: string | null;
+    lastUploadVideoId: string | null;
+    lastError: string | null;
+  }>(token, '/youtube/publish-summary');
+}
+
+export async function nestYoutubeOAuthConnectUrl(token: string): Promise<string | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/social/youtube/oauth/connect`, {
+    headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { url?: string };
+  return data.url ?? null;
 }
 
 export function nestEditorialRenderReelJob(token: string, id: string) {
