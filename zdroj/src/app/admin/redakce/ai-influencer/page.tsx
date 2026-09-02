@@ -11,13 +11,18 @@ import {
   nestAiInfluencerArticles,
   nestAiInfluencerCreateJob,
   nestAiInfluencerDashboard,
+  nestAiInfluencerElevenLabsVoices,
   nestAiInfluencerJobs,
+  nestAiInfluencerProfile,
   nestAiInfluencerRetryJob,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestVoice,
+  nestAiInfluencerUpdateProfile,
   type AiInfluencerArticleRow,
   type AiInfluencerDashboard,
   type AiInfluencerJobRow,
+  type ElevenLabsProviderStatus,
+  type ElevenLabsVoiceOption,
 } from '@/lib/ai-influencer-client';
 
 function statusTone(status: string) {
@@ -34,6 +39,13 @@ function providerLabel(connected: boolean | null, configured: boolean) {
   return 'UNKNOWN';
 }
 
+function elevenLabsLabel(status?: ElevenLabsProviderStatus['status']) {
+  if (status === 'CONNECTED') return 'CONNECTED';
+  if (status === 'INVALID_API_KEY') return 'INVALID API KEY';
+  if (status === 'CONNECTION_ERROR') return 'CONNECTION ERROR';
+  return 'NOT CONFIGURED';
+}
+
 export default function AiInfluencerPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
@@ -41,7 +53,12 @@ export default function AiInfluencerPage() {
   const [articles, setArticles] = useState<AiInfluencerArticleRow[]>([]);
   const [jobs, setJobs] = useState<AiInfluencerJobRow[]>([]);
   const [voicePreview, setVoicePreview] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voices, setVoices] = useState<ElevenLabsVoiceOption[]>([]);
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
   const [busy, setBusy] = useState<string | null>(null);
+
+  const elevenLabs = dashboard?.providers.elevenLabs as ElevenLabsProviderStatus | undefined;
 
   const load = () => {
     if (!apiAccessToken) return;
@@ -49,10 +66,20 @@ export default function AiInfluencerPage() {
       nestAiInfluencerDashboard(apiAccessToken),
       nestAiInfluencerArticles(apiAccessToken),
       nestAiInfluencerJobs(apiAccessToken),
-    ]).then(([d, a, j]) => {
+      nestAiInfluencerProfile(apiAccessToken),
+    ]).then(([d, a, j, profile]) => {
       if (d) setDashboard(d);
       if (a) setArticles(a);
       if (j) setJobs(j);
+      if (profile && typeof profile.voiceId === 'string') {
+        setSelectedVoiceId(profile.voiceId);
+      }
+      const el = d?.providers.elevenLabs as ElevenLabsProviderStatus | undefined;
+      if (el?.status === 'CONNECTED' && apiAccessToken) {
+        void nestAiInfluencerElevenLabsVoices(apiAccessToken).then((list) => {
+          if (list) setVoices(list);
+        });
+      }
     });
   };
 
@@ -93,17 +120,72 @@ export default function AiInfluencerPage() {
         <h2 className="text-sm font-semibold text-zinc-900">Stav providerů</h2>
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
           {dashboard &&
-            Object.entries(dashboard.providers).map(([key, val]) => (
-              <span
-                key={key}
-                className={`rounded-full px-3 py-1 ${
-                  val.connected ? 'bg-emerald-50 text-emerald-800' : 'bg-zinc-100 text-zinc-700'
-                }`}
-              >
-                {key}: {providerLabel(val.connected, val.configured)}
-              </span>
-            ))}
+            Object.entries(dashboard.providers).map(([key, val]) => {
+              if (key === 'elevenLabs') {
+                const el = val as ElevenLabsProviderStatus;
+                return (
+                  <span
+                    key={key}
+                    className={`rounded-full px-3 py-1 ${
+                      el.status === 'CONNECTED' ? 'bg-emerald-50 text-emerald-800' : 'bg-zinc-100 text-zinc-700'
+                    }`}
+                  >
+                    ElevenLabs: {elevenLabsLabel(el.status)} · Voice:{' '}
+                    {el.voiceStatus === 'SELECTED' ? 'SELECTED' : 'NOT SELECTED'}
+                  </span>
+                );
+              }
+              return (
+                <span
+                  key={key}
+                  className={`rounded-full px-3 py-1 ${
+                    val.connected ? 'bg-emerald-50 text-emerald-800' : 'bg-zinc-100 text-zinc-700'
+                  }`}
+                >
+                  {key}: {providerLabel(val.connected, val.configured)}
+                </span>
+              );
+            })}
         </div>
+        {elevenLabs?.status === 'CONNECTED' ? (
+          <div className="mt-4 space-y-2">
+            <label className="block text-sm font-medium text-zinc-700" htmlFor="elevenlabs-voice">
+              ElevenLabs hlas
+            </label>
+            <select
+              id="elevenlabs-voice"
+              value={selectedVoiceId}
+              onChange={(e) => setSelectedVoiceId(e.target.value)}
+              className="w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            >
+              <option value="">— vyberte hlas —</option>
+              {voices.map((v) => (
+                <option key={v.voiceId} value={v.voiceId}>
+                  {v.name}
+                  {v.category ? ` (${v.category})` : ''}
+                </option>
+              ))}
+            </select>
+            {voices.length === 0 ? (
+              <p className="text-xs text-zinc-500">Načítám seznam hlasů z ElevenLabs API…</p>
+            ) : null}
+            <button
+              type="button"
+              disabled={!apiAccessToken || !selectedVoiceId || busy === 'save-voice'}
+              onClick={() => {
+                if (!apiAccessToken || !selectedVoiceId) return;
+                setBusy('save-voice');
+                void nestAiInfluencerUpdateProfile(apiAccessToken, { voiceId: selectedVoiceId }).then(() => {
+                  setBusy(null);
+                  load();
+                });
+              }}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Uložit hlas
+            </button>
+          </div>
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
@@ -111,8 +193,19 @@ export default function AiInfluencerPage() {
             onClick={() => {
               if (!apiAccessToken) return;
               setBusy('voice');
-              void nestAiInfluencerTestVoice(apiAccessToken).then((r) => {
-                if (r?.previewUrl) setVoicePreview(r.previewUrl);
+              setVoiceError(null);
+              void nestAiInfluencerTestVoice(
+                apiAccessToken,
+                undefined,
+                selectedVoiceId || elevenLabs?.voiceId || undefined,
+              ).then((r) => {
+                if (r.error) {
+                  setVoiceError(r.error);
+                  setVoicePreview(null);
+                } else if (r.data?.previewUrl) {
+                  setVoicePreview(r.data.previewUrl);
+                  setVoiceError(null);
+                }
                 setBusy(null);
                 load();
               });
@@ -137,6 +230,7 @@ export default function AiInfluencerPage() {
             Test avatar
           </button>
         </div>
+        {voiceError ? <p className="mt-3 text-sm text-red-700">{voiceError}</p> : null}
         {voicePreview ? (
           <audio className="mt-3 w-full" controls src={voicePreview}>
             <track kind="captions" />

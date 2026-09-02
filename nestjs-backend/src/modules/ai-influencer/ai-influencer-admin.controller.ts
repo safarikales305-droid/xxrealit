@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -138,10 +139,48 @@ export class AiInfluencerAdminController {
     return this.jobs.retryJob(id);
   }
 
+  @Get('health/elevenlabs')
+  async getElevenLabsHealth() {
+    const profile = await this.registry.getDefaultProfile();
+    return this.elevenLabs.getHealth(profile.voiceId);
+  }
+
+  @Get('voices/elevenlabs')
+  async listElevenLabsVoices() {
+    const health = await this.elevenLabs.getHealth();
+    if (health.status === 'NOT_CONFIGURED') {
+      throw new BadRequestException('ElevenLabs API key není nastaven.');
+    }
+    if (health.status === 'INVALID_API_KEY') {
+      throw new BadRequestException('ElevenLabs API key je neplatný.');
+    }
+    if (health.status !== 'CONNECTED') {
+      throw new BadRequestException(health.lastError || 'ElevenLabs není dostupný.');
+    }
+    return this.elevenLabs.listVoices();
+  }
+
   @Post('test/voice')
   async testVoice(@Body() body: { text?: string; voiceId?: string }) {
     const text = body.text?.trim() || 'Vítejte u realitních novinek XXREALIT.';
     const profile = await this.registry.getDefaultProfile();
+    const health = await this.elevenLabs.getHealth(profile.voiceId);
+
+    if (health.status === 'NOT_CONFIGURED') {
+      throw new BadRequestException('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).');
+    }
+    if (health.status === 'INVALID_API_KEY') {
+      throw new BadRequestException('ElevenLabs API key je neplatný.');
+    }
+    if (health.status === 'CONNECTION_ERROR') {
+      throw new BadRequestException(health.lastError || 'ElevenLabs není dostupný.');
+    }
+
+    const voiceId = body.voiceId || profile.voiceId || this.elevenLabs.resolveVoiceId(null);
+    if (!voiceId) {
+      throw new BadRequestException('ElevenLabs je připojen. Nejprve vyberte hlas.');
+    }
+
     const result = await this.elevenLabs.generateSpeech({
       text,
       voiceId: body.voiceId || profile.voiceId || undefined,
@@ -206,9 +245,10 @@ export class AiInfluencerAdminController {
   }
 
   private async getProviderStatus() {
-    const [aiDiag, eleven, heygen, did, yt, fb] = await Promise.all([
+    const profile = await this.registry.getDefaultProfile();
+    const [aiDiag, elevenHealth, heygen, did, yt, fb] = await Promise.all([
       this.openAi.getStatus(),
-      this.elevenLabs.testConnection(),
+      this.elevenLabs.getHealth(profile.voiceId),
       this.heygen.testConnection(),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
@@ -221,10 +261,13 @@ export class AiInfluencerAdminController {
         connected: aiDiag.connected,
       },
       elevenLabs: {
-        configured: this.elevenLabs.isConfigured(),
-        connected: eleven.ok,
-        latencyMs: eleven.latencyMs ?? null,
-        lastError: eleven.error ?? null,
+        configured: elevenHealth.apiKeyConfigured,
+        connected: elevenHealth.status === 'CONNECTED',
+        status: elevenHealth.status,
+        voiceStatus: elevenHealth.voiceStatus,
+        voiceId: elevenHealth.voiceId,
+        latencyMs: elevenHealth.latencyMs ?? null,
+        lastError: elevenHealth.lastError ?? null,
       },
       heygen: {
         configured: this.heygen.isConfigured(),

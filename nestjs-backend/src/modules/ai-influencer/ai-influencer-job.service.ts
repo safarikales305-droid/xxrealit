@@ -371,7 +371,10 @@ export class AiInfluencerJobService {
 
     const voiceProvider = this.registry.getVoiceProvider(job.profile.voiceProvider);
     if (!voiceProvider.isConfigured()) {
-      throw new Error('Voice provider není nakonfigurován.');
+      throw new Error('ElevenLabs API key není nakonfigurován.');
+    }
+    if (!voiceProvider.isVoiceSelected(job.profile.voiceId)) {
+      throw new Error('ElevenLabs je připojen. Nejprve vyberte hlas.');
     }
 
     const voiceId = this.registry.resolveVoiceId(job.profile.voiceId);

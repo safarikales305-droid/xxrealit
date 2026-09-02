@@ -18,6 +18,16 @@ async function aiInfluencerFetch<T>(
   return (await res.json()) as T;
 }
 
+export type ElevenLabsProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  status?: 'NOT_CONFIGURED' | 'CONNECTED' | 'INVALID_API_KEY' | 'CONNECTION_ERROR';
+  voiceStatus?: 'SELECTED' | 'NOT_SELECTED';
+  voiceId?: string | null;
+  latencyMs?: number | null;
+  lastError?: string | null;
+};
+
 export type AiInfluencerDashboard = {
   settings: {
     enabled: boolean;
@@ -35,7 +45,14 @@ export type AiInfluencerDashboard = {
     costTodayCzk: number;
     costMonthCzk: number;
   };
-  providers: Record<string, { configured: boolean; connected: boolean | null; lastError?: string | null }>;
+  providers: Record<string, ElevenLabsProviderStatus | { configured: boolean; connected: boolean | null; lastError?: string | null }>;
+};
+
+export type ElevenLabsVoiceOption = {
+  voiceId: string;
+  name: string;
+  category: string | null;
+  previewUrl: string | null;
 };
 
 export type AiInfluencerArticleRow = {
@@ -89,11 +106,38 @@ export function nestAiInfluencerRetryJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/retry`, { method: 'POST' });
 }
 
-export function nestAiInfluencerTestVoice(token: string, text?: string) {
-  return aiInfluencerFetch<{ ok: boolean; previewUrl: string }>(token, '/test/voice', {
+export function nestAiInfluencerTestVoice(token: string, text?: string, voiceId?: string) {
+  return aiInfluencerFetchWithError<{ ok: boolean; previewUrl: string }>(token, '/test/voice', {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, voiceId }),
   });
+}
+
+async function aiInfluencerFetchWithError<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T | null; error: string | null }> {
+  const res = await fetch(`${API_BASE_URL}/admin/ai-influencer${path}`, {
+    ...init,
+    headers: {
+      ...nestAuthHeaders(token),
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  });
+  const json = (await res.json().catch(() => null)) as T | { message?: string | string[] } | null;
+  if (!res.ok) {
+    const msg = Array.isArray((json as { message?: string[] })?.message)
+      ? (json as { message: string[] }).message.join(', ')
+      : (json as { message?: string })?.message;
+    return { data: null, error: msg || `HTTP ${res.status}` };
+  }
+  return { data: json as T, error: null };
+}
+
+export function nestAiInfluencerElevenLabsVoices(token: string) {
+  return aiInfluencerFetch<ElevenLabsVoiceOption[]>(token, '/voices/elevenlabs');
 }
 
 export function nestAiInfluencerTestAvatar(token: string, text?: string) {
@@ -106,4 +150,11 @@ export function nestAiInfluencerTestAvatar(token: string, text?: string) {
 
 export function nestAiInfluencerProfile(token: string) {
   return aiInfluencerFetch<Record<string, unknown>>(token, '/profile');
+}
+
+export function nestAiInfluencerUpdateProfile(token: string, body: Record<string, unknown>) {
+  return aiInfluencerFetch<Record<string, unknown>>(token, '/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }
