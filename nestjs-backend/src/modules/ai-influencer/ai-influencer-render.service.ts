@@ -189,11 +189,11 @@ export class AiInfluencerRenderService {
     }
   }
 
-  async cleanup(tmpRoot: string) {
+  async cleanup(tmpRoot: string): Promise<void> {
     await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 
-  async downloadToFile(url: string, destPath: string) {
+  async downloadToFile(url: string, destPath: string): Promise<void> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Stažení souboru selhalo (HTTP ${res.status}).`);
     await mkdir(dirname(destPath), { recursive: true });
@@ -202,7 +202,7 @@ export class AiInfluencerRenderService {
     await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
   }
 
-  private async probeDuration(ffmpegPath: string, audioPath: string) {
+  private async probeDuration(ffmpegPath: string, audioPath: string): Promise<number | null> {
     const { code, stderr } = await runFfmpegCapture(ffmpegPath, ['-i', audioPath]);
     if (code === 0 || stderr.includes('Duration:')) {
       return parseDurationSecondsFromFfmpegStderr(stderr);
@@ -210,7 +210,7 @@ export class AiInfluencerRenderService {
     return null;
   }
 
-  private async runFfmpeg(ffmpegPath: string, args: string[]) {
+  private async runFfmpeg(ffmpegPath: string, args: string[]): Promise<void> {
     const { code, stderr } = await runFfmpegCapture(ffmpegPath, args);
     if (code !== 0) {
       this.log.warn(`ffmpeg failed: ${stderr.slice(-500)}`);
@@ -218,7 +218,7 @@ export class AiInfluencerRenderService {
     }
   }
 
-  private buildSrt(scenes: ReelScenePlan[], totalSec: number, hookText: string) {
+  private buildSrt(scenes: ReelScenePlan[], totalSec: number, hookText: string): string {
     const lines: string[] = [];
     const usable = scenes.length
       ? scenes
@@ -238,7 +238,7 @@ export class AiInfluencerRenderService {
     return lines.join('\n');
   }
 
-  private toSrtTime(sec: number) {
+  private toSrtTime(sec: number): string {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
@@ -251,7 +251,7 @@ export class AiInfluencerRenderService {
     idx: number,
     scene: ReelScenePlan,
     logoPath?: string | null,
-  ) {
+  ): Promise<string | null> {
     const outPath = join(tmpRoot, `scene-${idx}.jpg`);
     const headline = this.escapeXml((scene.headline || scene.text || '').slice(0, 100));
     let base: Buffer;
@@ -290,7 +290,7 @@ export class AiInfluencerRenderService {
     return outPath;
   }
 
-  private async solidSlide(headline: string) {
+  private async solidSlide(headline: string): Promise<Buffer> {
     const svg = `
       <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
         <rect width="100%" height="100%" fill="#111827"/>
@@ -299,7 +299,7 @@ export class AiInfluencerRenderService {
     return sharp(Buffer.from(svg)).jpeg({ quality: 90 }).toBuffer();
   }
 
-  private escapeXml(text: string) {
+  private escapeXml(text: string): string {
     return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
