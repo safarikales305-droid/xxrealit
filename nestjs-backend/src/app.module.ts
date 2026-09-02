@@ -66,6 +66,7 @@ import { HotelbedsModule } from './modules/integrations/hotelbeds/hotelbeds.modu
 import { CompanyDirectoryModule } from './modules/company-directory/company-directory.module';
 import { NewsEditorialModule } from './modules/news-editorial/news-editorial.module';
 import { EditorialReelModule } from './modules/editorial-reel/editorial-reel.module';
+import { AiInfluencerModule } from './modules/ai-influencer/ai-influencer.module';
 
 @Module({
   imports: [
@@ -138,6 +139,7 @@ import { EditorialReelModule } from './modules/editorial-reel/editorial-reel.mod
     CompanyDirectoryModule,
     NewsEditorialModule,
     EditorialReelModule,
+    AiInfluencerModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

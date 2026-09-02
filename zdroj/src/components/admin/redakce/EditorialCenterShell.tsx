@@ -11,6 +11,7 @@ const TABS = [
   { href: '/admin/redakce/kategorie', label: 'Kategorie zdrojů' },
   { href: '/admin/redakce/automatizace', label: 'Automatické publikování' },
   { href: '/admin/redakce/facebook-reels', label: 'Facebook Reels' },
+  { href: '/admin/redakce/ai-influencer', label: 'AI Influencer' },
   { href: '/admin/redakce/historie', label: 'Historie' },
   { href: '/admin/redakce/nastaveni', label: 'Nastavení' },
 ] as const;

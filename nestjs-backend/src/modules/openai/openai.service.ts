@@ -28,7 +28,9 @@ export type AiFeature =
   | 'ai_chat_eval'
   | 'ai_sales'
   | 'editorial_news'
-  | 'editorial_reel_hook';
+  | 'editorial_reel_hook'
+  | 'ai_influencer_score'
+  | 'ai_influencer_script';
 
 export type OpenAiCompleteInput = {
   feature: AiFeature;
@@ -388,6 +390,8 @@ export class OpenAiService {
       ai_sales: db.chatEnabled,
       editorial_news: db.seoEnabled,
       editorial_reel_hook: db.seoEnabled,
+      ai_influencer_score: db.seoEnabled,
+      ai_influencer_script: db.seoEnabled,
     };
     if (!options?.adminTest && !featureEnabled[feature]) {
       if (

@@ -1089,6 +1089,7 @@ model Post {
   editorialOgImageUrl  String?
   reelSegments        EditorialReelSegment[]
   shortsCollectionItems ShortsCollectionItem[]
+  aiInfluencerReelJobs AiInfluencerReelJob[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -7794,6 +7795,8 @@ model NewsArticle {
   sources            NewsArticleSource[]
   analytics          NewsArticleAnalytics?
   auditLogs          NewsAuditLog[]
+  aiReelCandidates     ArticleReelCandidate[]
+  aiInfluencerReelJobs AiInfluencerReelJob[]
   @@index([status, publishedAt])
   @@index([category, status])
   @@index([indexable, publishedAt])
@@ -8126,4 +8129,183 @@ model ShortsCollectionItem {
   sortOrder    Int              @default(0)
   @@index([collectionId, sortOrder])
   @@index([feedKey])
+}
+
+enum AiInfluencerReelJobStatus {
+  ARTICLE_PUBLISHED
+  EVALUATING
+  CANDIDATE
+  SCRIPT_GENERATING
+  SCRIPT_READY
+  VOICE_GENERATING
+  VOICE_READY
+  AVATAR_GENERATING
+  AVATAR_READY
+  RENDERING
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum AiInfluencerApprovalMode {
+  MANUAL
+  SEMI_AUTO
+  FULL_AUTO
+}
+
+enum AiInfluencerQualityMode {
+  ECONOMY
+  STANDARD
+  PREMIUM
+}
+
+enum AiAvatarProviderType {
+  HEYGEN
+  DID
+}
+
+enum AiVoiceProviderType {
+  ELEVENLABS
+}
+
+enum AiInfluencerContentFormat {
+  REALITNI_MINUTA
+  CENY_NEMOVITOSTI
+  HYPOTEKY
+  TIP_PRO_MAJITELE
+  TIP_PRO_KUPUJICI
+  REKONSTRUKCE
+  VEDELI_JSTE
+  BREAKING_NEWS
+}
+
+enum ProviderGenerationType {
+  VOICE
+  AVATAR
+}
+
+enum ProviderGenerationStatus {
+  QUEUED
+  GENERATING
+  READY
+  FAILED
+}
+
+model AiInfluencerProfile {
+  id                String              @id @default(cuid())
+  name              String
+  slug              String              @unique
+  avatarProvider    AiAvatarProviderType @default(HEYGEN)
+  avatarId          String?
+  voiceProvider     AiVoiceProviderType @default(ELEVENLABS)
+  voiceId           String?
+  language          String              @default("cs-CZ")
+  personalityPrompt String?             @db.Text
+  defaultStyle      String?
+  defaultDuration   Int                 @default(35)
+  virtualPresenter  Boolean             @default(true)
+  enabled           Boolean             @default(true)
+  voiceSpeed        Float?
+  voiceStability    Float?
+  voiceStyle        Float?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  jobs              AiInfluencerReelJob[]
+}
+
+model ArticleReelCandidate {
+  id                 String   @id @default(cuid())
+  articleId          String
+  article            NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  reelPotentialScore Int
+  topicInterest      Int?
+  freshness          Int?
+  hookPotential      Int?
+  practicalValue     Int?
+  emotionalInterest  Int?
+  visualPotential    Int?
+  localInterest      Int?
+  sourceTrust        Int?
+  duplicationPenalty Int?
+  reasoningSummary   Json?
+  skipped            Boolean  @default(false)
+  evaluatedAt        DateTime @default(now())
+  topicClusterId     String?
+  jobs               AiInfluencerReelJob[]
+  @@index([articleId, evaluatedAt])
+  @@index([reelPotentialScore])
+}
+
+model AiInfluencerReelJob {
+  id                   String                    @id @default(cuid())
+  articleId            String
+  article              NewsArticle               @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  candidateId          String?
+  candidate            ArticleReelCandidate?       @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  profileId            String
+  profile              AiInfluencerProfile         @relation(fields: [profileId], references: [id])
+  status               AiInfluencerReelJobStatus @default(EVALUATING)
+  contentFormat        AiInfluencerContentFormat?
+  failedStage          String?
+  errorCode            String?
+  errorMessage         String?                   @db.Text
+  attemptCount         Int                       @default(0)
+  lastAttemptAt        DateTime?
+  hookCandidates       Json?
+  selectedHook         String?
+  scriptJson           Json?
+  spokenText           String?                   @db.Text
+  captionTitle         String?
+  captionDescription   String?                   @db.Text
+  hashtags             String?
+  estimatedDurationSec Int?
+  scriptHash           String?
+  voiceStoragePath     String?
+  voiceStorageUrl      String?
+  voiceHash            String?
+  avatarStoragePath    String?
+  avatarStorageUrl     String?
+  avatarHash           String?
+  avatarExternalJobId  String?
+  scenesJson           Json?
+  musicTrackId         String?
+  videoPath            String?
+  videoUrl             String?
+  thumbnailUrl         String?
+  renderedAt           DateTime?
+  aiCostEstimated      Float                     @default(0)
+  voiceCostEstimated   Float                     @default(0)
+  avatarCostEstimated  Float                     @default(0)
+  renderCostEstimated  Float                     @default(0)
+  totalExternalCost    Float                     @default(0)
+  postId               String?
+  post                 Post?                     @relation(fields: [postId], references: [id], onDelete: SetNull)
+  sourceType           String                    @default("AI_INFLUENCER")
+  ownershipType        EditorialReelOwnershipType @default(OWNED)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  providerGenerations  ProviderGeneration[]
+  @@index([status, createdAt])
+  @@index([articleId])
+}
+
+model ProviderGeneration {
+  id            String                   @id @default(cuid())
+  jobId         String?
+  job           AiInfluencerReelJob?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  type          ProviderGenerationType
+  contentHash   String
+  provider      String
+  status        ProviderGenerationStatus @default(QUEUED)
+  externalJobId String?
+  storagePath   String?
+  storageUrl    String?
+  costEstimated Float                    @default(0)
+  errorMessage  String?                  @db.Text
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  @@unique([type, contentHash, provider])
+  @@index([status, createdAt])
 }

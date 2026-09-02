@@ -1,0 +1,44 @@
+import { Module, forwardRef } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { PropertiesModule } from '../properties/properties.module';
+import { OpenAiModule } from '../openai/openai.module';
+import { ShortsMusicModule } from '../shorts-music/shorts-music.module';
+import { YouTubeModule } from '../social/youtube/youtube.module';
+import { AiInfluencerAdminController } from './ai-influencer-admin.controller';
+import { AiInfluencerJobService } from './ai-influencer-job.service';
+import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
+import { AiInfluencerRenderService } from './ai-influencer-render.service';
+import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
+import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
+import { ProviderGenerationService } from './provider-generation.service';
+import { ArticleMediaProvider } from './providers/article-media.provider';
+import { DIdAvatarProvider } from './providers/did-avatar.provider';
+import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
+import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { OpenAiScriptProvider } from './providers/openai-script.provider';
+
+@Module({
+  imports: [
+    forwardRef(() => AuthModule),
+    forwardRef(() => PropertiesModule),
+    OpenAiModule,
+    ShortsMusicModule,
+    YouTubeModule,
+  ],
+  controllers: [AiInfluencerAdminController],
+  providers: [
+    AiInfluencerSettingsService,
+    AiInfluencerProviderRegistry,
+    ElevenLabsVoiceProvider,
+    HeyGenAvatarProvider,
+    DIdAvatarProvider,
+    OpenAiScriptProvider,
+    ArticleMediaProvider,
+    ProviderGenerationService,
+    AiInfluencerRenderService,
+    AiInfluencerJobService,
+    AiInfluencerWorkerService,
+  ],
+  exports: [AiInfluencerJobService, AiInfluencerSettingsService],
+})
+export class AiInfluencerModule {}
