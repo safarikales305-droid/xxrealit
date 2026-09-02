@@ -21,11 +21,23 @@ async function aiInfluencerFetch<T>(
 export type ElevenLabsProviderStatus = {
   configured: boolean;
   connected: boolean | null;
-  status?: 'NOT_CONFIGURED' | 'CONNECTED' | 'INVALID_API_KEY' | 'CONNECTION_ERROR';
+  status?:
+    | 'NOT_CONFIGURED'
+    | 'CONNECTED'
+    | 'INVALID_API_KEY'
+    | 'INSUFFICIENT_PERMISSIONS'
+    | 'RATE_LIMITED'
+    | 'QUOTA_EXCEEDED'
+    | 'CONNECTION_ERROR';
   voiceStatus?: 'SELECTED' | 'NOT_SELECTED';
+  voicesPermission?: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
+  ttsPermission?: 'PASS' | 'FAIL' | 'NOT_CHECKED';
   voiceId?: string | null;
   latencyMs?: number | null;
   lastError?: string | null;
+  httpStatus?: number | null;
+  detailStatus?: string | null;
+  detailMessage?: string | null;
 };
 
 export type AiInfluencerDashboard = {
@@ -53,6 +65,12 @@ export type ElevenLabsVoiceOption = {
   name: string;
   category: string | null;
   previewUrl: string | null;
+};
+
+export type ElevenLabsVoicesResponse = {
+  voices: ElevenLabsVoiceOption[];
+  permission: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
+  message?: string | null;
 };
 
 export type AiInfluencerArticleRow = {
@@ -137,7 +155,7 @@ async function aiInfluencerFetchWithError<T>(
 }
 
 export function nestAiInfluencerElevenLabsVoices(token: string) {
-  return aiInfluencerFetch<ElevenLabsVoiceOption[]>(token, '/voices/elevenlabs');
+  return aiInfluencerFetch<ElevenLabsVoicesResponse>(token, '/voices/elevenlabs');
 }
 
 export function nestAiInfluencerTestAvatar(token: string, text?: string) {

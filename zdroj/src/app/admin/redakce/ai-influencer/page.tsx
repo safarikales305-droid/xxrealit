@@ -42,6 +42,9 @@ function providerLabel(connected: boolean | null, configured: boolean) {
 function elevenLabsLabel(status?: ElevenLabsProviderStatus['status']) {
   if (status === 'CONNECTED') return 'CONNECTED';
   if (status === 'INVALID_API_KEY') return 'INVALID API KEY';
+  if (status === 'INSUFFICIENT_PERMISSIONS') return 'PERMISSION REQUIRED';
+  if (status === 'RATE_LIMITED') return 'RATE LIMITED';
+  if (status === 'QUOTA_EXCEEDED') return 'QUOTA EXCEEDED';
   if (status === 'CONNECTION_ERROR') return 'CONNECTION ERROR';
   return 'NOT CONFIGURED';
 }
@@ -55,6 +58,8 @@ export default function AiInfluencerPage() {
   const [voicePreview, setVoicePreview] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voices, setVoices] = useState<ElevenLabsVoiceOption[]>([]);
+  const [voicesPermission, setVoicesPermission] = useState<string | null>(null);
+  const [voicesMessage, setVoicesMessage] = useState<string | null>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -75,9 +80,12 @@ export default function AiInfluencerPage() {
         setSelectedVoiceId(profile.voiceId);
       }
       const el = d?.providers.elevenLabs as ElevenLabsProviderStatus | undefined;
-      if (el?.status === 'CONNECTED' && apiAccessToken) {
-        void nestAiInfluencerElevenLabsVoices(apiAccessToken).then((list) => {
-          if (list) setVoices(list);
+      if (el?.configured && apiAccessToken) {
+        void nestAiInfluencerElevenLabsVoices(apiAccessToken).then((result) => {
+          if (!result) return;
+          setVoices(result.voices ?? []);
+          setVoicesPermission(result.permission ?? null);
+          setVoicesMessage(result.message ?? null);
         });
       }
     });
@@ -132,6 +140,7 @@ export default function AiInfluencerPage() {
                   >
                     ElevenLabs: {elevenLabsLabel(el.status)} · Voice:{' '}
                     {el.voiceStatus === 'SELECTED' ? 'SELECTED' : 'NOT SELECTED'}
+                    {el.voicesPermission === 'PERMISSION_REQUIRED' ? ' · Voices: PERMISSION REQUIRED' : ''}
                   </span>
                 );
               }
@@ -147,28 +156,41 @@ export default function AiInfluencerPage() {
               );
             })}
         </div>
-        {elevenLabs?.status === 'CONNECTED' ? (
+        {elevenLabs?.configured ? (
           <div className="mt-4 space-y-2">
             <label className="block text-sm font-medium text-zinc-700" htmlFor="elevenlabs-voice">
-              ElevenLabs hlas
+              Hlas AI influencera
             </label>
-            <select
-              id="elevenlabs-voice"
-              value={selectedVoiceId}
-              onChange={(e) => setSelectedVoiceId(e.target.value)}
-              className="w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-            >
-              <option value="">— vyberte hlas —</option>
-              {voices.map((v) => (
-                <option key={v.voiceId} value={v.voiceId}>
-                  {v.name}
-                  {v.category ? ` (${v.category})` : ''}
-                </option>
-              ))}
-            </select>
-            {voices.length === 0 ? (
-              <p className="text-xs text-zinc-500">Načítám seznam hlasů z ElevenLabs API…</p>
+            {voicesPermission === 'PERMISSION_REQUIRED' ? (
+              <p className="text-sm text-amber-800">
+                {voicesMessage ||
+                  'API klíč nemá oprávnění číst seznam hlasů. Povolte Voices read v ElevenLabs API key.'}
+              </p>
             ) : null}
+            {voices.length > 0 ? (
+              <select
+                id="elevenlabs-voice"
+                value={selectedVoiceId}
+                onChange={(e) => setSelectedVoiceId(e.target.value)}
+                className="w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              >
+                <option value="">— vyberte hlas —</option>
+                {voices.map((v) => (
+                  <option key={v.voiceId} value={v.voiceId}>
+                    {v.name}
+                    {v.category ? ` (${v.category})` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="elevenlabs-voice"
+                value={selectedVoiceId}
+                onChange={(e) => setSelectedVoiceId(e.target.value)}
+                placeholder="Zadejte ElevenLabs voice ID ručně"
+                className="w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              />
+            )}
             <button
               type="button"
               disabled={!apiAccessToken || !selectedVoiceId || busy === 'save-voice'}

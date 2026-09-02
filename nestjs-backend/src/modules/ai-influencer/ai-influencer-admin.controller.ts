@@ -147,33 +147,28 @@ export class AiInfluencerAdminController {
 
   @Get('voices/elevenlabs')
   async listElevenLabsVoices() {
-    const health = await this.elevenLabs.getHealth();
-    if (health.status === 'NOT_CONFIGURED') {
-      throw new BadRequestException('ElevenLabs API key není nastaven.');
-    }
-    if (health.status === 'INVALID_API_KEY') {
-      throw new BadRequestException('ElevenLabs API key je neplatný.');
-    }
-    if (health.status !== 'CONNECTED') {
-      throw new BadRequestException(health.lastError || 'ElevenLabs není dostupný.');
-    }
-    return this.elevenLabs.listVoices();
+    return this.elevenLabs.listVoicesWithPermission();
   }
 
   @Post('test/voice')
   async testVoice(@Body() body: { text?: string; voiceId?: string }) {
-    const text = body.text?.trim() || 'Vítejte u realitních novinek XXREALIT.';
+    const text =
+      body.text?.trim() ||
+      'Dobrý den, jsem virtuální redaktorka XXREALIT. Přináším vám novinky ze světa realit a bydlení.';
     const profile = await this.registry.getDefaultProfile();
     const health = await this.elevenLabs.getHealth(profile.voiceId);
 
-    if (health.status === 'NOT_CONFIGURED') {
+    if (!health.apiKeyConfigured) {
       throw new BadRequestException('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).');
     }
     if (health.status === 'INVALID_API_KEY') {
       throw new BadRequestException('ElevenLabs API key je neplatný.');
     }
-    if (health.status === 'CONNECTION_ERROR') {
-      throw new BadRequestException(health.lastError || 'ElevenLabs není dostupný.');
+    if (health.status === 'RATE_LIMITED') {
+      throw new BadRequestException('ElevenLabs rate limit — zkuste později.');
+    }
+    if (health.status === 'QUOTA_EXCEEDED') {
+      throw new BadRequestException('ElevenLabs quota vyčerpána.');
     }
 
     const voiceId = body.voiceId || profile.voiceId || this.elevenLabs.resolveVoiceId(null);
@@ -183,7 +178,7 @@ export class AiInfluencerAdminController {
 
     const result = await this.elevenLabs.generateSpeech({
       text,
-      voiceId: body.voiceId || profile.voiceId || undefined,
+      voiceId,
       language: profile.language,
       speed: profile.voiceSpeed ?? undefined,
       stability: profile.voiceStability ?? undefined,
@@ -265,9 +260,14 @@ export class AiInfluencerAdminController {
         connected: elevenHealth.status === 'CONNECTED',
         status: elevenHealth.status,
         voiceStatus: elevenHealth.voiceStatus,
+        voicesPermission: elevenHealth.voicesPermission,
+        ttsPermission: elevenHealth.ttsPermission,
         voiceId: elevenHealth.voiceId,
         latencyMs: elevenHealth.latencyMs ?? null,
         lastError: elevenHealth.lastError ?? null,
+        httpStatus: elevenHealth.httpStatus ?? null,
+        detailStatus: elevenHealth.detailStatus ?? null,
+        detailMessage: elevenHealth.detailMessage ?? null,
       },
       heygen: {
         configured: this.heygen.isConfigured(),
