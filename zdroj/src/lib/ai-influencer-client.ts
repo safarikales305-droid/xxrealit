@@ -40,6 +40,34 @@ export type ElevenLabsProviderStatus = {
   detailMessage?: string | null;
 };
 
+export type HeyGenProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  status?:
+    | 'NOT_CONFIGURED'
+    | 'CONNECTED'
+    | 'INVALID_API_KEY'
+    | 'PERMISSION_REQUIRED'
+    | 'RATE_LIMITED'
+    | 'API_ERROR'
+    | 'CONNECTION_ERROR';
+  avatarStatus?: 'SELECTED' | 'NOT_SELECTED';
+  avatarsPermission?: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
+  heygenApiKeyPresent?: boolean;
+  avatarId?: string | null;
+  latencyMs?: number | null;
+  lastError?: string | null;
+  httpStatus?: number | null;
+  errorCode?: string | null;
+  detailMessage?: string | null;
+};
+
+export type AiInfluencerReadyStatus = {
+  ready: boolean;
+  reason: string | null;
+  reasons?: string[];
+};
+
 export type AiInfluencerDashboard = {
   settings: {
     enabled: boolean;
@@ -57,7 +85,15 @@ export type AiInfluencerDashboard = {
     costTodayCzk: number;
     costMonthCzk: number;
   };
-  providers: Record<string, ElevenLabsProviderStatus | { configured: boolean; connected: boolean | null; lastError?: string | null }>;
+  providers: {
+    ready?: AiInfluencerReadyStatus;
+    ai?: { configured: boolean; connected: boolean | null };
+    elevenLabs?: ElevenLabsProviderStatus;
+    heygen?: HeyGenProviderStatus;
+    did?: { configured: boolean; connected: boolean | null; lastError?: string | null };
+    facebook?: { configured: boolean; connected: boolean | null };
+    youtube?: { configured: boolean; connected: boolean | null };
+  };
 };
 
 export type ElevenLabsVoiceOption = {
@@ -69,6 +105,18 @@ export type ElevenLabsVoiceOption = {
 
 export type ElevenLabsVoicesResponse = {
   voices: ElevenLabsVoiceOption[];
+  permission: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
+  message?: string | null;
+};
+
+export type HeyGenAvatarOption = {
+  avatarId: string;
+  name: string;
+  previewUrl: string | null;
+};
+
+export type HeyGenAvatarsResponse = {
+  avatars: HeyGenAvatarOption[];
   permission: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
   message?: string | null;
 };
@@ -158,12 +206,17 @@ export function nestAiInfluencerElevenLabsVoices(token: string) {
   return aiInfluencerFetch<ElevenLabsVoicesResponse>(token, '/voices/elevenlabs');
 }
 
-export function nestAiInfluencerTestAvatar(token: string, text?: string) {
-  return aiInfluencerFetch<{ ok: boolean; externalJobId: string; message: string }>(
-    token,
-    '/test/avatar',
-    { method: 'POST', body: JSON.stringify({ text }) },
-  );
+export function nestAiInfluencerHeyGenAvatars(token: string) {
+  return aiInfluencerFetch<HeyGenAvatarsResponse>(token, '/avatars/heygen');
+}
+
+export function nestAiInfluencerTestAvatar(token: string, text?: string, avatarId?: string) {
+  return aiInfluencerFetchWithError<{
+    ok: boolean;
+    avatarId: string;
+    verified: boolean;
+    message: string;
+  }>(token, '/test/avatar', { method: 'POST', body: JSON.stringify({ text, avatarId }) });
 }
 
 export function nestAiInfluencerProfile(token: string) {

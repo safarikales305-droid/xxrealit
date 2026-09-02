@@ -449,7 +449,10 @@ export class AiInfluencerJobService {
 
     const avatarProvider = this.registry.getAvatarProvider(job.profile.avatarProvider);
     if (!avatarProvider.isConfigured()) {
-      throw new Error('Avatar provider není nakonfigurován.');
+      throw new Error('HEYGEN_API_KEY není nakonfigurován.');
+    }
+    if (!avatarProvider.isAvatarSelected(job.profile.avatarId)) {
+      throw new Error('HeyGen je připojen, ale není vybrán avatar.');
     }
 
     const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);

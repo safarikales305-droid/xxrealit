@@ -145,9 +145,20 @@ export class AiInfluencerAdminController {
     return this.elevenLabs.getHealth(profile.voiceId);
   }
 
+  @Get('health/heygen')
+  async getHeyGenHealth() {
+    const profile = await this.registry.getDefaultProfile();
+    return this.heygen.getHealth(profile.avatarId);
+  }
+
   @Get('voices/elevenlabs')
   async listElevenLabsVoices() {
     return this.elevenLabs.listVoicesWithPermission();
+  }
+
+  @Get('avatars/heygen')
+  async listHeyGenAvatars() {
+    return this.heygen.listAvatarsWithPermission();
   }
 
   @Post('test/voice')
@@ -199,16 +210,43 @@ export class AiInfluencerAdminController {
 
   @Post('test/avatar')
   async testAvatar(@Body() body: { text?: string; avatarId?: string }) {
-    const text = body.text?.trim() || 'Vítejte u realitních novinek XXREALIT.';
     const profile = await this.registry.getDefaultProfile();
-    const started = await this.heygen.startGeneration({
-      text,
-      avatarId: body.avatarId || profile.avatarId || undefined,
-    });
+    const health = await this.heygen.getHealth(profile.avatarId);
+
+    if (!health.apiKeyConfigured) {
+      throw new BadRequestException('HEYGEN_API_KEY není nakonfigurován.');
+    }
+    if (health.status === 'INVALID_API_KEY') {
+      throw new BadRequestException('HeyGen API key je neplatný.');
+    }
+    if (health.status === 'PERMISSION_REQUIRED') {
+      throw new BadRequestException('HeyGen API key nemá potřebná oprávnění.');
+    }
+    if (health.status === 'RATE_LIMITED') {
+      throw new BadRequestException('HeyGen rate limit — zkuste později.');
+    }
+    if (health.status !== 'CONNECTED') {
+      throw new BadRequestException(health.lastError || 'HeyGen API není dostupné.');
+    }
+
+    const avatarId =
+      body.avatarId?.trim() ||
+      profile.avatarId?.trim() ||
+      this.heygen.resolveAvatarId(null);
+    if (!avatarId) {
+      throw new BadRequestException('HeyGen je připojen, ale není vybrán avatar.');
+    }
+
+    const verify = await this.heygen.verifyAvatar(avatarId);
+    if (!verify.ok) {
+      throw new BadRequestException(verify.message);
+    }
+
     return {
       ok: true,
-      externalJobId: started.externalJobId,
-      message: 'Avatar job spuštěn — sledujte stav přes worker polling.',
+      avatarId,
+      verified: verify.verified,
+      message: verify.message,
     };
   }
 
@@ -241,23 +279,48 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, heygen, did, yt, fb] = await Promise.all([
+    const [aiDiag, elevenHealth, heygenHealth, did, yt, fb] = await Promise.all([
       this.openAi.getStatus(),
       this.elevenLabs.getHealth(profile.voiceId),
-      this.heygen.testConnection(),
+      this.heygen.getHealth(profile.avatarId),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
       Promise.resolve({ connected: null as boolean | null }),
     ]);
 
+    const aiConnected = aiDiag.connected === true;
+    const elevenConnected = elevenHealth.status === 'CONNECTED';
+    const elevenVoiceSelected = elevenHealth.voiceStatus === 'SELECTED';
+    const heygenConnected = heygenHealth.status === 'CONNECTED';
+    const heygenAvatarSelected = heygenHealth.avatarStatus === 'SELECTED';
+
+    const ready =
+      aiConnected &&
+      elevenConnected &&
+      elevenVoiceSelected &&
+      heygenConnected &&
+      heygenAvatarSelected;
+
+    const readyReasons: string[] = [];
+    if (!aiConnected) readyReasons.push('AI provider není připojen');
+    if (!elevenConnected) readyReasons.push('ElevenLabs není připojen');
+    if (!elevenVoiceSelected) readyReasons.push('Chybí ElevenLabs hlas');
+    if (!heygenConnected) readyReasons.push('HeyGen není připojen');
+    if (!heygenAvatarSelected) readyReasons.push('Chybí HeyGen avatar');
+
     return {
+      ready: {
+        ready,
+        reason: ready ? null : readyReasons[0] ?? 'Není připraveno',
+        reasons: readyReasons,
+      },
       ai: {
         configured: aiDiag.configured,
         connected: aiDiag.connected,
       },
       elevenLabs: {
         configured: elevenHealth.apiKeyConfigured,
-        connected: elevenHealth.status === 'CONNECTED',
+        connected: elevenConnected,
         status: elevenHealth.status,
         voiceStatus: elevenHealth.voiceStatus,
         voicesPermission: elevenHealth.voicesPermission,
@@ -270,10 +333,18 @@ export class AiInfluencerAdminController {
         detailMessage: elevenHealth.detailMessage ?? null,
       },
       heygen: {
-        configured: this.heygen.isConfigured(),
-        connected: heygen.ok,
-        latencyMs: heygen.latencyMs ?? null,
-        lastError: heygen.error ?? null,
+        configured: heygenHealth.apiKeyConfigured,
+        connected: heygenConnected,
+        status: heygenHealth.status,
+        avatarStatus: heygenHealth.avatarStatus,
+        avatarsPermission: heygenHealth.avatarsPermission,
+        heygenApiKeyPresent: heygenHealth.heygenApiKeyPresent,
+        avatarId: heygenHealth.avatarId,
+        latencyMs: heygenHealth.latencyMs ?? null,
+        lastError: heygenHealth.lastError ?? null,
+        httpStatus: heygenHealth.httpStatus ?? null,
+        errorCode: heygenHealth.errorCode ?? null,
+        detailMessage: heygenHealth.detailMessage ?? null,
       },
       did: {
         configured: this.did.isConfigured(),

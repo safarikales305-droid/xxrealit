@@ -21,6 +21,10 @@ export class DIdAvatarProvider implements AvatarProvider {
     return Boolean(this.apiKey);
   }
 
+  isAvatarSelected(profileAvatarId?: string | null): boolean {
+    return Boolean(profileAvatarId?.trim() || this.config.get<string>('DID_AVATAR_ID')?.trim());
+  }
+
   async testConnection(): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
     if (!this.apiKey) return { ok: false, error: 'DID_API_KEY není nastaven' };
     return { ok: false, error: 'D-ID provider je připraven, ale zatím není implementován.' };
