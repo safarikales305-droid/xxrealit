@@ -10,12 +10,16 @@ import {
   Prisma,
   ProviderGenerationStatus,
   ProviderGenerationType,
+  ReelPlatformPublishStatus,
 } from '@prisma/client';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
+import { mergeRenderSettings } from './ai-influencer-render.types';
+import { appendTimelineEvent } from './ai-influencer-timeline.util';
+import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
@@ -53,6 +57,7 @@ export class AiInfluencerJobService {
     private readonly generationCache: ProviderGenerationService,
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly shortsMusic: ShortsMusicService,
+    private readonly publish: AiInfluencerPublishService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -184,8 +189,10 @@ export class AiInfluencerJobService {
         case AiInfluencerReelJobStatus.SCRIPT_GENERATING:
         case AiInfluencerReelJobStatus.SCRIPT_READY:
         case AiInfluencerReelJobStatus.RENDERING:
-        case AiInfluencerReelJobStatus.READY:
         case AiInfluencerReelJobStatus.FAILED:
+          return;
+        case AiInfluencerReelJobStatus.READY:
+          await this.runAutoPublish(jobId);
           return;
         case AiInfluencerReelJobStatus.VOICE_GENERATING:
           await this.runVoiceGeneration(jobId);
@@ -547,9 +554,56 @@ export class AiInfluencerJobService {
     });
   }
 
+  async publishToFacebook(jobId: string) {
+    return this.publish.publishToFacebook(jobId);
+  }
+
+  async publishToYoutube(jobId: string) {
+    const cfg = this.settings.getCached();
+    return this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus);
+  }
+
+  async regenerateRender(jobId: string): Promise<AiInfluencerJobWithRelations> {
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        videoUrl: null,
+        finalMasterUrl: null,
+        validationPassed: null,
+        validationErrors: undefined,
+        status: AiInfluencerReelJobStatus.AVATAR_READY,
+        errorCode: null,
+        errorMessage: null,
+      },
+    });
+    await this.advanceJob(jobId);
+    return this.getJob(jobId);
+  }
+
+  private async runAutoPublish(jobId: string): Promise<void> {
+    const cfg = this.settings.getCached();
+    const job = await this.getJob(jobId);
+    if (!job.finalMasterUrl && !job.videoUrl) return;
+
+    if (cfg.autoPublishFacebook && job.facebookPublishStatus !== ReelPlatformPublishStatus.PUBLISHED) {
+      try {
+        await this.publish.publishToFacebook(jobId);
+      } catch (err) {
+        this.log.warn(`Auto Facebook publish failed for ${jobId}: ${err}`);
+      }
+    }
+    if (cfg.autoPublishYoutube && job.youtubePublishStatus !== ReelPlatformPublishStatus.PUBLISHED) {
+      try {
+        await this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus);
+      } catch (err) {
+        this.log.warn(`Auto YouTube publish failed for ${jobId}: ${err}`);
+      }
+    }
+  }
+
   private async runRender(jobId: string): Promise<void> {
     const existing = await this.getJob(jobId);
-    if (existing.videoUrl?.trim()) {
+    if (existing.finalMasterUrl?.trim() || existing.videoUrl?.trim()) {
       if (existing.status !== AiInfluencerReelJobStatus.READY) {
         await this.prisma.aiInfluencerReelJob.update({
           where: { id: jobId },
@@ -569,15 +623,30 @@ export class AiInfluencerJobService {
       throw new Error('Chybí avatar nebo voice pro render.');
     }
 
+    const cfg = this.settings.getCached();
+    const profile = job.profile;
+    const renderSettings = mergeRenderSettings(
+      (job.renderSettingsJson as object) ??
+        (profile.renderSettingsJson as object) ??
+        undefined,
+    );
+    renderSettings.music.trackId = job.musicTrackId ?? cfg.defaultMusicTrackId ?? null;
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'COMPOSITOR_STARTED'),
+      },
+    });
+
     const tmpRoot = join(tmpdir(), `ai-inf-render-${jobId}`);
     const avatarPath = join(tmpRoot, 'avatar.mp4');
     const voicePath = join(tmpRoot, 'voice.mp3');
     await this.render.downloadToFile(job.avatarStorageUrl, avatarPath);
     await this.render.downloadToFile(job.voiceStorageUrl, voicePath);
 
-    const cfg = this.settings.getCached();
     let musicFilePath: string | null = null;
-    const musicId = job.musicTrackId ?? cfg.defaultMusicTrackId;
+    const musicId = renderSettings.music.trackId;
     if (musicId) {
       try {
         musicFilePath = await this.shortsMusic.resolveActiveTrackFilePath(musicId);
@@ -592,21 +661,37 @@ export class AiInfluencerJobService {
       voiceAudioPath: voicePath,
       scenes,
       hookText: job.selectedHook ?? job.captionTitle ?? '',
+      spokenText: job.spokenText ?? undefined,
       musicFilePath,
+      settings: renderSettings,
     });
 
     const mp4 = await import('node:fs/promises').then((fs) => fs.readFile(result.outputPath));
-    const videoUrl = await this.cloudinary.uploadVideoBuffer(mp4, `ai-influencer-reel-${jobId}.mp4`);
+    const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
+      mp4,
+      `ai-influencer-master-${jobId}.mp4`,
+    );
     await this.render.cleanup(result.tmpRoot);
     await this.render.cleanup(tmpRoot);
+
+    const timeline = appendTimelineEvent(
+      appendTimelineEvent(job.timelineEvents, 'MASTER_COMPLETED', `layout=${result.layoutUsed}`),
+      'VALIDATION_PASSED',
+    );
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
         status: AiInfluencerReelJobStatus.READY,
-        videoUrl,
+        videoUrl: masterUrl,
+        finalMasterUrl: masterUrl,
+        renderPreset: renderSettings.preset,
+        renderSettingsJson: renderSettings as object,
+        validationPassed: true,
+        validationErrors: result.validationWarnings.length ? result.validationWarnings : undefined,
         thumbnailUrl: job.article.ogImageUrl,
         renderedAt: new Date(),
+        timelineEvents: appendTimelineEvent(timeline, 'CLOUDINARY_UPLOADED'),
       },
     });
   }

@@ -3,12 +3,16 @@ import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { OpenAiModule } from '../openai/openai.module';
 import { ShortsMusicModule } from '../shorts-music/shorts-music.module';
+import { SocialModule } from '../social/social.module';
 import { YouTubeModule } from '../social/youtube/youtube.module';
 import { AiInfluencerAdminController } from './ai-influencer-admin.controller';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
+import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerRenderService } from './ai-influencer-render.service';
+import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
+import { AiInfluencerSubtitleService } from './ai-influencer-subtitle.service';
 import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
 import { ProviderGenerationService } from './provider-generation.service';
 import { ArticleMediaProvider } from './providers/article-media.provider';
@@ -23,6 +27,7 @@ import { OpenAiScriptProvider } from './providers/openai-script.provider';
     forwardRef(() => PropertiesModule),
     OpenAiModule,
     ShortsMusicModule,
+    forwardRef(() => SocialModule),
     YouTubeModule,
   ],
   controllers: [AiInfluencerAdminController],
@@ -35,7 +40,10 @@ import { OpenAiScriptProvider } from './providers/openai-script.provider';
     OpenAiScriptProvider,
     ArticleMediaProvider,
     ProviderGenerationService,
+    AiInfluencerSubtitleService,
+    AiInfluencerRenderValidatorService,
     AiInfluencerRenderService,
+    AiInfluencerPublishService,
     AiInfluencerJobService,
     AiInfluencerWorkerService,
   ],

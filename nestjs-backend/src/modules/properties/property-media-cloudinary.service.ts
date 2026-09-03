@@ -114,6 +114,27 @@ export class PropertyMediaCloudinaryService {
     return uploadPropertyVideoBuffer(file);
   }
 
+  /** Master 1080x1920 AI Influencer reel — bez agresivní eager komprese. */
+  async uploadMasterReelBuffer(buffer: Buffer, originalname = 'ai-influencer-master.mp4'): Promise<string> {
+    initCloudinary();
+    return new Promise<string>((resolve, reject) => {
+      if (!buffer.length) return reject(new Error('Video buffer is empty'));
+      const upload = cloudinary.uploader.upload_stream(
+        {
+          resource_type: 'video',
+          folder: 'ai-influencer-masters',
+          format: 'mp4',
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          if (!result?.secure_url) return reject(new Error('Empty Cloudinary result'));
+          return resolve(result.secure_url);
+        },
+      );
+      upload.end(buffer);
+    });
+  }
+
   /**
    * Stejná cesta jako upload z formuláře (`folder: properties`), vhodné pro import z externí URL.
    */

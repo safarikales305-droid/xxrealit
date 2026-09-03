@@ -19,6 +19,6 @@ import { YoutubeController } from './youtube.controller';
     YouTubeQueueCronService,
     TokenEncryptionService,
   ],
-  exports: [YouTubeOAuthService, YouTubePublishJobService, YouTubeConfigService],
+  exports: [YouTubeOAuthService, YouTubePublishService, YouTubePublishJobService, YouTubeConfigService],
 })
 export class YouTubeModule {}

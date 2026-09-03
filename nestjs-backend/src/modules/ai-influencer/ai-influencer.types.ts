@@ -72,6 +72,9 @@ export type AiInfluencerAutomationSettings = {
   maxDurationSec: number;
   defaultMusicTrackId: string | null;
   publishWindows: string[];
+  autoPublishFacebook: boolean;
+  autoPublishYoutube: boolean;
+  youtubePrivacyStatus: 'private' | 'unlisted' | 'public';
   voiceCostPer1kCharsCzk: number;
   avatarCostPerSecCzk: number;
 };
@@ -91,6 +94,9 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   maxDurationSec: 60,
   defaultMusicTrackId: null,
   publishWindows: ['08:00', '12:30', '18:30'],
+  autoPublishFacebook: false,
+  autoPublishYoutube: false,
+  youtubePrivacyStatus: 'private',
   voiceCostPer1kCharsCzk: 0.18,
   avatarCostPerSecCzk: 0.35,
 };

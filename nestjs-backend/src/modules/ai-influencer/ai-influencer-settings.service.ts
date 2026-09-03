@@ -79,6 +79,16 @@ export class AiInfluencerSettingsService implements OnModuleInit {
       defaultMusicTrackId:
         typeof o.defaultMusicTrackId === 'string' ? o.defaultMusicTrackId : d.defaultMusicTrackId,
       publishWindows,
+      autoPublishFacebook:
+        typeof o.autoPublishFacebook === 'boolean' ? o.autoPublishFacebook : d.autoPublishFacebook,
+      autoPublishYoutube:
+        typeof o.autoPublishYoutube === 'boolean' ? o.autoPublishYoutube : d.autoPublishYoutube,
+      youtubePrivacyStatus:
+        o.youtubePrivacyStatus === 'public' ||
+        o.youtubePrivacyStatus === 'unlisted' ||
+        o.youtubePrivacyStatus === 'private'
+          ? o.youtubePrivacyStatus
+          : d.youtubePrivacyStatus,
       voiceCostPer1kCharsCzk: num(o.voiceCostPer1kCharsCzk, d.voiceCostPer1kCharsCzk, 0, 100),
       avatarCostPerSecCzk: num(o.avatarCostPerSecCzk, d.avatarCostPerSecCzk, 0, 100),
     };

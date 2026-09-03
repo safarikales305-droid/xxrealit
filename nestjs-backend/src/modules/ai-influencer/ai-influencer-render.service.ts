@@ -11,30 +11,38 @@ import {
   parseDurationSecondsFromFfmpegStderr,
   runFfmpegCapture,
 } from '../../lib/ffmpeg-run';
+import {
+  REEL_CANVAS_HEIGHT,
+  REEL_CANVAS_WIDTH,
+  REEL_FPS,
+  mergeRenderSettings,
+  resolveSmartLayout,
+  type AiInfluencerCompositorInput,
+  type AiInfluencerLayoutMode,
+  type AiInfluencerRenderSettings,
+} from './ai-influencer-render.types';
+import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
+import { AiInfluencerSubtitleService } from './ai-influencer-subtitle.service';
 import type { ReelScenePlan } from './ai-influencer.types';
 
-const WIDTH = 1080;
-const HEIGHT = 1920;
-const FPS = 30;
-
-export type AiInfluencerRenderInput = {
-  avatarVideoPath: string;
-  voiceAudioPath: string;
-  scenes: ReelScenePlan[];
-  hookText: string;
-  musicFilePath?: string | null;
-  logoPath?: string | null;
-};
+export type AiInfluencerRenderInput = AiInfluencerCompositorInput;
 
 export type AiInfluencerRenderResult = {
   outputPath: string;
   tmpRoot: string;
   durationSec: number | null;
+  layoutUsed: AiInfluencerLayoutMode;
+  validationWarnings: string[];
 };
 
 @Injectable()
 export class AiInfluencerRenderService {
   private readonly log = new Logger(AiInfluencerRenderService.name);
+
+  constructor(
+    private readonly subtitles: AiInfluencerSubtitleService,
+    private readonly validator: AiInfluencerRenderValidatorService,
+  ) {}
 
   async render(input: AiInfluencerRenderInput): Promise<AiInfluencerRenderResult> {
     assertSharpReady('ai-influencer-render');
@@ -43,146 +51,110 @@ export class AiInfluencerRenderService {
       throw new Error('ffmpeg není dostupný — nelze vytvořit AI Influencer Reel.');
     }
 
+    const settings = mergeRenderSettings(input.settings);
+    const precheck = await this.validator.validateBeforeRender({ ...input, settings });
+    if (!precheck.ok) {
+      const msg = precheck.issues.map((i) => i.message).join(' ');
+      throw new Error(`Pre-render validace selhala: ${msg}`);
+    }
+
     const tmpRoot = join(tmpdir(), `ai-influencer-reel-${randomBytes(8).toString('hex')}`);
     await mkdir(tmpRoot, { recursive: true });
 
     try {
       const durationSec = await this.probeDuration(ffmpeg.path, input.voiceAudioPath);
       const targetDuration = Math.max(8, durationSec ?? 30);
-      const srtPath = join(tmpRoot, 'captions.srt');
-      await writeFile(srtPath, this.buildSrt(input.scenes, targetDuration, input.hookText));
 
-      const scaledAvatar = join(tmpRoot, 'avatar-scaled.mp4');
-      await this.runFfmpeg(ffmpeg.path, [
-        '-y',
-        '-i',
-        input.avatarVideoPath,
-        '-vf',
-        `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=decrease,pad=${WIDTH}:${HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
-        '-an',
-        '-r',
-        String(FPS),
-        '-c:v',
-        'libx264',
-        '-pix_fmt',
-        'yuv420p',
-        scaledAvatar,
-      ]);
-
-      const loopedAvatar = join(tmpRoot, 'avatar-looped.mp4');
-      await this.runFfmpeg(ffmpeg.path, [
-        '-y',
-        '-stream_loop',
-        '-1',
-        '-i',
-        scaledAvatar,
-        '-t',
-        String(targetDuration),
-        '-c:v',
-        'libx264',
-        '-pix_fmt',
-        'yuv420p',
-        loopedAvatar,
-      ]);
-
-      const slidePaths: string[] = [];
-      for (let i = 0; i < input.scenes.length; i++) {
-        const scene = input.scenes[i];
-        if (scene.type === 'IMAGE_FULL' || scene.type === 'BROLL_FULL') {
-          const slide = await this.buildSceneSlide(tmpRoot, i, scene, input.logoPath);
-          if (slide) slidePaths.push(slide);
-        }
+      const sourceDims = await this.probeVideoDimensions(ffmpeg.path, input.avatarVideoPath);
+      let layout = settings.layout;
+      if (layout === 'SMART_AUTO') {
+        layout = resolveSmartLayout(sourceDims?.width ?? 0, sourceDims?.height ?? 0);
       }
 
-      let videoPath = loopedAvatar;
-      if (slidePaths.length > 0) {
-        const overlayPath = join(tmpRoot, 'with-broll.mp4');
-        const firstSlide = slidePaths[0];
-        await this.runFfmpeg(ffmpeg.path, [
-          '-y',
-          '-i',
-          loopedAvatar,
-          '-loop',
-          '1',
-          '-i',
-          firstSlide,
-          '-filter_complex',
-          `[0:v][1:v]overlay=0:0:enable='between(t,4,${Math.min(targetDuration - 4, 14)})'[v]`,
-          '-map',
-          '[v]',
-          '-t',
-          String(targetDuration),
-          '-c:v',
-          'libx264',
-          '-pix_fmt',
-          'yuv420p',
-          overlayPath,
-        ]);
-        videoPath = overlayPath;
-      }
+      const brollPath =
+        input.brollImagePath ??
+        (await this.resolveBrollImage(tmpRoot, input.scenes, settings));
+
+      const composed = join(tmpRoot, 'composed.mp4');
+      await this.composeVideo(ffmpeg.path, {
+        avatarPath: input.avatarVideoPath,
+        layout,
+        settings,
+        targetDuration,
+        brollPath,
+        outPath: composed,
+      });
+
+      const assPath = join(tmpRoot, 'captions.ass');
+      const cues = this.subtitles.buildCues(
+        input.scenes,
+        targetDuration,
+        input.hookText,
+        input.spokenText,
+        settings.subtitles,
+      );
+      await writeFile(
+        assPath,
+        this.subtitles.buildAss(cues, input.hookText, settings, targetDuration),
+      );
 
       const withSubs = join(tmpRoot, 'with-subs.mp4');
+      const assEscaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
       await this.runFfmpeg(ffmpeg.path, [
         '-y',
         '-i',
-        videoPath,
+        composed,
         '-vf',
-        `subtitles='${srtPath.replace(/\\/g, '/').replace(/:/g, '\\:')}'`,
-        '-c:v',
-        'libx264',
-        '-pix_fmt',
-        'yuv420p',
-        withSubs,
-      ]);
-
-      const outputPath = join(tmpRoot, 'final.mp4');
-      const audioInputs = ['-i', input.voiceAudioPath];
-      const filter: string[] = [];
-      if (input.musicFilePath) {
-        audioInputs.push('-i', input.musicFilePath);
-        filter.push('[0:a]volume=1[voice]');
-        filter.push('[1:a]volume=0.1[music]');
-        filter.push('[voice][music]amix=inputs=2:duration=first:dropout_transition=2[aout]');
-      }
-
-      const args = [
-        '-y',
-        '-i',
-        withSubs,
-        ...audioInputs,
-        '-t',
-        String(targetDuration),
-        '-map',
-        '0:v:0',
-      ];
-
-      if (filter.length) {
-        args.push('-filter_complex', filter.join(';'), '-map', '[aout]');
-      } else {
-        args.push('-map', '1:a:0');
-      }
-
-      args.push(
+        `ass='${assEscaped}',scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
         '-c:v',
         'libx264',
         '-preset',
         'medium',
         '-crf',
-        '23',
-        '-c:a',
-        'aac',
-        '-b:a',
-        '128k',
-        '-movflags',
-        '+faststart',
+        '20',
         '-pix_fmt',
         'yuv420p',
+        '-an',
+        '-r',
+        String(REEL_FPS),
+        withSubs,
+      ]);
+
+      let videoForMux = withSubs;
+      if (input.logoPath && settings.branding.logoEnabled) {
+        const withLogo = join(tmpRoot, 'with-logo.mp4');
+        await this.overlayLogo(ffmpeg.path, withSubs, input.logoPath, settings, withLogo, targetDuration);
+        videoForMux = withLogo;
+      }
+
+      const outputPath = join(tmpRoot, 'final.mp4');
+      await this.muxAudio(ffmpeg.path, {
+        videoPath: videoForMux,
+        voicePath: input.voiceAudioPath,
+        musicPath: input.musicFilePath,
+        settings,
+        targetDuration,
         outputPath,
-      );
+      });
 
-      await this.runFfmpeg(ffmpeg.path, args);
+      const postcheck = await this.validator.validateOutputFile(outputPath, targetDuration);
+      if (!postcheck.ok) {
+        const msg = postcheck.issues.map((i) => i.message).join(' ');
+        throw new Error(`Post-render validace selhala: ${msg}`);
+      }
 
-      return { outputPath, tmpRoot, durationSec: targetDuration };
+      const warnings = [
+        ...precheck.issues.filter((i) => i.severity === 'warning').map((i) => i.message),
+        ...postcheck.issues.filter((i) => i.severity === 'warning').map((i) => i.message),
+      ];
+
+      return {
+        outputPath,
+        tmpRoot,
+        durationSec: targetDuration,
+        layoutUsed: layout,
+        validationWarnings: warnings,
+      };
     } catch (err) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
       throw err;
@@ -202,6 +174,213 @@ export class AiInfluencerRenderService {
     await pipeline(res.body as unknown as NodeJS.ReadableStream, fileStream);
   }
 
+  private async composeVideo(
+    ffmpegPath: string,
+    opts: {
+      avatarPath: string;
+      layout: AiInfluencerLayoutMode;
+      settings: AiInfluencerRenderSettings;
+      targetDuration: number;
+      brollPath: string | null;
+      outPath: string;
+    },
+  ): Promise<void> {
+    const { avatarPath, layout, settings, targetDuration, brollPath, outPath } = opts;
+    const W = REEL_CANVAS_WIDTH;
+    const H = REEL_CANVAS_HEIGHT;
+    const zoom = settings.avatar.zoom;
+
+    let filter: string;
+    switch (layout) {
+      case 'AVATAR_FULLSCREEN':
+        filter = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p[v]`;
+        break;
+      case 'AVATAR_BLUR':
+        filter = [
+          `[0:v]split=2[bg][fg]`,
+          `[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=30:5,eq=brightness=-0.08[blurred]`,
+          `[fg]scale='min(${W},iw*${zoom})':'-2':force_original_aspect_ratio=decrease[avatar]`,
+          `[blurred][avatar]overlay=(W-w)/2:(H-h)/2:format=auto,setsar=1,format=yuv420p[v]`,
+        ].join(';');
+        break;
+      case 'AVATAR_CONTENT': {
+        const avatarH = Math.round(H * 0.42);
+        const brollInput = brollPath ? 1 : 0;
+        if (brollPath) {
+          filter = [
+            `[1:v]scale=${W}:${H - avatarH}:force_original_aspect_ratio=increase,crop=${W}:${H - avatarH}[broll]`,
+            `[0:v]scale=${W}:${avatarH}:force_original_aspect_ratio=increase,crop=${W}:${avatarH}[avatar]`,
+            `[broll][avatar]vstack=inputs=2,setsar=1,format=yuv420p[v]`,
+          ].join(';');
+        } else {
+          filter = [
+            `color=c=${settings.colors.background.replace('#', '0x')}:s=${W}x${H - avatarH}:d=${targetDuration}[bg]`,
+            `[0:v]scale=${W}:${avatarH}:force_original_aspect_ratio=increase,crop=${W}:${avatarH}[avatar]`,
+            `[bg][avatar]vstack=inputs=2,setsar=1,format=yuv420p[v]`,
+          ].join(';');
+        }
+        break;
+      }
+      case 'PICTURE_IN_PICTURE': {
+        const pipH = Math.round(H * 0.32);
+        if (brollPath) {
+          filter = [
+            `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}[main]`,
+            `[0:v]scale=${W}:${pipH}:force_original_aspect_ratio=increase,crop=${W}:${pipH}[pip]`,
+            `[main][pip]overlay=0:H-h:format=auto,setsar=1,format=yuv420p[v]`,
+          ].join(';');
+        } else {
+          filter = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p[v]`;
+        }
+        break;
+      }
+      default:
+        filter = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p[v]`;
+    }
+
+    const inputs = brollPath && (layout === 'AVATAR_CONTENT' || layout === 'PICTURE_IN_PICTURE')
+      ? ['-y', '-i', avatarPath, '-loop', '1', '-i', brollPath]
+      : ['-y', '-i', avatarPath];
+
+    await this.runFfmpeg(ffmpegPath, [
+      ...inputs,
+      '-t',
+      String(targetDuration),
+      '-filter_complex',
+      filter,
+      '-map',
+      '[v]',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-r',
+      String(REEL_FPS),
+      '-an',
+      outPath,
+    ]);
+  }
+
+  private async overlayLogo(
+    ffmpegPath: string,
+    videoPath: string,
+    logoPath: string,
+    settings: AiInfluencerRenderSettings,
+    outPath: string,
+    duration: number,
+  ): Promise<void> {
+    const size = settings.branding.logoSize;
+    const x = settings.branding.logoX;
+    const y = settings.branding.logoY;
+    const opacity = settings.branding.logoOpacity;
+    await this.runFfmpeg(ffmpegPath, [
+      '-y',
+      '-i',
+      videoPath,
+      '-i',
+      logoPath,
+      '-filter_complex',
+      `[1:v]scale=${size}:${size}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=${opacity}[logo];[0:v][logo]overlay=${x}:${y}:format=auto,scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT},setsar=1`,
+      '-t',
+      String(duration),
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-an',
+      outPath,
+    ]);
+  }
+
+  private async muxAudio(
+    ffmpegPath: string,
+    opts: {
+      videoPath: string;
+      voicePath: string;
+      musicPath?: string | null;
+      settings: AiInfluencerRenderSettings;
+      targetDuration: number;
+      outputPath: string;
+    },
+  ): Promise<void> {
+    const { videoPath, voicePath, musicPath, settings, targetDuration, outputPath } = opts;
+    const music = settings.music;
+    const args = ['-y', '-i', videoPath, '-i', voicePath];
+
+    if (musicPath) {
+      args.push('-stream_loop', '-1', '-i', musicPath);
+      const fadeOutStart = Math.max(0, targetDuration - music.fadeOutSec);
+      const musicFilter = music.ducking
+        ? `[1:a]volume=${music.voiceVolume}[voice];[2:a]volume=${music.musicVolume},afade=t=in:st=0:d=${music.fadeInSec},afade=t=out:st=${fadeOutStart}:d=${music.fadeOutSec}[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]`
+        : `[1:a]volume=${music.voiceVolume}[voice];[2:a]volume=${music.musicVolume},afade=t=in:st=0:d=${music.fadeInSec},afade=t=out:st=${fadeOutStart}:d=${music.fadeOutSec}[bg];[voice][bg]amix=inputs=2:duration=first[aout]`;
+      args.push(
+        '-t',
+        String(targetDuration),
+        '-filter_complex',
+        musicFilter,
+        '-map',
+        '0:v:0',
+        '-map',
+        '[aout]',
+      );
+    } else {
+      args.push('-t', String(targetDuration), '-map', '0:v:0', '-map', '1:a:0');
+    }
+
+    args.push(
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-movflags',
+      '+faststart',
+      '-pix_fmt',
+      'yuv420p',
+      '-s',
+      `${REEL_CANVAS_WIDTH}x${REEL_CANVAS_HEIGHT}`,
+      outputPath,
+    );
+
+    await this.runFfmpeg(ffmpegPath, args);
+  }
+
+  private async resolveBrollImage(
+    tmpRoot: string,
+    scenes: ReelScenePlan[],
+    settings: AiInfluencerRenderSettings,
+  ): Promise<string | null> {
+    const scene = scenes.find(
+      (s) => (s.type === 'IMAGE_FULL' || s.type === 'BROLL_FULL') && s.mediaUrl,
+    );
+    if (!scene?.mediaUrl) return null;
+    const outPath = join(tmpRoot, 'broll.jpg');
+    try {
+      const res = await fetch(scene.mediaUrl);
+      if (!res.ok) return null;
+      await sharp(Buffer.from(await res.arrayBuffer()))
+        .resize(REEL_CANVAS_WIDTH, REEL_CANVAS_HEIGHT, { fit: 'cover' })
+        .jpeg({ quality: 90 })
+        .toFile(outPath);
+      return outPath;
+    } catch {
+      return null;
+    }
+  }
+
   private async probeDuration(ffmpegPath: string, audioPath: string): Promise<number | null> {
     const { code, stderr } = await runFfmpegCapture(ffmpegPath, ['-i', audioPath]);
     if (code === 0 || stderr.includes('Duration:')) {
@@ -210,100 +389,21 @@ export class AiInfluencerRenderService {
     return null;
   }
 
+  private async probeVideoDimensions(
+    ffmpegPath: string,
+    filePath: string,
+  ): Promise<{ width: number; height: number } | null> {
+    const { stderr } = await runFfmpegCapture(ffmpegPath, ['-i', filePath]);
+    const match = stderr.match(/,\s*(\d{2,5})x(\d{2,5})[,\s]/);
+    if (!match) return null;
+    return { width: Number.parseInt(match[1], 10), height: Number.parseInt(match[2], 10) };
+  }
+
   private async runFfmpeg(ffmpegPath: string, args: string[]): Promise<void> {
     const { code, stderr } = await runFfmpegCapture(ffmpegPath, args);
     if (code !== 0) {
-      this.log.warn(`ffmpeg failed: ${stderr.slice(-500)}`);
-      throw new Error(`ffmpeg selhalo: ${stderr.split('\n').slice(-3).join(' ')}`);
+      this.log.warn(`ffmpeg failed: ${stderr.slice(-800)}`);
+      throw new Error(`ffmpeg selhalo: ${stderr.split('\n').slice(-4).join(' ')}`);
     }
-  }
-
-  private buildSrt(scenes: ReelScenePlan[], totalSec: number, hookText: string): string {
-    const lines: string[] = [];
-    const usable = scenes.length
-      ? scenes
-      : [{ start: 0, duration: totalSec, type: 'AVATAR_FULL' as const, text: hookText }];
-    let idx = 1;
-    for (const scene of usable) {
-      const text = (scene.headline || scene.text || hookText || '').trim();
-      if (!text) continue;
-      const start = scene.start ?? 0;
-      const end = Math.min(totalSec, start + (scene.duration ?? 4));
-      lines.push(String(idx));
-      lines.push(`${this.toSrtTime(start)} --> ${this.toSrtTime(end)}`);
-      lines.push(text.slice(0, 120));
-      lines.push('');
-      idx += 1;
-    }
-    return lines.join('\n');
-  }
-
-  private toSrtTime(sec: number): string {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
-    const ms = Math.round((sec % 1) * 1000);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
-  }
-
-  private async buildSceneSlide(
-    tmpRoot: string,
-    idx: number,
-    scene: ReelScenePlan,
-    logoPath?: string | null,
-  ): Promise<string | null> {
-    const outPath = join(tmpRoot, `scene-${idx}.jpg`);
-    const headline = this.escapeXml((scene.headline || scene.text || '').slice(0, 100));
-    let base: Buffer;
-    if (scene.mediaUrl) {
-      try {
-        const res = await fetch(scene.mediaUrl);
-        if (!res.ok) throw new Error('fetch failed');
-        base = await sharp(Buffer.from(await res.arrayBuffer()))
-          .resize(WIDTH, HEIGHT, { fit: 'cover' })
-          .jpeg({ quality: 88 })
-          .toBuffer();
-      } catch {
-        base = await this.solidSlide(headline);
-      }
-    } else {
-      base = await this.solidSlide(headline);
-    }
-
-    const svg = `
-      <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="rgba(0,0,0,0.35)" />
-        <text x="50%" y="82%" text-anchor="middle" fill="white" font-size="42" font-family="Arial, sans-serif" font-weight="700">${headline}</text>
-      </svg>`;
-    let pipeline = sharp(base).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
-    if (logoPath) {
-      try {
-        const logo = await sharp(logoPath).resize(120, 120, { fit: 'inside' }).png().toBuffer();
-        pipeline = sharp(await pipeline.jpeg({ quality: 88 }).toBuffer()).composite([
-          { input: logo, top: 40, left: 40 },
-        ]);
-      } catch {
-        /* optional */
-      }
-    }
-    await pipeline.jpeg({ quality: 88 }).toFile(outPath);
-    return outPath;
-  }
-
-  private async solidSlide(headline: string): Promise<Buffer> {
-    const svg = `
-      <svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="#111827"/>
-        <text x="50%" y="50%" text-anchor="middle" fill="white" font-size="48" font-family="Arial, sans-serif" font-weight="700">${headline || 'XXREALIT'}</text>
-      </svg>`;
-    return sharp(Buffer.from(svg)).jpeg({ quality: 90 }).toBuffer();
-  }
-
-  private escapeXml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   }
 }

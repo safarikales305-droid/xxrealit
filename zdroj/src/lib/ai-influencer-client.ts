@@ -66,6 +66,36 @@ export type AiInfluencerReadyStatus = {
   ready: boolean;
   reason: string | null;
   reasons?: string[];
+  productionReady?: boolean;
+  publishReady?: boolean;
+  publishReasons?: string[];
+};
+
+export type FacebookProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  pageId?: string | null;
+  pageName?: string | null;
+  tokenActive?: boolean;
+  lastError?: string | null;
+};
+
+export type YoutubeProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  uploadScopeOk?: boolean;
+  refreshTokenOk?: boolean;
+  autoPublishReady?: boolean;
+};
+
+export type AiInfluencerRenderSettings = {
+  preset: string;
+  layout: string;
+  subtitles: { enabled: boolean; fontSize: number; maxLines: number; bottomMargin: number };
+  hook: { enabled: boolean; fontSize: number; maxLines: number };
+  music: { trackId: string | null; musicVolume: number; voiceVolume: number };
 };
 
 export type AiInfluencerDashboard = {
@@ -75,6 +105,10 @@ export type AiInfluencerDashboard = {
     maxPerDay: number;
     approvalMode: string;
     dailyBudgetCzk: number;
+    autoPublishFacebook?: boolean;
+    autoPublishYoutube?: boolean;
+    youtubePrivacyStatus?: string;
+    defaultMusicTrackId?: string | null;
   };
   stats: {
     reelsToday: number;
@@ -91,8 +125,10 @@ export type AiInfluencerDashboard = {
     elevenLabs?: ElevenLabsProviderStatus;
     heygen?: HeyGenProviderStatus;
     did?: { configured: boolean; connected: boolean | null; lastError?: string | null };
-    facebook?: { configured: boolean; connected: boolean | null };
-    youtube?: { configured: boolean; connected: boolean | null };
+    facebook?: FacebookProviderStatus;
+    youtube?: YoutubeProviderStatus;
+    renderer?: { configured: boolean; connected: boolean | null; preset?: string };
+    cloudinary?: { configured: boolean; connected: boolean | null };
   };
 };
 
@@ -136,12 +172,26 @@ export type AiInfluencerJobRow = {
   status: string;
   selectedHook: string | null;
   videoUrl: string | null;
+  finalMasterUrl?: string | null;
   totalExternalCost: number;
   failedStage: string | null;
   errorMessage: string | null;
+  facebookPublishStatus?: string | null;
+  facebookPermalink?: string | null;
+  youtubePublishStatus?: string | null;
+  youtubePermalink?: string | null;
+  estimatedDurationSec?: number | null;
   createdAt: string;
   article: { id: string; title: string; publishedAt: string | null; status: string };
   profile: { id: string; name: string; slug: string };
+};
+
+export type ShortsMusicOption = {
+  id: string;
+  title: string;
+  artist: string | null;
+  previewUrl: string | null;
+  fileUrl: string;
 };
 
 export function nestAiInfluencerDashboard(token: string) {
@@ -228,4 +278,73 @@ export function nestAiInfluencerUpdateProfile(token: string, body: Record<string
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+export function nestAiInfluencerUpdateSettings(token: string, body: Record<string, unknown>) {
+  return aiInfluencerFetch<Record<string, unknown>>(token, '/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestAiInfluencerMusic(token: string) {
+  return aiInfluencerFetch<ShortsMusicOption[]>(token, '/music');
+}
+
+export function nestAiInfluencerRenderSettings(token: string) {
+  return aiInfluencerFetch<{ preset: string; settings: AiInfluencerRenderSettings }>(
+    token,
+    '/render-settings',
+  );
+}
+
+export function nestAiInfluencerUpdateRenderSettings(
+  token: string,
+  body: { preset?: string; settings: Partial<AiInfluencerRenderSettings> },
+) {
+  return aiInfluencerFetch(token, '/render-settings', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestAiInfluencerTestFacebook(token: string) {
+  return aiInfluencerFetchWithError<{ ok: boolean; pageName?: string; pageId?: string }>(
+    token,
+    '/test/facebook',
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerYoutubeStatus(token: string) {
+  return aiInfluencerFetch<YoutubeProviderStatus & { channelHandle?: string | null }>(
+    token,
+    '/youtube/status',
+  );
+}
+
+export function nestAiInfluencerRegenerateJob(token: string, jobId: string) {
+  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/regenerate`, {
+    method: 'POST',
+  });
+}
+
+export function nestAiInfluencerPublishFacebook(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<{ permalink?: string; postId?: string }>(
+    token,
+    `/jobs/${jobId}/publish/facebook`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerPublishYoutube(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<{ videoId: string; url: string }>(
+    token,
+    `/jobs/${jobId}/publish/youtube`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerGetJob(token: string, jobId: string) {
+  return aiInfluencerFetch<Record<string, unknown>>(token, `/jobs/${jobId}`);
 }

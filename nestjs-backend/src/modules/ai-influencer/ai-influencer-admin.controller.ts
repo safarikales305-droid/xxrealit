@@ -14,6 +14,9 @@ import { OpenAiService } from '../openai/openai.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
+import { ShortsMusicService } from '../shorts-music/shorts-music.service';
+import { AiInfluencerPublishService } from './ai-influencer-publish.service';
+import { DEFAULT_RENDER_SETTINGS, mergeRenderSettings } from './ai-influencer-render.types';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
@@ -35,6 +38,8 @@ export class AiInfluencerAdminController {
     private readonly prisma: PrismaService,
     private readonly youtubeOAuth: YouTubeOAuthService,
     private readonly cloudinary: PropertyMediaCloudinaryService,
+    private readonly publish: AiInfluencerPublishService,
+    private readonly shortsMusic: ShortsMusicService,
   ) {}
 
   @Get('dashboard')
@@ -137,6 +142,58 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/retry')
   retryJob(@Param('id') id: string) {
     return this.jobs.retryJob(id);
+  }
+
+  @Post('jobs/:id/regenerate')
+  regenerateJob(@Param('id') id: string) {
+    return this.jobs.regenerateRender(id);
+  }
+
+  @Post('jobs/:id/publish/facebook')
+  publishFacebook(@Param('id') id: string) {
+    return this.jobs.publishToFacebook(id);
+  }
+
+  @Post('jobs/:id/publish/youtube')
+  publishYoutube(@Param('id') id: string) {
+    return this.jobs.publishToYoutube(id);
+  }
+
+  @Get('music')
+  listMusic() {
+    return this.shortsMusic.listActiveForPicker();
+  }
+
+  @Get('render-settings')
+  async getRenderSettings() {
+    const profile = await this.registry.getDefaultProfile();
+    return {
+      preset: profile.renderPreset ?? 'modern_xxrealit',
+      settings: mergeRenderSettings(profile.renderSettingsJson as object),
+    };
+  }
+
+  @Patch('render-settings')
+  async updateRenderSettings(@Body() body: Record<string, unknown>) {
+    const profile = await this.registry.getDefaultProfile();
+    const settings = mergeRenderSettings(body.settings as object);
+    return this.prisma.aiInfluencerProfile.update({
+      where: { id: profile.id },
+      data: {
+        renderPreset: typeof body.preset === 'string' ? body.preset : profile.renderPreset,
+        renderSettingsJson: settings as object,
+      },
+    });
+  }
+
+  @Post('test/facebook')
+  testFacebook() {
+    return this.publish.testFacebookConnection();
+  }
+
+  @Get('youtube/status')
+  youtubeStatus() {
+    return this.youtubeOAuth.getConnectionStatus();
   }
 
   @Get('health/elevenlabs')
@@ -273,8 +330,19 @@ export class AiInfluencerAdminController {
         voiceStyle: typeof body.voiceStyle === 'number' ? body.voiceStyle : undefined,
         personalityPrompt:
           typeof body.personalityPrompt === 'string' ? body.personalityPrompt : undefined,
+        renderPreset: typeof body.renderPreset === 'string' ? body.renderPreset : undefined,
+        renderSettingsJson:
+          body.renderSettingsJson && typeof body.renderSettingsJson === 'object'
+            ? (body.renderSettingsJson as object)
+            : undefined,
       },
     });
+  }
+
+  private maskId(id: string | null | undefined): string | null {
+    if (!id) return null;
+    if (id.length <= 6) return '****';
+    return `****${id.slice(-4)}`;
   }
 
   private async getProviderStatus() {
@@ -285,7 +353,7 @@ export class AiInfluencerAdminController {
       this.heygen.getHealth(profile.avatarId),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
-      Promise.resolve({ connected: null as boolean | null }),
+      this.publish.testFacebookConnection(),
     ]);
 
     const aiConnected = aiDiag.connected === true;
@@ -294,7 +362,7 @@ export class AiInfluencerAdminController {
     const heygenConnected = heygenHealth.status === 'CONNECTED';
     const heygenAvatarSelected = heygenHealth.avatarStatus === 'SELECTED';
 
-    const ready =
+    const productionReady =
       aiConnected &&
       elevenConnected &&
       elevenVoiceSelected &&
@@ -308,11 +376,18 @@ export class AiInfluencerAdminController {
     if (!heygenConnected) readyReasons.push('HeyGen není připojen');
     if (!heygenAvatarSelected) readyReasons.push('Chybí HeyGen avatar');
 
+    const publishReasons: string[] = [];
+    if (!fb.ok) publishReasons.push('Facebook není připojen');
+    if (!yt.connected) publishReasons.push('YouTube není připojen');
+
     return {
       ready: {
-        ready,
-        reason: ready ? null : readyReasons[0] ?? 'Není připraveno',
+        ready: productionReady,
+        reason: productionReady ? null : readyReasons[0] ?? 'Není připraveno',
         reasons: readyReasons,
+        productionReady,
+        publishReady: fb.ok && yt.autoPublishReady,
+        publishReasons,
       },
       ai: {
         configured: aiDiag.configured,
@@ -346,6 +421,15 @@ export class AiInfluencerAdminController {
         errorCode: heygenHealth.errorCode ?? null,
         detailMessage: heygenHealth.detailMessage ?? null,
       },
+      renderer: {
+        configured: true,
+        connected: true,
+        preset: profile.renderPreset ?? DEFAULT_RENDER_SETTINGS.preset,
+      },
+      cloudinary: {
+        configured: true,
+        connected: true,
+      },
       did: {
         configured: this.did.isConfigured(),
         connected: did.ok,
@@ -353,11 +437,20 @@ export class AiInfluencerAdminController {
       },
       facebook: {
         configured: true,
-        connected: fb.connected,
+        connected: fb.ok,
+        pageId: this.maskId(fb.pageId),
+        pageName: fb.pageName ?? null,
+        tokenActive: fb.ok,
+        lastError: fb.error ?? null,
       },
       youtube: {
         configured: yt.configured,
         connected: yt.connected,
+        channelId: yt.channelId,
+        channelTitle: yt.channelTitle ?? null,
+        uploadScopeOk: yt.uploadScopeOk,
+        refreshTokenOk: yt.refreshTokenOk,
+        autoPublishReady: yt.autoPublishReady,
       },
     };
   }

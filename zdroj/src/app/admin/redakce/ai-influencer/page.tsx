@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { EditorialCenterShell } from '@/components/admin/redakce/EditorialCenterShell';
+import { AiInfluencerReelEditor } from '@/components/admin/redakce/AiInfluencerReelEditor';
+import { nestYoutubeOAuthConnectUrl } from '@/lib/editorial-center-client';
 import {
   nestAiInfluencerApproveScript,
   nestAiInfluencerArticles,
@@ -16,7 +18,11 @@ import {
   nestAiInfluencerJobs,
   nestAiInfluencerProfile,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerPublishFacebook,
+  nestAiInfluencerPublishYoutube,
+  nestAiInfluencerRegenerateJob,
   nestAiInfluencerTestAvatar,
+  nestAiInfluencerTestFacebook,
   nestAiInfluencerTestVoice,
   nestAiInfluencerUpdateProfile,
   type AiInfluencerArticleRow,
@@ -96,6 +102,7 @@ export default function AiInfluencerPage() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [fbTestMsg, setFbTestMsg] = useState<string | null>(null);
   const [voices, setVoices] = useState<ElevenLabsVoiceOption[]>([]);
   const [avatars, setAvatars] = useState<HeyGenAvatarOption[]>([]);
   const [voicesPermission, setVoicesPermission] = useState<string | null>(null);
@@ -165,7 +172,7 @@ export default function AiInfluencerPage() {
   return (
     <EditorialCenterShell
       title="AI Influencer"
-      subtitle="Automatická výroba Reelů z článků s virtuální redaktorkou XXREALIT (Phase 1 — bez auto-publish)."
+      subtitle="Automatická výroba Reelů 9:16 z článků — master video, Facebook Reels a YouTube Shorts."
     >
       <div className="grid gap-4 md:grid-cols-4">
         {[
@@ -190,7 +197,15 @@ export default function AiInfluencerPage() {
                 ready.ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
               }`}
             >
-              AI INFLUENCER · {ready.ready ? '● Připraven k výrobě' : `● ${ready.reason}`}
+              AI INFLUENCER ·{' '}
+              {ready.productionReady ?? ready.ready
+                ? '● Připraven k výrobě'
+                : `● ${ready.reason}`}
+              {ready.publishReasons?.length ? (
+                <span className="ml-2 text-xs font-normal">
+                  · Publikování: {ready.publishReasons.join(', ')}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </div>
@@ -246,10 +261,16 @@ export default function AiInfluencerPage() {
             lines={[
               {
                 ok: dashboard?.providers.facebook?.connected === true,
-                text: providerLabel(
-                  dashboard?.providers.facebook?.connected ?? null,
-                  dashboard?.providers.facebook?.configured ?? false,
-                ),
+                text:
+                  dashboard?.providers.facebook?.connected === true
+                    ? `Připojeno${dashboard.providers.facebook.pageName ? ` · ${dashboard.providers.facebook.pageName}` : ''}`
+                    : dashboard?.providers.facebook?.lastError ?? 'Nepřipojeno',
+              },
+              {
+                ok: dashboard?.providers.facebook?.tokenActive === true,
+                text: dashboard?.providers.facebook?.pageId
+                  ? `Page ID: ${dashboard.providers.facebook.pageId}`
+                  : 'Token: —',
               },
             ]}
           />
@@ -258,10 +279,25 @@ export default function AiInfluencerPage() {
             lines={[
               {
                 ok: dashboard?.providers.youtube?.connected === true,
-                text: providerLabel(
-                  dashboard?.providers.youtube?.connected ?? null,
-                  dashboard?.providers.youtube?.configured ?? false,
-                ),
+                text:
+                  dashboard?.providers.youtube?.connected === true
+                    ? `Připojeno · ${dashboard.providers.youtube.channelTitle ?? 'kanál'}`
+                    : 'Kanál není připojen',
+              },
+              {
+                ok: dashboard?.providers.youtube?.uploadScopeOk === true,
+                text: dashboard?.providers.youtube?.uploadScopeOk
+                  ? 'Upload oprávnění: ✓'
+                  : 'Upload oprávnění: —',
+              },
+            ]}
+          />
+          <ProviderCard
+            title="Renderer"
+            lines={[
+              {
+                ok: dashboard?.providers.renderer?.connected === true,
+                text: `1080×1920 · ${dashboard?.providers.renderer?.preset ?? 'modern_xxrealit'}`,
               },
             ]}
           />
@@ -439,14 +475,54 @@ export default function AiInfluencerPage() {
           </button>
         </div>
         {voiceError ? <p className="mt-3 text-sm text-red-700">{voiceError}</p> : null}
-        {avatarError ? <p className="mt-3 text-sm text-red-700">{avatarError}</p> : null}
-        {avatarMessage ? <p className="mt-3 text-sm text-emerald-700">{avatarMessage}</p> : null}
         {voicePreview ? (
           <audio className="mt-3 w-full" controls src={voicePreview}>
             <track kind="captions" />
           </audio>
         ) : null}
+        {avatarError ? <p className="mt-3 text-sm text-red-700">{avatarError}</p> : null}
+        {avatarMessage ? <p className="mt-3 text-sm text-emerald-700">{avatarMessage}</p> : null}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'fb-test'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('fb-test');
+              void nestAiInfluencerTestFacebook(apiAccessToken).then((r) => {
+                setFbTestMsg(r.error ?? r.data?.pageName ?? 'Facebook OK');
+                setBusy(null);
+                load();
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Otestovat Facebook
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'yt-connect'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('yt-connect');
+              void nestYoutubeOAuthConnectUrl(apiAccessToken).then((url) => {
+                setBusy(null);
+                if (url) window.location.href = url;
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Připojit YouTube kanál
+          </button>
+        </div>
+        {fbTestMsg ? <p className="mt-2 text-sm text-zinc-600">{fbTestMsg}</p> : null}
       </section>
+
+      <AiInfluencerReelEditor
+        apiAccessToken={apiAccessToken}
+        dashboardSettings={dashboard?.settings}
+        onSaved={load}
+      />
 
       <section className="rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-zinc-900">Články</h2>
@@ -518,6 +594,20 @@ export default function AiInfluencerPage() {
               {job.errorMessage ? (
                 <p className="mt-2 text-xs text-red-700">{job.errorMessage}</p>
               ) : null}
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+                <span>FB: {job.facebookPublishStatus ?? '—'}</span>
+                <span>YT: {job.youtubePublishStatus ?? '—'}</span>
+                {job.estimatedDurationSec ? <span>{job.estimatedDurationSec}s</span> : null}
+              </div>
+              {(job.finalMasterUrl ?? job.videoUrl) ? (
+                <video
+                  className="mt-3 max-h-64 w-full max-w-xs rounded-lg bg-black"
+                  controls
+                  src={job.finalMasterUrl ?? job.videoUrl ?? undefined}
+                >
+                  <track kind="captions" />
+                </video>
+              ) : null}
               <div className="mt-2 flex flex-wrap gap-2">
                 {job.status === 'SCRIPT_READY' ? (
                   <button
@@ -545,13 +635,77 @@ export default function AiInfluencerPage() {
                     Zkusit znovu
                   </button>
                 ) : null}
+                {job.finalMasterUrl ?? job.videoUrl ? (
+                  <Link
+                    href={job.finalMasterUrl ?? job.videoUrl!}
+                    target="_blank"
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
+                  >
+                    Přehrát náhled
+                  </Link>
+                ) : null}
+                {(job.finalMasterUrl ?? job.videoUrl) && job.status === 'READY' ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!apiAccessToken}
+                      onClick={() => {
+                        if (!apiAccessToken) return;
+                        void nestAiInfluencerRegenerateJob(apiAccessToken, job.id).then(load);
+                      }}
+                      className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
+                    >
+                      Přegenerovat
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!apiAccessToken || job.facebookPublishStatus === 'PUBLISHED'}
+                      onClick={() => {
+                        if (!apiAccessToken) return;
+                        void nestAiInfluencerPublishFacebook(apiAccessToken, job.id).then(load);
+                      }}
+                      className="rounded border border-blue-300 px-3 py-1 text-xs font-medium text-blue-800"
+                    >
+                      FB publikovat
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!apiAccessToken || job.youtubePublishStatus === 'PUBLISHED'}
+                      onClick={() => {
+                        if (!apiAccessToken) return;
+                        void nestAiInfluencerPublishYoutube(apiAccessToken, job.id).then(load);
+                      }}
+                      className="rounded border border-red-300 px-3 py-1 text-xs font-medium text-red-800"
+                    >
+                      YT publikovat
+                    </button>
+                  </>
+                ) : null}
+                {job.facebookPermalink ? (
+                  <Link
+                    href={job.facebookPermalink}
+                    target="_blank"
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
+                  >
+                    Facebook
+                  </Link>
+                ) : null}
+                {job.youtubePermalink ? (
+                  <Link
+                    href={job.youtubePermalink}
+                    target="_blank"
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
+                  >
+                    YouTube
+                  </Link>
+                ) : null}
                 {job.videoUrl ? (
                   <Link
                     href={job.videoUrl}
                     target="_blank"
                     className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
                   >
-                    Náhled MP4
+                    Master MP4
                   </Link>
                 ) : null}
               </div>

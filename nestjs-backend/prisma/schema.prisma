@@ -8210,6 +8210,8 @@ model AiInfluencerProfile {
   voiceSpeed        Float?
   voiceStability    Float?
   voiceStyle        Float?
+  renderPreset      String?             @default("modern_xxrealit")
+  renderSettingsJson Json?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   jobs              AiInfluencerReelJob[]
@@ -8273,8 +8275,26 @@ model AiInfluencerReelJob {
   musicTrackId         String?
   videoPath            String?
   videoUrl             String?
+  finalMasterUrl       String?
   thumbnailUrl         String?
+  renderPreset         String?
+  renderSettingsJson   Json?
+  validationPassed     Boolean?
+  validationErrors     Json?
+  timelineEvents       Json?
   renderedAt           DateTime?
+  facebookPublishStatus ReelPlatformPublishStatus @default(SKIPPED)
+  facebookPostId       String?
+  facebookPermalink    String?
+  facebookPublishedAt  DateTime?
+  facebookPublishError String?                   @db.Text
+  youtubePublishStatus ReelPlatformPublishStatus @default(SKIPPED)
+  youtubeVideoId       String?
+  youtubePermalink     String?
+  youtubePublishedAt   DateTime?
+  youtubePublishError  String?                   @db.Text
+  youtubePrivacyStatus String?
+  publishedAt          DateTime?
   aiCostEstimated      Float                     @default(0)
   voiceCostEstimated   Float                     @default(0)
   avatarCostEstimated  Float                     @default(0)
