@@ -21,6 +21,7 @@ import {
   saveBubblePosition,
 } from '@/lib/floating-ui-storage';
 import { useFloatingUi } from '@/components/floating/FloatingUiProvider';
+import { useMobileShortsImmersive } from '@/hooks/use-mobile-shorts-immersive';
 
 type Props = {
   onOpen: () => void;
@@ -39,6 +40,8 @@ type DragState = {
 
 export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) {
   const { getObstacleRects } = useFloatingUi();
+  const mobileShortsImmersive = useMobileShortsImmersive();
+  const launcherHidden = hidden || mobileShortsImmersive;
   const [isDesktop, setIsDesktop] = useState(false);
   const [ready, setReady] = useState(false);
   const [side, setSide] = useState<BubbleSide>('right');
@@ -75,7 +78,7 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
   }, []);
 
   useEffect(() => {
-    if (isDesktop || hidden) return;
+    if (isDesktop || launcherHidden) return;
     layoutBubble();
     if (!hasSeenDragHint()) {
       setShowHint(true);
@@ -85,10 +88,10 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
       }, 4500);
       return () => window.clearTimeout(t);
     }
-  }, [hidden, isDesktop, layoutBubble]);
+  }, [launcherHidden, isDesktop, layoutBubble]);
 
   useEffect(() => {
-    if (isDesktop || hidden) return;
+    if (isDesktop || launcherHidden) return;
     const onResize = () => layoutBubble();
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
@@ -96,7 +99,7 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, [hidden, isDesktop, layoutBubble]);
+  }, [launcherHidden, isDesktop, layoutBubble]);
 
   const finishDragSnap = useCallback(
     (nextSide: BubbleSide, nextY: number) => {
@@ -182,7 +185,7 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
     }
   }
 
-  if (hidden) return null;
+  if (launcherHidden) return null;
 
   if (isDesktop) {
     return (

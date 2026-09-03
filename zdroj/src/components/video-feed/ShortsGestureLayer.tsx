@@ -4,7 +4,8 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { useShortsFeedNav } from '@/components/shorts/shorts-feed-nav-context';
 import { useMobileShortsHeader } from '@/components/video-feed/mobile-shorts-header-context';
 
-const SWIPE_THRESHOLD_PX = 32;
+const SWIPE_THRESHOLD_PX = 12;
+const HEADER_NOTIFY_THRESHOLD_PX = 12;
 
 type ShortsGestureLayerProps = {
   children?: ReactNode;
@@ -49,13 +50,15 @@ export function ShortsGestureLayer({
       if (!touch) return;
       const dx = touch.clientX - startRef.current.x;
       const dy = touch.clientY - startRef.current.y;
-      if (Math.abs(dy) > SWIPE_THRESHOLD_PX && Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dy) > HEADER_NOTIFY_THRESHOLD_PX && Math.abs(dy) > Math.abs(dx)) {
         swipedRef.current = true;
         if (dy < 0) mobileHeader?.notifyVerticalSwipe('up');
         else mobileHeader?.notifyVerticalSwipe('down');
         if (!nav) return;
-        if (dy < 0) nav.goNext();
-        else nav.goPrev();
+        if (Math.abs(dy) >= SWIPE_THRESHOLD_PX) {
+          if (dy < 0) nav.goNext();
+          else nav.goPrev();
+        }
       }
     },
     [enabled, nav, mobileHeader],

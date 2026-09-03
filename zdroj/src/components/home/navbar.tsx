@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
 import {
@@ -55,6 +55,7 @@ export function Navbar({
   const router = useRouter();
   const pathname = usePathname();
   const mobileShortsHeader = useMobileShortsHeader();
+  const mobileShortsShellRef = useRef<HTMLDivElement>(null);
   const isAccommodationSection = pathname?.startsWith('/ubytovani');
   const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,6 +101,28 @@ export function Navbar({
   const mobileShortsHeaderHidden =
     viewMode === 'shorts' && mobileShortsHeader != null && !mobileShortsHeader.headerVisible;
 
+  useEffect(() => {
+    if (viewMode !== 'shorts') {
+      document.documentElement.style.removeProperty('--mobile-shorts-header-offset');
+      return;
+    }
+    const shell = mobileShortsShellRef.current;
+    if (!shell) return;
+    const apply = () => {
+      document.documentElement.style.setProperty(
+        '--mobile-shorts-header-offset',
+        `${shell.offsetHeight}px`,
+      );
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(shell);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--mobile-shorts-header-offset');
+    };
+  }, [viewMode, shortsTopicSlot]);
+
   const portalTabs = useMemo(() => {
     if (viewMode == null || onViewModeChange == null) return null;
     return buildPortalContentTabs({
@@ -108,6 +131,15 @@ export function Navbar({
       accommodationActive: isAccommodationSection,
     });
   }, [viewMode, onViewModeChange, isAccommodationSection]);
+
+  const prevViewModeRef = useRef<ViewMode | undefined>(viewMode);
+  useEffect(() => {
+    const prev = prevViewModeRef.current;
+    prevViewModeRef.current = viewMode;
+    if (viewMode === 'shorts' && prev !== 'shorts') {
+      mobileShortsHeader?.notifyVerticalSwipe('down');
+    }
+  }, [viewMode, mobileShortsHeader]);
 
   const mobileMenuItems = useMemo(() => {
     if (isLoading) return [];
@@ -192,16 +224,19 @@ export function Navbar({
   return (
     <header
       className={`sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)] ${
-        viewMode === 'shorts' ? 'max-md:fixed max-md:left-0 max-md:right-0' : ''
+        viewMode === 'shorts'
+          ? 'max-md:fixed max-md:left-0 max-md:right-0 max-md:transition-[transform,opacity,box-shadow,border-color] max-md:duration-200 max-md:ease-out'
+          : ''
+      } ${
+        mobileShortsHeaderHidden
+          ? 'max-md:pointer-events-none max-md:-translate-y-full max-md:border-transparent max-md:opacity-0 max-md:shadow-none'
+          : ''
       }`}
     >
       {isMobileCompactHeader && viewMode != null && onViewModeChange != null ? (
         <div
-          className={`mobile-shorts-header-shell mx-auto hidden w-full max-w-[100rem] min-w-0 px-3 pb-2 pt-1 transition-[transform,opacity] duration-200 ease-out max-md:block md:hidden ${
-            mobileShortsHeaderHidden
-              ? 'max-md:pointer-events-none max-md:-translate-y-full max-md:opacity-0'
-              : ''
-          }`}
+          ref={mobileShortsShellRef}
+          className="mobile-shorts-header-shell mx-auto hidden w-full max-w-[100rem] min-w-0 px-2 pb-1.5 pt-1 max-md:block md:hidden"
         >
           <div className="flex w-full min-w-0 items-center gap-1.5">
             <div className="shrink-0 [&_img]:h-[1.35rem]">
@@ -257,9 +292,10 @@ export function Navbar({
           {portalTabs ? (
             <PortalContentTypeTabs
               embedded
+              compactMobile
               tabs={portalTabs.tabs}
               activeId={portalTabs.activeId}
-              className="-mx-3 mt-2"
+              className="-mx-2 mt-1"
             />
           ) : null}
           {viewMode === 'shorts' && shortsTopicSlot ? (

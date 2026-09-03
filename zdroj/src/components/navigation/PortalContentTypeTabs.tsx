@@ -18,6 +18,7 @@ type Props = {
   activeId: PortalContentTabId;
   sticky?: boolean;
   embedded?: boolean;
+  compactMobile?: boolean;
   className?: string;
 };
 
@@ -30,11 +31,15 @@ const TAB_ACTIVE =
 const TAB_INACTIVE =
   'border border-zinc-200/90 bg-white text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50';
 
+const TAB_BASE_COMPACT =
+  'inline-flex min-h-[36px] shrink-0 items-center whitespace-nowrap rounded-[12px] px-2 py-1 text-[12px] font-semibold leading-none transition sm:px-2.5 sm:text-[13px]';
+
 export function PortalContentTypeTabs({
   tabs,
   activeId,
   sticky = false,
   embedded = false,
+  compactMobile = false,
   className = '',
 }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -51,18 +56,22 @@ export function PortalContentTypeTabs({
       ref={scrollerRef}
       role="tablist"
       aria-label="Hlavní sekce portálu"
-      className="no-scrollbar flex items-stretch gap-2 overflow-x-auto scroll-smooth px-3 py-2 max-md:gap-1.5 max-md:px-2 max-md:py-1 md:px-4"
+      className={`no-scrollbar flex items-stretch gap-1.5 overflow-x-auto scroll-smooth px-2 py-1 max-md:gap-1 max-md:px-1.5 max-md:py-0.5 md:gap-2 md:px-4 md:py-2 ${
+        compactMobile ? 'max-md:min-h-[44px] max-md:items-center' : ''
+      }`}
       style={{ scrollbarWidth: 'none' }}
     >
       {tabs.map((tab) => {
         const active = tab.id === activeId;
-        const content = (
+        const content = compactMobile ? (
+          <span>{tab.label}</span>
+        ) : (
           <>
             {tab.emoji ? <span aria-hidden>{tab.emoji}</span> : null}
             <span>{tab.label}</span>
           </>
         );
-        const className = `${TAB_BASE} ${active ? TAB_ACTIVE : TAB_INACTIVE}`;
+        const className = `${compactMobile ? TAB_BASE_COMPACT : TAB_BASE} ${active ? TAB_ACTIVE : TAB_INACTIVE}`;
 
         if (tab.href) {
           return (

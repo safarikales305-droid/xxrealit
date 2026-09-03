@@ -13,6 +13,7 @@ import {
 } from '@/lib/shorts-feed';
 import { ShortsPostSocialRail } from './ShortsPostSocialRail';
 import { ShortsItemShell } from './ShortsItemShell';
+import { ShortsMobileExpandableText } from './ShortsMobileExpandableText';
 
 type Props = {
   item: ShortsFeedItem;
@@ -86,11 +87,11 @@ function MobileOverlay({
   ctaLabel: string;
 }) {
   return (
-    <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-16 pr-[4.5rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(1.25rem,calc(env(safe-area-inset-bottom,0px)+1rem))] sm:px-4 sm:pr-24 sm:pt-16">
-      <div className="pointer-events-auto space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">{categoryLabel}</p>
-        <h2 className="line-clamp-2 text-lg font-bold leading-snug">{title}</h2>
-        {teaser ? <p className="line-clamp-2 text-sm text-white/85">{teaser}</p> : null}
+    <div className="shorts-mobile-overlay-gradient px-3 pt-8 pr-[3.75rem] text-white max-[1023px]:pb-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] sm:px-4 sm:pr-24 sm:pt-10">
+      <div className="pointer-events-auto space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-300">{categoryLabel}</p>
+        <h2 className="line-clamp-2 text-base font-bold leading-snug">{title}</h2>
+        {teaser ? <ShortsMobileExpandableText text={teaser} /> : null}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <span className="text-xs text-white/65">{sourceName}</span>
           {publishedLabel ? <span className="text-xs text-white/50">· {publishedLabel}</span> : null}

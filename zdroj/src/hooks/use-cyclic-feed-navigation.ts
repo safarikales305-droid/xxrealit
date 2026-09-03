@@ -34,6 +34,10 @@ type Options<T> = {
   prefetchSrc?: (item: T) => string | null;
   /** Počáteční index ve feedu (např. deep-link). */
   initialIndex?: number;
+  /** Po úspěšné navigaci ve feedu (swipe, kolečko, klávesnice). */
+  onNavigate?: (direction: FeedDirection) => void;
+  /** Vypnout touch paging na root kontejneru (mobil používá gesture vrstvu). */
+  disableTouchPaging?: boolean;
 };
 
 function outgoingSlideClass(direction: FeedDirection, animate: boolean): string {
@@ -59,6 +63,8 @@ export function useCyclicFeedNavigation<T>(
     enabled = true,
     prefetchSrc,
     initialIndex = 0,
+    onNavigate,
+    disableTouchPaging = false,
   } = options;
 
   const total = items.length;
@@ -192,6 +198,7 @@ export function useCyclicFeedNavigation<T>(
       isSwitchingRef.current = true;
       setDirection(nextDirection);
       setTransition({ direction: nextDirection, fromIndex, toIndex, animate: false });
+      onNavigate?.(nextDirection);
 
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
@@ -210,7 +217,7 @@ export function useCyclicFeedNavigation<T>(
         isSwitchingRef.current = false;
       }, Math.max(ANIMATION_MS, switchLockMs));
     },
-    [enabled, switchLockMs, total],
+    [enabled, switchLockMs, total, onNavigate],
   );
 
   const goNext = useCallback(() => {
@@ -241,10 +248,12 @@ export function useCyclicFeedNavigation<T>(
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      if (disableTouchPaging) return;
       touchStartYRef.current = e.touches[0]?.clientY ?? 0;
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (disableTouchPaging) return;
       if (isSwitchingRef.current) return;
       const endY = e.changedTouches[0]?.clientY ?? touchStartYRef.current;
       const dy = endY - touchStartYRef.current;
@@ -276,7 +285,7 @@ export function useCyclicFeedNavigation<T>(
       root.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [enabled, total, goNext, goPrev]);
+  }, [enabled, total, goNext, goPrev, disableTouchPaging]);
 
   return {
     currentIndex,

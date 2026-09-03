@@ -17,6 +17,7 @@ import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { TipShortsSticker } from '@/components/listing/TipBadges';
 import { ShortsSlideVideo } from '@/components/shorts/ShortsSlideVideo';
 import { ShortsGestureLayer } from '@/components/video-feed/ShortsGestureLayer';
+import { ShortsMobileExpandableText } from '@/components/video-feed/ShortsMobileExpandableText';
 import { DesktopShortsNavButtons } from '@/components/shorts/shorts-feed-nav-context';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
@@ -329,15 +330,19 @@ export default function VideoCard({
     });
   }
 
-  /** Mobilní overlay pod videem (černé pozadí). */
+  /** Mobilní overlay pod videem (kompaktní spodní pás). */
   function renderMobileListingInfo() {
+    const description = (video.description ?? video.content ?? '').trim();
     return (
-      <div className="space-y-2 max-md:space-y-2 sm:space-y-3">
-        <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2 shadow-lg backdrop-blur-md max-md:px-2.5 max-md:py-1.5 sm:px-4">
+      <div className="space-y-1.5 max-md:space-y-1.5 sm:space-y-3">
+        <div className="max-md:rounded-lg max-md:bg-black/35 max-md:px-2 max-md:py-1.5 max-md:backdrop-blur-sm sm:rounded-xl sm:border sm:border-white/15 sm:bg-black/50 sm:px-3 sm:py-2 sm:shadow-lg sm:backdrop-blur-md">
           <div className="line-clamp-2 text-sm font-semibold leading-snug sm:text-base">
             {video.title ?? ''}
           </div>
           {city ? <div className="mt-0.5 text-xs text-white/85 sm:text-sm">{city}</div> : null}
+          {description ? (
+            <ShortsMobileExpandableText text={description} className="mt-1 hidden max-md:block" />
+          ) : null}
           <ListingPriceDisplay
             as="div"
             price={priceVal}
@@ -348,27 +353,30 @@ export default function VideoCard({
           />
         </div>
 
-        <button
-          type="button"
-          onClick={handleWriteSeller}
-          className="flex w-full max-w-full items-center justify-center gap-1.5 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-3 py-2 text-[13px] font-extrabold leading-tight tracking-tight text-white shadow-[0_8px_26px_rgba(255,80,0,0.38)] transition hover:brightness-110 active:scale-[0.99] max-md:min-h-[44px] sm:gap-2 sm:px-4 sm:py-3 sm:text-sm sm:shadow-[0_14px_40px_rgba(255,80,0,0.45)]"
-        >
-          <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
-          Napsat prodejci
-        </button>
+        <div className="flex gap-2 max-md:gap-1.5">
+          <button
+            type="button"
+            onClick={handleWriteSeller}
+            data-no-swipe
+            className="flex min-h-[40px] flex-1 items-center justify-center gap-1 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-2.5 py-1.5 text-[12px] font-extrabold leading-tight text-white shadow-[0_6px_20px_rgba(255,80,0,0.35)] transition hover:brightness-110 active:scale-[0.99] sm:min-h-[44px] sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+          >
+            <MessageCircle className="size-4 shrink-0 sm:size-5" strokeWidth={2.25} aria-hidden />
+            Napsat prodejci
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenListing}
+            data-no-swipe
+            className="flex min-h-[40px] flex-1 items-center justify-center rounded-full border border-white/45 bg-white/12 px-2.5 py-1.5 text-[12px] font-bold leading-tight text-white backdrop-blur-md transition hover:bg-white/20 active:scale-[0.99] sm:min-h-[44px] sm:px-4 sm:py-2.5 sm:text-sm"
+          >
+            Inzerát
+          </button>
+        </div>
         {sellerActionHint ? (
           <p className="text-center text-xs font-medium text-amber-200" role="status">
             {sellerActionHint}
           </p>
         ) : null}
-
-        <button
-          type="button"
-          onClick={handleOpenListing}
-          className="flex w-full max-w-full items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-4 py-2 text-[13px] font-extrabold leading-tight tracking-tight text-white shadow-md backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] max-md:min-h-[44px] sm:px-6 sm:py-3 sm:text-base sm:shadow-lg"
-        >
-          Zobrazit inzerát
-        </button>
       </div>
     );
   }
@@ -611,7 +619,7 @@ export default function VideoCard({
 
             {/* Mobil: spodní info vůči videu */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[20] lg:hidden">
-              <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-16 pr-[4.5rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] sm:px-4 sm:pr-24 sm:pt-16">
+              <div className="shorts-mobile-overlay-gradient px-3 pt-8 pr-[3.75rem] text-white max-[1023px]:pb-[max(1rem,calc(env(safe-area-inset-bottom,0px)+0.75rem))] sm:px-4 sm:pr-24 sm:pt-10">
                 <div className="pointer-events-auto mx-auto max-w-lg sm:max-w-lg">
                   {renderMobileListingInfo()}
                 </div>

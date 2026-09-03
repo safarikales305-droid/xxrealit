@@ -6,6 +6,7 @@ import {
   type CyclicFeedNav,
 } from '@/components/feed/CyclicFeedViewport';
 import { ShortsFeedNavProvider } from '@/components/shorts/shorts-feed-nav-context';
+import { useMobileShortsHeader } from '@/components/video-feed/mobile-shorts-header-context';
 import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { useShortsEmailSignup } from '@/hooks/use-shorts-email-signup';
 import { isShortVideoPlayable, shortVideoPlayableSrc } from '@/lib/feed/loop-feed';
@@ -76,6 +77,8 @@ export function MixedShortsFeed({
 }: MixedShortsFeedProps) {
   const { reportGuestListingViewed } = useGuestRegistrationGate();
   const { reportShortViewed } = useShortsEmailSignup();
+  const mobileHeader = useMobileShortsHeader();
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
   const [skippedKeys, setSkippedKeys] = useState<Set<string>>(() => new Set());
 
@@ -114,6 +117,21 @@ export function MixedShortsFeed({
   const handleNavigation = useCallback((api: CyclicFeedNav) => {
     setNav(api);
   }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobileViewport(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  const handleFeedNavigate = useCallback(
+    (direction: 'next' | 'prev') => {
+      mobileHeader?.notifyVerticalSwipe(direction === 'next' ? 'up' : 'down');
+    },
+    [mobileHeader],
+  );
 
   useEffect(() => {
     if (!onLoadMore || loadingMore) return;
@@ -168,6 +186,8 @@ export function MixedShortsFeed({
             return video ? shortVideoPlayableSrc(video) : null;
           }}
           onNavigation={handleNavigation}
+          onNavigate={handleFeedNavigate}
+          disableTouchPaging={isMobileViewport}
           className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
           viewportClassName="h-full min-h-0"
           slideClassName="shorts-slide h-full min-h-0 overflow-hidden rounded-none bg-zinc-100 md:rounded-xl lg:bg-white lg:shadow-sm"

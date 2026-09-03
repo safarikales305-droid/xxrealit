@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -35,6 +36,16 @@ export function MobileShortsHeaderProvider({ children }: { children: ReactNode }
     },
     [scrollLocked, signupOpen],
   );
+
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      'data-mobile-shorts-immersive',
+      headerVisible ? 'false' : 'true',
+    );
+    return () => {
+      document.documentElement.removeAttribute('data-mobile-shorts-immersive');
+    };
+  }, [headerVisible]);
 
   const value = useMemo(
     () => ({
