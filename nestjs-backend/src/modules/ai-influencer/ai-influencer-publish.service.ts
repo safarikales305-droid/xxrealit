@@ -97,9 +97,10 @@ export class AiInfluencerPublishService {
           facebookPublishedAt: new Date(),
           facebookPublishError: null,
           publishedAt: new Date(),
-          status: AiInfluencerReelJobStatus.PUBLISHED,
         },
       });
+
+      await this.syncOverallPublishStatus(jobId);
 
       return { permalink: permalink ?? undefined, postId: postId ?? undefined };
     } catch (err) {
@@ -207,6 +208,8 @@ export class AiInfluencerPublishService {
         },
       });
 
+      await this.syncOverallPublishStatus(jobId);
+
       return { videoId: upload.videoId, url: upload.url };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -225,5 +228,42 @@ export class AiInfluencerPublishService {
       });
       throw err;
     }
+  }
+
+  async syncOverallPublishStatus(jobId: string): Promise<void> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
+    if (!job) return;
+
+    const fb = job.facebookPublishStatus;
+    const yt = job.youtubePublishStatus;
+    const fbPublished = fb === ReelPlatformPublishStatus.PUBLISHED;
+    const ytPublished = yt === ReelPlatformPublishStatus.PUBLISHED;
+    const fbFailed = fb === ReelPlatformPublishStatus.FAILED;
+    const ytFailed = yt === ReelPlatformPublishStatus.FAILED;
+
+    let status = job.status;
+    if (fbPublished && ytPublished) {
+      status = AiInfluencerReelJobStatus.PUBLISHED;
+    } else if (fbPublished && (ytFailed || yt === ReelPlatformPublishStatus.SKIPPED)) {
+      status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
+    } else if (ytPublished && fbFailed) {
+      status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
+    } else if (fbPublished || ytPublished) {
+      status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
+    }
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status,
+        progressPercent: 100,
+        currentStep:
+          status === AiInfluencerReelJobStatus.PUBLISHED
+            ? 'Publikováno'
+            : status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED
+              ? 'Částečně publikováno'
+              : job.currentStep,
+      },
+    });
   }
 }

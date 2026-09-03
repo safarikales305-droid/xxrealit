@@ -57,6 +57,10 @@ export type ArticleScoreResult = {
   contentFormat?: AiInfluencerContentFormat;
 };
 
+export type SpokenBrandingMode = 'AUTO' | 'INTRO' | 'OUTRO' | 'INTRO_AND_OUTRO' | 'OFF';
+export type PublishMode = 'MANUAL' | 'AUTO_AFTER_GENERATION' | 'SCHEDULED';
+export type BrandingFrequency = 'EVERY' | 'EVERY_OTHER' | 'OUTRO_ONLY' | 'INTRO_ONLY' | 'OFF';
+
 export type AiInfluencerAutomationSettings = {
   enabled: boolean;
   minScore: number;
@@ -74,31 +78,116 @@ export type AiInfluencerAutomationSettings = {
   publishWindows: string[];
   autoPublishFacebook: boolean;
   autoPublishYoutube: boolean;
+  autoPublishPortal: boolean;
   youtubePrivacyStatus: 'private' | 'unlisted' | 'public';
   voiceCostPer1kCharsCzk: number;
   avatarCostPerSecCzk: number;
+  generationStartTime: string;
+  generationEndTime: string;
+  checkIntervalMinutes: number;
+  preferredCategories: string[];
+  blockedCategories: string[];
+  sourceBlacklist: string[];
+  facebookPublishMode: PublishMode;
+  youtubePublishMode: PublishMode;
+  portalPublishMode: PublishMode;
+  publishWindowStart: string;
+  publishWindowEnd: string;
+  minPublishSpacingMinutes: number;
+  maxFacebookPerDay: number;
+  maxYoutubePerDay: number;
+  maxPortalPerDay: number;
+  brandingEnabled: boolean;
+  logoEnabled: boolean;
+  logoPosition: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+  logoScalePercent: number;
+  logoOpacity: number;
+  logoPaddingPx: number;
+  websiteWatermarkEnabled: boolean;
+  websiteText: string;
+  websiteWatermarkOpacity: number;
+  websiteWatermarkFontSize: number;
+  spokenBrandingEnabled: boolean;
+  spokenBrandingMode: SpokenBrandingMode;
+  brandDisplayName: string;
+  brandTtsPronunciation: string;
+  introTemplate: string;
+  outroTemplate: string;
+  brandingFrequency: BrandingFrequency;
+  jobsConcurrency: number;
+  heygenConcurrency: number;
+  automationPaused: boolean;
+  automationPauseReason: string | null;
 };
+
+export const DEFAULT_PREFERRED_CATEGORIES = [
+  'Reality',
+  'Bydlení',
+  'Investice',
+  'Hypotéky',
+  'Stavebnictví',
+  'Rekonstrukce',
+  'Architektura',
+  'Zajímavosti',
+];
 
 export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   enabled: false,
   minScore: 75,
-  maxPerDay: 3,
+  maxPerDay: 5,
   maxPerWeek: 15,
   minIntervalHours: 3,
   breakingThreshold: 92,
   approvalMode: 'SEMI_AUTO',
-  dailyBudgetCzk: 300,
+  dailyBudgetCzk: 250,
   qualityMode: 'STANDARD',
   targetDurationSec: 35,
   minDurationSec: 20,
   maxDurationSec: 60,
   defaultMusicTrackId: null,
   publishWindows: ['08:00', '12:30', '18:30'],
-  autoPublishFacebook: false,
+  autoPublishFacebook: true,
   autoPublishYoutube: false,
+  autoPublishPortal: true,
   youtubePrivacyStatus: 'private',
   voiceCostPer1kCharsCzk: 0.18,
   avatarCostPerSecCzk: 0.35,
+  generationStartTime: '07:00',
+  generationEndTime: '22:00',
+  checkIntervalMinutes: 30,
+  preferredCategories: [...DEFAULT_PREFERRED_CATEGORIES],
+  blockedCategories: [],
+  sourceBlacklist: [],
+  facebookPublishMode: 'AUTO_AFTER_GENERATION',
+  youtubePublishMode: 'MANUAL',
+  portalPublishMode: 'AUTO_AFTER_GENERATION',
+  publishWindowStart: '08:00',
+  publishWindowEnd: '21:00',
+  minPublishSpacingMinutes: 120,
+  maxFacebookPerDay: 3,
+  maxYoutubePerDay: 3,
+  maxPortalPerDay: 5,
+  brandingEnabled: true,
+  logoEnabled: true,
+  logoPosition: 'top_left',
+  logoScalePercent: 14,
+  logoOpacity: 0.9,
+  logoPaddingPx: 40,
+  websiteWatermarkEnabled: true,
+  websiteText: 'XXREALIT.CZ',
+  websiteWatermarkOpacity: 0.78,
+  websiteWatermarkFontSize: 34,
+  spokenBrandingEnabled: true,
+  spokenBrandingMode: 'AUTO',
+  brandDisplayName: 'XXREALIT',
+  brandTtsPronunciation: 'iks iks realit',
+  introTemplate: 'Vítejte u XXREALIT.',
+  outroTemplate: 'Sledujte XXREALIT pro další novinky ze světa realit a bydlení.',
+  brandingFrequency: 'EVERY',
+  jobsConcurrency: 1,
+  heygenConcurrency: 1,
+  automationPaused: false,
+  automationPauseReason: null,
 };
 
 export type VoiceGenerateInput = {

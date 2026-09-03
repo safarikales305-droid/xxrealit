@@ -18,6 +18,7 @@ import { ShortsMusicService } from '../shorts-music/shorts-music.service';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { DEFAULT_RENDER_SETTINGS, mergeRenderSettings } from './ai-influencer-render.types';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
+import { AiInfluencerAutoService } from './ai-influencer-auto.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
@@ -40,6 +41,7 @@ export class AiInfluencerAdminController {
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly publish: AiInfluencerPublishService,
     private readonly shortsMusic: ShortsMusicService,
+    private readonly auto: AiInfluencerAutoService,
   ) {}
 
   @Get('dashboard')
@@ -91,6 +93,17 @@ export class AiInfluencerAdminController {
 
     return {
       settings: cfg,
+      automation: {
+        enabled: cfg.enabled,
+        paused: cfg.automationPaused,
+        pauseReason: cfg.automationPauseReason,
+        nextCheckInMinutes: this.auto.getNextCheckInMinutes(),
+        videosToday: todayJobs,
+        maxVideosPerDay: cfg.maxPerDay,
+        autoPublishFacebook: cfg.autoPublishFacebook,
+        autoPublishYoutube: cfg.autoPublishYoutube,
+        autoPublishPortal: cfg.autoPublishPortal,
+      },
       stats: {
         reelsToday: todayJobs,
         reelsWeek: weekJobs,
@@ -124,14 +137,40 @@ export class AiInfluencerAdminController {
     return this.jobs.listJobs();
   }
 
+  @Get('jobs/active')
+  listActiveJobs() {
+    return this.jobs.listActiveJobs();
+  }
+
   @Get('jobs/:id')
   getJob(@Param('id') id: string) {
     return this.jobs.getJob(id);
   }
 
   @Post('jobs/from-article/:articleId')
-  createFromArticle(@Param('articleId') articleId: string) {
-    return this.jobs.createJobFromArticle(articleId);
+  createFromArticle(
+    @Param('articleId') articleId: string,
+    @Body() body?: { force?: boolean },
+  ) {
+    return this.jobs.createJobFromArticle(articleId, { force: body?.force === true });
+  }
+
+  @Post('jobs/:id/force-start')
+  forceStart(@Param('id') id: string) {
+    return this.jobs.forceStartJob(id);
+  }
+
+  @Post('jobs/:id/skip')
+  skipJob(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.jobs.skipJob(id, body?.reason);
+  }
+
+  @Post('automation/resume')
+  resumeAutomation() {
+    return this.settings.updateSettings({
+      automationPaused: false,
+      automationPauseReason: null,
+    });
   }
 
   @Post('jobs/:id/approve-script')

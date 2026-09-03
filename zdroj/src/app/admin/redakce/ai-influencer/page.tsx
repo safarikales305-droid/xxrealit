@@ -11,13 +11,17 @@ import { nestYoutubeOAuthConnectUrl } from '@/lib/editorial-center-client';
 import {
   nestAiInfluencerApproveScript,
   nestAiInfluencerArticles,
+  nestAiInfluencerActiveJobs,
   nestAiInfluencerCreateJob,
   nestAiInfluencerDashboard,
   nestAiInfluencerElevenLabsVoices,
+  nestAiInfluencerForceStartJob,
   nestAiInfluencerHeyGenAvatars,
   nestAiInfluencerJobs,
   nestAiInfluencerProfile,
+  nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerUpdateSettings,
   nestAiInfluencerPublishFacebook,
   nestAiInfluencerPublishYoutube,
   nestAiInfluencerRegenerateJob,
@@ -25,6 +29,7 @@ import {
   nestAiInfluencerTestFacebook,
   nestAiInfluencerTestVoice,
   nestAiInfluencerUpdateProfile,
+  type AiInfluencerActiveJob,
   type AiInfluencerArticleRow,
   type AiInfluencerDashboard,
   type AiInfluencerJobRow,
@@ -36,9 +41,31 @@ import {
 
 function statusTone(status: string) {
   if (status === 'READY' || status === 'PUBLISHED') return 'bg-emerald-100 text-emerald-800';
+  if (status === 'PARTIALLY_PUBLISHED') return 'bg-blue-100 text-blue-800';
+  if (status === 'SKIPPED_QUALITY' || status === 'SKIPPED_DUPLICATE') return 'bg-zinc-100 text-zinc-700';
+  if (status === 'CANDIDATE') return 'bg-violet-100 text-violet-800';
   if (status === 'FAILED') return 'bg-red-100 text-red-800';
   if (status === 'SCRIPT_READY') return 'bg-blue-100 text-blue-800';
   return 'bg-amber-100 text-amber-800';
+}
+
+function statusLabel(status: string) {
+  if (status === 'SKIPPED_QUALITY') return 'NEVYBRÁNO';
+  if (status === 'SKIPPED_DUPLICATE') return 'DUPLICITA';
+  if (status === 'CANDIDATE') return 'KANDIDÁT';
+  return status;
+}
+
+function isProcessing(status: string) {
+  return ![
+    'READY',
+    'PUBLISHED',
+    'PARTIALLY_PUBLISHED',
+    'FAILED',
+    'CANCELLED',
+    'SKIPPED_QUALITY',
+    'SKIPPED_DUPLICATE',
+  ].includes(status);
 }
 
 function providerLabel(connected: boolean | null, configured: boolean) {
@@ -98,6 +125,7 @@ export default function AiInfluencerPage() {
   const [dashboard, setDashboard] = useState<AiInfluencerDashboard | null>(null);
   const [articles, setArticles] = useState<AiInfluencerArticleRow[]>([]);
   const [jobs, setJobs] = useState<AiInfluencerJobRow[]>([]);
+  const [activeJobs, setActiveJobs] = useState<AiInfluencerActiveJob[]>([]);
   const [voicePreview, setVoicePreview] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
@@ -123,11 +151,13 @@ export default function AiInfluencerPage() {
       nestAiInfluencerDashboard(apiAccessToken),
       nestAiInfluencerArticles(apiAccessToken),
       nestAiInfluencerJobs(apiAccessToken),
+      nestAiInfluencerActiveJobs(apiAccessToken),
       nestAiInfluencerProfile(apiAccessToken),
-    ]).then(([d, a, j, profile]) => {
+    ]).then(([d, a, j, active, profile]) => {
       if (d) setDashboard(d);
       if (a) setArticles(a);
       if (j) setJobs(j);
+      if (active) setActiveJobs(active);
       if (profile && typeof profile.voiceId === 'string') {
         setSelectedVoiceId(profile.voiceId);
       }
@@ -161,6 +191,15 @@ export default function AiInfluencerPage() {
 
   useEffect(load, [apiAccessToken]);
 
+  useEffect(() => {
+    if (!apiAccessToken) return;
+    const hasActive =
+      activeJobs.length > 0 || jobs.some((j) => isProcessing(j.status));
+    if (!hasActive) return;
+    const id = window.setInterval(() => load(), 3000);
+    return () => window.clearInterval(id);
+  }, [apiAccessToken, activeJobs.length, jobs]);
+
   if (isLoading || !user) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -174,6 +213,65 @@ export default function AiInfluencerPage() {
       title="AI Influencer"
       subtitle="Automatická výroba Reelů 9:16 z článků — master video, Facebook Reels a YouTube Shorts."
     >
+      <section className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">AI Influencer automatika</h2>
+            <p className="text-xs text-zinc-500">
+              Dnes: {dashboard?.automation?.videosToday ?? 0} / {dashboard?.automation?.maxVideosPerDay ?? dashboard?.settings.maxPerDay ?? 5} videí
+              {dashboard?.automation?.nextCheckInMinutes != null
+                ? ` · další kontrola za ${dashboard.automation.nextCheckInMinutes} min`
+                : null}
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-sm font-semibold ${
+              dashboard?.automation?.paused
+                ? 'bg-red-100 text-red-800'
+                : dashboard?.automation?.enabled
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-zinc-100 text-zinc-700'
+            }`}
+          >
+            {dashboard?.automation?.paused
+              ? 'POZASTAVENO'
+              : dashboard?.automation?.enabled
+                ? 'ZAPNUTO'
+                : 'VYPNUTO'}
+          </span>
+        </div>
+        {dashboard?.automation?.paused && dashboard.automation.pauseReason ? (
+          <p className="mt-2 text-sm text-red-700">
+            Důvod: {dashboard.automation.pauseReason}
+            {apiAccessToken ? (
+              <button
+                type="button"
+                className="ml-3 text-sm font-medium text-orange-700 underline"
+                onClick={() => void nestAiInfluencerResumeAutomation(apiAccessToken).then(load)}
+              >
+                Obnovit
+              </button>
+            ) : null}
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-4 text-sm text-zinc-700">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={dashboard?.settings.enabled ?? false}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, { enabled: e.target.checked }).then(load);
+              }}
+            />
+            Automaticky vytvářet AI Reels
+          </label>
+          <span>FB: {dashboard?.automation?.autoPublishFacebook ? '✓' : '—'}</span>
+          <span>YT: {dashboard?.automation?.autoPublishYoutube ? '✓' : dashboard?.providers.youtube?.connected ? '—' : '⚠'}</span>
+          <span>Shorts: {dashboard?.automation?.autoPublishPortal ? '✓' : '—'}</span>
+        </div>
+      </section>
+
       <div className="grid gap-4 md:grid-cols-4">
         {[
           ['Dnes', dashboard?.stats.reelsToday ?? 0],
@@ -547,28 +645,48 @@ export default function AiInfluencerPage() {
                   <td className="py-3 pr-4">
                     {a.latestJob ? (
                       <span className={`rounded-full px-2 py-0.5 text-xs ${statusTone(a.latestJob.status)}`}>
-                        {a.latestJob.status}
+                        {statusLabel(a.latestJob.status)}
                       </span>
+                    ) : a.reelScore != null ? (
+                      <span className="text-xs text-zinc-600">Score {a.reelScore}</span>
                     ) : (
                       '—'
                     )}
                   </td>
                   <td className="py-3">
-                    <button
-                      type="button"
-                      disabled={!apiAccessToken || busy === a.id}
-                      onClick={() => {
-                        if (!apiAccessToken) return;
-                        setBusy(a.id);
-                        void nestAiInfluencerCreateJob(apiAccessToken, a.id).then(() => {
-                          setBusy(null);
-                          load();
-                        });
-                      }}
-                      className="text-sm font-medium text-orange-700 hover:underline disabled:opacity-50"
-                    >
-                      Vytvořit AI Reel
-                    </button>
+                    {a.latestJob?.status === 'SKIPPED_QUALITY' ? (
+                      <button
+                        type="button"
+                        disabled={!apiAccessToken || busy === a.id}
+                        onClick={() => {
+                          if (!apiAccessToken) return;
+                          setBusy(a.id);
+                          void nestAiInfluencerForceStartJob(apiAccessToken, a.latestJob!.id).then(() => {
+                            setBusy(null);
+                            load();
+                          });
+                        }}
+                        className="text-sm font-medium text-orange-700 hover:underline disabled:opacity-50"
+                      >
+                        Vytvořit i tak
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!apiAccessToken || busy === a.id}
+                        onClick={() => {
+                          if (!apiAccessToken) return;
+                          setBusy(a.id);
+                          void nestAiInfluencerCreateJob(apiAccessToken, a.id).then(() => {
+                            setBusy(null);
+                            load();
+                          });
+                        }}
+                        className="text-sm font-medium text-orange-700 hover:underline disabled:opacity-50"
+                      >
+                        Vytvořit AI Reel
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -588,11 +706,30 @@ export default function AiInfluencerPage() {
                   <p className="text-xs text-zinc-500">{job.selectedHook || '—'}</p>
                 </div>
                 <span className={`rounded-full px-2 py-0.5 text-xs ${statusTone(job.status)}`}>
-                  {job.status}
+                  {statusLabel(job.status)}
                 </span>
               </div>
+              {isProcessing(job.status) && (job.progressPercent ?? 0) > 0 ? (
+                <div className="mt-2">
+                  <div className="mb-1 flex justify-between text-xs text-zinc-600">
+                    <span>{job.currentStep ?? 'Generuji…'}</span>
+                    <span>{job.progressPercent ?? 0} %</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+                    <div
+                      className="h-full rounded-full bg-orange-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, job.progressPercent ?? 0)}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {job.skipReason ? (
+                <p className="mt-2 text-xs text-zinc-600">{job.skipReason}</p>
+              ) : null}
               {job.errorMessage ? (
-                <p className="mt-2 text-xs text-red-700">{job.errorMessage}</p>
+                <p className="mt-2 text-xs text-red-700">
+                  Krok: {job.failedStage ?? '—'} — {job.errorMessage}
+                </p>
               ) : null}
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
                 <span>FB: {job.facebookPublishStatus ?? '—'}</span>
@@ -632,7 +769,20 @@ export default function AiInfluencerPage() {
                     }}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
                   >
-                    Zkusit znovu
+                    Zkusit znovu od {job.failedStage ?? 'kroku'}
+                  </button>
+                ) : null}
+                {job.status === 'SKIPPED_QUALITY' ? (
+                  <button
+                    type="button"
+                    disabled={!apiAccessToken}
+                    onClick={() => {
+                      if (!apiAccessToken) return;
+                      void nestAiInfluencerForceStartJob(apiAccessToken, job.id).then(load);
+                    }}
+                    className="rounded border border-orange-300 px-3 py-1 text-xs font-medium text-orange-800"
+                  >
+                    Vytvořit i tak
                   </button>
                 ) : null}
                 {job.finalMasterUrl ?? job.videoUrl ? (

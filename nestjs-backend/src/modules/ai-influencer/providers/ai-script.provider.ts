@@ -1,4 +1,4 @@
-import type { ArticleScoreResult, ReelScriptPayload } from '../ai-influencer.types';
+import type { ArticleScoreResult, AiInfluencerAutomationSettings, ReelScriptPayload } from '../ai-influencer.types';
 
 export type ArticleForReel = {
   id: string;
@@ -22,6 +22,7 @@ export interface AiScriptProvider {
     targetDurationSec: number;
     personalityPrompt?: string | null;
     performanceHints?: string[];
+    brandingSettings?: AiInfluencerAutomationSettings;
   }): Promise<{
     script: ReelScriptPayload;
     hookCandidates: string[];

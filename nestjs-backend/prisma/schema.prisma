@@ -8145,6 +8145,9 @@ enum AiInfluencerReelJobStatus {
   READY
   PUBLISHING
   PUBLISHED
+  PARTIALLY_PUBLISHED
+  SKIPPED_QUALITY
+  SKIPPED_DUPLICATE
   FAILED
   CANCELLED
 }
@@ -8249,6 +8252,13 @@ model AiInfluencerReelJob {
   profileId            String
   profile              AiInfluencerProfile         @relation(fields: [profileId], references: [id])
   status               AiInfluencerReelJobStatus @default(EVALUATING)
+  progressPercent      Int                       @default(0)
+  currentStep          String?
+  skipReason           String?                   @db.Text
+  forceOverride        Boolean                   @default(false)
+  spokenTextTts        String?                   @db.Text
+  nextRetryAt          DateTime?
+  automationPaused     Boolean                   @default(false)
   contentFormat        AiInfluencerContentFormat?
   failedStage          String?
   errorCode            String?

@@ -127,6 +127,18 @@ export class AiInfluencerRenderService {
         videoForMux = withLogo;
       }
 
+      if (settings.watermark.enabled && settings.watermark.text.trim()) {
+        const withWatermark = join(tmpRoot, 'with-watermark.mp4');
+        await this.overlayWatermark(
+          ffmpeg.path,
+          videoForMux,
+          settings,
+          withWatermark,
+          targetDuration,
+        );
+        videoForMux = withWatermark;
+      }
+
       const outputPath = join(tmpRoot, 'final.mp4');
       await this.muxAudio(ffmpeg.path, {
         videoPath: videoForMux,
@@ -285,6 +297,38 @@ export class AiInfluencerRenderService {
       logoPath,
       '-filter_complex',
       `[1:v]scale=${size}:${size}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=${opacity}[logo];[0:v][logo]overlay=${x}:${y}:format=auto,scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT},setsar=1`,
+      '-t',
+      String(duration),
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-an',
+      outPath,
+    ]);
+  }
+
+  private async overlayWatermark(
+    ffmpegPath: string,
+    videoPath: string,
+    settings: AiInfluencerRenderSettings,
+    outPath: string,
+    duration: number,
+  ): Promise<void> {
+    const text = settings.watermark.text.replace(/'/g, "\\'").replace(/:/g, '\\:');
+    const y = settings.watermark.y;
+    const alpha = settings.watermark.opacity;
+    const fontSize = settings.watermark.fontSize;
+    await this.runFfmpeg(ffmpegPath, [
+      '-y',
+      '-i',
+      videoPath,
+      '-vf',
+      `drawtext=text='${text}':fontsize=${fontSize}:fontcolor=white@${alpha}:x=(w-text_w)/2:y=${y}:shadowcolor=black@0.35:shadowx=1:shadowy=1`,
       '-t',
       String(duration),
       '-c:v',

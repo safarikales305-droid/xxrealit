@@ -17,8 +17,22 @@ import { tmpdir } from 'node:os';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
-import { mergeRenderSettings } from './ai-influencer-render.types';
+import { mergeRenderSettings, REEL_CANVAS_HEIGHT, REEL_CANVAS_WIDTH } from './ai-influencer-render.types';
 import { appendTimelineEvent } from './ai-influencer-timeline.util';
+import {
+  isAuthError,
+  isTransientError,
+  progressForStatus,
+  retryDelayMs,
+} from './ai-influencer-progress.util';
+import {
+  applyBrandTtsSubstitution,
+  decodeHtmlEntities,
+  ensureBrandMention,
+  normalizeArticleTitle,
+  titleSimilarity,
+} from './ai-influencer-text.util';
+import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerRenderService } from './ai-influencer-render.service';
@@ -61,14 +75,63 @@ export class AiInfluencerJobService {
   ) {}
 
   async listJobs(limit = 50) {
-    return this.prisma.aiInfluencerReelJob.findMany({
+    const jobs = await this.prisma.aiInfluencerReelJob.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,
       include: {
         article: { select: { id: true, title: true, publishedAt: true, status: true } },
         profile: { select: { id: true, name: true, slug: true } },
+        candidate: { select: { reelPotentialScore: true } },
       },
     });
+    return jobs.map((j) => ({
+      ...j,
+      article: {
+        ...j.article,
+        title: decodeHtmlEntities(j.article.title),
+      },
+    }));
+  }
+
+  async listActiveJobs() {
+    const active = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.EVALUATING,
+            AiInfluencerReelJobStatus.CANDIDATE,
+            AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+            AiInfluencerReelJobStatus.SCRIPT_READY,
+            AiInfluencerReelJobStatus.VOICE_GENERATING,
+            AiInfluencerReelJobStatus.VOICE_READY,
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_READY,
+            AiInfluencerReelJobStatus.RENDERING,
+            AiInfluencerReelJobStatus.PUBLISHING,
+          ],
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      include: {
+        article: { select: { id: true, title: true } },
+        candidate: { select: { reelPotentialScore: true } },
+      },
+    });
+    return active.map((j) => ({
+      id: j.id,
+      status: j.status,
+      progressPercent: j.progressPercent,
+      currentStep: j.currentStep,
+      errorMessage: j.errorMessage,
+      failedStage: j.failedStage,
+      skipReason: j.skipReason,
+      facebookPublishStatus: j.facebookPublishStatus,
+      youtubePublishStatus: j.youtubePublishStatus,
+      articleTitle: decodeHtmlEntities(j.article.title),
+      score: j.candidate?.reelPotentialScore ?? null,
+      updatedAt: j.updatedAt,
+    }));
   }
 
   async getJob(id: string): Promise<AiInfluencerJobWithRelations> {
@@ -109,7 +172,7 @@ export class AiInfluencerJobService {
     });
     return articles.map((a) => ({
       id: a.id,
-      title: a.title,
+      title: decodeHtmlEntities(a.title),
       publishedAt: a.publishedAt,
       category: a.category,
       ogImageUrl: a.ogImageUrl,
@@ -118,7 +181,10 @@ export class AiInfluencerJobService {
     }));
   }
 
-  async createJobFromArticle(articleId: string): Promise<AiInfluencerJobWithRelations> {
+  async createJobFromArticle(
+    articleId: string,
+    options?: { force?: boolean },
+  ): Promise<AiInfluencerJobWithRelations> {
     const article = await this.prisma.newsArticle.findUnique({ where: { id: articleId } });
     if (!article || article.status !== NewsArticleStatus.PUBLISHED) {
       throw new BadRequestException('Článek není publikovaný.');
@@ -129,6 +195,9 @@ export class AiInfluencerJobService {
         articleId,
         profileId: profile.id,
         status: AiInfluencerReelJobStatus.EVALUATING,
+        forceOverride: options?.force === true,
+        progressPercent: 5,
+        currentStep: 'Příprava',
       },
     });
     await this.advanceJob(job.id);
@@ -148,17 +217,60 @@ export class AiInfluencerJobService {
     return this.getJob(jobId);
   }
 
+  async forceStartJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
+    const job = await this.getJob(jobId);
+    if (job.status !== AiInfluencerReelJobStatus.SKIPPED_QUALITY) {
+      throw new BadRequestException('Force start je dostupný pouze pro SKIPPED_QUALITY.');
+    }
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.CANDIDATE,
+        forceOverride: true,
+        skipReason: null,
+        errorMessage: null,
+        failedStage: null,
+        progressPercent: 15,
+        currentStep: 'Kandidát vybrán (ruční override)',
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'MANUAL_OVERRIDE'),
+      },
+    });
+    await this.advanceJob(jobId);
+    return this.getJob(jobId);
+  }
+
+  async skipJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.CANCELLED,
+        skipReason: reason ?? 'Přeskočeno administrátorem',
+        progressPercent: 100,
+        currentStep: 'Zrušeno',
+      },
+    });
+    return this.getJob(jobId);
+  }
+
   async retryJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
     const job = await this.getJob(jobId);
-    const resumeStatus = this.resumeStatus(job.status, job.failedStage);
+    if (job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY) {
+      return this.forceStartJob(jobId);
+    }
+    const resumeStatus = this.resumeStatus(job.status, job.failedStage, job);
+    const progress = progressForStatus(resumeStatus);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
         status: resumeStatus,
         errorCode: null,
         errorMessage: null,
+        nextRetryAt: null,
         attemptCount: { increment: 1 },
         lastAttemptAt: new Date(),
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY', resumeStatus),
       },
     });
     await this.advanceJob(jobId);
@@ -173,8 +285,14 @@ export class AiInfluencerJobService {
     const job = await this.getJob(jobId);
     if (
       job.status === AiInfluencerReelJobStatus.PUBLISHED ||
-      job.status === AiInfluencerReelJobStatus.CANCELLED
+      job.status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED ||
+      job.status === AiInfluencerReelJobStatus.CANCELLED ||
+      job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY ||
+      job.status === AiInfluencerReelJobStatus.SKIPPED_DUPLICATE
     ) {
+      return;
+    }
+    if (job.nextRetryAt && job.nextRetryAt.getTime() > Date.now()) {
       return;
     }
 
@@ -187,11 +305,26 @@ export class AiInfluencerJobService {
           await this.runScriptGeneration(jobId);
           return;
         case AiInfluencerReelJobStatus.SCRIPT_GENERATING:
+          await this.runScriptGeneration(jobId);
+          return;
         case AiInfluencerReelJobStatus.SCRIPT_READY:
+          if (this.settings.getCached().approvalMode !== 'MANUAL') {
+            await this.prisma.aiInfluencerReelJob.update({
+              where: { id: jobId },
+              data: { status: AiInfluencerReelJobStatus.VOICE_GENERATING },
+            });
+            await this.runVoiceGeneration(jobId);
+          }
+          return;
         case AiInfluencerReelJobStatus.RENDERING:
+          await this.runRender(jobId);
+          return;
         case AiInfluencerReelJobStatus.FAILED:
           return;
         case AiInfluencerReelJobStatus.READY:
+          await this.runAutoPublish(jobId);
+          return;
+        case AiInfluencerReelJobStatus.PUBLISHING:
           await this.runAutoPublish(jobId);
           return;
         case AiInfluencerReelJobStatus.VOICE_GENERATING:
@@ -211,7 +344,7 @@ export class AiInfluencerJobService {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.failJob(jobId, job.status, errorCode(err), message);
+      await this.failJob(jobId, job.status, errorCode(err), message, err);
       throw err;
     }
   }
@@ -219,23 +352,57 @@ export class AiInfluencerJobService {
   private resumeStatus(
     status: AiInfluencerReelJobStatus,
     failedStage: string | null,
+    job: AiInfluencerJobWithRelations,
   ): AiInfluencerReelJobStatus {
     if (failedStage === 'VOICE') return AiInfluencerReelJobStatus.VOICE_GENERATING;
     if (failedStage === 'AVATAR') {
-      return status === AiInfluencerReelJobStatus.FAILED && failedStage === 'AVATAR'
+      return job.avatarExternalJobId
         ? AiInfluencerReelJobStatus.AVATAR_GENERATING
         : AiInfluencerReelJobStatus.VOICE_READY;
     }
     if (failedStage === 'RENDER') return AiInfluencerReelJobStatus.AVATAR_READY;
-    if (failedStage === 'SCRIPT') return AiInfluencerReelJobStatus.CANDIDATE;
-    if (failedStage === 'EVALUATION') return AiInfluencerReelJobStatus.EVALUATING;
-    if (status === AiInfluencerReelJobStatus.FAILED) return AiInfluencerReelJobStatus.EVALUATING;
-    return status;
+    if (failedStage === 'SCRIPT') {
+      return job.spokenText ? AiInfluencerReelJobStatus.SCRIPT_READY : AiInfluencerReelJobStatus.CANDIDATE;
+    }
+    if (failedStage === 'PUBLISH') return AiInfluencerReelJobStatus.READY;
+    if (status === AiInfluencerReelJobStatus.FAILED && job.spokenText && job.voiceStorageUrl) {
+      if (job.avatarStorageUrl) return AiInfluencerReelJobStatus.AVATAR_READY;
+      if (job.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      return AiInfluencerReelJobStatus.VOICE_READY;
+    }
+    if (status === AiInfluencerReelJobStatus.FAILED && job.spokenText) {
+      return AiInfluencerReelJobStatus.SCRIPT_READY;
+    }
+    return AiInfluencerReelJobStatus.CANDIDATE;
+  }
+
+  private async setProgress(
+    jobId: string,
+    status: AiInfluencerReelJobStatus,
+    avatarPollRatio?: number,
+    timelineLabel?: string,
+  ): Promise<void> {
+    const meta = progressForStatus(status, avatarPollRatio);
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      select: { timelineEvents: true },
+    });
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: meta.percent,
+        currentStep: meta.step,
+        timelineEvents: timelineLabel
+          ? appendTimelineEvent(job?.timelineEvents, timelineLabel, meta.step)
+          : undefined,
+      },
+    });
   }
 
   private async runEvaluation(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
-    if (job.candidateId) {
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.EVALUATING, undefined, 'EVALUATION_STARTED');
+    if (job.candidateId && !job.forceOverride) {
       if (job.status !== AiInfluencerReelJobStatus.CANDIDATE) {
         await this.prisma.aiInfluencerReelJob.update({
           where: { id: jobId },
@@ -248,8 +415,8 @@ export class AiInfluencerJobService {
     const article = job.article;
     const { result, costCzk } = await this.scriptProvider.evaluateArticle({
       id: article.id,
-      title: article.title,
-      perex: article.perex,
+      title: decodeHtmlEntities(article.title),
+      perex: decodeHtmlEntities(article.perex ?? ''),
       bodyMarkdown: article.bodyMarkdown,
       category: article.category,
       region: article.region,
@@ -276,10 +443,11 @@ export class AiInfluencerJobService {
     });
 
     const cfg = this.settings.getCached();
-    const nextStatus =
-      result.reelPotentialScore >= cfg.minScore
-        ? AiInfluencerReelJobStatus.CANDIDATE
-        : AiInfluencerReelJobStatus.FAILED;
+    const passes = result.reelPotentialScore >= cfg.minScore || job.forceOverride;
+    const nextStatus = passes
+      ? AiInfluencerReelJobStatus.CANDIDATE
+      : AiInfluencerReelJobStatus.SKIPPED_QUALITY;
+    const progress = progressForStatus(nextStatus);
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -289,11 +457,19 @@ export class AiInfluencerJobService {
         contentFormat: result.contentFormat ?? undefined,
         aiCostEstimated: { increment: costCzk },
         totalExternalCost: { increment: costCzk },
-        errorMessage:
-          nextStatus === AiInfluencerReelJobStatus.FAILED
-            ? `Score ${result.reelPotentialScore} je pod minimem ${cfg.minScore}.`
-            : null,
-        failedStage: nextStatus === AiInfluencerReelJobStatus.FAILED ? 'EVALUATION' : null,
+        skipReason: passes
+          ? null
+          : `Nízký potenciál pro AI Reel — score ${result.reelPotentialScore} / ${cfg.minScore}`,
+        errorMessage: null,
+        failedStage: null,
+        progressPercent: progress.percent,
+        currentStep: passes
+          ? `Kandidát · score ${result.reelPotentialScore}/${cfg.minScore}`
+          : `Nevybráno · score ${result.reelPotentialScore}/${cfg.minScore}`,
+        timelineEvents: appendTimelineEvent(
+          appendTimelineEvent(job.timelineEvents, 'EVALUATION_SCORE', String(result.reelPotentialScore)),
+          passes ? 'CANDIDATE_SELECTED' : 'SKIPPED_QUALITY',
+        ),
       },
     });
   }
@@ -310,6 +486,22 @@ export class AiInfluencerJobService {
       return;
     }
 
+    if (!existing.forceOverride && (await this.isDuplicateTopic(existing))) {
+      const progress = progressForStatus(AiInfluencerReelJobStatus.SKIPPED_DUPLICATE);
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          status: AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
+          skipReason: 'Velmi podobné AI Reel již existuje (posledních 7 dní)',
+          progressPercent: progress.percent,
+          currentStep: progress.step,
+          timelineEvents: appendTimelineEvent(existing.timelineEvents, 'SKIPPED_DUPLICATE'),
+        },
+      });
+      return;
+    }
+
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.SCRIPT_GENERATING, undefined, 'SCRIPT_STARTED');
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: { status: AiInfluencerReelJobStatus.SCRIPT_GENERATING },
@@ -321,8 +513,8 @@ export class AiInfluencerJobService {
       await this.scriptProvider.generateScript({
         article: {
           id: job.article.id,
-          title: job.article.title,
-          perex: job.article.perex,
+          title: decodeHtmlEntities(job.article.title),
+          perex: decodeHtmlEntities(job.article.perex ?? ''),
           bodyMarkdown: job.article.bodyMarkdown,
           category: job.article.category,
           region: job.article.region,
@@ -332,13 +524,19 @@ export class AiInfluencerJobService {
         },
         targetDurationSec: cfg.targetDurationSec,
         personalityPrompt: job.profile.personalityPrompt,
+        brandingSettings: cfg,
       });
+
+    const spokenWithBrand = ensureBrandMention(script.spokenText, cfg);
+    script.spokenText = spokenWithBrand;
+    const spokenTextTts = applyBrandTtsSubstitution(spokenWithBrand, cfg);
 
     const scenes = await this.resolveScenes(job.article, script);
     const nextStatus =
       cfg.approvalMode === 'FULL_AUTO'
         ? AiInfluencerReelJobStatus.VOICE_GENERATING
         : AiInfluencerReelJobStatus.SCRIPT_READY;
+    const progress = progressForStatus(nextStatus);
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -347,8 +545,9 @@ export class AiInfluencerJobService {
         hookCandidates,
         selectedHook,
         scriptJson: script as object,
-        spokenText: script.spokenText,
-        captionTitle: script.captionTitle,
+        spokenText: spokenWithBrand,
+        spokenTextTts,
+        captionTitle: decodeHtmlEntities(script.captionTitle),
         captionDescription: script.captionDescription,
         hashtags: script.hashtags.join(' '),
         estimatedDurationSec: script.estimatedDuration,
@@ -357,12 +556,64 @@ export class AiInfluencerJobService {
         contentFormat: script.contentFormat ?? job.contentFormat ?? undefined,
         aiCostEstimated: { increment: costCzk },
         totalExternalCost: { increment: costCzk },
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'SCRIPT_GENERATED'),
       },
     });
+
+    if (nextStatus === AiInfluencerReelJobStatus.VOICE_GENERATING) {
+      await this.runVoiceGeneration(jobId);
+    }
+  }
+
+  private async isDuplicateTopic(job: AiInfluencerJobWithRelations): Promise<boolean> {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const sameArticle = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: {
+        articleId: job.articleId,
+        id: { not: job.id },
+        createdAt: { gte: since },
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.READY,
+            AiInfluencerReelJobStatus.PUBLISHED,
+            AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+            AiInfluencerReelJobStatus.PUBLISHING,
+          ],
+        },
+      },
+    });
+    if (sameArticle) return true;
+
+    const recent = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        id: { not: job.id },
+        createdAt: { gte: since },
+        status: {
+          notIn: [
+            AiInfluencerReelJobStatus.FAILED,
+            AiInfluencerReelJobStatus.CANCELLED,
+            AiInfluencerReelJobStatus.SKIPPED_QUALITY,
+            AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
+          ],
+        },
+      },
+      include: { article: { select: { title: true } } },
+      take: 40,
+      orderBy: { createdAt: 'desc' },
+    });
+    const title = job.article.title;
+    for (const other of recent) {
+      if (normalizeArticleTitle(title) === normalizeArticleTitle(other.article.title)) return true;
+      if (titleSimilarity(title, other.article.title) >= 0.78) return true;
+    }
+    return false;
   }
 
   private async runVoiceGeneration(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.VOICE_GENERATING, undefined, 'VOICE_STARTED');
     if (job.voiceStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.VOICE_READY) {
         await this.prisma.aiInfluencerReelJob.update({
@@ -373,7 +624,7 @@ export class AiInfluencerJobService {
       return;
     }
 
-    const spokenText = job.spokenText?.trim();
+    const spokenText = job.spokenTextTts?.trim() || job.spokenText?.trim();
     if (!spokenText) throw new Error('Chybí spokenText pro voice-over.');
 
     const voiceProvider = this.registry.getVoiceProvider(job.profile.voiceProvider);
@@ -428,6 +679,7 @@ export class AiInfluencerJobService {
       });
     }
 
+    const progress = progressForStatus(AiInfluencerReelJobStatus.VOICE_READY);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -436,6 +688,9 @@ export class AiInfluencerJobService {
         voiceHash,
         voiceCostEstimated: voiceCost,
         totalExternalCost: { increment: voiceCost },
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VOICE_GENERATED'),
       },
     });
   }
@@ -492,6 +747,7 @@ export class AiInfluencerJobService {
       avatarId: avatarId ?? undefined,
     });
 
+    const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -500,6 +756,9 @@ export class AiInfluencerJobService {
         avatarHash: started.contentHash,
         avatarCostEstimated: started.costEstimatedCzk,
         totalExternalCost: { increment: started.costEstimatedCzk },
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'HEYGEN_REQUESTED', started.externalJobId),
       },
     });
   }
@@ -522,6 +781,10 @@ export class AiInfluencerJobService {
     const poll = await avatarProvider.pollGeneration(job.avatarExternalJobId);
 
     if (poll.status === 'QUEUED' || poll.status === 'GENERATING') {
+      const startedAt = job.lastAttemptAt ?? job.updatedAt;
+      const elapsed = Date.now() - startedAt.getTime();
+      const ratio = Math.min(1, elapsed / (4 * 60 * 1000));
+      await this.setProgress(jobId, AiInfluencerReelJobStatus.AVATAR_GENERATING, ratio);
       return;
     }
     if (poll.status === 'FAILED') {
@@ -545,11 +808,15 @@ export class AiInfluencerJobService {
       externalJobId: job.avatarExternalJobId,
     });
 
+    const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_READY);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
         status: AiInfluencerReelJobStatus.AVATAR_READY,
         avatarStorageUrl: videoUrl,
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'HEYGEN_COMPLETED'),
       },
     });
   }
@@ -585,20 +852,33 @@ export class AiInfluencerJobService {
     const job = await this.getJob(jobId);
     if (!job.finalMasterUrl && !job.videoUrl) return;
 
-    if (cfg.autoPublishFacebook && job.facebookPublishStatus !== ReelPlatformPublishStatus.PUBLISHED) {
+    const fbAuto =
+      cfg.autoPublishFacebook && cfg.facebookPublishMode === 'AUTO_AFTER_GENERATION';
+    const ytAuto =
+      cfg.autoPublishYoutube && cfg.youtubePublishMode === 'AUTO_AFTER_GENERATION';
+    if (!fbAuto && !ytAuto) return;
+
+    let fbOk = job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    let ytOk = job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+
+    if (fbAuto && !fbOk) {
       try {
         await this.publish.publishToFacebook(jobId);
+        fbOk = true;
       } catch (err) {
         this.log.warn(`Auto Facebook publish failed for ${jobId}: ${err}`);
       }
     }
-    if (cfg.autoPublishYoutube && job.youtubePublishStatus !== ReelPlatformPublishStatus.PUBLISHED) {
+    if (ytAuto && !ytOk) {
       try {
         await this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus);
+        ytOk = true;
       } catch (err) {
         this.log.warn(`Auto YouTube publish failed for ${jobId}: ${err}`);
       }
     }
+
+    await this.publish.syncOverallPublishStatus(jobId);
   }
 
   private async runRender(jobId: string): Promise<void> {
@@ -617,6 +897,7 @@ export class AiInfluencerJobService {
       where: { id: jobId },
       data: { status: AiInfluencerReelJobStatus.RENDERING },
     });
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'COMPOSITOR_STARTED');
 
     const job = await this.getJob(jobId);
     if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
@@ -631,6 +912,30 @@ export class AiInfluencerJobService {
         undefined,
     );
     renderSettings.music.trackId = job.musicTrackId ?? cfg.defaultMusicTrackId ?? null;
+    if (cfg.brandingEnabled) {
+      renderSettings.branding.logoEnabled = cfg.logoEnabled;
+      renderSettings.branding.logoOpacity = cfg.logoOpacity;
+      const logoSize = Math.round((REEL_CANVAS_WIDTH * cfg.logoScalePercent) / 100);
+      renderSettings.branding.logoSize = logoSize;
+      const pad = cfg.logoPaddingPx;
+      if (cfg.logoPosition === 'top_left') {
+        renderSettings.branding.logoX = pad;
+        renderSettings.branding.logoY = pad;
+      } else if (cfg.logoPosition === 'top_right') {
+        renderSettings.branding.logoX = REEL_CANVAS_WIDTH - logoSize - pad;
+        renderSettings.branding.logoY = pad;
+      } else if (cfg.logoPosition === 'bottom_left') {
+        renderSettings.branding.logoX = pad;
+        renderSettings.branding.logoY = REEL_CANVAS_HEIGHT - logoSize - pad - 200;
+      } else {
+        renderSettings.branding.logoX = REEL_CANVAS_WIDTH - logoSize - pad;
+        renderSettings.branding.logoY = REEL_CANVAS_HEIGHT - logoSize - pad - 200;
+      }
+      renderSettings.watermark.enabled = cfg.websiteWatermarkEnabled;
+      renderSettings.watermark.text = cfg.websiteText;
+      renderSettings.watermark.opacity = cfg.websiteWatermarkOpacity;
+      renderSettings.watermark.fontSize = cfg.websiteWatermarkFontSize;
+    }
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -656,6 +961,7 @@ export class AiInfluencerJobService {
     }
 
     const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? [];
+    const logoPath = cfg.logoEnabled ? resolveShortsLogoPath() : null;
     const result = await this.render.render({
       avatarVideoPath: avatarPath,
       voiceAudioPath: voicePath,
@@ -663,6 +969,7 @@ export class AiInfluencerJobService {
       hookText: job.selectedHook ?? job.captionTitle ?? '',
       spokenText: job.spokenText ?? undefined,
       musicFilePath,
+      logoPath,
       settings: renderSettings,
     });
 
@@ -679,6 +986,7 @@ export class AiInfluencerJobService {
       'VALIDATION_PASSED',
     );
 
+    const readyProgress = progressForStatus(AiInfluencerReelJobStatus.READY);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -692,8 +1000,12 @@ export class AiInfluencerJobService {
         thumbnailUrl: job.article.ogImageUrl,
         renderedAt: new Date(),
         timelineEvents: appendTimelineEvent(timeline, 'CLOUDINARY_UPLOADED'),
+        progressPercent: readyProgress.percent,
+        currentStep: readyProgress.step,
       },
     });
+
+    await this.runAutoPublish(jobId);
   }
 
   private async resolveScenes(
@@ -729,7 +1041,9 @@ export class AiInfluencerJobService {
     stage: AiInfluencerReelJobStatus,
     code: string | null,
     message: string,
+    err?: unknown,
   ): Promise<void> {
+    const job = await this.getJob(jobId);
     const failedStage =
       stage === AiInfluencerReelJobStatus.VOICE_GENERATING
         ? 'VOICE'
@@ -739,8 +1053,33 @@ export class AiInfluencerJobService {
             ? 'RENDER'
             : stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING
               ? 'SCRIPT'
-              : 'EVALUATION';
+              : stage === AiInfluencerReelJobStatus.PUBLISHING
+                ? 'PUBLISH'
+                : 'UNKNOWN';
 
+    const attempts = job.attemptCount + 1;
+    const transient = isTransientError(err ?? { message });
+    const auth = isAuthError(err ?? { message });
+
+    if (transient && !auth && attempts < 4) {
+      const delay = retryDelayMs(attempts);
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          attemptCount: attempts,
+          nextRetryAt: new Date(Date.now() + delay),
+          failedStage,
+          errorCode: code,
+          errorMessage: `${message} — retry ${attempts}/3 za ${Math.round(delay / 1000)}s`,
+          lastAttemptAt: new Date(),
+          timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY_SCHEDULED', failedStage),
+        },
+      });
+      this.log.warn(`Job ${jobId} scheduled retry ${attempts} at ${failedStage}: ${message}`);
+      return;
+    }
+
+    const progress = progressForStatus(AiInfluencerReelJobStatus.FAILED);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -749,6 +1088,10 @@ export class AiInfluencerJobService {
         errorCode: code,
         errorMessage: message,
         lastAttemptAt: new Date(),
+        attemptCount: attempts,
+        progressPercent: progress.percent,
+        currentStep: `Generování selhalo · ${failedStage}`,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'FAILED', failedStage),
       },
     });
     this.log.warn(`Job ${jobId} failed at ${failedStage}: ${message}`);

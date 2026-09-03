@@ -119,6 +119,17 @@ export type AiInfluencerDashboard = {
     costTodayCzk: number;
     costMonthCzk: number;
   };
+  automation?: {
+    enabled: boolean;
+    paused: boolean;
+    pauseReason: string | null;
+    nextCheckInMinutes: number;
+    videosToday: number;
+    maxVideosPerDay: number;
+    autoPublishFacebook: boolean;
+    autoPublishYoutube: boolean;
+    autoPublishPortal: boolean;
+  };
   providers: {
     ready?: AiInfluencerReadyStatus;
     ai?: { configured: boolean; connected: boolean | null };
@@ -167,9 +178,29 @@ export type AiInfluencerArticleRow = {
   latestJob: { id: string; status: string; candidate?: { reelPotentialScore: number } | null } | null;
 };
 
+export type AiInfluencerActiveJob = {
+  id: string;
+  status: string;
+  progressPercent: number;
+  currentStep: string | null;
+  errorMessage: string | null;
+  failedStage: string | null;
+  skipReason: string | null;
+  facebookPublishStatus: string | null;
+  youtubePublishStatus: string | null;
+  articleTitle: string;
+  score: number | null;
+  updatedAt: string;
+};
+
 export type AiInfluencerJobRow = {
   id: string;
   status: string;
+  progressPercent?: number;
+  currentStep?: string | null;
+  skipReason?: string | null;
+  spokenText?: string | null;
+  spokenTextTts?: string | null;
   selectedHook: string | null;
   videoUrl: string | null;
   finalMasterUrl?: string | null;
@@ -206,10 +237,25 @@ export function nestAiInfluencerJobs(token: string) {
   return aiInfluencerFetch<AiInfluencerJobRow[]>(token, '/jobs');
 }
 
-export function nestAiInfluencerCreateJob(token: string, articleId: string) {
+export function nestAiInfluencerActiveJobs(token: string) {
+  return aiInfluencerFetch<AiInfluencerActiveJob[]>(token, '/jobs/active');
+}
+
+export function nestAiInfluencerCreateJob(token: string, articleId: string, force = false) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/from-article/${articleId}`, {
     method: 'POST',
+    body: JSON.stringify({ force }),
   });
+}
+
+export function nestAiInfluencerForceStartJob(token: string, jobId: string) {
+  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/force-start`, {
+    method: 'POST',
+  });
+}
+
+export function nestAiInfluencerResumeAutomation(token: string) {
+  return aiInfluencerFetch(token, '/automation/resume', { method: 'POST' });
 }
 
 export function nestAiInfluencerApproveScript(token: string, jobId: string) {

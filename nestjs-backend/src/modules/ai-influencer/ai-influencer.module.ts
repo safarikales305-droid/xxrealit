@@ -13,6 +13,7 @@ import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { AiInfluencerSubtitleService } from './ai-influencer-subtitle.service';
+import { AiInfluencerAutoService } from './ai-influencer-auto.service';
 import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
 import { ProviderGenerationService } from './provider-generation.service';
 import { ArticleMediaProvider } from './providers/article-media.provider';
@@ -46,7 +47,8 @@ import { OpenAiScriptProvider } from './providers/openai-script.provider';
     AiInfluencerPublishService,
     AiInfluencerJobService,
     AiInfluencerWorkerService,
+    AiInfluencerAutoService,
   ],
-  exports: [AiInfluencerJobService, AiInfluencerSettingsService],
+  exports: [AiInfluencerJobService, AiInfluencerSettingsService, AiInfluencerAutoService],
 })
 export class AiInfluencerModule {}

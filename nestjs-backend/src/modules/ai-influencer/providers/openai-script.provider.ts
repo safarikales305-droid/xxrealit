@@ -97,7 +97,9 @@ Vrať JSON:
     targetDurationSec: number;
     personalityPrompt?: string | null;
     performanceHints?: string[];
+    brandingSettings?: import('../ai-influencer.types').AiInfluencerAutomationSettings;
   }) {
+    const brand = input.brandingSettings?.brandDisplayName ?? 'XXREALIT';
     const hints = (input.performanceHints ?? []).slice(0, 8).join('\n- ');
     const userPrompt = `Vytvoř scénář pro vertikální Reel (cca ${input.targetDurationSec}s) z tohoto článku.
 
@@ -109,6 +111,9 @@ DŮLEŽITÉ:
 - Pokud článek nemá dost faktů, nastav factualWarnings a zkrát script.
 - Virtuální AI redaktorka — nepředstírej skutečnou osobu.
 - Mluv česky, moderně, důvěryhodně, srozumitelně.
+- Struktura: HOOK (2–3 s) → hlavní sdělení → krátké vysvětlení → přirozená zmínka ${brand} → krátké CTA.
+- Značku ${brand} zapracuj přirozeně (např. "Na ${brand} dnes sledujeme…", "Pro ${brand} jsem vybrala…").
+- Neopakuj stále stejnou robotickou větu — obměňuj formulace.
 
 ${hints ? `Historické signály:\n- ${hints}\n` : ''}
 

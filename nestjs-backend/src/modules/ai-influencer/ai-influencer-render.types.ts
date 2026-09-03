@@ -48,6 +48,14 @@ export type AiInfluencerBrandingSettings = {
   logoOpacity: number;
 };
 
+export type AiInfluencerWatermarkSettings = {
+  enabled: boolean;
+  text: string;
+  opacity: number;
+  fontSize: number;
+  y: number;
+};
+
 export type AiInfluencerMusicSettings = {
   trackId: string | null;
   musicVolume: number;
@@ -79,6 +87,7 @@ export type AiInfluencerRenderSettings = {
   subtitles: AiInfluencerSubtitleSettings;
   hook: AiInfluencerHookSettings;
   branding: AiInfluencerBrandingSettings;
+  watermark: AiInfluencerWatermarkSettings;
   colors: AiInfluencerColorSettings;
   music: AiInfluencerMusicSettings;
   transitions: boolean;
@@ -121,6 +130,13 @@ export const DEFAULT_RENDER_SETTINGS: AiInfluencerRenderSettings = {
     logoX: 48,
     logoY: 48,
     logoOpacity: 0.92,
+  },
+  watermark: {
+    enabled: true,
+    text: 'XXREALIT.CZ',
+    opacity: 0.78,
+    fontSize: 34,
+    y: 220,
   },
   colors: {
     background: '#0f172a',
@@ -180,6 +196,7 @@ export function mergeRenderSettings(
     subtitles: { ...DEFAULT_RENDER_SETTINGS.subtitles, ...partial.subtitles },
     hook: { ...DEFAULT_RENDER_SETTINGS.hook, ...partial.hook },
     branding: { ...DEFAULT_RENDER_SETTINGS.branding, ...partial.branding },
+    watermark: { ...DEFAULT_RENDER_SETTINGS.watermark, ...partial.watermark },
     colors: { ...DEFAULT_RENDER_SETTINGS.colors, ...partial.colors },
     music: { ...DEFAULT_RENDER_SETTINGS.music, ...partial.music },
   };
