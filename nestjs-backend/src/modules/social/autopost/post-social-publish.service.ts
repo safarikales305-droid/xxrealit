@@ -53,7 +53,8 @@ export class PostSocialPublishService {
     const rows = [];
     for (const { platform, enabled } of platforms) {
       if (!enabled) continue;
-      const implemented = platform === SocialPlatform.FACEBOOK;
+      const implemented =
+        platform === SocialPlatform.FACEBOOK || platform === SocialPlatform.INSTAGRAM;
       const pendingStatus = PostSocialPublishStatus.PENDING;
       const stubMessage = 'API integrace pro tuto síť zatím není aktivní.';
       const row = await this.prisma.postSocialPublish.upsert({

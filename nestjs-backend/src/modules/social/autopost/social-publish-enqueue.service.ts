@@ -13,6 +13,7 @@ import { isPropertyPubliclyListed } from '../../properties/property-public-visib
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialPublisherService } from './social-publisher.service';
 import { FacebookGraphPublishError } from './facebook-graph-autopost.util';
+import { InstagramGraphPublishError } from './social-instagram-publisher.service';
 import { SocialPublishLogService } from './social-publish-log.service';
 import {
   buildPostDetailUrl,
@@ -151,7 +152,8 @@ export class SocialPublishEnqueueService {
   private async tryEnqueueProperty(propertyId: string, source: 'create' | 'approve') {
     await this.settings.reload();
     const fb = this.settings.getSettings().facebook;
-    if (!fb.enabled) return;
+    const ig = this.settings.getSettings().instagram;
+    if (!fb.enabled && !ig.enabled) return;
 
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
@@ -161,22 +163,46 @@ export class SocialPublishEnqueueService {
 
     const isShort =
       String(property.listingType ?? '').toUpperCase() === 'SHORTS' || Boolean(property.videoUrl?.trim());
-    if (isShort && !fb.publishShorts) return;
-    if (!isShort && !fb.publishProperties) return;
-    if (fb.approvedOnly && !property.approved) {
-      if (source === 'create') return;
+    const contentType: SocialPublishContentType = isShort ? 'SHORT' : 'PROPERTY';
+
+    let fbRan = false;
+    if (fb.enabled) {
+      const fbTypeOk = isShort ? fb.publishShorts : fb.publishProperties;
+      const approvedOk = !(fb.approvedOnly && !property.approved && source === 'create');
+      if (fbTypeOk && approvedOk) {
+        await this.enqueueProperty(propertyId, { manual: false });
+        fbRan = true;
+      }
     }
 
-    await this.enqueueProperty(propertyId, { manual: false });
+    if (!fbRan && ig.enabled) {
+      const igTypeOk = isShort ? ig.publishShortsAsReels : ig.publishListings;
+      if (igTypeOk) {
+        void this.enqueueInstagramPropertyMirror(propertyId, contentType, { manual: false }).catch(
+          (e) => this.logger.warn(`IG auto enqueue: ${e instanceof Error ? e.message : e}`),
+        );
+      }
+    }
   }
 
   private async tryEnqueuePost(postId: string) {
     await this.settings.reload();
     const global = this.settings.getSettings().global;
     const fb = this.settings.getSettings().facebook;
-    if (!fb.enabled || !fb.publishPosts) return;
+    const ig = this.settings.getSettings().instagram;
     if (!global.autoPublishNewPosts) return;
-    await this.enqueuePost(postId, { manual: false });
+    if (!fb.enabled && !(ig.enabled && ig.publishPosts)) return;
+
+    if (fb.enabled && fb.publishPosts) {
+      await this.enqueuePost(postId, { manual: false });
+      return;
+    }
+
+    if (ig.enabled && ig.publishPosts) {
+      void this.enqueueInstagramPostMirror(postId, { manual: false }).catch((e) =>
+        this.logger.warn(`IG post auto enqueue: ${e instanceof Error ? e.message : e}`),
+      );
+    }
   }
 
   private async enqueueProperty(
@@ -200,6 +226,14 @@ export class SocialPublishEnqueueService {
     const isShort =
       String(property.listingType ?? '').toUpperCase() === 'SHORTS' || Boolean(property.videoUrl?.trim());
     const contentType: SocialPublishContentType = isShort ? 'SHORT' : 'PROPERTY';
+    let igMirrored = false;
+    const mirrorInstagram = () => {
+      if (igMirrored) return;
+      igMirrored = true;
+      void this.enqueueInstagramPropertyMirror(propertyId, contentType, opts).catch((e) =>
+        this.logger.warn(`IG enqueue mirror: ${e instanceof Error ? e.message : e}`),
+      );
+    };
 
     const skip = await this.shouldSkipContent(
       {
@@ -223,12 +257,14 @@ export class SocialPublishEnqueueService {
       { manual: opts.manual, force: opts.force },
     );
     if (skip && !opts.force) {
+      mirrorInstagram();
       return { ok: false, skipped: true, reason: skip };
     }
 
     if (!opts.force) {
       const dup = await this.logService.wasPublishedToday({ contentType, contentId: propertyId });
       if (dup) {
+        mirrorInstagram();
         return {
           ok: false,
           skipped: true,
@@ -253,6 +289,7 @@ export class SocialPublishEnqueueService {
         },
       });
       if (existing?.status === SocialPublishStatus.PUBLISHED && !opts.force) {
+        mirrorInstagram();
         return { ok: false, skipped: true, reason: 'Již publikováno' };
       }
 
@@ -299,6 +336,7 @@ export class SocialPublishEnqueueService {
                 : {}),
             },
       });
+      mirrorInstagram();
       return { ok: true, queueId: row.id };
     } catch (err) {
       const existing = await this.prisma.socialPublishQueue.findUnique({
@@ -311,10 +349,128 @@ export class SocialPublishEnqueueService {
         },
       });
       if (existing?.status === SocialPublishStatus.PUBLISHED && !opts.force) {
+        mirrorInstagram();
         return { ok: false, skipped: true, reason: 'Již publikováno' };
       }
       throw err;
     }
+  }
+
+  private async enqueueInstagramPropertyMirror(
+    propertyId: string,
+    contentType: SocialPublishContentType,
+    opts: {
+      manual?: boolean;
+      force?: boolean;
+      triggerSource?: SocialPublishTriggerSource;
+      triggeredByUserId?: string;
+      scheduleId?: string;
+      scheduledAt?: Date;
+    },
+  ) {
+    await this.settings.reload();
+    const ig = this.settings.getSettings().instagram;
+    if (!ig.enabled) return;
+    const isShort = contentType === SocialPublishContentType.SHORT;
+    if (isShort && !ig.publishShortsAsReels) return;
+    if (!isShort && !ig.publishListings) return;
+    if (!this.settings.isInstagramPublishingConfigured()) return;
+
+    if (!opts.force) {
+      const dup = await this.logService.wasPublishedToday({
+        platform: SocialPlatform.INSTAGRAM,
+        contentType,
+        contentId: propertyId,
+      });
+      if (dup && !ig.repeatPublishing) return;
+    }
+
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { userId: true, title: true },
+    });
+    if (!property) return;
+
+    await this.prisma.socialPublishQueue.upsert({
+      where: {
+        platform_contentType_contentId: {
+          platform: SocialPlatform.INSTAGRAM,
+          contentType,
+          contentId: propertyId,
+        },
+      },
+      create: {
+        platform: SocialPlatform.INSTAGRAM,
+        contentType,
+        contentId: propertyId,
+        authorUserId: property.userId,
+        contentTitle: property.title,
+        status: SocialPublishStatus.PENDING,
+        scheduledAt: opts.scheduledAt ?? new Date(),
+        triggerSource:
+          opts.triggerSource ??
+          (opts.manual ? SocialPublishTriggerSource.MANUAL : SocialPublishTriggerSource.AUTO),
+        triggeredByUserId: opts.triggeredByUserId ?? null,
+        scheduleId: opts.scheduleId ?? null,
+      },
+      update: opts.force
+        ? {
+            status: SocialPublishStatus.PENDING,
+            lastError: null,
+            scheduledAt: opts.scheduledAt ?? new Date(),
+            attempts: 0,
+          }
+        : { status: SocialPublishStatus.PENDING, scheduledAt: opts.scheduledAt ?? new Date() },
+    });
+  }
+
+  private async enqueueInstagramPostMirror(
+    postId: string,
+    opts: {
+      manual?: boolean;
+      force?: boolean;
+      triggerSource?: SocialPublishTriggerSource;
+      triggeredByUserId?: string;
+    },
+  ) {
+    await this.settings.reload();
+    const ig = this.settings.getSettings().instagram;
+    if (!ig.enabled || !ig.publishPosts) return;
+    if (!this.settings.isInstagramPublishingConfigured()) return;
+
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { userId: true, title: true, description: true, content: true },
+    });
+    if (!post) return;
+
+    const triggerSource =
+      opts.triggerSource ??
+      (opts.manual ? SocialPublishTriggerSource.MANUAL : SocialPublishTriggerSource.AUTO);
+
+    await this.prisma.socialPublishQueue.upsert({
+      where: {
+        platform_contentType_contentId: {
+          platform: SocialPlatform.INSTAGRAM,
+          contentType: SocialPublishContentType.POST,
+          contentId: postId,
+        },
+      },
+      create: {
+        platform: SocialPlatform.INSTAGRAM,
+        contentType: SocialPublishContentType.POST,
+        contentId: postId,
+        authorUserId: post.userId,
+        contentTitle: post.title || post.description?.slice(0, 120) || 'Příspěvek',
+        status: SocialPublishStatus.PENDING,
+        scheduledAt: new Date(),
+        triggerSource,
+        triggeredByUserId: opts.triggeredByUserId ?? null,
+      },
+      update: opts.force
+        ? { status: SocialPublishStatus.PENDING, lastError: null, attempts: 0 }
+        : { status: SocialPublishStatus.PENDING },
+    });
   }
 
   private async enqueuePost(
@@ -433,6 +589,9 @@ export class SocialPublishEnqueueService {
             facebookPostType,
           },
     });
+    void this.enqueueInstagramPostMirror(postId, opts).catch((e) =>
+      this.logger.warn(`IG post enqueue: ${e instanceof Error ? e.message : e}`),
+    );
     return { ok: true, queueId: row.id };
   }
 
@@ -576,13 +735,21 @@ export class SocialPublishProcessorService {
   ) {}
 
   async processDueBatch(limit = 5) {
-    if (!this.settings.isFacebookAutopostReady()) return { processed: 0 };
+    const fbReady = this.settings.isFacebookAutopostReady();
+    const igReady = this.settings.isInstagramAutopostReady();
+    if (!fbReady && !igReady) return { processed: 0 };
 
     const now = new Date();
     const due = await this.prisma.socialPublishQueue.findMany({
       where: {
         status: SocialPublishStatus.PENDING,
         OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+        platform: {
+          in: [
+            ...(fbReady ? [SocialPlatform.FACEBOOK] : []),
+            ...(igReady ? [SocialPlatform.INSTAGRAM] : []),
+          ],
+        },
       },
       orderBy: { createdAt: 'asc' },
       take: limit,
@@ -625,9 +792,11 @@ export class SocialPublishProcessorService {
 
     try {
       const result =
-        item.contentType === SocialPublishContentType.POST
-          ? await this.publishPost(item.contentId)
-          : await this.publishProperty(item.contentId, item.contentType, item.facebookPostType);
+        item.platform === SocialPlatform.INSTAGRAM
+          ? await this.publishInstagramItem(item)
+          : item.contentType === SocialPublishContentType.POST
+            ? await this.publishPost(item.contentId)
+            : await this.publishProperty(item.contentId, item.contentType, item.facebookPostType);
 
       const updated = await this.prisma.socialPublishQueue.update({
         where: { id },
@@ -637,69 +806,109 @@ export class SocialPublishProcessorService {
           publishedUrl: result.publishedUrl,
           lastApiResponse: result.raw as object,
           lastError: null,
-          facebookPostType: result.facebookPostType ?? item.facebookPostType ?? null,
+          facebookPostType:
+            'facebookPostType' in result
+              ? (result.facebookPostType ?? item.facebookPostType ?? null)
+              : item.facebookPostType ?? null,
           processedAt: new Date(),
         },
       });
 
-      const formatLabel = resolveFacebookPublishFormatLabel(
-        result.facebookPostType ?? item.facebookPostType ?? null,
-        result.publishKind ?? null,
-      );
+      const formatLabel =
+        item.platform === SocialPlatform.INSTAGRAM
+          ? 'Instagram'
+          : resolveFacebookPublishFormatLabel(
+              ('facebookPostType' in result ? result.facebookPostType : null) ??
+                item.facebookPostType ??
+                null,
+              ('publishKind' in result ? result.publishKind : null) ?? null,
+            );
       this.logger.log(
-        `Publikováno (${formatLabel}): contentId=${item.contentId}, teaser=${result.teaserDurationSec ?? '—'}s, soubor=${result.teaserLocalPath ?? '—'}`,
+        `Publikováno (${formatLabel}): contentId=${item.contentId}, platform=${item.platform}`,
       );
 
       await this.logService.writeLog({
+        platform: item.platform,
         contentType: item.contentType,
         contentId: item.contentId,
         queueId: id,
         scheduleId: item.scheduleId ?? null,
         status: SocialPublishStatus.PUBLISHED,
         externalPostId: result.externalPostId,
-        externalReelId: result.externalReelId ?? null,
+        externalReelId:
+          'externalReelId' in result ? (result.externalReelId ?? null) : null,
         publishedUrl: result.publishedUrl,
-        reelPublishedUrl: result.reelPublishedUrl ?? null,
-        facebookPostType: result.facebookPostType ?? item.facebookPostType ?? null,
-        publishKind: result.publishKind ?? null,
-        contentTitle: result.contentTitle ?? null,
-        teaserDurationSec: result.teaserDurationSec ?? null,
-        originalVideoDurationSec: result.originalVideoDurationSec ?? null,
-        introVideoUsed: result.introVideoUsed === true,
+        reelPublishedUrl:
+          'reelPublishedUrl' in result ? (result.reelPublishedUrl ?? null) : result.publishedUrl,
+        facebookPostType:
+          'facebookPostType' in result ? (result.facebookPostType ?? null) : null,
+        publishKind: 'publishKind' in result ? (result.publishKind ?? null) : null,
+        contentTitle: 'contentTitle' in result ? (result.contentTitle ?? null) : null,
+        teaserDurationSec:
+          'teaserDurationSec' in result ? (result.teaserDurationSec ?? null) : null,
+        originalVideoDurationSec:
+          'originalVideoDurationSec' in result
+            ? (result.originalVideoDurationSec ?? null)
+            : null,
+        introVideoUsed: 'introVideoUsed' in result ? result.introVideoUsed === true : false,
         introVideoPropertyType:
-          (result.introVideoPropertyType as SocialIntroPropertyType | null) ?? null,
-        introVideoDurationSec: result.introVideoDurationSec ?? null,
-        totalReelDurationSec: result.totalReelDurationSec ?? null,
-        introVideoError: result.introVideoError ?? null,
-        introVideoIdUsed: result.introVideoIdUsed ?? result.introVideoId ?? null,
-        introVideoTitle: result.introVideoTitle ?? null,
-        sourceListingVideoUrl: result.sourceListingVideoUrl ?? null,
-        finalVideoUrl: result.finalVideoUrl ?? result.teaserUrl ?? null,
-        finalVideoGeneratedAt: result.finalVideoGeneratedAt ?? null,
-        graphApiResponse: buildPublishLogGraphResponse(result),
-        lastError: result.teaserError ?? result.teaserDrawtextSkippedReason ?? null,
+          'introVideoPropertyType' in result
+            ? (result.introVideoPropertyType as SocialIntroPropertyType | null)
+            : null,
+        introVideoDurationSec:
+          'introVideoDurationSec' in result ? (result.introVideoDurationSec ?? null) : null,
+        totalReelDurationSec:
+          'totalReelDurationSec' in result ? (result.totalReelDurationSec ?? null) : null,
+        introVideoError: 'introVideoError' in result ? (result.introVideoError ?? null) : null,
+        introVideoIdUsed:
+          'introVideoIdUsed' in result
+            ? (result.introVideoIdUsed ?? result.introVideoId ?? null)
+            : null,
+        introVideoTitle: 'introVideoTitle' in result ? (result.introVideoTitle ?? null) : null,
+        sourceListingVideoUrl:
+          'sourceListingVideoUrl' in result ? (result.sourceListingVideoUrl ?? null) : null,
+        finalVideoUrl:
+          'finalVideoUrl' in result
+            ? (result.finalVideoUrl ?? result.teaserUrl ?? null)
+            : null,
+        finalVideoGeneratedAt:
+          'finalVideoGeneratedAt' in result ? (result.finalVideoGeneratedAt ?? null) : null,
+        graphApiResponse:
+          item.platform === SocialPlatform.INSTAGRAM
+            ? { instagram: result.raw, containerId: (result as { containerId?: string }).containerId }
+            : buildPublishLogGraphResponse(result as FacebookPublishResult),
+        lastError:
+          'teaserError' in result
+            ? (result.teaserError ?? result.teaserDrawtextSkippedReason ?? null)
+            : null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
 
-      if (item.scheduleId && result.finalVideoUrl) {
+      if (
+        item.scheduleId &&
+        item.platform === SocialPlatform.FACEBOOK &&
+        'finalVideoUrl' in result &&
+        result.finalVideoUrl
+      ) {
+        const fbResult = result as FacebookPublishResult;
         await this.listingReelFinalVideo.updateScheduleFinalVideoSnapshot(item.scheduleId, {
-          finalVideoUrl: result.finalVideoUrl,
-          sourceListingVideoUrl: result.sourceListingVideoUrl ?? '',
-          teaserDurationSec: result.teaserDurationSec ?? 0,
-          originalDurationSec: result.originalVideoDurationSec ?? null,
-          introVideoUsed: result.introVideoUsed === true,
-          introVideoIdUsed: result.introVideoIdUsed ?? result.introVideoId ?? null,
-          introVideoTitle: result.introVideoTitle ?? null,
+          finalVideoUrl: fbResult.finalVideoUrl!,
+          sourceListingVideoUrl: fbResult.sourceListingVideoUrl ?? '',
+          teaserDurationSec: fbResult.teaserDurationSec ?? 0,
+          originalDurationSec: fbResult.originalVideoDurationSec ?? null,
+          introVideoUsed: fbResult.introVideoUsed === true,
+          introVideoIdUsed: fbResult.introVideoIdUsed ?? fbResult.introVideoId ?? null,
+          introVideoTitle: fbResult.introVideoTitle ?? null,
           introVideoPropertyType:
-            (result.introVideoPropertyType as SocialIntroPropertyType | null) ?? null,
-          introVideoDurationSec: result.introVideoDurationSec ?? null,
-          totalReelDurationSec: result.totalReelDurationSec ?? null,
-          introVideoError: result.introVideoError ?? null,
-          finalVideoGeneratedAt: result.finalVideoGeneratedAt
-            ? new Date(result.finalVideoGeneratedAt)
+            (fbResult.introVideoPropertyType as SocialIntroPropertyType | null) ?? null,
+          introVideoDurationSec: fbResult.introVideoDurationSec ?? null,
+          totalReelDurationSec: fbResult.totalReelDurationSec ?? null,
+          introVideoError: fbResult.introVideoError ?? null,
+          finalVideoGeneratedAt: fbResult.finalVideoGeneratedAt
+            ? new Date(fbResult.finalVideoGeneratedAt)
             : new Date(),
-          finalVideoSizeBytes: result.finalVideoSizeBytes ?? null,
+          finalVideoSizeBytes: fbResult.finalVideoSizeBytes ?? null,
           fromCache: false,
         });
       }
@@ -707,7 +916,16 @@ export class SocialPublishProcessorService {
       return updated;
     } catch (err) {
       const graphErr =
-        err instanceof FacebookGraphPublishError ? err.graphError : undefined;
+        err instanceof FacebookGraphPublishError
+          ? err.graphError
+          : err instanceof InstagramGraphPublishError
+            ? {
+                message: err.message,
+                code: err.code ?? undefined,
+                error_subcode: err.subcode ?? undefined,
+                userMessage: err.message,
+              }
+            : undefined;
       const message = graphErr?.userMessage ?? (err instanceof Error ? err.message : String(err));
       await this.settings.appendApiLog({
         action: `process_${item.contentType.toLowerCase()}`,
@@ -725,12 +943,16 @@ export class SocialPublishProcessorService {
         },
       });
 
-      const formatLabel = resolveFacebookPublishFormatLabel(item.facebookPostType ?? null, null);
+      const formatLabel =
+        item.platform === SocialPlatform.INSTAGRAM
+          ? 'Instagram'
+          : resolveFacebookPublishFormatLabel(item.facebookPostType ?? null, null);
       this.logger.error(
         `Publikování selhalo (${formatLabel}, contentId=${item.contentId}): ${message}`,
       );
 
       await this.logService.writeLog({
+        platform: item.platform,
         contentType: item.contentType,
         contentId: item.contentId,
         queueId: id,
@@ -753,6 +975,76 @@ export class SocialPublishProcessorService {
 
       return failed;
     }
+  }
+
+  private async publishInstagramItem(item: {
+    contentType: SocialPublishContentType;
+    contentId: string;
+  }) {
+    if (item.contentType === SocialPublishContentType.POST) {
+      const result = await this.publisher.publishPostToPlatform(
+        item.contentId,
+        SocialPlatform.INSTAGRAM,
+      );
+      if ('skipped' in result) throw new Error(result.reason);
+      return {
+        externalPostId: result.externalPostId,
+        publishedUrl: result.publishedUrl,
+        raw: result.raw,
+      };
+    }
+
+    const property = await this.prisma.property.findUnique({
+      where: { id: item.contentId },
+      include: { user: { select: { id: true, role: true, name: true } } },
+    });
+    if (!property || property.deletedAt) throw new Error('Inzerát není k dispozici');
+
+    const forcedType = item.contentType === SocialPublishContentType.SHORT ? 'shorts' : 'classic';
+    const meta = await this.shareMetadata.resolveForProperty(item.contentId, forcedType);
+    const global = this.settings.getSettings().global;
+    const message = await this.templates.buildPropertyFacebookMessage({
+      role: property.user?.role,
+      authorName: property.user?.name,
+      title: property.title,
+      city: property.city,
+      address: property.address,
+      description: property.description,
+      portalUrl: meta.shareUrl,
+      hidePublicPrice: global.hidePublicPrice !== false,
+    });
+    const imageUrl = resolvePropertyShareImage(property);
+    const videoUrl = toAbsoluteMediaUrl(property.videoUrl);
+    const isShortsVideo = isShortsVideoProperty(property);
+
+    const ig = await this.publisher.publishPropertyToInstagram(
+      {
+        message,
+        link: meta.shareUrl,
+        imageUrl,
+        videoUrl,
+        title: property.title?.trim() || undefined,
+        category: property.propertyType ?? undefined,
+        location: [property.address, property.city].filter(Boolean).join(', ') || undefined,
+        author: property.user?.name ?? undefined,
+        isShortsVideo,
+        listingContext: {
+          propertyTypeKey: property.propertyTypeKey,
+          propertyType: property.propertyType,
+          offerType: property.offerType,
+          title: property.title,
+          description: property.description,
+        },
+      },
+      { forceReel: item.contentType === SocialPublishContentType.SHORT },
+    );
+
+    return {
+      externalPostId: ig.externalPostId,
+      publishedUrl: ig.publishedUrl,
+      raw: { ...ig, containerId: ig.containerId },
+      containerId: ig.containerId,
+    };
   }
 
   private async publishProperty(

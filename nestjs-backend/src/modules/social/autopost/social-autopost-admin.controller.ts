@@ -59,6 +59,8 @@ import {
 import { parseDurationSecondsFromFfmpegStderr, runFfmpegCapture } from '../../../lib/ffmpeg-run';
 import { resolveFfmpegBinary } from '../../../lib/ffmpeg-binary';
 import { ListingReelAdminService } from './listing-reel-admin.service';
+import { SocialInstagramCaptionService } from './social-instagram-caption.service';
+import { SocialPlatform } from '@prisma/client';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -76,6 +78,7 @@ export class SocialAutopostAdminController {
     private readonly introVideos: SocialIntroVideoService,
     private readonly propertyMedia: PropertyMediaCloudinaryService,
     private readonly listingReelAdmin: ListingReelAdminService,
+    private readonly instagramCaption: SocialInstagramCaptionService,
   ) {}
 
   @Get('settings')
@@ -182,6 +185,153 @@ export class SocialAutopostAdminController {
   @Post('facebook/test-publish')
   testPublish() {
     return this.publisher.testFacebookPublish();
+  }
+
+  @Get('instagram/status')
+  instagramStatus() {
+    return this.publisher.getInstagramStatus();
+  }
+
+  @Post('instagram/test-connection')
+  async instagramTestConnection() {
+    const status = await this.publisher.testInstagramConnection();
+    return { ...status, ok: status.connected };
+  }
+
+  @Post('instagram/refresh-connection')
+  instagramRefreshConnection() {
+    return this.publisher.refreshInstagramConnection();
+  }
+
+  @Post('instagram/test-publish')
+  async instagramTestPublish(@Body() body: { confirmed?: boolean; caption?: string }) {
+    if (!body?.confirmed) {
+      throw new BadRequestException(
+        'Potvrďte vytvoření skutečného testovacího příspěvku na Instagramu (confirmed: true).',
+      );
+    }
+    try {
+      const result = await this.publisher.testInstagramPublish(body.caption);
+      return {
+        ok: true,
+        externalPostId: result.externalPostId,
+        publishedUrl: result.publishedUrl,
+        containerId: result.containerId,
+        mediaType: result.mediaType,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
+    }
+  }
+
+  @Get('instagram/template')
+  getInstagramTemplate() {
+    return this.instagramCaption.getTemplate().then((template) => ({ template }));
+  }
+
+  @Patch('instagram/template')
+  async updateInstagramTemplate(@Body() body: { template?: string }) {
+    const template = await this.instagramCaption.updateTemplate(body.template ?? '');
+    return { template };
+  }
+
+  @Get('instagram/publish-history')
+  async instagramPublishHistory(@Query('limit') limitRaw?: string) {
+    const limit = Math.min(100, Math.max(1, Number.parseInt(limitRaw ?? '50', 10) || 50));
+    const logs = await this.prisma.socialPublishLog.findMany({
+      where: {
+        platform: { in: [SocialPlatform.FACEBOOK, SocialPlatform.INSTAGRAM] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit * 2,
+      select: {
+        id: true,
+        platform: true,
+        contentType: true,
+        contentId: true,
+        contentTitle: true,
+        status: true,
+        lastError: true,
+        publishedUrl: true,
+        externalPostId: true,
+        publishKind: true,
+        facebookPostType: true,
+        graphApiResponse: true,
+        createdAt: true,
+      },
+    });
+
+    type Row = {
+      key: string;
+      createdAt: Date;
+      contentTitle: string | null;
+      contentId: string;
+      contentType: string;
+      mediaType: string | null;
+      facebook: { status: string; url: string | null; error: string | null };
+      instagram: {
+        status: string;
+        url: string | null;
+        error: string | null;
+        containerId: string | null;
+        mediaId: string | null;
+      };
+      combinedError: string | null;
+    };
+
+    const map = new Map<string, Row>();
+    for (const log of logs) {
+      const key = `${log.contentType}:${log.contentId}`;
+      let row = map.get(key);
+      if (!row) {
+        row = {
+          key,
+          createdAt: log.createdAt,
+          contentTitle: log.contentTitle,
+          contentId: log.contentId,
+          contentType: log.contentType,
+          mediaType: null,
+          facebook: { status: '—', url: null, error: null },
+          instagram: { status: '—', url: null, error: null, containerId: null, mediaId: null },
+          combinedError: null,
+        };
+        map.set(key, row);
+      }
+      if (log.createdAt > row.createdAt) row.createdAt = log.createdAt;
+      if (!row.contentTitle && log.contentTitle) row.contentTitle = log.contentTitle;
+
+      const channel =
+        log.platform === SocialPlatform.FACEBOOK
+          ? row.facebook
+          : row.instagram;
+      channel.status = log.status;
+      channel.url = log.publishedUrl;
+      channel.error = log.lastError;
+
+      if (log.platform === SocialPlatform.INSTAGRAM) {
+        const graph = log.graphApiResponse as {
+          containerId?: string;
+          instagram?: { id?: string };
+        } | null;
+        row.instagram.containerId = graph?.containerId ?? null;
+        row.instagram.mediaId = log.externalPostId;
+        const summary = graph as { publishSummary?: { mediaType?: string } } | null;
+        row.mediaType =
+          summary?.publishSummary?.mediaType ??
+          (log.publishKind === 'VIDEO_REEL' ? 'REEL' : log.publishKind ? 'PHOTO' : row.mediaType);
+      }
+
+      if (log.lastError) {
+        row.combinedError = [row.combinedError, log.lastError].filter(Boolean).join(' | ');
+      }
+    }
+
+    const items = [...map.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+
+    return { items };
   }
 
   @Get('facebook/connect')

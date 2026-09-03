@@ -12,6 +12,13 @@ import {
   nestAdminSocialAutopostSettingsGet,
   nestAdminSocialAutopostTestConnection,
   nestAdminSocialAutopostTestPublish,
+  nestAdminInstagramStatus,
+  nestAdminInstagramTestConnection,
+  nestAdminInstagramRefreshConnection,
+  nestAdminInstagramTestPublish,
+  nestAdminInstagramTemplateGet,
+  nestAdminInstagramTemplatePatch,
+  nestAdminInstagramPublishHistory,
   nestAdminSocialQueueList,
   nestAdminSocialQueueRetry,
   nestAdminSocialQueueSkip,
@@ -27,6 +34,8 @@ import {
   type SocialAutopostGlobalSettings,
   type SocialAutopostSettingsPublic,
   type SocialQueueRow,
+  type InstagramConnectionStatus,
+  type InstagramPublishHistoryRow,
 } from '@/lib/social-autopost-admin-api';
 
 type Tab = 'facebook' | 'instagram' | 'youtube' | 'tiktok' | 'video';
@@ -77,6 +86,11 @@ export default function AdminSocialAutopostPage() {
   const [lookupPostId, setLookupPostId] = useState('');
   const [postPublishRows, setPostPublishRows] = useState<PostSocialPublishRow[] | null>(null);
   const [postLookupError, setPostLookupError] = useState<string | null>(null);
+  const [igStatus, setIgStatus] = useState<InstagramConnectionStatus | null>(null);
+  const [igDiagnosticsOpen, setIgDiagnosticsOpen] = useState(false);
+  const [igTemplate, setIgTemplate] = useState('');
+  const [igHistory, setIgHistory] = useState<InstagramPublishHistoryRow[]>([]);
+  const [lastIgPublishedUrl, setLastIgPublishedUrl] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -97,6 +111,22 @@ export default function AdminSocialAutopostPage() {
     if (!isLoading && user?.role === 'ADMIN' && token) void refresh();
   }, [isLoading, user?.role, token, refresh]);
 
+  const loadInstagramPanel = useCallback(async () => {
+    if (!token) return;
+    const [status, templateRes, historyRes] = await Promise.all([
+      nestAdminInstagramStatus(token),
+      nestAdminInstagramTemplateGet(token),
+      nestAdminInstagramPublishHistory(token, 40),
+    ]);
+    if (status) setIgStatus(status);
+    if (templateRes?.template) setIgTemplate(templateRes.template);
+    setIgHistory(historyRes?.items ?? []);
+  }, [token]);
+
+  useEffect(() => {
+    if (tab === 'instagram' && token) void loadInstagramPanel();
+  }, [tab, token, loadInstagramPanel]);
+
   if (isLoading) return <p className="p-6 text-sm text-zinc-500">Načítám…</p>;
   if (user?.role !== 'ADMIN') {
     return (
@@ -107,6 +137,7 @@ export default function AdminSocialAutopostPage() {
   }
 
   const fb = settings?.facebook;
+  const ig = settings?.instagram;
   const global = settings?.global ?? DEFAULT_GLOBAL;
 
   async function saveGlobal() {
@@ -311,6 +342,67 @@ export default function AdminSocialAutopostPage() {
       setMsg(r.hint ? `${detail}\n\n${r.hint}` : detail);
     }
     void refresh();
+  }
+
+  async function runInstagramTestConnection() {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminInstagramTestConnection(token);
+    setBusy(false);
+    if (!r) {
+      setMsg('Test Instagram API selhal.');
+      return;
+    }
+    setIgStatus(r);
+    setMsg(r.connected ? `Instagram připojeno: @${r.instagramUsername ?? '—'}` : r.message ?? 'Instagram není připojeno.');
+  }
+
+  async function runInstagramRefresh() {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminInstagramRefreshConnection(token);
+    setBusy(false);
+    if (!r) {
+      setMsg('Obnovení propojení selhalo.');
+      return;
+    }
+    setIgStatus(r);
+    await refresh();
+    setMsg(r.connected ? 'Propojení Instagramu obnoveno.' : r.message ?? 'Propojení se nepodařilo obnovit.');
+  }
+
+  async function runInstagramTestPublish() {
+    if (!token) return;
+    const username = igStatus?.instagramUsername ?? ig?.instagramUsername ?? 'xxrealit.cz';
+    const ok = window.confirm(
+      `Bude vytvořen skutečný testovací příspěvek na Instagram účtu @${username}. Pokračovat?`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setLastIgPublishedUrl(null);
+    const r = await nestAdminInstagramTestPublish(token, { confirmed: true });
+    setBusy(false);
+    if (r.ok && r.publishedUrl) {
+      setLastIgPublishedUrl(r.publishedUrl);
+      setMsg(`✓ Test publikován na Instagram (ID: ${r.externalPostId ?? '—'})`);
+    } else {
+      setMsg(r.error ?? 'Testovací publikace na Instagram selhala.');
+    }
+    void loadInstagramPanel();
+    void refresh();
+  }
+
+  async function saveInstagramTemplate() {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminInstagramTemplatePatch(token, igTemplate);
+    setBusy(false);
+    if (!r?.template) {
+      setMsg('Uložení Instagram šablony se nezdařilo.');
+      return;
+    }
+    setIgTemplate(r.template);
+    setMsg('Instagram šablona uložena.');
   }
 
   return (
@@ -856,10 +948,269 @@ export default function AdminSocialAutopostPage() {
         </section>
       ) : null}
 
-      {tab !== 'facebook' && tab !== 'video' ? (
+      {tab === 'instagram' && ig ? (
+        <section className="space-y-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start gap-4">
+            {ig.profilePictureUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={ig.profilePictureUrl}
+                alt=""
+                className="h-16 w-16 rounded-full border border-zinc-200 object-cover"
+              />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold text-zinc-900">Instagram</h2>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                    igStatus?.connected || ig.connected
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-900'
+                  }`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      igStatus?.connected || ig.connected ? 'bg-emerald-500' : 'bg-amber-500'
+                    }`}
+                  />
+                  {igStatus?.connected || ig.connected ? 'Připojeno' : 'Nepřipojeno'}
+                </span>
+              </div>
+              {igStatus?.instagramUsername || ig.instagramUsername ? (
+                <p className="mt-1 text-sm font-medium text-zinc-800">
+                  @{igStatus?.instagramUsername ?? ig.instagramUsername}
+                </p>
+              ) : null}
+              <p className="mt-1 text-sm text-zinc-600">
+                Professional/Business account
+                {igStatus?.linkedPageName || ig.linkedPageName ? (
+                  <>
+                    {' '}
+                    · Propojeno přes Facebook stránku{' '}
+                    <strong>{igStatus?.linkedPageName ?? ig.linkedPageName}</strong>
+                  </>
+                ) : null}
+              </p>
+              {igStatus?.instagramBusinessId || ig.instagramBusinessId ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  Instagram ID: {igStatus?.instagramBusinessId ?? ig.instagramBusinessId}
+                </p>
+              ) : null}
+              <p className="mt-1 text-xs text-zinc-500">
+                Meta token:{' '}
+                {igStatus?.tokenActive ?? fb?.connected ? (
+                  <span className="text-emerald-700">Aktivní</span>
+                ) : (
+                  <span className="text-red-700">Neaktivní — připojte Facebook</span>
+                )}
+                {igStatus?.tokenExpiresAt || fb?.tokenExpiresAt ? (
+                  <>
+                    {' '}
+                    · expirace{' '}
+                    {new Date(igStatus?.tokenExpiresAt ?? fb?.tokenExpiresAt ?? '').toLocaleString(
+                      'cs-CZ',
+                    )}
+                  </>
+                ) : null}
+              </p>
+              {igStatus?.needsReconnect ? (
+                <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Je nutné obnovit Meta oprávnění — použijte záložku Facebook → připojit znovu.
+                  {igStatus.missingScopes?.length ? (
+                    <> Chybí: {igStatus.missingScopes.join(', ')}.</>
+                  ) : null}
+                </p>
+              ) : null}
+              {igStatus?.message && !igStatus.connected ? (
+                <p className="mt-2 text-sm text-red-700">{igStatus.message}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void runInstagramTestConnection()}
+              className="rounded-xl border px-4 py-2 text-sm font-semibold"
+            >
+              Otestovat Instagram API
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void runInstagramRefresh()}
+              className="rounded-xl border px-4 py-2 text-sm font-semibold"
+            >
+              Obnovit propojení
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setIgDiagnosticsOpen((v) => !v)}
+              className="rounded-xl border px-4 py-2 text-sm font-semibold"
+            >
+              Diagnostika
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void runInstagramTestPublish()}
+              className="rounded-xl border px-4 py-2 text-sm font-semibold"
+            >
+              Publikovat testovací příspěvek
+            </button>
+          </div>
+
+          {igDiagnosticsOpen && igStatus?.diagnostics?.length ? (
+            <ul className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+              {igStatus.diagnostics.map((step) => (
+                <li key={step.key} className="flex gap-2">
+                  <span className={step.ok ? 'text-emerald-600' : 'text-red-600'}>
+                    {step.ok ? '✓' : '✗'}
+                  </span>
+                  <span>
+                    <strong>{step.label}</strong>
+                    {step.message ? ` — ${step.message}` : ''}
+                    {step.code != null ? ` (kód ${step.code})` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {lastIgPublishedUrl ? (
+            <a
+              href={lastIgPublishedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex rounded-lg bg-gradient-to-r from-purple-600 to-pink-500 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Otevřít test na Instagramu
+            </a>
+          ) : null}
+
+          <label className="flex items-center gap-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={ig.enabled}
+              onChange={(e) =>
+                setSettings((s) =>
+                  s ? { ...s, instagram: { ...s.instagram, enabled: e.target.checked } } : s,
+                )
+              }
+            />
+            Zapnout automatické publikování na Instagram
+          </label>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {platformField('instagram', 'publishListings', 'Publikovat inzeráty')}
+            {platformField('instagram', 'publishPosts', 'Publikovat příspěvky')}
+            {platformField('instagram', 'publishShortsAsReels', 'Publikovat Shorts jako Reels')}
+            {platformField('instagram', 'repeatPublishing', 'Opakované publikování')}
+          </div>
+
+          <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-4 space-y-2">
+            <p className="text-sm font-semibold text-pink-900">Instagram šablona příspěvku</p>
+            <p className="text-xs text-zinc-600">
+              Proměnné: {'{title}'}, {'{description}'}, {'{category}'}, {'{location}'},{' '}
+              {'{author}'}, {'{portal_url}'}, {'{hashtags}'}. Odkazy v caption nejsou klikací —
+              preferujte „Více na XXREALIT.cz“.
+            </p>
+            <textarea
+              value={igTemplate}
+              onChange={(e) => setIgTemplate(e.target.value)}
+              rows={8}
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void saveInstagramTemplate()}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            >
+              Uložit šablonu
+            </button>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void savePlatform('instagram')}
+            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            Uložit nastavení Instagramu
+          </button>
+
+          {igHistory.length > 0 ? (
+            <div className="overflow-x-auto">
+              <h3 className="mb-2 text-sm font-semibold text-zinc-800">Historie publikování</h3>
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-zinc-500">
+                    <th className="py-2 pr-3">Datum</th>
+                    <th className="py-2 pr-3">Obsah</th>
+                    <th className="py-2 pr-3">Facebook</th>
+                    <th className="py-2 pr-3">Instagram</th>
+                    <th className="py-2 pr-3">Typ</th>
+                    <th className="py-2 pr-3">Chyba</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {igHistory.map((row) => (
+                    <tr key={row.key} className="border-b border-zinc-100 align-top">
+                      <td className="py-2 pr-3 whitespace-nowrap">
+                        {new Date(row.createdAt).toLocaleString('cs-CZ')}
+                      </td>
+                      <td className="py-2 pr-3 max-w-[180px]">
+                        <p className="line-clamp-2 font-medium">
+                          {row.contentTitle || row.contentId}
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          {SOCIAL_CONTENT_TYPE_LABELS[row.contentType] ?? row.contentType}
+                        </p>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {SOCIAL_PUBLISH_STATUS_LABELS[row.facebook.status] ?? row.facebook.status}
+                        {row.facebook.url ? (
+                          <a
+                            href={row.facebook.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 block text-xs text-orange-600 hover:underline"
+                          >
+                            odkaz
+                          </a>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {SOCIAL_PUBLISH_STATUS_LABELS[row.instagram.status] ?? row.instagram.status}
+                        {row.instagram.url ? (
+                          <a
+                            href={row.instagram.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 block text-xs text-pink-600 hover:underline"
+                          >
+                            odkaz
+                          </a>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3">{row.mediaType ?? '—'}</td>
+                      <td className="py-2 pr-3 text-xs text-red-600">{row.combinedError ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab !== 'facebook' && tab !== 'video' && tab !== 'instagram' ? (
         <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-amber-800">
-            {tab === 'instagram' && 'Instagram — připraveno pro budoucí integraci'}
             {tab === 'youtube' && 'YouTube — připraveno pro budoucí integraci'}
             {tab === 'tiktok' && 'TikTok — připraveno pro budoucí integraci'}
           </p>

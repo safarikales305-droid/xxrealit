@@ -64,10 +64,66 @@ export type PlatformPlaceholderSettings = {
   preparedForFuture?: boolean;
 };
 
+export type InstagramAutopostSettingsPublic = PlatformPlaceholderSettings & {
+  instagramBusinessId?: string | null;
+  instagramUsername?: string | null;
+  instagramName?: string | null;
+  profilePictureUrl?: string | null;
+  linkedPageId?: string | null;
+  linkedPageName?: string | null;
+  connected?: boolean;
+  lastSyncedAt?: string | null;
+};
+
+export type InstagramDiagnosticStep = {
+  key: string;
+  label: string;
+  ok: boolean;
+  message?: string | null;
+  code?: number | null;
+};
+
+export type InstagramConnectionStatus = {
+  connected: boolean;
+  ok?: boolean;
+  instagramBusinessId: string | null;
+  instagramUsername: string | null;
+  instagramName: string | null;
+  profilePictureUrl: string | null;
+  linkedPageId: string | null;
+  linkedPageName: string | null;
+  tokenActive: boolean;
+  tokenExpiresAt: string | null;
+  tokenScopes: string[];
+  missingScopes: string[];
+  scopesOk: boolean;
+  needsReconnect: boolean;
+  message: string | null;
+  diagnostics: InstagramDiagnosticStep[];
+};
+
+export type InstagramPublishHistoryRow = {
+  key: string;
+  createdAt: string;
+  contentTitle: string | null;
+  contentId: string;
+  contentType: string;
+  mediaType: string | null;
+  facebook: { status: string; url: string | null; error: string | null };
+  instagram: {
+    status: string;
+    url: string | null;
+    error: string | null;
+    containerId: string | null;
+    mediaId: string | null;
+  };
+  combinedError: string | null;
+};
+
 export type SocialAutopostSettingsPublic = {
   global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettingsPublic;
-  instagram: PlatformPlaceholderSettings;
+  instagram: InstagramAutopostSettingsPublic;
   youtube: PlatformPlaceholderSettings;
   tiktok: PlatformPlaceholderSettings;
   lastApiResponses: SocialApiLogEntry[];
@@ -332,6 +388,68 @@ export function nestAdminSocialAutopostTestConnection(token: string) {
     token,
     '/social/autopost/admin/facebook/test-connection',
     { method: 'POST' },
+  );
+}
+
+export function nestAdminInstagramStatus(token: string) {
+  return adminFetch<InstagramConnectionStatus>(token, '/social/autopost/admin/instagram/status');
+}
+
+export function nestAdminInstagramTestConnection(token: string) {
+  return adminFetch<InstagramConnectionStatus>(
+    token,
+    '/social/autopost/admin/instagram/test-connection',
+    { method: 'POST' },
+  );
+}
+
+export function nestAdminInstagramRefreshConnection(token: string) {
+  return adminFetch<InstagramConnectionStatus>(
+    token,
+    '/social/autopost/admin/instagram/refresh-connection',
+    { method: 'POST' },
+  );
+}
+
+export function nestAdminInstagramTestPublish(
+  token: string,
+  body: { confirmed: boolean; caption?: string },
+) {
+  return adminFetchJson<{
+    ok: boolean;
+    externalPostId?: string;
+    publishedUrl?: string;
+    containerId?: string;
+    mediaType?: string;
+    error?: string;
+  }>(token, '/social/autopost/admin/instagram/test-publish', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }).then(({ data, status, body: errBody }) => {
+    if (data) return data;
+    const err = errBody as { message?: string; error?: string };
+    return {
+      ok: false,
+      error: err?.message ?? err?.error ?? `HTTP ${status}`,
+    };
+  });
+}
+
+export function nestAdminInstagramTemplateGet(token: string) {
+  return adminFetch<{ template: string }>(token, '/social/autopost/admin/instagram/template');
+}
+
+export function nestAdminInstagramTemplatePatch(token: string, template: string) {
+  return adminFetch<{ template: string }>(token, '/social/autopost/admin/instagram/template', {
+    method: 'PATCH',
+    body: JSON.stringify({ template }),
+  });
+}
+
+export function nestAdminInstagramPublishHistory(token: string, limit = 50) {
+  return adminFetch<{ items: InstagramPublishHistoryRow[] }>(
+    token,
+    `/social/autopost/admin/instagram/publish-history?limit=${limit}`,
   );
 }
 

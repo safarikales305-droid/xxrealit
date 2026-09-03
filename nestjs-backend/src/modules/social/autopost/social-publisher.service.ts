@@ -35,6 +35,7 @@ import {
   getPublicPortalUrl,
   resolvePostShareImage,
   resolvePostShareVideo,
+  resolvePostSocialText,
 } from './social-publish-format.util';
 import {
   buildFacebookPostMessage,
@@ -44,6 +45,10 @@ import {
 } from './facebook-post-destination.util';
 import { verifyPublicPostResolvable } from '../../posts/public-post-resolve.util';
 import { NewsEditorialSettingsService } from '../../news-editorial/news-editorial-settings.service';
+import { SocialInstagramPublisherService, InstagramGraphPublishError } from './social-instagram-publisher.service';
+import { SocialInstagramConnectionService } from './social-instagram-connection.service';
+import { SocialInstagramCaptionService } from './social-instagram-caption.service';
+import type { InstagramPublishResult } from './social-instagram.types';
 
 export type FacebookPublishPayload = {
   message: string;
@@ -92,10 +97,31 @@ export class SocialPublisherService {
     private readonly postSocialPublish: PostSocialPublishService,
     private readonly platformStub: SocialPlatformStubService,
     private readonly newsSettings: NewsEditorialSettingsService,
+    private readonly instagramPublisher: SocialInstagramPublisherService,
+    private readonly instagramConnection: SocialInstagramConnectionService,
+    private readonly instagramCaption: SocialInstagramCaptionService,
   ) {}
 
+  async getInstagramStatus() {
+    return this.instagramConnection.getConnectionStatus();
+  }
+
+  async testInstagramConnection() {
+    const status = await this.instagramConnection.getConnectionStatus();
+    return { ok: status.connected && status.scopesOk, ...status };
+  }
+
+  async refreshInstagramConnection() {
+    await this.instagramConnection.syncFromFacebookPage();
+    return this.getInstagramStatus();
+  }
+
+  async testInstagramPublish(caption?: string): Promise<InstagramPublishResult> {
+    return this.instagramPublisher.publishTestPhoto(caption);
+  }
+
   async publishToInstagram(): Promise<never> {
-    throw new Error('Instagram autopost zatím není implementován.');
+    throw new Error('Použijte publishPropertyToInstagram nebo publishPostToPlatform(INSTAGRAM).');
   }
 
   async publishToYoutube(): Promise<never> {
@@ -1092,8 +1118,56 @@ export class SocialPublisherService {
         return result;
       }
 
+      if (platform === SocialPlatform.INSTAGRAM) {
+        await this.settings.reload();
+        const cfg = this.settings.getSettings().instagram;
+        if (!cfg?.enabled) {
+          await this.postSocialPublish.markStatus(postId, platform, {
+            status: PostSocialPublishStatus.FAILED,
+            publishType,
+            errorMessage: 'Instagram není zapnuto v administraci.',
+          });
+          return { skipped: true, reason: 'Instagram není zapnuto' };
+        }
+
+        const caption = await this.instagramCaption.buildCaption({
+          title: post.title?.trim() || message.slice(0, 120),
+          description: resolvePostSocialText(post).slice(0, 1500),
+          author: post.user?.name ?? undefined,
+          portal_url: portalCheck.ok ? portalCheck.generatedUrl : undefined,
+          hashtags: '#xxrealit #reality #bydleni',
+        });
+
+        let igResult: InstagramPublishResult;
+        if (videoUrl) {
+          const shareVideo = await this.teaserService.prepareVideoForSocialShare(videoUrl);
+          igResult = await this.instagramPublisher.publishReel({
+            videoUrl: shareVideo.teaserUrl,
+            caption,
+          });
+        } else if (imageUrl) {
+          igResult = await this.instagramPublisher.publishPhoto({ imageUrl, caption });
+        } else {
+          throw new Error('Instagram vyžaduje foto nebo video — textový příspěvek bez média nelze publikovat.');
+        }
+
+        await this.postSocialPublish.markStatus(postId, platform, {
+          status: PostSocialPublishStatus.PUBLISHED,
+          publishType,
+          externalId: igResult.externalPostId,
+          externalUrl: igResult.publishedUrl,
+          publishedAt: new Date(),
+        });
+
+        return {
+          externalPostId: igResult.externalPostId,
+          publishedUrl: igResult.publishedUrl,
+          usedVideo: Boolean(videoUrl),
+          raw: igResult.raw,
+        };
+      }
+
       if (
-        platform === SocialPlatform.INSTAGRAM ||
         platform === SocialPlatform.TIKTOK ||
         platform === SocialPlatform.YOUTUBE
       ) {
@@ -1114,12 +1188,71 @@ export class SocialPublisherService {
       throw new Error(`Nepodporovaná platforma: ${platform}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const code =
+        err instanceof InstagramGraphPublishError ? err.code : undefined;
       await this.postSocialPublish.markStatus(postId, platform, {
         status: PostSocialPublishStatus.FAILED,
         publishType,
-        errorMessage: message,
+        errorMessage: code ? `[${code}] ${message}` : message,
       });
       throw err;
     }
+  }
+
+  async publishPropertyToInstagram(
+    input: {
+      message: string;
+      link: string;
+      imageUrl: string | null;
+      videoUrl: string | null;
+      title?: string;
+      category?: string;
+      location?: string;
+      author?: string;
+      isShortsVideo?: boolean;
+      listingContext?: {
+        propertyTypeKey?: string | null;
+        propertyType?: string | null;
+        offerType?: string | null;
+        title?: string | null;
+        description?: string | null;
+      };
+    },
+    opts: { forceReel?: boolean } = {},
+  ): Promise<InstagramPublishResult> {
+    const caption = await this.instagramCaption.buildCaption({
+      title: input.title?.trim() || input.message.slice(0, 120),
+      description: input.message.slice(0, 1500),
+      category: input.category,
+      location: input.location,
+      author: input.author,
+      portal_url: input.link,
+      hashtags: '#xxrealit #reality #nemovitosti #bydleni',
+    });
+
+    const wantsReel =
+      opts.forceReel !== false &&
+      Boolean(input.videoUrl?.trim()) &&
+      (input.isShortsVideo || propertyHasPublishableVideo({ videoUrl: input.videoUrl }));
+
+    if (wantsReel && input.videoUrl?.trim()) {
+      const finalVideo = await this.listingReelFinalVideo.buildFinalVideo({
+        sourceVideoUrl: input.videoUrl.trim(),
+        listingContext: input.listingContext,
+      });
+      return this.instagramPublisher.publishReel({
+        videoUrl: finalVideo.finalVideoUrl,
+        caption,
+      });
+    }
+
+    if (input.imageUrl?.trim()) {
+      return this.instagramPublisher.publishPhoto({
+        imageUrl: input.imageUrl.trim(),
+        caption,
+      });
+    }
+
+    throw new Error('Instagram vyžaduje veřejné foto nebo video.');
   }
 }

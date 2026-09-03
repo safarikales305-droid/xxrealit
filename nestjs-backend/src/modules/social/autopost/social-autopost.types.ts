@@ -82,6 +82,17 @@ export type PlatformPlaceholderSettings = {
   preparedForFuture?: boolean;
 };
 
+export type InstagramAutopostSettings = PlatformPlaceholderSettings & {
+  instagramBusinessId?: string | null;
+  instagramUsername?: string | null;
+  instagramName?: string | null;
+  profilePictureUrl?: string | null;
+  linkedPageId?: string | null;
+  linkedPageName?: string | null;
+  connected?: boolean;
+  lastSyncedAt?: string | null;
+};
+
 export type SocialAutopostGlobalSettings = {
   autoPublishNewListings: boolean;
   autoPublishNewPosts: boolean;
@@ -112,7 +123,7 @@ export type SocialAutopostGlobalSettings = {
 export type SocialAutopostSettings = {
   global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettings;
-  instagram: PlatformPlaceholderSettings;
+  instagram: InstagramAutopostSettings;
   youtube: PlatformPlaceholderSettings;
   tiktok: PlatformPlaceholderSettings;
   lastApiResponses: SocialApiLogEntry[];
@@ -132,7 +143,7 @@ export type FacebookAutopostSettingsPublic = Omit<
 export type SocialAutopostSettingsPublic = {
   global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettingsPublic;
-  instagram: PlatformPlaceholderSettings;
+  instagram: InstagramAutopostSettings;
   youtube: PlatformPlaceholderSettings;
   tiktok: PlatformPlaceholderSettings;
   lastApiResponses: SocialApiLogEntry[];
@@ -191,10 +202,27 @@ export const DEFAULT_PLATFORM_PLACEHOLDER: PlatformPlaceholderSettings = {
   preparedForFuture: true,
 };
 
+export const DEFAULT_INSTAGRAM_AUTOPOST: InstagramAutopostSettings = {
+  enabled: false,
+  publishListings: false,
+  publishPosts: false,
+  publishShortsAsReels: false,
+  repeatPublishing: false,
+  preparedForFuture: false,
+  instagramBusinessId: null,
+  instagramUsername: null,
+  instagramName: null,
+  profilePictureUrl: null,
+  linkedPageId: null,
+  linkedPageName: null,
+  connected: false,
+  lastSyncedAt: null,
+};
+
 export const DEFAULT_SOCIAL_AUTOPOST_SETTINGS: SocialAutopostSettings = {
   global: { ...DEFAULT_SOCIAL_AUTOPOST_GLOBAL },
   facebook: { ...DEFAULT_FACEBOOK_AUTOPOST },
-  instagram: { ...DEFAULT_PLATFORM_PLACEHOLDER },
+  instagram: { ...DEFAULT_INSTAGRAM_AUTOPOST },
   youtube: { ...DEFAULT_PLATFORM_PLACEHOLDER },
   tiktok: { ...DEFAULT_PLATFORM_PLACEHOLDER },
   lastApiResponses: [],

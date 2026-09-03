@@ -8,8 +8,11 @@ import {
   DEFAULT_PLATFORM_PLACEHOLDER,
   DEFAULT_SOCIAL_AUTOPOST_GLOBAL,
   DEFAULT_SOCIAL_AUTOPOST_SETTINGS,
+  DEFAULT_INSTAGRAM_AUTOPOST,
   maskAccessToken,
   type FacebookAutopostSettings,
+  type InstagramAutopostSettings,
+  type PlatformPlaceholderSettings,
   type SocialApiLogEntry,
   type SocialAutopostGlobalSettings,
   type SocialAutopostSettings,
@@ -45,8 +48,8 @@ export class SocialAutopostSettingsService implements OnModuleInit {
 
   private platformSettings(
     raw: unknown,
-    fallback: typeof DEFAULT_PLATFORM_PLACEHOLDER,
-  ) {
+    fallback: PlatformPlaceholderSettings,
+  ): PlatformPlaceholderSettings {
     const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     return {
       enabled: o.enabled === true,
@@ -55,6 +58,27 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       publishShortsAsReels: o.publishShortsAsReels === true,
       repeatPublishing: o.repeatPublishing === true,
       preparedForFuture: o.preparedForFuture !== false,
+    };
+  }
+
+  private instagramSettings(raw: unknown) {
+    const base = this.platformSettings(raw, DEFAULT_INSTAGRAM_AUTOPOST);
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return {
+      ...base,
+      preparedForFuture: false,
+      instagramBusinessId: str(o.instagramBusinessId),
+      instagramUsername: str(o.instagramUsername),
+      instagramName: str(o.instagramName),
+      profilePictureUrl: str(o.profilePictureUrl),
+      linkedPageId: str(o.linkedPageId),
+      linkedPageName: str(o.linkedPageName),
+      connected: o.connected === true,
+      lastSyncedAt:
+        o.lastSyncedAt === null || typeof o.lastSyncedAt === 'string'
+          ? (o.lastSyncedAt as string | null)
+          : null,
     };
   }
 
@@ -148,7 +172,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
     return {
       global: this.globalSettings(o.global),
       facebook,
-      instagram: this.platformSettings(o.instagram, DEFAULT_PLATFORM_PLACEHOLDER),
+      instagram: this.instagramSettings(o.instagram),
       youtube: this.platformSettings(o.youtube, DEFAULT_PLATFORM_PLACEHOLDER),
       tiktok: this.platformSettings(o.tiktok, DEFAULT_PLATFORM_PLACEHOLDER),
       lastApiResponses,
@@ -241,6 +265,19 @@ export class SocialAutopostSettingsService implements OnModuleInit {
     return Boolean(this.resolveFacebookPageId() && this.resolveFacebookPageAccessToken());
   }
 
+  isInstagramPublishingConfigured(): boolean {
+    const ig = this.stored.instagram;
+    return Boolean(
+      this.resolveFacebookPageAccessToken() &&
+        this.resolveFacebookPageId() &&
+        ig.instagramBusinessId?.trim(),
+    );
+  }
+
+  isInstagramAutopostReady(): boolean {
+    return Boolean(this.stored.instagram.enabled && this.isInstagramPublishingConfigured());
+  }
+
   toPublic(settings: SocialAutopostSettings = this.stored): SocialAutopostSettingsPublic {
     const token = this.resolveFacebookPageAccessToken();
     const {
@@ -276,7 +313,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
         pageAccessToken?: string;
         userAccessToken?: string;
       };
-      instagram?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
+      instagram?: Partial<InstagramAutopostSettings>;
       youtube?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
       tiktok?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
       lastApiResponses?: SocialAutopostSettings['lastApiResponses'];

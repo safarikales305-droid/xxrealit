@@ -17,6 +17,7 @@ import {
 } from '../facebook/facebook-page.constants';
 import { isFacebookPageScopeError } from '../facebook/facebook-page-scope.util';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
+import { SocialInstagramConnectionService } from './social-instagram-connection.service';
 
 const ADMIN_OAUTH_MODE = 'admin_autopost';
 const PREFERRED_PAGE_HINTS = ['xxrealit.cz', 'xxrealit', 'xx realit'];
@@ -51,6 +52,7 @@ export class SocialAutopostFacebookOAuthService {
     private readonly facebookConfig: FacebookConfigService,
     private readonly facebookPage: FacebookPageService,
     private readonly settings: SocialAutopostSettingsService,
+    private readonly instagramConnection: SocialInstagramConnectionService,
   ) {}
 
   private frontendUrl(): string {
@@ -257,6 +259,12 @@ export class SocialAutopostFacebookOAuthService {
         `[admin-autopost-oauth] page selected userId=${adminUserId} pageId=${pageRow.id} pageName=${pageRow.name}`,
       );
 
+      void this.instagramConnection.syncFromFacebookPage().catch((err) => {
+        this.logger.warn(
+          `[admin-autopost-oauth] instagram sync failed: ${err instanceof Error ? err.message : err}`,
+        );
+      });
+
       return { ok: true, pageId: pageRow.id, pageName: pageRow.name };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Výběr stránky selhal.';
@@ -308,6 +316,11 @@ export class SocialAutopostFacebookOAuthService {
       });
 
       this.logger.log(`[admin-autopost-oauth] token refreshed pageId=${pageId}`);
+      void this.instagramConnection.syncFromFacebookPage().catch((err) => {
+        this.logger.warn(
+          `[admin-autopost-oauth] instagram sync after refresh failed: ${err instanceof Error ? err.message : err}`,
+        );
+      });
       return { ok: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Obnova tokenu selhala.';

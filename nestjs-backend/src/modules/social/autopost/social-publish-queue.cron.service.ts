@@ -29,7 +29,9 @@ export class SocialPublishQueueCronService implements OnModuleInit, OnModuleDest
 
   private async tick(source: string) {
     if (this.running) return;
-    if (!this.settings.isFacebookAutopostReady()) return;
+    if (!this.settings.isFacebookAutopostReady() && !this.settings.isInstagramAutopostReady()) {
+      return;
+    }
 
     this.running = true;
     try {

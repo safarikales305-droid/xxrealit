@@ -53,6 +53,9 @@ import { SocialIntroVideoService } from './autopost/social-intro-video.service';
 import { IntroVideoUploadExceptionFilter } from './autopost/intro-video-upload.exception-filter';
 import { SocialPublishTemplatesService } from './autopost/social-publish-templates.service';
 import { PostSocialPublishService } from './autopost/post-social-publish.service';
+import { SocialInstagramPublisherService } from './autopost/social-instagram-publisher.service';
+import { SocialInstagramConnectionService } from './autopost/social-instagram-connection.service';
+import { SocialInstagramCaptionService } from './autopost/social-instagram-caption.service';
 
 @Module({
   imports: [
@@ -106,6 +109,9 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookVideoTeaserService,
     SocialPublishTemplatesService,
     PostSocialPublishService,
+    SocialInstagramPublisherService,
+    SocialInstagramConnectionService,
+    SocialInstagramCaptionService,
     SocialIntroVideoService,
     ReelVideoComposerService,
     ReelRegenerateJobService,
