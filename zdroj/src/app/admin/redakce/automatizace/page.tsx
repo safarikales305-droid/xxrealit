@@ -28,6 +28,7 @@ export default function RedakceAutomatizacePage() {
   const [reel, setReel] = useState<EditorialReelAutomationSettings | null>(null);
   const [dashAuto, setDashAuto] = useState(false);
   const [youtube, setYoutube] = useState<YouTubeConnectionStatus | null>(null);
+  const [youtubeConnectError, setYoutubeConnectError] = useState<string | null>(null);
   const [youtubeSummary, setYoutubeSummary] = useState<{
     lastUploadAt: string | null;
     lastUploadVideoId: string | null;
@@ -234,13 +235,19 @@ export default function RedakceAutomatizacePage() {
               type="button"
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
               onClick={() => {
-                void nestYoutubeOAuthConnectUrl(apiAccessToken).then((url) => {
-                  if (url) window.location.href = url;
+                if (!apiAccessToken) return;
+                setYoutubeConnectError(null);
+                void nestYoutubeOAuthConnectUrl(apiAccessToken).then((result) => {
+                  if (result.url) window.location.href = result.url;
+                  else setYoutubeConnectError(result.error ?? 'YouTube OAuth selhalo.');
                 });
               }}
             >
               Připojit / obnovit oprávnění YouTube
             </button>
+          ) : null}
+          {youtubeConnectError ? (
+            <p className="mt-2 text-sm text-red-700">{youtubeConnectError}</p>
           ) : null}
         </div>
       </div>

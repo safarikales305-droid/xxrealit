@@ -83,11 +83,15 @@ export type FacebookProviderStatus = {
 export type YoutubeProviderStatus = {
   configured: boolean;
   connected: boolean | null;
+  healthStatus?: string;
   channelId?: string | null;
   channelTitle?: string | null;
   uploadScopeOk?: boolean;
   refreshTokenOk?: boolean;
   autoPublishReady?: boolean;
+  missingEnv?: string[];
+  redirectUri?: string | null;
+  message?: string | null;
 };
 
 export type AiInfluencerRenderSettings = {
@@ -204,8 +208,10 @@ export type AiInfluencerJobRow = {
   selectedHook: string | null;
   videoUrl: string | null;
   finalMasterUrl?: string | null;
+  baseMasterUrl?: string | null;
   totalExternalCost: number;
   failedStage: string | null;
+  errorCode?: string | null;
   errorMessage: string | null;
   facebookPublishStatus?: string | null;
   facebookPermalink?: string | null;
@@ -266,6 +272,12 @@ export function nestAiInfluencerApproveScript(token: string, jobId: string) {
 
 export function nestAiInfluencerRetryJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
+export function nestAiInfluencerAcceptUnbranded(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<AiInfluencerJobRow>(token, `/jobs/${jobId}/accept-unbranded`, {
+    method: 'POST',
+  });
 }
 
 export function nestAiInfluencerTestVoice(token: string, text?: string, voiceId?: string) {
@@ -367,6 +379,31 @@ export function nestAiInfluencerYoutubeStatus(token: string) {
     token,
     '/youtube/status',
   );
+}
+
+export function nestAiInfluencerTestYoutube(token: string) {
+  return aiInfluencerFetchWithError<YoutubeProviderStatus & { status?: string; message?: string | null }>(
+    token,
+    '/test/youtube',
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerTestYoutubeUpload(token: string, body?: { jobId?: string; videoUrl?: string }) {
+  return aiInfluencerFetchWithError<{
+    ok: boolean;
+    youtubeVideoId?: string;
+    youtubeUrl?: string;
+    youtubeUploadStatus?: string;
+    message?: string;
+  }>(token, '/test/youtube/upload', {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export function nestAiInfluencerYoutubeDisconnect(token: string) {
+  return aiInfluencerFetchWithError<{ ok: boolean }>(token, '/youtube/disconnect', { method: 'POST' });
 }
 
 export function nestAiInfluencerRegenerateJob(token: string, jobId: string) {

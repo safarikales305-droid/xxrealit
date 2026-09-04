@@ -205,7 +205,7 @@ export function mergeRenderSettings(
 export function resolveSmartLayout(sourceWidth: number, sourceHeight: number): AiInfluencerLayoutMode {
   if (!sourceWidth || !sourceHeight) return 'AVATAR_BLUR';
   const ratio = sourceWidth / sourceHeight;
-  if (ratio <= 0.7) return 'AVATAR_FULLSCREEN';
-  if (ratio <= 1.05) return 'AVATAR_BLUR';
+  // Prefer blur background over crop/pillarbox for portrait and near-portrait sources.
+  if (ratio < 1.15) return 'AVATAR_BLUR';
   return 'AVATAR_CONTENT';
 }

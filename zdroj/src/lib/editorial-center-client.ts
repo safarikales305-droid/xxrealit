@@ -239,14 +239,28 @@ export function nestEditorialYoutubePublishSummary(token: string) {
   }>(token, '/youtube/publish-summary');
 }
 
-export async function nestYoutubeOAuthConnectUrl(token: string): Promise<string | null> {
-  if (!API_BASE_URL) return null;
+export async function nestYoutubeOAuthConnectUrl(
+  token: string,
+): Promise<{ url: string | null; error: string | null }> {
+  if (!API_BASE_URL) {
+    return { url: null, error: 'API není nakonfigurováno (NEXT_PUBLIC_API_URL).' };
+  }
   const res = await fetch(`${API_BASE_URL}/social/youtube/oauth/connect`, {
     headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
   });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { url?: string };
-  return data.url ?? null;
+  const data = (await res.json().catch(() => null)) as {
+    url?: string;
+    message?: string;
+    missing?: string[];
+  } | null;
+  if (!res.ok) {
+    const missing = data?.missing?.length ? ` Chybí: ${data.missing.join(', ')}.` : '';
+    return {
+      url: null,
+      error: `${data?.message ?? `YouTube OAuth selhalo (HTTP ${res.status}).`}${missing}`,
+    };
+  }
+  return { url: data?.url ?? null, error: data?.url ? null : 'OAuth URL nebyla vrácena.' };
 }
 
 export function nestEditorialRenderReelJob(token: string, id: string) {

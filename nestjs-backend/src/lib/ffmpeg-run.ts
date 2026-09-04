@@ -44,6 +44,40 @@ export function parseDurationSecondsFromFfmpegStderr(stderr: string): number | n
   return Math.round(hours * 3600 + min * 60 + sec);
 }
 
+/** Parsuje stderr `ffmpeg -filters` / `-version` pro dostupnost základních filtrů. */
+export async function probeFfmpegCapabilities(
+  executable: string,
+): Promise<{
+  version: string | null;
+  filters: { overlay: boolean; scale: boolean; format: boolean; ass: boolean; drawtext: boolean };
+}> {
+  const empty = {
+    version: null,
+    filters: { overlay: false, scale: false, format: false, ass: false, drawtext: false },
+  };
+  try {
+    const [versionRes, filtersRes] = await Promise.all([
+      runFfmpegCapture(executable, ['-hide_banner', '-version']),
+      runFfmpegCapture(executable, ['-hide_banner', '-filters']),
+    ]);
+    const versionLine =
+      versionRes.stderr.split('\n').find((l) => l.startsWith('ffmpeg version')) ?? null;
+    const filtersOut = filtersRes.stderr;
+    return {
+      version: versionLine,
+      filters: {
+        overlay: /\boverlay\b/.test(filtersOut),
+        scale: /\bscale\b/.test(filtersOut),
+        format: /\bformat\b/.test(filtersOut),
+        ass: /\bass\b/.test(filtersOut),
+        drawtext: /\bdrawtext\b/.test(filtersOut),
+      },
+    };
+  } catch {
+    return empty;
+  }
+}
+
 /** Zjistí, zda ffmpeg build obsahuje filtr drawtext (volitelné — shorts overlay ho nevyžaduje). */
 export async function probeFfmpegSupportsDrawtext(executable: string): Promise<boolean> {
   try {

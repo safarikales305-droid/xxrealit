@@ -21,12 +21,16 @@ import {
   nestAiInfluencerProfile,
   nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerAcceptUnbranded,
   nestAiInfluencerUpdateSettings,
   nestAiInfluencerPublishFacebook,
   nestAiInfluencerPublishYoutube,
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestFacebook,
+  nestAiInfluencerTestYoutube,
+  nestAiInfluencerTestYoutubeUpload,
+  nestAiInfluencerYoutubeDisconnect,
   nestAiInfluencerTestVoice,
   nestAiInfluencerUpdateProfile,
   type AiInfluencerActiveJob,
@@ -66,6 +70,17 @@ function isProcessing(status: string) {
     'SKIPPED_QUALITY',
     'SKIPPED_DUPLICATE',
   ].includes(status);
+}
+
+function failedStageLabel(stage: string | null | undefined): string {
+  if (!stage) return 'kroku';
+  if (stage === 'BRANDING_RENDER') return 'brandingu';
+  if (stage === 'RENDER') return 'renderu';
+  if (stage === 'VOICE') return 'hlasu';
+  if (stage === 'AVATAR') return 'avataru';
+  if (stage === 'SCRIPT') return 'scénáře';
+  if (stage === 'PUBLISH') return 'publikování';
+  return stage.toLowerCase();
 }
 
 function providerLabel(connected: boolean | null, configured: boolean) {
@@ -131,6 +146,8 @@ export default function AiInfluencerPage() {
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [fbTestMsg, setFbTestMsg] = useState<string | null>(null);
+  const [ytTestMsg, setYtTestMsg] = useState<string | null>(null);
+  const [ytConnectError, setYtConnectError] = useState<string | null>(null);
   const [voices, setVoices] = useState<ElevenLabsVoiceOption[]>([]);
   const [avatars, setAvatars] = useState<HeyGenAvatarOption[]>([]);
   const [voicesPermission, setVoicesPermission] = useState<string | null>(null);
@@ -376,6 +393,13 @@ export default function AiInfluencerPage() {
             title="YouTube"
             lines={[
               {
+                ok: dashboard?.providers.youtube?.configured === true,
+                text:
+                  dashboard?.providers.youtube?.configured === true
+                    ? 'OAuth nakonfigurován'
+                    : `OAuth není nakonfigurován${dashboard?.providers.youtube?.missingEnv?.length ? ` · chybí ${dashboard.providers.youtube.missingEnv.join(', ')}` : ''}`,
+              },
+              {
                 ok: dashboard?.providers.youtube?.connected === true,
                 text:
                   dashboard?.providers.youtube?.connected === true
@@ -386,7 +410,9 @@ export default function AiInfluencerPage() {
                 ok: dashboard?.providers.youtube?.uploadScopeOk === true,
                 text: dashboard?.providers.youtube?.uploadScopeOk
                   ? 'Upload oprávnění: ✓'
-                  : 'Upload oprávnění: —',
+                  : dashboard?.providers.youtube?.connected
+                    ? 'Chybí youtube.upload'
+                    : 'Upload oprávnění: —',
               },
             ]}
           />
@@ -603,17 +629,93 @@ export default function AiInfluencerPage() {
             onClick={() => {
               if (!apiAccessToken) return;
               setBusy('yt-connect');
-              void nestYoutubeOAuthConnectUrl(apiAccessToken).then((url) => {
+              setYtConnectError(null);
+              void nestYoutubeOAuthConnectUrl(apiAccessToken).then((result) => {
                 setBusy(null);
-                if (url) window.location.href = url;
+                if (result.url) {
+                  window.location.href = result.url;
+                  return;
+                }
+                setYtConnectError(result.error ?? 'YouTube OAuth selhalo.');
               });
             }}
             className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
           >
             Připojit YouTube kanál
           </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'yt-test'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('yt-test');
+              void nestAiInfluencerTestYoutube(apiAccessToken).then((r) => {
+                setYtTestMsg(r.error ?? r.data?.message ?? r.data?.status ?? 'YouTube OK');
+                setBusy(null);
+                load();
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Otestovat YouTube
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'yt-reauth'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('yt-reauth');
+              setYtConnectError(null);
+              void nestYoutubeOAuthConnectUrl(apiAccessToken).then((result) => {
+                setBusy(null);
+                if (result.url) window.location.href = result.url;
+                else setYtConnectError(result.error ?? 'Znovu autorizace selhala.');
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Znovu autorizovat
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'yt-disconnect'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('yt-disconnect');
+              void nestAiInfluencerYoutubeDisconnect(apiAccessToken).then(() => {
+                setBusy(null);
+                setYtTestMsg('YouTube odpojeno.');
+                load();
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Odpojit
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'yt-upload-test'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('yt-upload-test');
+              void nestAiInfluencerTestYoutubeUpload(apiAccessToken).then((r) => {
+                setYtTestMsg(
+                  r.error ??
+                    (r.data?.ok
+                      ? `Test upload OK · ${r.data.youtubeUrl ?? r.data.youtubeVideoId}`
+                      : r.data?.message ?? 'Test upload selhal'),
+                );
+                setBusy(null);
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Testovací upload
+          </button>
         </div>
         {fbTestMsg ? <p className="mt-2 text-sm text-zinc-600">{fbTestMsg}</p> : null}
+        {ytTestMsg ? <p className="mt-2 text-sm text-zinc-600">{ytTestMsg}</p> : null}
+        {ytConnectError ? <p className="mt-2 text-sm text-red-700">{ytConnectError}</p> : null}
       </section>
 
       <AiInfluencerReelEditor
@@ -728,7 +830,7 @@ export default function AiInfluencerPage() {
               ) : null}
               {job.errorMessage ? (
                 <p className="mt-2 text-xs text-red-700">
-                  Krok: {job.failedStage ?? '—'} — {job.errorMessage}
+                  Krok: {failedStageLabel(job.failedStage)} — {job.errorMessage}
                 </p>
               ) : null}
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
@@ -769,7 +871,22 @@ export default function AiInfluencerPage() {
                     }}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
                   >
-                    Zkusit znovu od {job.failedStage ?? 'kroku'}
+                    Zkusit znovu od {failedStageLabel(job.failedStage)}
+                  </button>
+                ) : null}
+                {job.status === 'FAILED' &&
+                job.failedStage === 'BRANDING_RENDER' &&
+                (job.baseMasterUrl || job.videoUrl) ? (
+                  <button
+                    type="button"
+                    disabled={!apiAccessToken}
+                    onClick={() => {
+                      if (!apiAccessToken) return;
+                      void nestAiInfluencerAcceptUnbranded(apiAccessToken, job.id).then(() => load());
+                    }}
+                    className="rounded border border-amber-300 px-3 py-1 text-xs font-medium text-amber-900"
+                  >
+                    Použít video bez brandingu
                   </button>
                 ) : null}
                 {job.status === 'SKIPPED_QUALITY' ? (

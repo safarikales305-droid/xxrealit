@@ -23,6 +23,36 @@ export type YouTubeChannelInfo = {
   channelHandle: string | null;
 };
 
+export type YouTubeConnectionHealthStatus =
+  | 'CONNECTED'
+  | 'NOT_CONFIGURED'
+  | 'AUTH_REQUIRED'
+  | 'TOKEN_EXPIRED'
+  | 'REFRESH_FAILED'
+  | 'MISSING_SCOPE'
+  | 'CHANNEL_NOT_FOUND'
+  | 'API_ERROR';
+
+export type YouTubeTestResult = {
+  status: YouTubeConnectionHealthStatus;
+  configured: boolean;
+  missingEnv?: string[];
+  redirectUri?: string | null;
+  channelId?: string | null;
+  channelTitle?: string | null;
+  uploadScopeOk?: boolean;
+  refreshTokenOk?: boolean;
+  message?: string | null;
+};
+
+export type YouTubeTestUploadResult = {
+  ok: boolean;
+  videoId?: string;
+  url?: string;
+  uploadStatus?: string;
+  message?: string | null;
+};
+
 @Injectable()
 export class YouTubeOAuthService {
   private readonly log = new Logger(YouTubeOAuthService.name);
@@ -38,8 +68,19 @@ export class YouTubeOAuthService {
   }
 
   private assertConfigured() {
-    if (!this.config.isConfigured()) {
-      throw new ServiceUnavailableException('YouTube OAuth není nakonfigurováno.');
+    const diag = this.config.getConfigurationDiagnostics();
+    if (!diag.configured) {
+      throw new ServiceUnavailableException({
+        message: 'YouTube OAuth není nakonfigurován.',
+        missing: diag.missing,
+        configured: false,
+        redirectUri: diag.redirectUri,
+        diagnostics: diag.diagnostics.map((d) => ({
+          variable: d.name,
+          present: d.present ? 'PRESENT' : 'MISSING',
+          purpose: d.purpose,
+        })),
+      });
     }
   }
 
@@ -146,6 +187,7 @@ export class YouTubeOAuthService {
   }
 
   async getConnectionStatus() {
+    const diag = this.config.getConfigurationDiagnostics();
     const conn = await this.prisma.youTubeOAuthConnection.findFirst({
       where: { isActive: true },
       orderBy: { updatedAt: 'desc' },
@@ -153,12 +195,15 @@ export class YouTubeOAuthService {
     if (!conn) {
       return {
         connected: false,
-        configured: this.config.isConfigured(),
+        configured: diag.configured,
+        healthStatus: (diag.configured ? 'AUTH_REQUIRED' : 'NOT_CONFIGURED') as YouTubeConnectionHealthStatus,
         channelId: null,
         channelTitle: null,
         uploadScopeOk: false,
         refreshTokenOk: false,
         autoPublishReady: false,
+        missingEnv: diag.missing,
+        redirectUri: diag.redirectUri,
       };
     }
 
@@ -167,20 +212,118 @@ export class YouTubeOAuthService {
     const channelMismatch =
       conn.expectedChannelId && conn.expectedChannelId !== conn.channelId;
 
+    let healthStatus: YouTubeConnectionHealthStatus = 'CONNECTED';
+    if (!hasUploadScope) healthStatus = 'MISSING_SCOPE';
+    else if (!hasRefresh) healthStatus = 'AUTH_REQUIRED';
+    else if (conn.lastError === 'invalid_grant') healthStatus = 'REFRESH_FAILED';
+    else if (conn.expiresAt.getTime() < Date.now()) healthStatus = 'TOKEN_EXPIRED';
+
     return {
       connected: true,
-      configured: this.config.isConfigured(),
+      configured: diag.configured,
+      healthStatus,
       channelId: conn.channelId,
       channelTitle: conn.channelTitle,
       channelHandle: conn.channelHandle,
       uploadScopeOk: hasUploadScope,
       refreshTokenOk: hasRefresh,
-      autoPublishReady: hasUploadScope && hasRefresh && !channelMismatch,
+      autoPublishReady: hasUploadScope && hasRefresh && !channelMismatch && diag.configured,
       channelMismatch: Boolean(channelMismatch),
       expectedChannelId: conn.expectedChannelId,
       expiresAt: conn.expiresAt.toISOString(),
       lastError: conn.lastError,
+      missingEnv: diag.configured ? [] : diag.missing,
+      redirectUri: diag.redirectUri,
     };
+  }
+
+  async disconnect(): Promise<{ ok: boolean }> {
+    await this.prisma.youTubeOAuthConnection.updateMany({
+      where: { isActive: true },
+      data: { isActive: false, lastError: null },
+    });
+    await this.prisma.youTubeOAuthSession.deleteMany({});
+    return { ok: true };
+  }
+
+  async testConnection(): Promise<YouTubeTestResult> {
+    const diag = this.config.getConfigurationDiagnostics();
+    if (!diag.configured) {
+      return {
+        status: 'NOT_CONFIGURED',
+        configured: false,
+        missingEnv: diag.missing,
+        redirectUri: diag.redirectUri,
+        message: `Chybí: ${diag.missing.join(', ')}`,
+      };
+    }
+
+    const conn = await this.prisma.youTubeOAuthConnection.findFirst({
+      where: { isActive: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!conn) {
+      return {
+        status: 'AUTH_REQUIRED',
+        configured: true,
+        redirectUri: diag.redirectUri,
+        message: 'YouTube kanál není připojen.',
+      };
+    }
+
+    if (!conn.scopes.includes('youtube.upload')) {
+      return {
+        status: 'MISSING_SCOPE',
+        configured: true,
+        channelId: conn.channelId,
+        channelTitle: conn.channelTitle,
+        uploadScopeOk: false,
+        refreshTokenOk: Boolean(conn.refreshTokenEncrypted?.trim()),
+        message: 'Chybí oprávnění youtube.upload.',
+      };
+    }
+
+    if (!conn.refreshTokenEncrypted?.trim()) {
+      return {
+        status: 'AUTH_REQUIRED',
+        configured: true,
+        channelId: conn.channelId,
+        channelTitle: conn.channelTitle,
+        refreshTokenOk: false,
+        message: 'Chybí refresh token — znovu autorizujte kanál.',
+      };
+    }
+
+    try {
+      const accessToken = await this.getValidAccessToken();
+      const channel = await this.fetchMyChannel(accessToken);
+      return {
+        status: 'CONNECTED',
+        configured: true,
+        channelId: channel.channelId,
+        channelTitle: channel.channelTitle,
+        uploadScopeOk: true,
+        refreshTokenOk: true,
+        redirectUri: diag.redirectUri,
+        message: null,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      let status: YouTubeConnectionHealthStatus = 'API_ERROR';
+      if (/AUTH_REQUIRED|invalid_grant|revoked/i.test(msg)) status = 'REFRESH_FAILED';
+      else if (/channel_not_found/i.test(msg)) status = 'CHANNEL_NOT_FOUND';
+      else if (/TOKEN|expired/i.test(msg)) status = 'TOKEN_EXPIRED';
+
+      return {
+        status,
+        configured: true,
+        channelId: conn.channelId,
+        channelTitle: conn.channelTitle,
+        uploadScopeOk: conn.scopes.includes('youtube.upload'),
+        refreshTokenOk: Boolean(conn.refreshTokenEncrypted?.trim()),
+        message: msg,
+      };
+    }
   }
 
   async getValidAccessToken(): Promise<string> {

@@ -12,6 +12,7 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OpenAiService } from '../openai/openai.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
+import { YouTubePublishService } from '../social/youtube/youtube-publish.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
@@ -38,6 +39,7 @@ export class AiInfluencerAdminController {
     private readonly did: DIdAvatarProvider,
     private readonly prisma: PrismaService,
     private readonly youtubeOAuth: YouTubeOAuthService,
+    private readonly youtubePublish: YouTubePublishService,
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly publish: AiInfluencerPublishService,
     private readonly shortsMusic: ShortsMusicService,
@@ -183,6 +185,11 @@ export class AiInfluencerAdminController {
     return this.jobs.retryJob(id);
   }
 
+  @Post('jobs/:id/accept-unbranded')
+  acceptUnbranded(@Param('id') id: string) {
+    return this.jobs.acceptUnbrandedMaster(id);
+  }
+
   @Post('jobs/:id/regenerate')
   regenerateJob(@Param('id') id: string) {
     return this.jobs.regenerateRender(id);
@@ -233,6 +240,63 @@ export class AiInfluencerAdminController {
   @Get('youtube/status')
   youtubeStatus() {
     return this.youtubeOAuth.getConnectionStatus();
+  }
+
+  @Post('youtube/disconnect')
+  youtubeDisconnect() {
+    return this.youtubeOAuth.disconnect();
+  }
+
+  @Post('test/youtube')
+  testYoutube() {
+    return this.youtubeOAuth.testConnection();
+  }
+
+  @Post('test/youtube/upload')
+  async testYoutubeUpload(@Body() body: { jobId?: string; videoUrl?: string }) {
+    let videoUrl = body.videoUrl?.trim();
+    if (!videoUrl && body.jobId?.trim()) {
+      const job = await this.prisma.aiInfluencerReelJob.findUnique({
+        where: { id: body.jobId.trim() },
+        select: { finalMasterUrl: true, baseMasterUrl: true },
+      });
+      videoUrl = job?.finalMasterUrl ?? job?.baseMasterUrl ?? undefined;
+    }
+    if (!videoUrl) {
+      const latest = await this.prisma.aiInfluencerReelJob.findFirst({
+        where: { finalMasterUrl: { not: null } },
+        orderBy: { updatedAt: 'desc' },
+        select: { finalMasterUrl: true },
+      });
+      videoUrl = latest?.finalMasterUrl ?? undefined;
+    }
+    if (!videoUrl) {
+      throw new BadRequestException('Chybí final master video pro testovací upload.');
+    }
+
+    const health = await this.youtubeOAuth.testConnection();
+    if (health.status !== 'CONNECTED') {
+      return {
+        ok: false,
+        youtubeUploadStatus: health.status,
+        message: health.message ?? 'YouTube není připraveno k uploadu.',
+      };
+    }
+
+    const upload = await this.youtubePublish.uploadVideo({
+      videoUrl,
+      title: 'XXREALIT – test YouTube integrace',
+      description: 'Soukromý testovací upload z XXREALIT adminu.',
+      tags: ['xxrealit', 'test'],
+      privacyStatus: 'private',
+    });
+
+    return {
+      ok: true,
+      youtubeVideoId: upload.videoId,
+      youtubeUrl: upload.url,
+      youtubeUploadStatus: 'PRIVATE_UPLOADED',
+    };
   }
 
   @Get('health/elevenlabs')
@@ -485,11 +549,14 @@ export class AiInfluencerAdminController {
       youtube: {
         configured: yt.configured,
         connected: yt.connected,
+        healthStatus: yt.healthStatus,
         channelId: yt.channelId,
         channelTitle: yt.channelTitle ?? null,
         uploadScopeOk: yt.uploadScopeOk,
         refreshTokenOk: yt.refreshTokenOk,
         autoPublishReady: yt.autoPublishReady,
+        missingEnv: yt.missingEnv,
+        redirectUri: yt.redirectUri,
       },
     };
   }

@@ -8286,6 +8286,7 @@ model AiInfluencerReelJob {
   videoPath            String?
   videoUrl             String?
   finalMasterUrl       String?
+  baseMasterUrl        String?
   thumbnailUrl         String?
   renderPreset         String?
   renderSettingsJson   Json?

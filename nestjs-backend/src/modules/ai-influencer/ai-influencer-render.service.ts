@@ -9,6 +9,7 @@ import sharp, { assertSharpReady } from '../../lib/sharp-instance';
 import { resolveFfmpegBinary } from '../../lib/ffmpeg-binary';
 import {
   parseDurationSecondsFromFfmpegStderr,
+  probeFfmpegCapabilities,
   runFfmpegCapture,
 } from '../../lib/ffmpeg-run';
 import {
@@ -23,12 +24,20 @@ import {
 } from './ai-influencer-render.types';
 import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
 import { AiInfluencerSubtitleService } from './ai-influencer-subtitle.service';
+import { renderAiInfluencerBrandingOverlayPng } from './ai-influencer-branding-overlay.render';
+import {
+  SAFE_BRANDING_FILTER_GRAPH,
+  buildFfmpegDebugSnapshot,
+  classifyFfmpegStderr,
+  FfmpegRenderError,
+} from './ai-influencer-ffmpeg.util';
 import type { ReelScenePlan } from './ai-influencer.types';
 
 export type AiInfluencerRenderInput = AiInfluencerCompositorInput;
 
 export type AiInfluencerRenderResult = {
   outputPath: string;
+  baseVideoPath: string;
   tmpRoot: string;
   durationSec: number | null;
   layoutUsed: AiInfluencerLayoutMode;
@@ -38,6 +47,7 @@ export type AiInfluencerRenderResult = {
 @Injectable()
 export class AiInfluencerRenderService {
   private readonly log = new Logger(AiInfluencerRenderService.name);
+  private ffmpegCapsLogged = false;
 
   constructor(
     private readonly subtitles: AiInfluencerSubtitleService,
@@ -85,6 +95,19 @@ export class AiInfluencerRenderService {
         outPath: composed,
       });
 
+      if (await this.detectLikelyPillarbox(ffmpeg.path, composed)) {
+        this.log.warn('Pillarbox detekován — přepínám na AVATAR_BLUR layout.');
+        layout = 'AVATAR_BLUR';
+        await this.composeVideo(ffmpeg.path, {
+          avatarPath: input.avatarVideoPath,
+          layout,
+          settings,
+          targetDuration,
+          brollPath,
+          outPath: composed,
+        });
+      }
+
       const assPath = join(tmpRoot, 'captions.ass');
       const cues = this.subtitles.buildCues(
         input.scenes,
@@ -99,62 +122,41 @@ export class AiInfluencerRenderService {
       );
 
       const withSubs = join(tmpRoot, 'with-subs.mp4');
-      const assEscaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-      await this.runFfmpeg(ffmpeg.path, [
-        '-y',
-        '-i',
-        composed,
-        '-vf',
-        `ass='${assEscaped}',scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
-        '-c:v',
-        'libx264',
-        '-preset',
-        'medium',
-        '-crf',
-        '20',
-        '-pix_fmt',
-        'yuv420p',
-        '-an',
-        '-r',
-        String(REEL_FPS),
-        withSubs,
-      ]);
+      await this.burnSubtitles(ffmpeg.path, composed, assPath, withSubs);
 
-      let videoForMux = withSubs;
-      if (input.logoPath && settings.branding.logoEnabled) {
-        const withLogo = join(tmpRoot, 'with-logo.mp4');
-        await this.overlayLogo(ffmpeg.path, withSubs, input.logoPath, settings, withLogo, targetDuration);
-        videoForMux = withLogo;
-      }
+      const brandingNeeded =
+        (input.logoPath && settings.branding.logoEnabled) ||
+        (settings.watermark.enabled && settings.watermark.text.trim());
 
-      if (settings.watermark.enabled && settings.watermark.text.trim()) {
-        const withWatermark = join(tmpRoot, 'with-watermark.mp4');
-        await this.overlayWatermark(
-          ffmpeg.path,
-          videoForMux,
+      let outputPath: string;
+      if (brandingNeeded) {
+        outputPath = await this.finalizeBranding({
+          baseVideoPath: withSubs,
+          voiceAudioPath: input.voiceAudioPath,
+          musicFilePath: input.musicFilePath,
+          logoPath: input.logoPath,
           settings,
-          withWatermark,
           targetDuration,
-        );
-        videoForMux = withWatermark;
+          tmpRoot,
+        });
+      } else {
+        outputPath = join(tmpRoot, 'final.mp4');
+        await this.muxAudio(ffmpeg.path, {
+          videoPath: withSubs,
+          voicePath: input.voiceAudioPath,
+          musicPath: input.musicFilePath,
+          settings,
+          targetDuration,
+          outputPath,
+        });
+        const postcheck = await this.validator.validateOutputFile(outputPath, targetDuration);
+        if (!postcheck.ok) {
+          const msg = postcheck.issues.map((i) => i.message).join(' ');
+          throw new Error(`Post-render validace selhala: ${msg}`);
+        }
       }
-
-      const outputPath = join(tmpRoot, 'final.mp4');
-      await this.muxAudio(ffmpeg.path, {
-        videoPath: videoForMux,
-        voicePath: input.voiceAudioPath,
-        musicPath: input.musicFilePath,
-        settings,
-        targetDuration,
-        outputPath,
-      });
 
       const postcheck = await this.validator.validateOutputFile(outputPath, targetDuration);
-      if (!postcheck.ok) {
-        const msg = postcheck.issues.map((i) => i.message).join(' ');
-        throw new Error(`Post-render validace selhala: ${msg}`);
-      }
-
       const warnings = [
         ...precheck.issues.filter((i) => i.severity === 'warning').map((i) => i.message),
         ...postcheck.issues.filter((i) => i.severity === 'warning').map((i) => i.message),
@@ -162,6 +164,7 @@ export class AiInfluencerRenderService {
 
       return {
         outputPath,
+        baseVideoPath: withSubs,
         tmpRoot,
         durationSec: targetDuration,
         layoutUsed: layout,
@@ -171,6 +174,60 @@ export class AiInfluencerRenderService {
       await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
       throw err;
     }
+  }
+
+  /** Kompozice + titulky bez brandingu — pro uložení base masteru před branding krokem. */
+  async renderBase(input: AiInfluencerRenderInput): Promise<AiInfluencerRenderResult> {
+    const merged = mergeRenderSettings(input.settings);
+    const withoutBranding: AiInfluencerRenderInput = {
+      ...input,
+      settings: {
+        ...merged,
+        branding: { ...merged.branding, logoEnabled: false },
+        watermark: { ...merged.watermark, enabled: false },
+      },
+    };
+    return this.render(withoutBranding);
+  }
+
+  async finalizeBranding(input: {
+    baseVideoPath: string;
+    voiceAudioPath: string;
+    musicFilePath?: string | null;
+    logoPath?: string | null;
+    settings: AiInfluencerRenderSettings;
+    targetDuration: number;
+    tmpRoot: string;
+  }): Promise<string> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) throw new Error('ffmpeg není dostupný.');
+
+    const withBranding = join(input.tmpRoot, 'with-branding.mp4');
+    await this.applyBrandingOverlay(
+      ffmpeg.path,
+      input.baseVideoPath,
+      input.logoPath ?? null,
+      input.settings,
+      withBranding,
+      input.targetDuration,
+    );
+
+    const outputPath = join(input.tmpRoot, 'final.mp4');
+    await this.muxAudio(ffmpeg.path, {
+      videoPath: withBranding,
+      voicePath: input.voiceAudioPath,
+      musicPath: input.musicFilePath,
+      settings: input.settings,
+      targetDuration: input.targetDuration,
+      outputPath,
+    });
+
+    const postcheck = await this.validator.validateOutputFile(outputPath, input.targetDuration);
+    if (!postcheck.ok) {
+      const msg = postcheck.issues.map((i) => i.message).join(' ');
+      throw new Error(`Post-render validace selhala: ${msg}`);
+    }
+    return outputPath;
   }
 
   async cleanup(tmpRoot: string): Promise<void> {
@@ -277,60 +334,178 @@ export class AiInfluencerRenderService {
     ]);
   }
 
-  private async overlayLogo(
-    ffmpegPath: string,
-    videoPath: string,
-    logoPath: string,
-    settings: AiInfluencerRenderSettings,
-    outPath: string,
-    duration: number,
-  ): Promise<void> {
-    const size = settings.branding.logoSize;
-    const x = settings.branding.logoX;
-    const y = settings.branding.logoY;
-    const opacity = settings.branding.logoOpacity;
-    await this.runFfmpeg(ffmpegPath, [
-      '-y',
-      '-i',
-      videoPath,
-      '-i',
-      logoPath,
-      '-filter_complex',
-      `[1:v]scale=${size}:${size}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=${opacity}[logo];[0:v][logo]overlay=${x}:${y}:format=auto,scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT},setsar=1`,
-      '-t',
-      String(duration),
-      '-c:v',
-      'libx264',
-      '-preset',
-      'medium',
-      '-crf',
-      '20',
-      '-pix_fmt',
-      'yuv420p',
-      '-an',
-      outPath,
-    ]);
+  async applyBrandingFromUrl(input: {
+    baseVideoUrl: string;
+    voiceAudioUrl: string;
+    musicFilePath?: string | null;
+    logoPath?: string | null;
+    settings: AiInfluencerRenderSettings;
+    scenes: ReelScenePlan[];
+    hookText: string;
+    spokenText?: string;
+  }): Promise<AiInfluencerRenderResult> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) {
+      throw new Error('ffmpeg není dostupný — nelze dokončit branding AI Influencer Reelu.');
+    }
+
+    const settings = mergeRenderSettings(input.settings);
+    const tmpRoot = join(tmpdir(), `ai-influencer-brand-${randomBytes(8).toString('hex')}`);
+    await mkdir(tmpRoot, { recursive: true });
+
+    try {
+      const basePath = join(tmpRoot, 'base.mp4');
+      const voicePath = join(tmpRoot, 'voice.mp3');
+      await this.downloadToFile(input.baseVideoUrl, basePath);
+      await this.downloadToFile(input.voiceAudioUrl, voicePath);
+      const durationSec = await this.probeDuration(ffmpeg.path, voicePath);
+      const targetDuration = Math.max(8, durationSec ?? 30);
+
+      const withBranding = join(tmpRoot, 'with-branding.mp4');
+      await this.applyBrandingOverlay(
+        ffmpeg.path,
+        basePath,
+        input.logoPath ?? null,
+        settings,
+        withBranding,
+        targetDuration,
+      );
+
+      const outputPath = join(tmpRoot, 'final.mp4');
+      await this.muxAudio(ffmpeg.path, {
+        videoPath: withBranding,
+        voicePath,
+        musicPath: input.musicFilePath,
+        settings,
+        targetDuration,
+        outputPath,
+      });
+
+      const postcheck = await this.validator.validateOutputFile(outputPath, targetDuration);
+      if (!postcheck.ok) {
+        const msg = postcheck.issues.map((i) => i.message).join(' ');
+        throw new Error(`Post-render validace selhala: ${msg}`);
+      }
+
+      return {
+        outputPath,
+        baseVideoPath: basePath,
+        tmpRoot,
+        durationSec: targetDuration,
+        layoutUsed: settings.layout === 'SMART_AUTO' ? 'AVATAR_BLUR' : settings.layout,
+        validationWarnings: postcheck.issues
+          .filter((i) => i.severity === 'warning')
+          .map((i) => i.message),
+      };
+    } catch (err) {
+      await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    }
   }
 
-  private async overlayWatermark(
+  async muxFinalFromBase(input: {
+    baseVideoPath: string;
+    voiceAudioPath: string;
+    musicFilePath?: string | null;
+    settings: AiInfluencerRenderSettings;
+    targetDuration: number;
+    tmpRoot: string;
+  }): Promise<string> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) throw new Error('ffmpeg není dostupný.');
+
+    const outputPath = join(input.tmpRoot, 'final-unbranded.mp4');
+    await this.muxAudio(ffmpeg.path, {
+      videoPath: input.baseVideoPath,
+      voicePath: input.voiceAudioPath,
+      musicPath: input.musicFilePath,
+      settings: input.settings,
+      targetDuration: input.targetDuration,
+      outputPath,
+    });
+
+    const postcheck = await this.validator.validateOutputFile(outputPath, input.targetDuration);
+    if (!postcheck.ok) {
+      const msg = postcheck.issues.map((i) => i.message).join(' ');
+      throw new Error(`Post-render validace selhala: ${msg}`);
+    }
+    return outputPath;
+  }
+
+  /**
+   * Produkčně bezpečný branding overlay — pouze format + overlay (žádný drawtext).
+   */
+  async renderBrandingOverlay(input: {
+    baseVideoPath: string;
+    logoPath: string | null;
+    settings: AiInfluencerRenderSettings;
+    outPath: string;
+    duration: number;
+    brandingPngPath?: string;
+  }): Promise<{ outPath: string; brandingPngPath: string; filterGraphUsed: string }> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) {
+      throw new Error('ffmpeg není dostupný — nelze dokončit branding overlay.');
+    }
+    await this.logFfmpegCapabilitiesOnce(ffmpeg.path);
+
+    const brandingPngPath =
+      input.brandingPngPath ?? join(dirname(input.outPath), 'branding-overlay.png');
+    if (!input.brandingPngPath) {
+      const brandingPng = await renderAiInfluencerBrandingOverlayPng(input.settings, input.logoPath);
+      await writeFile(brandingPngPath, brandingPng);
+    }
+
+    const filterGraph = SAFE_BRANDING_FILTER_GRAPH;
+    await this.runFfmpeg(
+      ffmpeg.path,
+      [
+        '-y',
+        '-i',
+        input.baseVideoPath,
+        '-loop',
+        '1',
+        '-i',
+        brandingPngPath,
+        '-filter_complex',
+        filterGraph,
+        '-map',
+        '[outv]',
+        '-t',
+        String(input.duration),
+        '-c:v',
+        'libx264',
+        '-preset',
+        'medium',
+        '-crf',
+        '20',
+        '-pix_fmt',
+        'yuv420p',
+        '-an',
+        input.outPath,
+      ],
+      {
+        branding: true,
+        outputPath: input.outPath,
+        inputVideoPath: input.baseVideoPath,
+        brandingFilePath: brandingPngPath,
+        filterGraphUsed: filterGraph,
+      },
+    );
+
+    return { outPath: input.outPath, brandingPngPath, filterGraphUsed: filterGraph };
+  }
+
+  private async burnSubtitles(
     ffmpegPath: string,
-    videoPath: string,
-    settings: AiInfluencerRenderSettings,
+    composedPath: string,
+    assPath: string,
     outPath: string,
-    duration: number,
   ): Promise<void> {
-    const text = settings.watermark.text.replace(/'/g, "\\'").replace(/:/g, '\\:');
-    const y = settings.watermark.y;
-    const alpha = settings.watermark.opacity;
-    const fontSize = settings.watermark.fontSize;
-    await this.runFfmpeg(ffmpegPath, [
-      '-y',
-      '-i',
-      videoPath,
-      '-vf',
-      `drawtext=text='${text}':fontsize=${fontSize}:fontcolor=white@${alpha}:x=(w-text_w)/2:y=${y}:shadowcolor=black@0.35:shadowx=1:shadowy=1`,
-      '-t',
-      String(duration),
+    const assEscaped = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+    const assFilter = `ass='${assEscaped}',scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT},setsar=1`;
+    const scaleOnly = `scale=${REEL_CANVAS_WIDTH}:${REEL_CANVAS_HEIGHT},setsar=1`;
+    const baseArgs = [
       '-c:v',
       'libx264',
       '-preset',
@@ -340,8 +515,127 @@ export class AiInfluencerRenderService {
       '-pix_fmt',
       'yuv420p',
       '-an',
+      '-r',
+      String(REEL_FPS),
+    ];
+
+    const { code, stderr } = await runFfmpegCapture(ffmpegPath, [
+      '-y',
+      '-i',
+      composedPath,
+      '-vf',
+      assFilter,
+      ...baseArgs,
       outPath,
     ]);
+    if (code === 0) return;
+
+    const assFailure =
+      stderr.toLowerCase().includes('filter not found') ||
+      stderr.toLowerCase().includes('no such filter') ||
+      stderr.toLowerCase().includes('ass');
+    if (assFailure) {
+      this.log.warn(
+        `ASS titulky nedostupné, pokračuji bez vypálených titulků: ${stderr.slice(-300)}`,
+      );
+      await this.runFfmpeg(ffmpegPath, [
+        '-y',
+        '-i',
+        composedPath,
+        '-vf',
+        scaleOnly,
+        ...baseArgs,
+        outPath,
+      ]);
+      return;
+    }
+
+    const classified = classifyFfmpegStderr(stderr, { outputPath: outPath });
+    throw new FfmpegRenderError(classified);
+  }
+
+  private async logFfmpegCapabilitiesOnce(ffmpegPath: string): Promise<void> {
+    if (this.ffmpegCapsLogged) return;
+    this.ffmpegCapsLogged = true;
+    const caps = await probeFfmpegCapabilities(ffmpegPath);
+    this.log.log(
+      `FFmpeg capabilities: version=${caps.version ?? 'unknown'} overlay=${caps.filters.overlay} scale=${caps.filters.scale} format=${caps.filters.format} ass=${caps.filters.ass} drawtext=${caps.filters.drawtext}`,
+    );
+    if (!caps.filters.overlay || !caps.filters.scale || !caps.filters.format) {
+      this.log.warn(
+        'FFmpeg postrádá základní filtry pro branding (overlay/scale/format) — zkontrolujte Railway image.',
+      );
+    }
+  }
+
+  private async applyBrandingOverlay(
+    _ffmpegPath: string,
+    videoPath: string,
+    logoPath: string | null,
+    settings: AiInfluencerRenderSettings,
+    outPath: string,
+    duration: number,
+  ): Promise<void> {
+    await this.renderBrandingOverlay({
+      baseVideoPath: videoPath,
+      logoPath,
+      settings,
+      outPath,
+      duration,
+    });
+  }
+
+  private async detectLikelyPillarbox(ffmpegPath: string, videoPath: string): Promise<boolean> {
+    const framePath = join(dirname(videoPath), 'pillarbox-probe.jpg');
+    const { code } = await runFfmpegCapture(ffmpegPath, [
+      '-y',
+      '-i',
+      videoPath,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      framePath,
+    ]);
+    if (code !== 0) return false;
+
+    try {
+      const { data, info } = await sharp(framePath)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const w = info.width;
+      const h = info.height;
+      if (!w || !h) return false;
+
+      const sampleHeight = Math.max(8, Math.round(h * 0.08));
+      const sampleWidth = Math.max(8, Math.round(w * 0.08));
+      const isNearBlack = (r: number, g: number, b: number) => r < 24 && g < 24 && b < 24;
+
+      let leftBlack = 0;
+      let rightBlack = 0;
+      let leftTotal = 0;
+      let rightTotal = 0;
+
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < sampleWidth; x += 4) {
+          const idx = (y * w + x) * info.channels;
+          leftTotal++;
+          if (isNearBlack(data[idx], data[idx + 1], data[idx + 2])) leftBlack++;
+        }
+        for (let x = w - sampleWidth; x < w; x += 4) {
+          const idx = (y * w + x) * info.channels;
+          rightTotal++;
+          if (isNearBlack(data[idx], data[idx + 1], data[idx + 2])) rightBlack++;
+        }
+      }
+
+      const leftRatio = leftTotal ? leftBlack / leftTotal : 0;
+      const rightRatio = rightTotal ? rightBlack / rightTotal : 0;
+      return leftRatio > 0.88 && rightRatio > 0.88 && sampleWidth > w * 0.1;
+    } catch {
+      return false;
+    }
   }
 
   private async muxAudio(
@@ -443,11 +737,40 @@ export class AiInfluencerRenderService {
     return { width: Number.parseInt(match[1], 10), height: Number.parseInt(match[2], 10) };
   }
 
-  private async runFfmpeg(ffmpegPath: string, args: string[]): Promise<void> {
+  private async runFfmpeg(
+    ffmpegPath: string,
+    args: string[],
+    context?: {
+      branding?: boolean;
+      outputPath?: string;
+      inputVideoPath?: string;
+      brandingFilePath?: string;
+      filterGraphUsed?: string;
+    },
+  ): Promise<void> {
     const { code, stderr } = await runFfmpegCapture(ffmpegPath, args);
     if (code !== 0) {
-      this.log.warn(`ffmpeg failed: ${stderr.slice(-800)}`);
-      throw new Error(`ffmpeg selhalo: ${stderr.split('\n').slice(-4).join(' ')}`);
+      const filterGraphUsed =
+        context?.filterGraphUsed ??
+        args.find((a, i) => args[i - 1] === '-filter_complex') ??
+        args.find((a, i) => args[i - 1] === '-vf') ??
+        '';
+      const diagnostics = await buildFfmpegDebugSnapshot({
+        ffmpegPath,
+        inputVideoPath: context?.inputVideoPath,
+        brandingFilePath: context?.brandingFilePath,
+        outputPath: context?.outputPath,
+        filterGraphUsed: String(filterGraphUsed),
+        stderr,
+      });
+      this.log.warn(
+        `ffmpeg failed [${diagnostics.filterGraphUsed}]: ${diagnostics.stderrTail.slice(-500)}`,
+      );
+      const classified = classifyFfmpegStderr(stderr, {
+        branding: context?.branding,
+        outputPath: context?.outputPath,
+      });
+      throw new FfmpegRenderError(classified, diagnostics);
     }
   }
 }

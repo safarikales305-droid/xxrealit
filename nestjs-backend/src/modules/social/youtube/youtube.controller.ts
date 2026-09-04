@@ -5,6 +5,8 @@ import {
   Query,
   Res,
   UseGuards,
+  Body,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AdminGuard } from '../../admin/guards/admin.guard';
@@ -13,6 +15,7 @@ import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.d
 import { YouTubeConfigService } from './youtube.config.service';
 import { YouTubeOAuthService } from './youtube-oauth.service';
 import { YouTubePublishJobService } from './youtube-publish-job.service';
+import { YouTubePublishService } from './youtube-publish.service';
 
 @Controller('social/youtube')
 export class YoutubeController {
@@ -20,6 +23,7 @@ export class YoutubeController {
     private readonly oauth: YouTubeOAuthService,
     private readonly config: YouTubeConfigService,
     private readonly publishJobs: YouTubePublishJobService,
+    private readonly publish: YouTubePublishService,
   ) {}
 
   @Get('oauth/connect')
@@ -57,6 +61,49 @@ export class YoutubeController {
   @Post('disconnect')
   @UseGuards(JwtAuthGuard, AdminGuard)
   async disconnect() {
-    return { ok: true, message: 'Odpojení přes admin DB — zatím neimplementováno.' };
+    return this.oauth.disconnect();
+  }
+
+  @Post('test')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  async test() {
+    return this.oauth.testConnection();
+  }
+
+  @Post('test-upload')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  async testUpload(@Body() body: { videoUrl?: string }) {
+    const videoUrl = body.videoUrl?.trim();
+    if (!videoUrl) {
+      throw new BadRequestException('Chybí videoUrl pro testovací upload.');
+    }
+
+    const health = await this.oauth.testConnection();
+    if (health.status !== 'CONNECTED') {
+      return {
+        ok: false,
+        uploadStatus: health.status,
+        message: health.message ?? 'YouTube není připraveno k uploadu.',
+      };
+    }
+
+    try {
+      const upload = await this.publish.uploadVideo({
+        videoUrl,
+        title: 'XXREALIT – test YouTube integrace',
+        description: 'Soukromý testovací upload z XXREALIT adminu. Video lze smazat.',
+        tags: ['xxrealit', 'test'],
+        privacyStatus: 'private',
+      });
+      return {
+        ok: true,
+        youtubeVideoId: upload.videoId,
+        youtubeUrl: upload.url,
+        youtubeUploadStatus: 'PRIVATE_UPLOADED',
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, youtubeUploadStatus: 'FAILED', message: msg };
+    }
   }
 }

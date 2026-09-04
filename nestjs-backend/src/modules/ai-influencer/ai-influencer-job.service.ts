@@ -41,6 +41,7 @@ import { ArticleMediaProvider } from './providers/article-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
+import { FfmpegRenderError } from './ai-influencer-ffmpeg.util';
 
 type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
   include: {
@@ -51,10 +52,33 @@ type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
 }>;
 
 function errorCode(err: unknown): string | null {
+  if (err instanceof FfmpegRenderError) {
+    if (err.stage === 'BRANDING_RENDER') return 'BRANDING_FAILED';
+    return err.code;
+  }
   if (err && typeof err === 'object' && 'code' in err) {
     return String((err as { code: unknown }).code);
   }
   return null;
+}
+
+function failedStageLabel(
+  stage: AiInfluencerReelJobStatus,
+  err: unknown,
+  message: string,
+): string {
+  if (err instanceof FfmpegRenderError) {
+    return err.stage === 'BRANDING_RENDER' ? 'BRANDING_RENDER' : 'RENDER';
+  }
+  if (stage === AiInfluencerReelJobStatus.VOICE_GENERATING) return 'VOICE';
+  if (stage === AiInfluencerReelJobStatus.AVATAR_GENERATING) return 'AVATAR';
+  if (stage === AiInfluencerReelJobStatus.RENDERING) {
+    if (/branding|watermark|logo|drawtext|filter/i.test(message)) return 'BRANDING_RENDER';
+    return 'RENDER';
+  }
+  if (stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING) return 'SCRIPT';
+  if (stage === AiInfluencerReelJobStatus.PUBLISHING) return 'PUBLISH';
+  return 'RENDER';
 }
 
 @Injectable()
@@ -361,6 +385,9 @@ export class AiInfluencerJobService {
         : AiInfluencerReelJobStatus.VOICE_READY;
     }
     if (failedStage === 'RENDER') return AiInfluencerReelJobStatus.AVATAR_READY;
+    if (failedStage === 'BRANDING_RENDER') {
+      return AiInfluencerReelJobStatus.AVATAR_READY;
+    }
     if (failedStage === 'SCRIPT') {
       return job.spokenText ? AiInfluencerReelJobStatus.SCRIPT_READY : AiInfluencerReelJobStatus.CANDIDATE;
     }
@@ -881,30 +908,107 @@ export class AiInfluencerJobService {
     await this.publish.syncOverallPublishStatus(jobId);
   }
 
-  private async runRender(jobId: string): Promise<void> {
-    const existing = await this.getJob(jobId);
-    if (existing.finalMasterUrl?.trim() || existing.videoUrl?.trim()) {
-      if (existing.status !== AiInfluencerReelJobStatus.READY) {
-        await this.prisma.aiInfluencerReelJob.update({
-          where: { id: jobId },
-          data: { status: AiInfluencerReelJobStatus.READY, renderedAt: new Date() },
-        });
-      }
-      return;
-    }
-
-    await this.prisma.aiInfluencerReelJob.update({
-      where: { id: jobId },
-      data: { status: AiInfluencerReelJobStatus.RENDERING },
-    });
-    await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'COMPOSITOR_STARTED');
-
+  async acceptUnbrandedMaster(jobId: string): Promise<AiInfluencerJobWithRelations> {
     const job = await this.getJob(jobId);
-    if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
-      throw new Error('Chybí avatar nebo voice pro render.');
+    if (!job.baseMasterUrl?.trim()) {
+      throw new BadRequestException('Chybí base master — nelze použít video bez brandingu.');
+    }
+    if (!job.voiceStorageUrl?.trim()) {
+      throw new BadRequestException('Chybí voice track pro finální mux.');
     }
 
     const cfg = this.settings.getCached();
+    const renderSettings = this.buildRenderSettingsForJob(job, cfg);
+    const musicId = renderSettings.music.trackId;
+    let musicFilePath: string | null = null;
+    if (musicId) {
+      try {
+        musicFilePath = await this.shortsMusic.resolveActiveTrackFilePath(musicId);
+      } catch {
+        /* optional */
+      }
+    }
+
+    const tmpRoot = join(tmpdir(), `ai-inf-unbranded-${jobId}`);
+    const voicePath = join(tmpRoot, 'voice.mp3');
+    const basePath = join(tmpRoot, 'base.mp4');
+    await this.render.downloadToFile(job.baseMasterUrl, basePath);
+    await this.render.downloadToFile(job.voiceStorageUrl, voicePath);
+    const targetDuration = Math.max(8, job.estimatedDurationSec ?? 30);
+
+    const outputPath = await this.render.muxFinalFromBase({
+      baseVideoPath: basePath,
+      voiceAudioPath: voicePath,
+      musicFilePath,
+      settings: renderSettings,
+      targetDuration,
+      tmpRoot,
+    });
+
+    const mp4 = await import('node:fs/promises').then((fs) => fs.readFile(outputPath));
+    const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
+      mp4,
+      `ai-influencer-unbranded-${jobId}.mp4`,
+    );
+    await this.render.cleanup(tmpRoot);
+
+    const readyProgress = progressForStatus(AiInfluencerReelJobStatus.READY);
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.READY,
+        videoUrl: masterUrl,
+        finalMasterUrl: masterUrl,
+        failedStage: null,
+        errorCode: null,
+        errorMessage: null,
+        validationPassed: true,
+        validationErrors: ['Manuálně schváleno bez brandingu (admin override).'],
+        progressPercent: readyProgress.percent,
+        currentStep: readyProgress.step,
+        renderedAt: new Date(),
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'UNBRANDED_ACCEPTED'),
+      },
+    });
+    return this.getJob(jobId);
+  }
+
+  private async handleBrandingFailure(
+    jobId: string,
+    job: AiInfluencerJobWithRelations,
+    err: unknown,
+    baseMasterUrl: string,
+  ): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = errorCode(err) ?? 'BRANDING_FAILED';
+    const diagnostics =
+      err instanceof FfmpegRenderError && err.diagnostics
+        ? ` | filter=${err.diagnostics.filterGraphUsed}`
+        : '';
+    const progress = progressForStatus(AiInfluencerReelJobStatus.FAILED);
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.FAILED,
+        failedStage: 'BRANDING_RENDER',
+        errorCode: code,
+        errorMessage: `${message}${diagnostics}`,
+        baseMasterUrl,
+        videoUrl: baseMasterUrl,
+        finalMasterUrl: null,
+        progressPercent: progress.percent,
+        currentStep: 'Branding videa selhalo',
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'BRANDING_FAILED', code),
+      },
+    });
+    this.log.warn(`Job ${jobId} branding failed, base master preserved: ${message}`);
+  }
+
+  private buildRenderSettingsForJob(
+    job: AiInfluencerJobWithRelations,
+    cfg: ReturnType<AiInfluencerSettingsService['getCached']>,
+  ) {
     const profile = job.profile;
     const renderSettings = mergeRenderSettings(
       (job.renderSettingsJson as object) ??
@@ -936,6 +1040,75 @@ export class AiInfluencerJobService {
       renderSettings.watermark.opacity = cfg.websiteWatermarkOpacity;
       renderSettings.watermark.fontSize = cfg.websiteWatermarkFontSize;
     }
+    return renderSettings;
+  }
+
+  private async runRender(jobId: string): Promise<void> {
+    const existing = await this.getJob(jobId);
+    if (existing.finalMasterUrl?.trim() || existing.videoUrl?.trim()) {
+      if (existing.status !== AiInfluencerReelJobStatus.READY) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: { status: AiInfluencerReelJobStatus.READY, renderedAt: new Date() },
+        });
+      }
+      return;
+    }
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: { status: AiInfluencerReelJobStatus.RENDERING },
+    });
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'COMPOSITOR_STARTED');
+
+    const job = await this.getJob(jobId);
+    if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
+      throw new Error('Chybí avatar nebo voice pro render.');
+    }
+
+    const cfg = this.settings.getCached();
+    const renderSettings = this.buildRenderSettingsForJob(job, cfg);
+    const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? [];
+    const logoPath = cfg.logoEnabled ? resolveShortsLogoPath() : null;
+
+    let musicFilePath: string | null = null;
+    const musicId = renderSettings.music.trackId;
+    if (musicId) {
+      try {
+        musicFilePath = await this.shortsMusic.resolveActiveTrackFilePath(musicId);
+      } catch {
+        this.log.warn(`Music track ${musicId} unavailable for job ${jobId}`);
+      }
+    }
+
+    if (job.baseMasterUrl?.trim() && cfg.brandingEnabled) {
+      await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'BRANDING_RENDER');
+      try {
+        const brandingResult = await this.render.applyBrandingFromUrl({
+          baseVideoUrl: job.baseMasterUrl,
+          voiceAudioUrl: job.voiceStorageUrl,
+          musicFilePath,
+          logoPath,
+          settings: renderSettings,
+          scenes,
+          hookText: job.selectedHook ?? job.captionTitle ?? '',
+          spokenText: job.spokenText ?? undefined,
+        });
+
+        const mp4 = await import('node:fs/promises').then((fs) =>
+          fs.readFile(brandingResult.outputPath),
+        );
+        const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
+          mp4,
+          `ai-influencer-master-${jobId}.mp4`,
+        );
+        await this.render.cleanup(brandingResult.tmpRoot);
+        await this.markRenderReady(job, renderSettings, masterUrl, job.baseMasterUrl, brandingResult);
+      } catch (err) {
+        await this.handleBrandingFailure(jobId, job, err, job.baseMasterUrl);
+      }
+      return;
+    }
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -950,30 +1123,104 @@ export class AiInfluencerJobService {
     await this.render.downloadToFile(job.avatarStorageUrl, avatarPath);
     await this.render.downloadToFile(job.voiceStorageUrl, voicePath);
 
-    let musicFilePath: string | null = null;
-    const musicId = renderSettings.music.trackId;
-    if (musicId) {
-      try {
-        musicFilePath = await this.shortsMusic.resolveActiveTrackFilePath(musicId);
-      } catch {
-        this.log.warn(`Music track ${musicId} unavailable for job ${jobId}`);
+    let result;
+    const brandingNeeded =
+      cfg.brandingEnabled &&
+      ((logoPath && renderSettings.branding.logoEnabled) ||
+        (renderSettings.watermark.enabled && renderSettings.watermark.text.trim()));
+
+    try {
+      if (brandingNeeded) {
+        result = await this.render.renderBase({
+          avatarVideoPath: avatarPath,
+          voiceAudioPath: voicePath,
+          scenes,
+          hookText: job.selectedHook ?? job.captionTitle ?? '',
+          spokenText: job.spokenText ?? undefined,
+          musicFilePath,
+          logoPath,
+          settings: renderSettings,
+        });
+
+        const fs = await import('node:fs/promises');
+        const baseMp4 = await fs.readFile(result.baseVideoPath);
+        const baseMasterUrl = await this.cloudinary.uploadMasterReelBuffer(
+          baseMp4,
+          `ai-influencer-base-${jobId}.mp4`,
+        );
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: { baseMasterUrl },
+        });
+
+        let outputPath: string;
+        try {
+          outputPath = await this.render.finalizeBranding({
+            baseVideoPath: result.baseVideoPath,
+            voiceAudioPath: voicePath,
+            musicFilePath,
+            logoPath,
+            settings: renderSettings,
+            targetDuration: result.durationSec ?? 30,
+            tmpRoot: result.tmpRoot,
+          });
+        } catch (brandingErr) {
+          await this.render.cleanup(tmpRoot);
+          await this.handleBrandingFailure(jobId, job, brandingErr, baseMasterUrl);
+          return;
+        }
+        result = { ...result, outputPath };
+      } else {
+        result = await this.render.render({
+          avatarVideoPath: avatarPath,
+          voiceAudioPath: voicePath,
+          scenes,
+          hookText: job.selectedHook ?? job.captionTitle ?? '',
+          spokenText: job.spokenText ?? undefined,
+          musicFilePath,
+          logoPath,
+          settings: renderSettings,
+        });
       }
+    } catch (err) {
+      if (brandingNeeded && err instanceof FfmpegRenderError && err.stage === 'BRANDING_RENDER') {
+        const savedBase =
+          (
+            await this.prisma.aiInfluencerReelJob.findUnique({
+              where: { id: jobId },
+              select: { baseMasterUrl: true },
+            })
+          )?.baseMasterUrl ?? null;
+        if (savedBase) {
+          await this.handleBrandingFailure(jobId, job, err, savedBase);
+          await this.render.cleanup(tmpRoot);
+          return;
+        }
+      }
+      throw err;
     }
 
-    const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? [];
-    const logoPath = cfg.logoEnabled ? resolveShortsLogoPath() : null;
-    const result = await this.render.render({
-      avatarVideoPath: avatarPath,
-      voiceAudioPath: voicePath,
-      scenes,
-      hookText: job.selectedHook ?? job.captionTitle ?? '',
-      spokenText: job.spokenText ?? undefined,
-      musicFilePath,
-      logoPath,
-      settings: renderSettings,
-    });
+    const fs = await import('node:fs/promises');
+    const baseMasterUrl =
+      job.baseMasterUrl ??
+      (await this.prisma.aiInfluencerReelJob.findUnique({
+        where: { id: jobId },
+        select: { baseMasterUrl: true },
+      }))?.baseMasterUrl;
 
-    const mp4 = await import('node:fs/promises').then((fs) => fs.readFile(result.outputPath));
+    if (!baseMasterUrl && !brandingNeeded) {
+      const baseMp4 = await fs.readFile(result.baseVideoPath);
+      const uploadedBase = await this.cloudinary.uploadMasterReelBuffer(
+        baseMp4,
+        `ai-influencer-base-${jobId}.mp4`,
+      );
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: { baseMasterUrl: uploadedBase },
+      });
+    }
+
+    const mp4 = await fs.readFile(result.outputPath);
     const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
       mp4,
       `ai-influencer-master-${jobId}.mp4`,
@@ -981,6 +1228,26 @@ export class AiInfluencerJobService {
     await this.render.cleanup(result.tmpRoot);
     await this.render.cleanup(tmpRoot);
 
+    const resolvedBase =
+      baseMasterUrl ??
+      (
+        await this.prisma.aiInfluencerReelJob.findUnique({
+          where: { id: jobId },
+          select: { baseMasterUrl: true },
+        })
+      )?.baseMasterUrl ??
+      masterUrl;
+
+    await this.markRenderReady(job, renderSettings, masterUrl, resolvedBase, result);
+  }
+
+  private async markRenderReady(
+    job: AiInfluencerJobWithRelations,
+    renderSettings: ReturnType<typeof mergeRenderSettings>,
+    masterUrl: string,
+    baseMasterUrl: string,
+    result: { layoutUsed: string; validationWarnings: string[] },
+  ): Promise<void> {
     const timeline = appendTimelineEvent(
       appendTimelineEvent(job.timelineEvents, 'MASTER_COMPLETED', `layout=${result.layoutUsed}`),
       'VALIDATION_PASSED',
@@ -988,24 +1255,28 @@ export class AiInfluencerJobService {
 
     const readyProgress = progressForStatus(AiInfluencerReelJobStatus.READY);
     await this.prisma.aiInfluencerReelJob.update({
-      where: { id: jobId },
+      where: { id: job.id },
       data: {
         status: AiInfluencerReelJobStatus.READY,
         videoUrl: masterUrl,
         finalMasterUrl: masterUrl,
+        baseMasterUrl,
         renderPreset: renderSettings.preset,
         renderSettingsJson: renderSettings as object,
         validationPassed: true,
         validationErrors: result.validationWarnings.length ? result.validationWarnings : undefined,
         thumbnailUrl: job.article.ogImageUrl,
         renderedAt: new Date(),
+        failedStage: null,
+        errorCode: null,
+        errorMessage: null,
         timelineEvents: appendTimelineEvent(timeline, 'CLOUDINARY_UPLOADED'),
         progressPercent: readyProgress.percent,
         currentStep: readyProgress.step,
       },
     });
 
-    await this.runAutoPublish(jobId);
+    await this.runAutoPublish(job.id);
   }
 
   private async resolveScenes(
@@ -1044,18 +1315,8 @@ export class AiInfluencerJobService {
     err?: unknown,
   ): Promise<void> {
     const job = await this.getJob(jobId);
-    const failedStage =
-      stage === AiInfluencerReelJobStatus.VOICE_GENERATING
-        ? 'VOICE'
-        : stage === AiInfluencerReelJobStatus.AVATAR_GENERATING
-          ? 'AVATAR'
-          : stage === AiInfluencerReelJobStatus.RENDERING
-            ? 'RENDER'
-            : stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING
-              ? 'SCRIPT'
-              : stage === AiInfluencerReelJobStatus.PUBLISHING
-                ? 'PUBLISH'
-                : 'UNKNOWN';
+    const failedStage = failedStageLabel(stage, err ?? { message }, message);
+    const resolvedCode = errorCode(err) ?? code;
 
     const attempts = job.attemptCount + 1;
     const transient = isTransientError(err ?? { message });
@@ -1069,7 +1330,7 @@ export class AiInfluencerJobService {
           attemptCount: attempts,
           nextRetryAt: new Date(Date.now() + delay),
           failedStage,
-          errorCode: code,
+          errorCode: resolvedCode,
           errorMessage: `${message} — retry ${attempts}/3 za ${Math.round(delay / 1000)}s`,
           lastAttemptAt: new Date(),
           timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY_SCHEDULED', failedStage),
@@ -1085,12 +1346,15 @@ export class AiInfluencerJobService {
       data: {
         status: AiInfluencerReelJobStatus.FAILED,
         failedStage,
-        errorCode: code,
+        errorCode: resolvedCode,
         errorMessage: message,
         lastAttemptAt: new Date(),
         attemptCount: attempts,
         progressPercent: progress.percent,
-        currentStep: `Generování selhalo · ${failedStage}`,
+        currentStep:
+          failedStage === 'BRANDING_RENDER'
+            ? 'Branding videa selhalo'
+            : `Generování selhalo · ${failedStage}`,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'FAILED', failedStage),
       },
     });
