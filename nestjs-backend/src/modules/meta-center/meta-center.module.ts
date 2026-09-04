@@ -66,6 +66,11 @@ import {
     MetaCampaignBodyPipe,
     OptionalMetaCampaignBodyPipe,
   ],
-  exports: [MetaCenterService, MetaConnectOAuthService, MetaMarketingDiagnosticsService],
+  exports: [
+    MetaCenterService,
+    MetaConnectOAuthService,
+    MetaMarketingDiagnosticsService,
+    MetaInstagramIdentityService,
+  ],
 })
 export class MetaCenterModule {}
