@@ -103,6 +103,8 @@ export class AiInfluencerSettingsService implements OnModuleInit {
       publishWindows,
       autoPublishFacebook:
         typeof o.autoPublishFacebook === 'boolean' ? o.autoPublishFacebook : d.autoPublishFacebook,
+      autoPublishInstagram:
+        typeof o.autoPublishInstagram === 'boolean' ? o.autoPublishInstagram : d.autoPublishInstagram,
       autoPublishYoutube:
         typeof o.autoPublishYoutube === 'boolean' ? o.autoPublishYoutube : d.autoPublishYoutube,
       autoPublishPortal:
@@ -122,12 +124,14 @@ export class AiInfluencerSettingsService implements OnModuleInit {
       blockedCategories: strArr(o.blockedCategories, d.blockedCategories),
       sourceBlacklist: strArr(o.sourceBlacklist, d.sourceBlacklist),
       facebookPublishMode: publishMode(o.facebookPublishMode, d.facebookPublishMode),
+      instagramPublishMode: publishMode(o.instagramPublishMode, d.instagramPublishMode),
       youtubePublishMode: publishMode(o.youtubePublishMode, d.youtubePublishMode),
       portalPublishMode: publishMode(o.portalPublishMode, d.portalPublishMode),
       publishWindowStart: str(o.publishWindowStart, d.publishWindowStart),
       publishWindowEnd: str(o.publishWindowEnd, d.publishWindowEnd),
       minPublishSpacingMinutes: num(o.minPublishSpacingMinutes, d.minPublishSpacingMinutes, 15, 720),
       maxFacebookPerDay: num(o.maxFacebookPerDay, d.maxFacebookPerDay, 0, 50),
+      maxInstagramPerDay: num(o.maxInstagramPerDay, d.maxInstagramPerDay, 0, 50),
       maxYoutubePerDay: num(o.maxYoutubePerDay, d.maxYoutubePerDay, 0, 50),
       maxPortalPerDay: num(o.maxPortalPerDay, d.maxPortalPerDay, 0, 50),
       brandingEnabled: typeof o.brandingEnabled === 'boolean' ? o.brandingEnabled : d.brandingEnabled,

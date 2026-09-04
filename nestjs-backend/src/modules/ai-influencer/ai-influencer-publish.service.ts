@@ -7,8 +7,9 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { getSiteOriginForOg } from '../properties/property-og-media.util';
 import { SocialPublisherService } from '../social/autopost/social-publisher.service';
+import { SocialInstagramConnectionService } from '../social/autopost/social-instagram-connection.service';
+import { SocialInstagramPublisherService } from '../social/autopost/social-instagram-publisher.service';
 import {
-  buildYouTubeReelDescription,
   buildYouTubeReelTags,
   buildYouTubeReelTitle,
   normalizeYoutubePrivacy,
@@ -16,6 +17,7 @@ import {
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { YouTubePublishService } from '../social/youtube/youtube-publish.service';
 import type { YoutubePrivacyStatus } from '../social/youtube/youtube.constants';
+import type { InstagramConnectionStatus } from '../social/autopost/social-instagram.types';
 
 export type FacebookTestResult = {
   ok: boolean;
@@ -25,6 +27,17 @@ export type FacebookTestResult = {
   hint?: string;
 };
 
+export type InstagramTestResult = {
+  status: 'READY' | 'NOT_FOUND' | 'MISSING_PERMISSIONS' | 'NOT_CONNECTED' | 'ERROR';
+  account: string | null;
+  page: string | null;
+  professionalAccount: boolean;
+  publishingPermission: boolean;
+  message: string | null;
+  needsReconnect: boolean;
+  missingScopes: string[];
+};
+
 @Injectable()
 export class AiInfluencerPublishService {
   private readonly log = new Logger(AiInfluencerPublishService.name);
@@ -32,6 +45,8 @@ export class AiInfluencerPublishService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly socialPublisher: SocialPublisherService,
+    private readonly instagramConnection: SocialInstagramConnectionService,
+    private readonly instagramPublisher: SocialInstagramPublisherService,
     private readonly youtubeOAuth: YouTubeOAuthService,
     private readonly youtubePublish: YouTubePublishService,
   ) {}
@@ -45,6 +60,177 @@ export class AiInfluencerPublishService {
       error: result.error,
       hint: result.hint,
     };
+  }
+
+  async getInstagramConnectionStatus(): Promise<InstagramConnectionStatus> {
+    return this.instagramConnection.getConnectionStatus();
+  }
+
+  async verifyInstagramConnection(): Promise<InstagramConnectionStatus> {
+    await this.instagramConnection.syncFromFacebookPage();
+    return this.instagramConnection.getConnectionStatus();
+  }
+
+  formatInstagramTestResult(status: InstagramConnectionStatus): InstagramTestResult {
+    const account = status.instagramUsername
+      ? `@${status.instagramUsername}`
+      : status.instagramBusinessId;
+    const page = status.linkedPageName ?? status.linkedPageId;
+    const professionalAccount = Boolean(status.instagramBusinessId);
+    const publishingPermission = status.scopesOk && professionalAccount && status.tokenActive;
+
+    let resultStatus: InstagramTestResult['status'] = 'ERROR';
+    if (!status.linkedPageId || !status.tokenActive) {
+      resultStatus = 'NOT_CONNECTED';
+    } else if (!professionalAccount) {
+      resultStatus = 'NOT_FOUND';
+    } else if (!status.scopesOk) {
+      resultStatus = 'MISSING_PERMISSIONS';
+    } else if (publishingPermission && status.connected) {
+      resultStatus = 'READY';
+    }
+
+    return {
+      status: resultStatus,
+      account,
+      page,
+      professionalAccount,
+      publishingPermission,
+      message: status.message,
+      needsReconnect: status.needsReconnect,
+      missingScopes: status.missingScopes,
+    };
+  }
+
+  async testInstagramConnection(): Promise<InstagramTestResult> {
+    const status = await this.verifyInstagramConnection();
+    return this.formatInstagramTestResult(status);
+  }
+
+  private buildInstagramCaption(job: {
+    captionTitle: string | null;
+    selectedHook: string | null;
+    captionDescription: string | null;
+    hashtags: string | null;
+    article: { slug: string | null; title: string };
+  }): string {
+    const origin = getSiteOriginForOg();
+    const articleUrl = job.article.slug
+      ? `${origin}/aktuality/${job.article.slug}`
+      : `${origin}/?tab=shorts`;
+    return [
+      job.captionTitle ?? job.selectedHook ?? 'Novinky z XXREALIT',
+      job.captionDescription ?? '',
+      '',
+      'Více na XXREALIT.cz',
+      articleUrl,
+      '',
+      job.hashtags ?? '#reality #bydleni #xxrealit',
+    ]
+      .filter((line, i, arr) => line !== '' || (i > 0 && arr[i - 1] !== ''))
+      .join('\n')
+      .slice(0, 2200);
+  }
+
+  async publishToInstagram(jobId: string): Promise<{ permalink?: string; mediaId?: string }> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      include: { article: true },
+    });
+    if (!job) throw new Error('Job nenalezen.');
+    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
+
+    if (
+      job.instagramPublishStatus === ReelPlatformPublishStatus.PUBLISHED &&
+      job.instagramMediaId
+    ) {
+      return {
+        permalink: job.instagramPermalink ?? undefined,
+        mediaId: job.instagramMediaId,
+      };
+    }
+
+    const igStatus = await this.instagramConnection.getConnectionStatus();
+    if (!igStatus.connected || !igStatus.scopesOk) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          instagramPublishStatus: igStatus.needsReconnect
+            ? ReelPlatformPublishStatus.AUTH_REQUIRED
+            : ReelPlatformPublishStatus.FAILED,
+          instagramPublishError:
+            igStatus.message ??
+            (igStatus.missingScopes.length
+              ? `Chybí oprávnění: ${igStatus.missingScopes.join(', ')}`
+              : 'Instagram není připraven k publikování.'),
+        },
+      });
+      throw new Error(
+        igStatus.message ??
+          'Instagram vyžaduje doplnění oprávnění Meta — obnovte Facebook propojení.',
+      );
+    }
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        instagramPublishStatus: ReelPlatformPublishStatus.PUBLISHING,
+        currentStep: 'IG_CREATING_CONTAINER',
+      },
+    });
+
+    try {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: { currentStep: 'IG_PROCESSING' },
+      });
+
+      const caption = this.buildInstagramCaption(job);
+      const result = await this.instagramPublisher.publishReel({ videoUrl, caption });
+
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: { currentStep: 'IG_PUBLISHING' },
+      });
+
+      const username = igStatus.instagramUsername?.trim() || null;
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          instagramPublishStatus: ReelPlatformPublishStatus.PUBLISHED,
+          instagramMediaId: result.externalPostId,
+          instagramPermalink: result.publishedUrl,
+          instagramUsername: username,
+          instagramPublishedAt: new Date(),
+          instagramPublishError: null,
+          currentStep: 'IG_PUBLISHED',
+          publishedAt: new Date(),
+        },
+      });
+
+      await this.syncOverallPublishStatus(jobId);
+
+      return {
+        permalink: result.publishedUrl,
+        mediaId: result.externalPostId,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const authRequired = /auth|token|permission|scope|oprávnění/i.test(message);
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          instagramPublishStatus: authRequired
+            ? ReelPlatformPublishStatus.AUTH_REQUIRED
+            : ReelPlatformPublishStatus.FAILED,
+          instagramPublishError: message.slice(0, 2000),
+          currentStep: 'IG_FAILED',
+        },
+      });
+      this.log.warn(`Instagram publish failed for ${jobId}: ${message}`);
+      throw err;
+    }
   }
 
   async publishToFacebook(jobId: string): Promise<{ permalink?: string; postId?: string }> {
@@ -235,20 +421,25 @@ export class AiInfluencerPublishService {
     if (!job) return;
 
     const fb = job.facebookPublishStatus;
+    const ig = job.instagramPublishStatus;
     const yt = job.youtubePublishStatus;
     const fbPublished = fb === ReelPlatformPublishStatus.PUBLISHED;
+    const igPublished = ig === ReelPlatformPublishStatus.PUBLISHED;
     const ytPublished = yt === ReelPlatformPublishStatus.PUBLISHED;
-    const fbFailed = fb === ReelPlatformPublishStatus.FAILED;
-    const ytFailed = yt === ReelPlatformPublishStatus.FAILED;
+
+    const publishOutcomes = [fb, ig, yt].filter(
+      (s) => s !== ReelPlatformPublishStatus.SKIPPED,
+    );
+    const publishedCount = [fbPublished, igPublished, ytPublished].filter(Boolean).length;
+    const anyPublished = publishedCount > 0;
+    const allAttemptedPublished =
+      publishOutcomes.length > 0 &&
+      publishOutcomes.every((s) => s === ReelPlatformPublishStatus.PUBLISHED);
 
     let status = job.status;
-    if (fbPublished && ytPublished) {
+    if (allAttemptedPublished && publishedCount >= publishOutcomes.length) {
       status = AiInfluencerReelJobStatus.PUBLISHED;
-    } else if (fbPublished && (ytFailed || yt === ReelPlatformPublishStatus.SKIPPED)) {
-      status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
-    } else if (ytPublished && fbFailed) {
-      status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
-    } else if (fbPublished || ytPublished) {
+    } else if (anyPublished) {
       status = AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED;
     }
 

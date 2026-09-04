@@ -94,6 +94,31 @@ export type YoutubeProviderStatus = {
   message?: string | null;
 };
 
+export type InstagramProviderStatus = {
+  connected: boolean;
+  instagramBusinessId?: string | null;
+  instagramUsername?: string | null;
+  linkedPageName?: string | null;
+  tokenActive?: boolean;
+  scopesOk?: boolean;
+  missingScopes?: string[];
+  needsReconnect?: boolean;
+  publishReady?: boolean;
+  message?: string | null;
+  testStatus?: string;
+};
+
+export type InstagramTestResult = {
+  status: string;
+  account: string | null;
+  page: string | null;
+  professionalAccount: boolean;
+  publishingPermission: boolean;
+  message: string | null;
+  needsReconnect: boolean;
+  missingScopes: string[];
+};
+
 export type AiInfluencerRenderSettings = {
   preset: string;
   layout: string;
@@ -110,6 +135,7 @@ export type AiInfluencerDashboard = {
     approvalMode: string;
     dailyBudgetCzk: number;
     autoPublishFacebook?: boolean;
+    autoPublishInstagram?: boolean;
     autoPublishYoutube?: boolean;
     youtubePrivacyStatus?: string;
     defaultMusicTrackId?: string | null;
@@ -131,6 +157,7 @@ export type AiInfluencerDashboard = {
     videosToday: number;
     maxVideosPerDay: number;
     autoPublishFacebook: boolean;
+    autoPublishInstagram: boolean;
     autoPublishYoutube: boolean;
     autoPublishPortal: boolean;
   };
@@ -141,6 +168,7 @@ export type AiInfluencerDashboard = {
     heygen?: HeyGenProviderStatus;
     did?: { configured: boolean; connected: boolean | null; lastError?: string | null };
     facebook?: FacebookProviderStatus;
+    instagram?: InstagramProviderStatus;
     youtube?: YoutubeProviderStatus;
     renderer?: { configured: boolean; connected: boolean | null; preset?: string };
     cloudinary?: { configured: boolean; connected: boolean | null };
@@ -215,6 +243,11 @@ export type AiInfluencerJobRow = {
   errorMessage: string | null;
   facebookPublishStatus?: string | null;
   facebookPermalink?: string | null;
+  instagramPublishStatus?: string | null;
+  instagramPermalink?: string | null;
+  instagramMediaId?: string | null;
+  instagramUsername?: string | null;
+  instagramPublishError?: string | null;
   youtubePublishStatus?: string | null;
   youtubePermalink?: string | null;
   estimatedDurationSec?: number | null;
@@ -426,6 +459,26 @@ export function nestAiInfluencerPublishYoutube(token: string, jobId: string) {
     `/jobs/${jobId}/publish/youtube`,
     { method: 'POST' },
   );
+}
+
+export function nestAiInfluencerPublishInstagram(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<{ permalink?: string; mediaId?: string }>(
+    token,
+    `/jobs/${jobId}/publish/instagram`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerVerifyInstagram(token: string) {
+  return aiInfluencerFetchWithError<Record<string, unknown>>(token, '/instagram/verify', {
+    method: 'POST',
+  });
+}
+
+export function nestAiInfluencerTestInstagram(token: string) {
+  return aiInfluencerFetchWithError<InstagramTestResult>(token, '/test/instagram', {
+    method: 'POST',
+  });
 }
 
 export function nestAiInfluencerGetJob(token: string, jobId: string) {

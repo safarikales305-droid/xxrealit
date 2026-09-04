@@ -857,6 +857,10 @@ export class AiInfluencerJobService {
     return this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus);
   }
 
+  async publishToInstagram(jobId: string) {
+    return this.publish.publishToInstagram(jobId);
+  }
+
   async regenerateRender(jobId: string): Promise<AiInfluencerJobWithRelations> {
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -881,11 +885,14 @@ export class AiInfluencerJobService {
 
     const fbAuto =
       cfg.autoPublishFacebook && cfg.facebookPublishMode === 'AUTO_AFTER_GENERATION';
+    const igAuto =
+      cfg.autoPublishInstagram && cfg.instagramPublishMode === 'AUTO_AFTER_GENERATION';
     const ytAuto =
       cfg.autoPublishYoutube && cfg.youtubePublishMode === 'AUTO_AFTER_GENERATION';
-    if (!fbAuto && !ytAuto) return;
+    if (!fbAuto && !igAuto && !ytAuto) return;
 
     let fbOk = job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    let igOk = job.instagramPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
     let ytOk = job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
 
     if (fbAuto && !fbOk) {
@@ -894,6 +901,14 @@ export class AiInfluencerJobService {
         fbOk = true;
       } catch (err) {
         this.log.warn(`Auto Facebook publish failed for ${jobId}: ${err}`);
+      }
+    }
+    if (igAuto && !igOk) {
+      try {
+        await this.publish.publishToInstagram(jobId);
+        igOk = true;
+      } catch (err) {
+        this.log.warn(`Auto Instagram publish failed for ${jobId}: ${err}`);
       }
     }
     if (ytAuto && !ytOk) {

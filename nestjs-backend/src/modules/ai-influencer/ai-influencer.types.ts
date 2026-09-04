@@ -77,6 +77,7 @@ export type AiInfluencerAutomationSettings = {
   defaultMusicTrackId: string | null;
   publishWindows: string[];
   autoPublishFacebook: boolean;
+  autoPublishInstagram: boolean;
   autoPublishYoutube: boolean;
   autoPublishPortal: boolean;
   youtubePrivacyStatus: 'private' | 'unlisted' | 'public';
@@ -89,12 +90,14 @@ export type AiInfluencerAutomationSettings = {
   blockedCategories: string[];
   sourceBlacklist: string[];
   facebookPublishMode: PublishMode;
+  instagramPublishMode: PublishMode;
   youtubePublishMode: PublishMode;
   portalPublishMode: PublishMode;
   publishWindowStart: string;
   publishWindowEnd: string;
   minPublishSpacingMinutes: number;
   maxFacebookPerDay: number;
+  maxInstagramPerDay: number;
   maxYoutubePerDay: number;
   maxPortalPerDay: number;
   brandingEnabled: boolean;
@@ -147,6 +150,7 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   defaultMusicTrackId: null,
   publishWindows: ['08:00', '12:30', '18:30'],
   autoPublishFacebook: true,
+  autoPublishInstagram: false,
   autoPublishYoutube: false,
   autoPublishPortal: true,
   youtubePrivacyStatus: 'private',
@@ -159,12 +163,14 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   blockedCategories: [],
   sourceBlacklist: [],
   facebookPublishMode: 'AUTO_AFTER_GENERATION',
+  instagramPublishMode: 'MANUAL',
   youtubePublishMode: 'MANUAL',
   portalPublishMode: 'AUTO_AFTER_GENERATION',
   publishWindowStart: '08:00',
   publishWindowEnd: '21:00',
   minPublishSpacingMinutes: 120,
   maxFacebookPerDay: 3,
+  maxInstagramPerDay: 3,
   maxYoutubePerDay: 3,
   maxPortalPerDay: 5,
   brandingEnabled: true,

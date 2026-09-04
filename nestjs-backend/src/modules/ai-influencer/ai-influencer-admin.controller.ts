@@ -103,6 +103,7 @@ export class AiInfluencerAdminController {
         videosToday: todayJobs,
         maxVideosPerDay: cfg.maxPerDay,
         autoPublishFacebook: cfg.autoPublishFacebook,
+        autoPublishInstagram: cfg.autoPublishInstagram,
         autoPublishYoutube: cfg.autoPublishYoutube,
         autoPublishPortal: cfg.autoPublishPortal,
       },
@@ -203,6 +204,30 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/publish/youtube')
   publishYoutube(@Param('id') id: string) {
     return this.jobs.publishToYoutube(id);
+  }
+
+  @Post('jobs/:id/publish/instagram')
+  publishInstagram(@Param('id') id: string) {
+    return this.jobs.publishToInstagram(id);
+  }
+
+  @Get('instagram/status')
+  instagramStatus() {
+    return this.publish.getInstagramConnectionStatus();
+  }
+
+  @Post('instagram/verify')
+  async verifyInstagram() {
+    const status = await this.publish.verifyInstagramConnection();
+    return {
+      ...status,
+      test: this.publish.formatInstagramTestResult(status),
+    };
+  }
+
+  @Post('test/instagram')
+  testInstagram() {
+    return this.publish.testInstagramConnection();
   }
 
   @Get('music')
@@ -450,13 +475,14 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, heygenHealth, did, yt, fb] = await Promise.all([
+    const [aiDiag, elevenHealth, heygenHealth, did, yt, fb, ig] = await Promise.all([
       this.openAi.getStatus(),
       this.elevenLabs.getHealth(profile.voiceId),
       this.heygen.getHealth(profile.avatarId),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
       this.publish.testFacebookConnection(),
+      this.publish.getInstagramConnectionStatus(),
     ]);
 
     const aiConnected = aiDiag.connected === true;
@@ -481,7 +507,11 @@ export class AiInfluencerAdminController {
 
     const publishReasons: string[] = [];
     if (!fb.ok) publishReasons.push('Facebook není připojen');
+    if (!ig.connected || !ig.scopesOk) publishReasons.push('Instagram není připraven');
     if (!yt.connected) publishReasons.push('YouTube není připojen');
+
+    const igTest = this.publish.formatInstagramTestResult(ig);
+    const igPublishReady = igTest.status === 'READY';
 
     return {
       ready: {
@@ -489,7 +519,7 @@ export class AiInfluencerAdminController {
         reason: productionReady ? null : readyReasons[0] ?? 'Není připraveno',
         reasons: readyReasons,
         productionReady,
-        publishReady: fb.ok && yt.autoPublishReady,
+        publishReady: fb.ok && igPublishReady && yt.autoPublishReady,
         publishReasons,
       },
       ai: {
@@ -557,6 +587,19 @@ export class AiInfluencerAdminController {
         autoPublishReady: yt.autoPublishReady,
         missingEnv: yt.missingEnv,
         redirectUri: yt.redirectUri,
+      },
+      instagram: {
+        connected: ig.connected,
+        instagramBusinessId: this.maskId(ig.instagramBusinessId),
+        instagramUsername: ig.instagramUsername,
+        linkedPageName: ig.linkedPageName,
+        tokenActive: ig.tokenActive,
+        scopesOk: ig.scopesOk,
+        missingScopes: ig.missingScopes,
+        needsReconnect: ig.needsReconnect,
+        publishReady: igPublishReady,
+        message: ig.message,
+        testStatus: igTest.status,
       },
     };
   }

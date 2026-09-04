@@ -24,10 +24,13 @@ import {
   nestAiInfluencerAcceptUnbranded,
   nestAiInfluencerUpdateSettings,
   nestAiInfluencerPublishFacebook,
+  nestAiInfluencerPublishInstagram,
   nestAiInfluencerPublishYoutube,
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestFacebook,
+  nestAiInfluencerTestInstagram,
+  nestAiInfluencerVerifyInstagram,
   nestAiInfluencerTestYoutube,
   nestAiInfluencerTestYoutubeUpload,
   nestAiInfluencerYoutubeDisconnect,
@@ -146,6 +149,7 @@ export default function AiInfluencerPage() {
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [fbTestMsg, setFbTestMsg] = useState<string | null>(null);
+  const [igTestMsg, setIgTestMsg] = useState<string | null>(null);
   const [ytTestMsg, setYtTestMsg] = useState<string | null>(null);
   const [ytConnectError, setYtConnectError] = useState<string | null>(null);
   const [voices, setVoices] = useState<ElevenLabsVoiceOption[]>([]);
@@ -284,6 +288,7 @@ export default function AiInfluencerPage() {
             Automaticky vytvářet AI Reels
           </label>
           <span>FB: {dashboard?.automation?.autoPublishFacebook ? '✓' : '—'}</span>
+          <span>IG: {dashboard?.automation?.autoPublishInstagram ? '✓' : dashboard?.providers.instagram?.publishReady ? '—' : '⚠'}</span>
           <span>YT: {dashboard?.automation?.autoPublishYoutube ? '✓' : dashboard?.providers.youtube?.connected ? '—' : '⚠'}</span>
           <span>Shorts: {dashboard?.automation?.autoPublishPortal ? '✓' : '—'}</span>
         </div>
@@ -386,6 +391,36 @@ export default function AiInfluencerPage() {
                 text: dashboard?.providers.facebook?.pageId
                   ? `Page ID: ${dashboard.providers.facebook.pageId}`
                   : 'Token: —',
+              },
+            ]}
+          />
+          <ProviderCard
+            title="Instagram"
+            lines={[
+              {
+                ok: dashboard?.providers.instagram?.connected === true,
+                text:
+                  dashboard?.providers.instagram?.instagramUsername
+                    ? `Připojeno · @${dashboard.providers.instagram.instagramUsername}`
+                    : dashboard?.providers.instagram?.connected
+                      ? 'Připojeno'
+                      : dashboard?.providers.instagram?.message ?? 'Instagram účet nenalezen',
+              },
+              {
+                ok: Boolean(dashboard?.providers.instagram?.linkedPageName),
+                text: dashboard?.providers.instagram?.linkedPageName
+                  ? `Propojeno přes ${dashboard.providers.instagram.linkedPageName}`
+                  : 'Není propojeno s Facebook Page',
+              },
+              {
+                ok: dashboard?.providers.instagram?.publishReady === true,
+                text: dashboard?.providers.instagram?.publishReady
+                  ? 'Reels publikování připraveno'
+                  : dashboard?.providers.instagram?.scopesOk === false
+                    ? `Chybí oprávnění${dashboard.providers.instagram.missingScopes?.length ? `: ${dashboard.providers.instagram.missingScopes.join(', ')}` : ''}`
+                    : dashboard?.providers.instagram?.needsReconnect
+                      ? 'Token vyžaduje obnovení'
+                      : 'Instagram není připraven',
               },
             ]}
           />
@@ -625,6 +660,56 @@ export default function AiInfluencerPage() {
           </button>
           <button
             type="button"
+            disabled={!apiAccessToken || busy === 'ig-verify'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('ig-verify');
+              setIgTestMsg(null);
+              void nestAiInfluencerVerifyInstagram(apiAccessToken).then((r) => {
+                setBusy(null);
+                setIgTestMsg(r.error ?? 'Instagram identita obnovena.');
+                load();
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Ověřit Instagram
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'ig-test'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('ig-test');
+              setIgTestMsg(null);
+              void nestAiInfluencerTestInstagram(apiAccessToken).then((r) => {
+                setBusy(null);
+                if (r.data) {
+                  setIgTestMsg(
+                    `INSTAGRAM CONNECTION\nAccount: ${r.data.account ?? '—'}\nPage: ${r.data.page ?? '—'}\nProfessional account: ${r.data.professionalAccount ? 'YES' : 'NO'}\nPublishing permission: ${r.data.publishingPermission ? 'YES' : 'NO'}\nStatus: ${r.data.status}`,
+                  );
+                } else {
+                  setIgTestMsg(r.error ?? 'Instagram test selhal.');
+                }
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Test Instagram připojení
+          </button>
+          {dashboard?.providers.instagram?.needsReconnect ? (
+            <Link
+              href="/admin/integrace/facebook"
+              className="rounded-lg border border-pink-300 px-4 py-2 text-sm font-medium text-pink-800 hover:bg-pink-50"
+            >
+              Doplnit oprávnění Instagram
+            </Link>
+          ) : null}
+          {igTestMsg ? (
+            <p className="col-span-full whitespace-pre-wrap text-xs text-zinc-600">{igTestMsg}</p>
+          ) : null}
+          <button
+            type="button"
             disabled={!apiAccessToken || busy === 'yt-connect'}
             onClick={() => {
               if (!apiAccessToken) return;
@@ -835,7 +920,17 @@ export default function AiInfluencerPage() {
               ) : null}
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
                 <span>FB: {job.facebookPublishStatus ?? '—'}</span>
+                <span>
+                  IG: {job.instagramPublishStatus ?? '—'}
+                  {job.instagramUsername ? ` @${job.instagramUsername}` : ''}
+                </span>
                 <span>YT: {job.youtubePublishStatus ?? '—'}</span>
+                {job.instagramPublishError && job.instagramPublishStatus === 'FAILED' ? (
+                  <span className="text-red-600">{job.instagramPublishError.slice(0, 120)}</span>
+                ) : null}
+                {job.instagramMediaId && job.instagramPublishStatus === 'PUBLISHED' ? (
+                  <span>IG ID: {job.instagramMediaId}</span>
+                ) : null}
                 {job.estimatedDurationSec ? <span>{job.estimatedDurationSec}s</span> : null}
               </div>
               {(job.finalMasterUrl ?? job.videoUrl) ? (
@@ -937,6 +1032,17 @@ export default function AiInfluencerPage() {
                     </button>
                     <button
                       type="button"
+                      disabled={!apiAccessToken || job.instagramPublishStatus === 'PUBLISHED'}
+                      onClick={() => {
+                        if (!apiAccessToken) return;
+                        void nestAiInfluencerPublishInstagram(apiAccessToken, job.id).then(load);
+                      }}
+                      className="rounded border border-pink-300 px-3 py-1 text-xs font-medium text-pink-800"
+                    >
+                      IG publikovat
+                    </button>
+                    <button
+                      type="button"
                       disabled={!apiAccessToken || job.youtubePublishStatus === 'PUBLISHED'}
                       onClick={() => {
                         if (!apiAccessToken) return;
@@ -948,6 +1054,22 @@ export default function AiInfluencerPage() {
                     </button>
                   </>
                 ) : null}
+                {(job.instagramPublishStatus === 'FAILED' ||
+                  job.instagramPublishStatus === 'SKIPPED' ||
+                  job.instagramPublishStatus === 'AUTH_REQUIRED') &&
+                (job.finalMasterUrl ?? job.videoUrl) ? (
+                  <button
+                    type="button"
+                    disabled={!apiAccessToken}
+                    onClick={() => {
+                      if (!apiAccessToken) return;
+                      void nestAiInfluencerPublishInstagram(apiAccessToken, job.id).then(load);
+                    }}
+                    className="rounded border border-pink-200 px-3 py-1 text-xs font-medium text-pink-700"
+                  >
+                    Opakovat Instagram
+                  </button>
+                ) : null}
                 {job.facebookPermalink ? (
                   <Link
                     href={job.facebookPermalink}
@@ -955,6 +1077,15 @@ export default function AiInfluencerPage() {
                     className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
                   >
                     Facebook
+                  </Link>
+                ) : null}
+                {job.instagramPermalink ? (
+                  <Link
+                    href={job.instagramPermalink}
+                    target="_blank"
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
+                  >
+                    Instagram
                   </Link>
                 ) : null}
                 {job.youtubePermalink ? (

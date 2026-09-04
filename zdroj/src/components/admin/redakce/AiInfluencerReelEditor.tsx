@@ -22,7 +22,9 @@ type Props = {
   apiAccessToken: string | null;
   dashboardSettings?: {
     autoPublishFacebook?: boolean;
+    autoPublishInstagram?: boolean;
     autoPublishYoutube?: boolean;
+    autoPublishPortal?: boolean;
     youtubePrivacyStatus?: string;
     defaultMusicTrackId?: string | null;
   };
@@ -35,7 +37,9 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
   const [music, setMusic] = useState<ShortsMusicOption[]>([]);
   const [showSafeZones, setShowSafeZones] = useState(true);
   const [autoFb, setAutoFb] = useState(false);
+  const [autoIg, setAutoIg] = useState(false);
   const [autoYt, setAutoYt] = useState(false);
+  const [autoPortal, setAutoPortal] = useState(false);
   const [ytPrivacy, setYtPrivacy] = useState('private');
   const [musicTrackId, setMusicTrackId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,7 +56,9 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
       if (tracks) setMusic(tracks);
     });
     setAutoFb(dashboardSettings?.autoPublishFacebook ?? false);
+    setAutoIg(dashboardSettings?.autoPublishInstagram ?? false);
     setAutoYt(dashboardSettings?.autoPublishYoutube ?? false);
+    setAutoPortal(dashboardSettings?.autoPublishPortal ?? false);
     setYtPrivacy(dashboardSettings?.youtubePrivacyStatus ?? 'private');
   }, [apiAccessToken, dashboardSettings]);
 
@@ -202,11 +208,19 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
             <legend className="px-1 font-medium text-zinc-700">Publikování</legend>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={autoFb} onChange={(e) => setAutoFb(e.target.checked)} />
-              Automaticky publikovat na Facebook
+              Publikovat na Facebook
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={autoIg} onChange={(e) => setAutoIg(e.target.checked)} />
+              Publikovat na Instagram
             </label>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={autoYt} onChange={(e) => setAutoYt(e.target.checked)} />
-              Automaticky publikovat na YouTube
+              Publikovat na YouTube
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={autoPortal} onChange={(e) => setAutoPortal(e.target.checked)} />
+              Publikovat do XXREALIT Shorts
             </label>
             <select
               value={ytPrivacy}
@@ -235,7 +249,13 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
                 }),
                 nestAiInfluencerUpdateSettings(apiAccessToken, {
                   autoPublishFacebook: autoFb,
+                  autoPublishInstagram: autoIg,
                   autoPublishYoutube: autoYt,
+                  autoPublishPortal: autoPortal,
+                  facebookPublishMode: autoFb ? 'AUTO_AFTER_GENERATION' : 'MANUAL',
+                  instagramPublishMode: autoIg ? 'AUTO_AFTER_GENERATION' : 'MANUAL',
+                  youtubePublishMode: autoYt ? 'AUTO_AFTER_GENERATION' : 'MANUAL',
+                  portalPublishMode: autoPortal ? 'AUTO_AFTER_GENERATION' : 'MANUAL',
                   youtubePrivacyStatus: ytPrivacy,
                   defaultMusicTrackId: musicTrackId || null,
                 }),

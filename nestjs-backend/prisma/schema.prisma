@@ -8305,6 +8305,12 @@ model AiInfluencerReelJob {
   youtubePublishedAt   DateTime?
   youtubePublishError  String?                   @db.Text
   youtubePrivacyStatus String?
+  instagramPublishStatus ReelPlatformPublishStatus @default(SKIPPED)
+  instagramMediaId     String?
+  instagramPermalink   String?
+  instagramUsername    String?
+  instagramPublishedAt DateTime?
+  instagramPublishError String?                  @db.Text
   publishedAt          DateTime?
   aiCostEstimated      Float                     @default(0)
   voiceCostEstimated   Float                     @default(0)

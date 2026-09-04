@@ -131,6 +131,8 @@ import { SocialInstagramCaptionService } from './autopost/social-instagram-capti
     SocialAutopostFacebookOAuthService,
     SocialPublishEnqueueService,
     SocialPublisherService,
+    SocialInstagramPublisherService,
+    SocialInstagramConnectionService,
     TikTokModule,
     YouTubeModule,
   ],
