@@ -26,6 +26,10 @@ export type ReelScenePlan = {
   headline?: string;
   mediaUrl?: string;
   generatedAsset?: boolean;
+  mediaSource?: AiInfluencerSceneMediaSource;
+  caption?: string;
+  visualInstruction?: string;
+  id?: string;
 };
 
 export type ReelScriptPayload = {
@@ -58,7 +62,35 @@ export type ArticleScoreResult = {
 };
 
 export type AiInfluencerDurationPreset = '25_35' | '35_45' | '45_60';
-export type AiInfluencerScenePacing = 'dynamic' | 'calm';
+export type AiInfluencerScenePacing = 'dynamic' | 'calm' | 'balanced';
+export type AiInfluencerVideoGenerationMode = 'VIDEO_AGENT' | 'AVATAR';
+export type AiInfluencerVideoStyle =
+  | 'dynamic_influencer'
+  | 'real_estate_news'
+  | 'property_showcase'
+  | 'educational'
+  | 'auto';
+export type AiInfluencerAvatarFrequency = 'low' | 'medium' | 'high';
+
+export type AiInfluencerSceneMediaSource =
+  | 'PROPERTY_IMAGE'
+  | 'ARTICLE_IMAGE'
+  | 'PORTAL_MEDIA'
+  | 'OWNED_VIDEO'
+  | 'GENERATED_VISUAL'
+  | 'AVATAR'
+  | 'BROLL';
+
+export type AiInfluencerJobRenderMeta = {
+  videoGenerationMode?: AiInfluencerVideoGenerationMode;
+  generationModeUsed?: AiInfluencerVideoGenerationMode;
+  heygenVideoAgentSessionId?: string;
+  heygenVideoAgentVideoId?: string;
+  usedVideoAgentFallback?: boolean;
+  videoAgentMaster?: boolean;
+  fallbackNotice?: string;
+  videoAgentSubmittedAt?: string;
+};
 export type AiInfluencerVideoGoal =
   | 'website_traffic'
   | 'youtube_subscribe'
@@ -143,6 +175,11 @@ export type AiInfluencerAutomationSettings = {
   useCta: boolean;
   mentionBrandInScript: boolean;
   videoGoal: AiInfluencerVideoGoal;
+  /** Hlavní režim: HeyGen Video Agent (default) nebo jednoduchý avatar fallback pipeline */
+  videoGenerationMode: AiInfluencerVideoGenerationMode;
+  allowVideoAgentFallback: boolean;
+  videoStyle: AiInfluencerVideoStyle;
+  avatarFrequency: AiInfluencerAvatarFrequency;
 };
 
 export const DEFAULT_PREFERRED_CATEGORIES = [
@@ -228,6 +265,10 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   useCta: true,
   mentionBrandInScript: true,
   videoGoal: 'auto',
+  videoGenerationMode: 'VIDEO_AGENT',
+  allowVideoAgentFallback: true,
+  videoStyle: 'auto',
+  avatarFrequency: 'medium',
 };
 
 export type VoiceGenerateInput = {

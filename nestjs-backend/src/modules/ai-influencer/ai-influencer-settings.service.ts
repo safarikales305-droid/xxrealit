@@ -164,7 +164,8 @@ export class AiInfluencerSettingsService implements OnModuleInit {
       videoFormat: 'VERTICAL_SHORT_9_16',
       durationPreset:
         o.durationPreset === '35_45' || o.durationPreset === '45_60' ? o.durationPreset : d.durationPreset,
-      scenePacing: o.scenePacing === 'calm' ? 'calm' : d.scenePacing,
+      scenePacing:
+        o.scenePacing === 'calm' || o.scenePacing === 'balanced' ? o.scenePacing : d.scenePacing,
       useArticleImages:
         typeof o.useArticleImages === 'boolean' ? o.useArticleImages : d.useArticleImages,
       usePortalMedia:
@@ -184,6 +185,26 @@ export class AiInfluencerSettingsService implements OnModuleInit {
         o.videoGoal === 'auto'
           ? o.videoGoal
           : d.videoGoal,
+      videoGenerationMode:
+        o.videoGenerationMode === 'AVATAR' || o.videoGenerationMode === 'VIDEO_AGENT'
+          ? o.videoGenerationMode
+          : d.videoGenerationMode,
+      allowVideoAgentFallback:
+        typeof o.allowVideoAgentFallback === 'boolean'
+          ? o.allowVideoAgentFallback
+          : d.allowVideoAgentFallback,
+      videoStyle:
+        o.videoStyle === 'dynamic_influencer' ||
+        o.videoStyle === 'real_estate_news' ||
+        o.videoStyle === 'property_showcase' ||
+        o.videoStyle === 'educational' ||
+        o.videoStyle === 'auto'
+          ? o.videoStyle
+          : d.videoStyle,
+      avatarFrequency:
+        o.avatarFrequency === 'low' || o.avatarFrequency === 'medium' || o.avatarFrequency === 'high'
+          ? o.avatarFrequency
+          : d.avatarFrequency,
     };
   }
 }

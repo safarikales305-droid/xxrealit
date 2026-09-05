@@ -18,11 +18,11 @@ const BASE: Record<string, ProgressMeta> = {
   EVALUATING: { percent: 5, step: 'Připravuji článek', stepKey: 'EVALUATING' },
   CANDIDATE: { percent: 10, step: 'Vyhodnocení článku', stepKey: 'CANDIDATE' },
   SCRIPT_GENERATING: { percent: 15, step: 'Generuji scénář', stepKey: 'SCRIPT' },
-  SCRIPT_READY: { percent: 15, step: 'Scénář připraven', stepKey: 'SCRIPT_READY' },
-  VOICE_GENERATING: { percent: 25, step: 'Generuji hlas', stepKey: 'VOICE' },
-  VOICE_READY: { percent: 25, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
-  AVATAR_GENERATING: { percent: 40, step: 'Vytvářím AI avatara', stepKey: 'HEYGEN_START' },
-  AVATAR_READY: { percent: 55, step: 'HeyGen video hotové', stepKey: 'HEYGEN_DONE' },
+  SCRIPT_READY: { percent: 25, step: 'Storyboard připraven', stepKey: 'STORYBOARD' },
+  VOICE_GENERATING: { percent: 30, step: 'Generuji hlas', stepKey: 'VOICE' },
+  VOICE_READY: { percent: 35, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
+  AVATAR_GENERATING: { percent: 45, step: 'Odesílám Video Agentu', stepKey: 'VIDEO_AGENT_SUBMIT' },
+  AVATAR_READY: { percent: 80, step: 'Video Agent master stažen', stepKey: 'VIDEO_AGENT_READY' },
   RENDERING: { percent: 80, step: 'Renderuji 1080×1920', stepKey: 'COMPOSITING' },
   VALIDATING: { percent: 93, step: 'Kontrola kvality', stepKey: 'VALIDATING' },
   UPLOADING: { percent: 92, step: 'Nahrávám výsledné video', stepKey: 'UPLOADING' },
@@ -41,11 +41,11 @@ export function progressForStatus(
 ): ProgressMeta {
   if (status === AiInfluencerReelJobStatus.AVATAR_GENERATING && avatarPollRatio != null) {
     const ratio = Math.min(1, Math.max(0, avatarPollRatio));
-    const percent = Math.round(40 + ratio * 15);
+    const percent = Math.round(55 + ratio * 15);
     return {
       percent,
-      step: 'HeyGen zpracovává video',
-      stepKey: 'HEYGEN_PROCESSING',
+      step: 'AI skládá a renderuje scény',
+      stepKey: 'VIDEO_AGENT_PROCESSING',
     };
   }
   return BASE[status] ?? { percent: 0, step: status, stepKey: status };

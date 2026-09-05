@@ -28,6 +28,8 @@ import {
   nestAiInfluencerPublishYoutube,
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerTestAvatar,
+  nestAiInfluencerTestVideoAgent,
+  nestAiInfluencerTestFallback,
   nestAiInfluencerTestFacebook,
   nestAiInfluencerTestInstagram,
   nestAiInfluencerVerifyInstagram,
@@ -902,6 +904,142 @@ export default function AiInfluencerPage() {
         {fbTestMsg ? <p className="mt-2 text-sm text-zinc-600">{fbTestMsg}</p> : null}
         {ytTestMsg ? <p className="mt-2 text-sm text-zinc-600">{ytTestMsg}</p> : null}
         {ytConnectError ? <p className="mt-2 text-sm text-red-700">{ytConnectError}</p> : null}
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-zinc-900">VIDEO ENGINE</h2>
+        <p className="mt-1 text-sm text-zinc-600">
+          Hlavní režim: dynamické AI video přes HeyGen Video Agent. Fallback: multi-scene avatar pipeline.
+        </p>
+        <dl className="mt-4 grid gap-2 text-sm md:grid-cols-2">
+          <div>
+            <dt className="text-zinc-500">Mode</dt>
+            <dd className="font-medium">{dashboard?.providers.videoEngine?.mode ?? 'Dynamické AI video'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">HeyGen Video Agent</dt>
+            <dd className="font-medium">
+              {dashboard?.providers.videoEngine?.heygenVideoAgent ?? 'NOT AVAILABLE'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Fallback</dt>
+            <dd className="font-medium">{dashboard?.providers.videoEngine?.fallback ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Formát</dt>
+            <dd className="font-medium">{dashboard?.providers.videoEngine?.format ?? '1080x1920 · 9:16'}</dd>
+          </div>
+        </dl>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4 text-sm">
+          <label className="block">
+            Režim tvorby videa
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.videoGenerationMode ?? 'VIDEO_AGENT'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  videoGenerationMode: e.target.value as 'VIDEO_AGENT' | 'AVATAR',
+                }).then(load);
+              }}
+            >
+              <option value="VIDEO_AGENT">Dynamické AI video</option>
+              <option value="AVATAR">Jednoduchý avatar</option>
+            </select>
+          </label>
+          <label className="block">
+            Video styl
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.videoStyle ?? 'auto'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  videoStyle: e.target.value,
+                }).then(load);
+              }}
+            >
+              <option value="auto">Automaticky</option>
+              <option value="dynamic_influencer">Dynamický influencer</option>
+              <option value="real_estate_news">Realitní zprávy</option>
+              <option value="property_showcase">Prezentace nemovitosti</option>
+              <option value="educational">Edukační</option>
+            </select>
+          </label>
+          <label className="block">
+            Avatar ve scénách
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.avatarFrequency ?? 'medium'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  avatarFrequency: e.target.value,
+                }).then(load);
+              }}
+            >
+              <option value="low">Málo</option>
+              <option value="medium">Středně</option>
+              <option value="high">Často</option>
+            </select>
+          </label>
+          <label className="flex items-end gap-2 pb-2">
+            <input
+              type="checkbox"
+              checked={dashboard?.settings.allowVideoAgentFallback !== false}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  allowVideoAgentFallback: e.target.checked,
+                }).then(load);
+              }}
+            />
+            Povolit fallback na avatar pipeline
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'video-agent'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('video-agent');
+              void nestAiInfluencerTestVideoAgent(apiAccessToken).then((r) => {
+                setBusy(null);
+                if (r.error) alert(r.error);
+                else alert(r.data?.message ?? 'Video Agent test spuštěn.');
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Test Video Agent
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'fallback'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('fallback');
+              void nestAiInfluencerTestFallback(
+                apiAccessToken,
+                selectedAvatarId || heygen?.avatarId || undefined,
+              ).then((r) => {
+                setBusy(null);
+                if (r.error) alert(r.error);
+                else alert(r.data?.message ?? 'Fallback avatar OK.');
+              });
+            }}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Test fallback
+          </button>
+        </div>
+        {dashboard?.providers.videoEngine?.heygenVideoAgentMessage ? (
+          <p className="mt-2 text-sm text-amber-800">
+            {dashboard.providers.videoEngine.heygenVideoAgentMessage}
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-4">

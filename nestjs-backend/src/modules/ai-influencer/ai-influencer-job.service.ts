@@ -44,7 +44,23 @@ import { ArticleMediaProvider } from './providers/article-media.provider';
 import { PropertyMediaProvider } from './providers/property-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
+import {
+  buildHeyGenVideoAgentPrompt,
+  collectStoryboardMediaUrls,
+} from './heygen-video-agent-prompt.util';
+import {
+  isActiveVideoAgentJob,
+  isVideoAgentExternalJobId,
+  mergeJobRenderMeta,
+  parseVideoAgentSessionId,
+  readJobRenderMeta,
+  resolveVideoGenerationMode,
+  toVideoAgentExternalJobId,
+  videoAgentPollRatio,
+  videoAgentTimedOut,
+} from './ai-influencer-video-agent.util';
 import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
 import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
@@ -84,7 +100,10 @@ function failedStageLabel(
     if (/heygen|avatar|HEYGEN/i.test(message)) return 'AVATAR';
   }
   if (stage === AiInfluencerReelJobStatus.VOICE_GENERATING) return 'VOICE';
-  if (stage === AiInfluencerReelJobStatus.AVATAR_GENERATING) return 'AVATAR';
+  if (stage === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+    if (/video agent|VIDEO_AGENT/i.test(message)) return 'AVATAR';
+    return 'AVATAR';
+  }
   if (stage === AiInfluencerReelJobStatus.RENDERING) {
     if (/branding|watermark|logo|drawtext|filter/i.test(message)) return 'BRANDING_RENDER';
     return 'RENDER';
@@ -119,6 +138,7 @@ export class AiInfluencerJobService {
     private readonly shortsMusic: ShortsMusicService,
     private readonly publish: AiInfluencerPublishService,
     private readonly heygen: HeyGenAvatarProvider,
+    private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
   ) {}
 
@@ -433,11 +453,21 @@ export class AiInfluencerJobService {
           return;
         case AiInfluencerReelJobStatus.SCRIPT_READY:
           if (this.settings.getCached().approvalMode !== 'MANUAL') {
-            await this.prisma.aiInfluencerReelJob.update({
-              where: { id: jobId },
-              data: { status: AiInfluencerReelJobStatus.VOICE_GENERATING },
-            });
-            await this.runVoiceGeneration(jobId);
+            const cfg = this.settings.getCached();
+            const mode = resolveVideoGenerationMode(cfg);
+            if (mode === 'VIDEO_AGENT') {
+              await this.prisma.aiInfluencerReelJob.update({
+                where: { id: jobId },
+                data: { status: AiInfluencerReelJobStatus.AVATAR_GENERATING },
+              });
+              await this.runVideoAgentStart(jobId);
+            } else {
+              await this.prisma.aiInfluencerReelJob.update({
+                where: { id: jobId },
+                data: { status: AiInfluencerReelJobStatus.VOICE_GENERATING },
+              });
+              await this.runVoiceGeneration(jobId);
+            }
           }
           return;
         case AiInfluencerReelJobStatus.RENDERING:
@@ -718,9 +748,16 @@ export class AiInfluencerJobService {
     } else {
       scenes = script.scenes;
     }
+    const generationMode = resolveVideoGenerationMode(cfg);
+    const renderMeta = mergeJobRenderMeta(job.renderSettingsJson, {
+      videoGenerationMode: generationMode,
+      generationModeUsed: generationMode,
+    });
     const nextStatus =
       cfg.approvalMode === 'FULL_AUTO'
-        ? AiInfluencerReelJobStatus.VOICE_GENERATING
+        ? generationMode === 'VIDEO_AGENT'
+          ? AiInfluencerReelJobStatus.AVATAR_GENERATING
+          : AiInfluencerReelJobStatus.VOICE_GENERATING
         : AiInfluencerReelJobStatus.SCRIPT_READY;
     const progress = progressForStatus(nextStatus);
 
@@ -740,6 +777,7 @@ export class AiInfluencerJobService {
         scriptHash,
         scenesJson: scenes as object,
         contentFormat: script.contentFormat ?? job.contentFormat ?? undefined,
+        renderSettingsJson: renderMeta as object,
         aiCostEstimated: { increment: costCzk },
         totalExternalCost: { increment: costCzk },
         progressPercent: progress.percent,
@@ -750,6 +788,8 @@ export class AiInfluencerJobService {
 
     if (nextStatus === AiInfluencerReelJobStatus.VOICE_GENERATING) {
       await this.runVoiceGeneration(jobId);
+    } else if (nextStatus === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+      await this.runVideoAgentStart(jobId);
     }
   }
 
@@ -900,8 +940,280 @@ export class AiInfluencerJobService {
     });
   }
 
+  private async runVideoAgentFallback(jobId: string, reason: string): Promise<void> {
+    const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
+    if (!cfg.allowVideoAgentFallback) {
+      throw Object.assign(new Error(reason), { code: 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE' });
+    }
+
+    this.log.warn(`Video Agent fallback for job ${jobId}: ${reason}`);
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        avatarExternalJobId: null,
+        status: AiInfluencerReelJobStatus.VOICE_GENERATING,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          usedVideoAgentFallback: true,
+          generationModeUsed: 'AVATAR',
+          fallbackNotice: 'Video Agent nebyl dostupný – použito standardní AI video.',
+        }) as object,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_FALLBACK', reason),
+      },
+    });
+    await this.runVoiceGeneration(jobId);
+  }
+
+  private async runVideoAgentStart(jobId: string): Promise<void> {
+    const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
+
+    if (job.avatarStorageUrl?.trim()) {
+      if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: { status: AiInfluencerReelJobStatus.AVATAR_READY },
+        });
+      }
+      return;
+    }
+
+    if (job.avatarExternalJobId && job.status === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+      return;
+    }
+
+    const readiness = await this.videoAgent.getReadiness();
+    if (!readiness.available) {
+      await this.runVideoAgentFallback(jobId, readiness.message ?? 'HeyGen Video Agent není dostupný.');
+      return;
+    }
+
+    await this.heygen.assertReadyForGeneration(job.profile.avatarId);
+    const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);
+    const script = job.scriptJson as ReelScriptPayload | null;
+    if (!script?.spokenText) throw Object.assign(new Error('Chybí scénář pro Video Agent.'), { code: 'STORYBOARD_INVALID' });
+
+    const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? script.scenes ?? [];
+    const mediaFiles = collectStoryboardMediaUrls(scenes);
+    const prompt = buildHeyGenVideoAgentPrompt({
+      script: {
+        hook: script.hook,
+        spokenText: script.spokenText,
+        captionTitle: script.captionTitle,
+        cta: script.cta,
+        estimatedDuration: script.estimatedDuration,
+        scenes,
+      },
+      settings: cfg,
+      avatarId,
+      videoStyle: cfg.videoStyle,
+      avatarFrequency: cfg.avatarFrequency,
+      contentKind: job.propertyId ? 'PROPERTY' : 'ARTICLE',
+      mediaFiles,
+    });
+
+    let started;
+    try {
+      started = await this.videoAgent.startGeneration({
+        prompt,
+        avatarId,
+        files: mediaFiles,
+      });
+    } catch (err) {
+      const code = errorCode(err);
+      if (cfg.allowVideoAgentFallback && (code?.startsWith('HEYGEN_VIDEO_AGENT_') ?? false)) {
+        await this.runVideoAgentFallback(
+          jobId,
+          err instanceof Error ? err.message : 'Video Agent submit selhal.',
+        );
+        return;
+      }
+      throw err;
+    }
+
+    const submittedAt = new Date().toISOString();
+    const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING);
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+        avatarExternalJobId: toVideoAgentExternalJobId(started.sessionId),
+        avatarCostEstimated: cfg.avatarCostPerSecCzk * (script.estimatedDuration ?? cfg.targetDurationSec),
+        totalExternalCost: {
+          increment: cfg.avatarCostPerSecCzk * (script.estimatedDuration ?? cfg.targetDurationSec),
+        },
+        progressPercent: progress.percent,
+        currentStep: 'Odesílám Video Agentu',
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          videoGenerationMode: 'VIDEO_AGENT',
+          generationModeUsed: 'VIDEO_AGENT',
+          heygenVideoAgentSessionId: started.sessionId,
+          heygenVideoAgentVideoId: started.videoId ?? undefined,
+          videoAgentSubmittedAt: submittedAt,
+        }) as object,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_SUBMITTED', started.sessionId),
+      },
+    });
+  }
+
+  private async runVideoAgentPoll(jobId: string): Promise<void> {
+    const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+
+    if (job.avatarStorageUrl?.trim()) {
+      if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: { status: AiInfluencerReelJobStatus.AVATAR_READY },
+        });
+      }
+      return;
+    }
+
+    const sessionId =
+      meta.heygenVideoAgentSessionId ??
+      parseVideoAgentSessionId(job.avatarExternalJobId) ??
+      null;
+    if (!sessionId) throw Object.assign(new Error('Chybí Video Agent session ID.'), { code: 'HEYGEN_VIDEO_AGENT_SUBMIT_FAILED' });
+
+    if (videoAgentTimedOut(meta.videoAgentSubmittedAt)) {
+      if (cfg.allowVideoAgentFallback) {
+        await this.runVideoAgentFallback(jobId, 'HeyGen Video Agent timeout.');
+        return;
+      }
+      throw Object.assign(new Error('HeyGen Video Agent timeout.'), { code: 'HEYGEN_VIDEO_AGENT_TIMEOUT' });
+    }
+
+    const poll = await this.videoAgent.pollSession(sessionId);
+    if (poll.status === 'QUEUED' || poll.status === 'PROCESSING' || poll.status === 'GENERATING') {
+      const ratio = videoAgentPollRatio(meta.videoAgentSubmittedAt);
+      await this.setProgress(jobId, AiInfluencerReelJobStatus.AVATAR_GENERATING, ratio);
+      return;
+    }
+
+    if (poll.status === 'FAILED') {
+      if (cfg.allowVideoAgentFallback) {
+        await this.runVideoAgentFallback(
+          jobId,
+          poll.errorMessage ?? 'HeyGen Video Agent processing failed.',
+        );
+        return;
+      }
+      throw Object.assign(new Error(poll.errorMessage ?? 'Video Agent processing failed.'), {
+        code: poll.errorCode ?? 'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED',
+      });
+    }
+
+    if (!poll.videoUrl) {
+      throw Object.assign(new Error('Video Agent nevrátil video URL.'), {
+        code: 'HEYGEN_VIDEO_AGENT_DOWNLOAD_FAILED',
+      });
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await this.videoAgent.downloadResult(poll.videoUrl);
+    } catch (err) {
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+        code: 'HEYGEN_VIDEO_AGENT_DOWNLOAD_FAILED',
+      });
+    }
+
+    const videoUrl = await this.cloudinary.uploadVideoBuffer(
+      buffer,
+      `ai-influencer-video-agent-${jobId}.mp4`,
+    );
+
+    const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_READY);
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.AVATAR_READY,
+        avatarStorageUrl: videoUrl,
+        baseMasterUrl: videoUrl,
+        avatarHash: poll.videoId ?? sessionId,
+        progressPercent: progress.percent,
+        currentStep: progress.step,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          heygenVideoAgentVideoId: poll.videoId ?? meta.heygenVideoAgentVideoId,
+          videoAgentMaster: true,
+        }) as object,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_READY'),
+      },
+    });
+  }
+
+  private async runVideoAgentPostProcess(jobId: string): Promise<void> {
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: { status: AiInfluencerReelJobStatus.RENDERING },
+    });
+    await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'POST_PROCESSING');
+
+    const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
+    const renderSettings = this.buildRenderSettingsForJob(job, cfg);
+    const logoPath = cfg.logoEnabled ? resolveShortsLogoPath() : null;
+    const brandingNeeded = Boolean(
+      cfg.brandingEnabled &&
+        ((logoPath && renderSettings.branding.logoEnabled) ||
+          (renderSettings.watermark.enabled && renderSettings.watermark.text.trim())),
+    );
+
+    let musicFilePath: string | null = null;
+    const musicId = renderSettings.music.trackId;
+    if (musicId && cfg.useMusic) {
+      try {
+        musicFilePath = await this.shortsMusic.resolveActiveTrackFilePath(musicId);
+      } catch {
+        this.log.warn(`Music track ${musicId} unavailable for video agent job ${jobId}`);
+      }
+    }
+
+    const tmpRoot = join(tmpdir(), `ai-inf-agent-${jobId}`);
+    const fs = await import('node:fs/promises');
+    await fs.mkdir(tmpRoot, { recursive: true });
+    const sourcePath = join(tmpRoot, 'agent-source.mp4');
+    const outPath = join(tmpRoot, 'agent-final.mp4');
+
+    try {
+      await this.render.downloadToFile(job.baseMasterUrl!, sourcePath);
+      await this.setProgressMeta(jobId, RENDER_PROGRESS.BRANDING, 'POST_PROCESSING');
+      const result = await this.render.finalizeAgentMaster({
+        sourceVideoPath: sourcePath,
+        outPath,
+        logoPath,
+        settings: renderSettings,
+        musicFilePath,
+        applyBranding: brandingNeeded,
+      });
+
+      const mp4 = await fs.readFile(result.outputPath);
+      await this.setProgressMeta(jobId, RENDER_PROGRESS.UPLOAD, 'CLOUDINARY_UPLOAD');
+      const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
+        mp4,
+        `ai-influencer-master-${jobId}.mp4`,
+      );
+      await this.render.cleanup(tmpRoot);
+
+      await this.markRenderReady(job, renderSettings, masterUrl, job.baseMasterUrl!, {
+        layoutUsed: 'VIDEO_AGENT',
+        validationWarnings: [],
+      });
+    } catch (err) {
+      await this.render.cleanup(tmpRoot);
+      throw err;
+    }
+  }
+
   private async runAvatarStart(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    if (isActiveVideoAgentJob(meta)) {
+      await this.runVideoAgentStart(jobId);
+      return;
+    }
     if (job.avatarStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
         await this.prisma.aiInfluencerReelJob.update({
@@ -976,6 +1288,11 @@ export class AiInfluencerJobService {
 
   private async runAvatarPoll(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    if (isActiveVideoAgentJob(meta) || isVideoAgentExternalJobId(job.avatarExternalJobId)) {
+      await this.runVideoAgentPoll(jobId);
+      return;
+    }
     if (job.avatarStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
         await this.prisma.aiInfluencerReelJob.update({
@@ -1299,6 +1616,12 @@ export class AiInfluencerJobService {
     this.cloudinary.assertConfigured();
 
     const job = await this.getJob(jobId);
+    const agentMeta = readJobRenderMeta(job.renderSettingsJson);
+    if (agentMeta.videoAgentMaster && job.baseMasterUrl?.trim()) {
+      await this.runVideoAgentPostProcess(jobId);
+      return;
+    }
+
     if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
       throw new Error('Chybí avatar nebo voice pro render.');
     }

@@ -175,6 +175,10 @@ export type AiInfluencerDashboard = {
     useCta?: boolean;
     mentionBrandInScript?: boolean;
     videoGoal?: 'website_traffic' | 'youtube_subscribe' | 'facebook_follow' | 'instagram_follow' | 'auto';
+    videoGenerationMode?: 'VIDEO_AGENT' | 'AVATAR';
+    allowVideoAgentFallback?: boolean;
+    videoStyle?: 'dynamic_influencer' | 'real_estate_news' | 'property_showcase' | 'educational' | 'auto';
+    avatarFrequency?: 'low' | 'medium' | 'high';
   };
   stats: {
     reelsToday: number;
@@ -210,6 +214,18 @@ export type AiInfluencerDashboard = {
     storage?: StorageProviderStatus;
     cloudinary?: StorageProviderStatus;
     shorts?: ShortsProviderStatus;
+    videoEngine?: {
+      mode: string;
+      videoGenerationMode: 'VIDEO_AGENT' | 'AVATAR';
+      allowFallback: boolean;
+      videoStyle: string;
+      avatarFrequency: string;
+      format: string;
+      heygenVideoAgent: 'READY' | 'NOT AVAILABLE';
+      heygenVideoAgentMessage?: string | null;
+      fallback: 'READY' | 'NOT READY';
+      selectedAvatarId?: string | null;
+    };
   };
 };
 
@@ -397,6 +413,24 @@ export function nestAiInfluencerTestAvatar(token: string, text?: string, avatarI
     verified: boolean;
     message: string;
   }>(token, '/test/avatar', { method: 'POST', body: JSON.stringify({ text, avatarId }) });
+}
+
+export function nestAiInfluencerTestVideoAgent(token: string) {
+  return aiInfluencerFetchWithError<{
+    ok: boolean;
+    sessionId: string;
+    videoId: string | null;
+    message: string;
+  }>(token, '/test/video-agent', { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function nestAiInfluencerTestFallback(token: string, avatarId?: string) {
+  return aiInfluencerFetchWithError<{
+    ok: boolean;
+    avatarId: string;
+    verified: boolean;
+    message: string;
+  }>(token, '/test/fallback', { method: 'POST', body: JSON.stringify({ avatarId }) });
 }
 
 export function nestAiInfluencerProfile(token: string) {

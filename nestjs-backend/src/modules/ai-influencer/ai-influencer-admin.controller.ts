@@ -25,6 +25,8 @@ import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
+import { buildHeyGenVideoAgentPrompt } from './heygen-video-agent-prompt.util';
 import { storyboardPreviewRows } from './ai-influencer-storyboard.util';
 import type { ReelScenePlan } from './ai-influencer.types';
 
@@ -38,6 +40,7 @@ export class AiInfluencerAdminController {
     private readonly openAi: OpenAiService,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly heygen: HeyGenAvatarProvider,
+    private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly did: DIdAvatarProvider,
     private readonly prisma: PrismaService,
     private readonly youtubeOAuth: YouTubeOAuthService,
@@ -356,6 +359,18 @@ export class AiInfluencerAdminController {
     return this.heygen.getHealth(profile.avatarId);
   }
 
+  @Get('health/video-agent')
+  async getVideoAgentHealth() {
+    const readiness = await this.videoAgent.getReadiness();
+    const profile = await this.registry.getDefaultProfile();
+    const avatarReady = this.heygen.isAvatarSelected(profile.avatarId);
+    return {
+      ...readiness,
+      avatarReady,
+      fallbackReady: avatarReady && this.heygen.isApiKeyConfigured(),
+    };
+  }
+
   @Get('voices/elevenlabs')
   async listElevenLabsVoices() {
     return this.elevenLabs.listVoicesWithPermission();
@@ -430,6 +445,49 @@ export class AiInfluencerAdminController {
     };
   }
 
+  @Post('test/video-agent')
+  async testVideoAgent(@Body() body: { articleId?: string; propertyId?: string }) {
+    const cfg = await this.settings.getSettings();
+    const profile = await this.registry.getDefaultProfile();
+    const readiness = await this.videoAgent.getReadiness();
+    if (!readiness.available) {
+      throw new BadRequestException(readiness.message ?? 'HeyGen Video Agent není dostupný.');
+    }
+    await this.heygen.assertReadyForGeneration(profile.avatarId);
+    const avatarId = this.heygen.resolveAvatarId(profile.avatarId);
+    const prompt =
+      body.articleId || body.propertyId
+        ? 'Test Video Agent — XXREALIT realitní influencer reel (Czech, 9:16, dynamic scenes).'
+        : buildHeyGenVideoAgentPrompt({
+            script: {
+              hook: 'Hypotéky se znovu mění. Co to znamená pro kupující?',
+              spokenText:
+                'Hypotéky se znovu mění. Pro kupující to může znamenat jinou splátku i přístup k bydlení. Sledujte detaily na XXREALIT.',
+              captionTitle: 'Test Video Agent',
+              cta: 'Více najdete na XXREALIT.CZ',
+              estimatedDuration: cfg.targetDurationSec,
+              scenes: [],
+            },
+            settings: cfg,
+            avatarId,
+            videoStyle: cfg.videoStyle,
+            avatarFrequency: cfg.avatarFrequency,
+            contentKind: 'ARTICLE',
+          });
+    const started = await this.videoAgent.startGeneration({ prompt, avatarId });
+    return {
+      ok: true,
+      sessionId: started.sessionId,
+      videoId: started.videoId,
+      message: 'Video Agent test session spuštěna (bez publikace).',
+    };
+  }
+
+  @Post('test/fallback')
+  async testFallback(@Body() body: { text?: string; avatarId?: string }) {
+    return this.testAvatar(body);
+  }
+
   @Get('profile')
   async getProfile() {
     return this.registry.getDefaultProfile();
@@ -470,11 +528,12 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, elevenReadiness, heygenReadiness, did, yt, fb, ig] = await Promise.all([
+    const [aiDiag, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
       this.openAi.getStatus(),
       this.elevenLabs.getHealth(profile.voiceId),
       this.elevenLabs.getGenerationReadiness(profile.voiceId),
       this.heygen.getGenerationReadiness(profile.avatarId),
+      this.videoAgent.getReadiness(),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
       this.publish.testFacebookConnection(),
@@ -517,6 +576,7 @@ export class AiInfluencerAdminController {
 
     const igTest = this.publish.formatInstagramTestResult(ig);
     const igPublishReady = igTest.status === 'READY';
+    const cfg = await this.settings.getSettings();
 
     return {
       ready: {
@@ -571,6 +631,24 @@ export class AiInfluencerAdminController {
         httpStatus: heygenHealth.httpStatus ?? null,
         errorCode: heygenHealth.errorCode ?? null,
         detailMessage: heygenReadiness.message ?? heygenHealth.detailMessage ?? null,
+        videoAgentStatus: videoAgentReadiness.available
+          ? 'READY'
+          : videoAgentReadiness.apiKeyPresence === 'MISSING'
+            ? 'NOT AVAILABLE'
+            : 'NOT AVAILABLE',
+        videoAgentMessage: videoAgentReadiness.message,
+      },
+      videoEngine: {
+        mode: cfg.videoGenerationMode === 'AVATAR' ? 'Jednoduchý avatar' : 'Dynamické AI video',
+        videoGenerationMode: cfg.videoGenerationMode,
+        allowFallback: cfg.allowVideoAgentFallback,
+        videoStyle: cfg.videoStyle,
+        avatarFrequency: cfg.avatarFrequency,
+        format: '1080x1920 · 9:16',
+        heygenVideoAgent: videoAgentReadiness.available ? 'READY' : 'NOT AVAILABLE',
+        heygenVideoAgentMessage: videoAgentReadiness.message,
+        fallback: heygenGenerationReady ? 'READY' : 'NOT READY',
+        selectedAvatarId: heygenHealth.avatarId,
       },
       renderer: {
         configured: true,

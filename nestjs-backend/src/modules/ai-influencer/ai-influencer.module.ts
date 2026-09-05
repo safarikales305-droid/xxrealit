@@ -21,6 +21,7 @@ import { ArticleMediaProvider } from './providers/article-media.provider';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { PropertyMediaProvider } from './providers/property-media.provider';
 
@@ -39,6 +40,7 @@ import { PropertyMediaProvider } from './providers/property-media.provider';
     AiInfluencerProviderRegistry,
     ElevenLabsVoiceProvider,
     HeyGenAvatarProvider,
+    HeyGenVideoAgentProvider,
     DIdAvatarProvider,
     OpenAiScriptProvider,
     ArticleMediaProvider,

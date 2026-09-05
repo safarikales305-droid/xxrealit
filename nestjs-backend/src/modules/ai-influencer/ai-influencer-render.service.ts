@@ -721,6 +721,95 @@ export class AiInfluencerRenderService {
     await this.runFfmpeg(ffmpegPath, args);
   }
 
+  /** Normalizuje Video Agent master na 1080×1920 a volitelně přidá branding/hudbu (audio z agent videa). */
+  async finalizeAgentMaster(input: {
+    sourceVideoPath: string;
+    outPath: string;
+    logoPath?: string | null;
+    settings: AiInfluencerRenderSettings;
+    musicFilePath?: string | null;
+    applyBranding: boolean;
+  }): Promise<{ outputPath: string; durationSec: number }> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) {
+      throw Object.assign(new Error('ffmpeg není dostupný.'), { code: 'POSTPROCESS_FAILED' });
+    }
+
+    const tmpDir = dirname(input.outPath);
+    const normalizedPath = join(tmpDir, 'agent-normalized.mp4');
+    const W = REEL_CANVAS_WIDTH;
+    const H = REEL_CANVAS_HEIGHT;
+
+    await this.runFfmpeg(ffmpeg.path, [
+      '-y',
+      '-i',
+      input.sourceVideoPath,
+      '-vf',
+      `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`,
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-movflags',
+      '+faststart',
+      normalizedPath,
+    ]);
+
+    const durationSec = Math.max(8, (await this.probeDuration(ffmpeg.path, normalizedPath)) ?? 30);
+    const settings = mergeRenderSettings(input.settings);
+
+    if (!input.applyBranding && !input.musicFilePath) {
+      const fs = await import('node:fs/promises');
+      await fs.copyFile(normalizedPath, input.outPath);
+      const postcheck = await this.validator.validateOutputFile(input.outPath, durationSec);
+      if (!postcheck.ok) {
+        const msg = postcheck.issues.map((i) => i.message).join(' ');
+        throw Object.assign(new Error(`Post-process validace selhala: ${msg}`), {
+          code: 'POSTPROCESS_FAILED',
+        });
+      }
+      return { outputPath: input.outPath, durationSec };
+    }
+
+    let videoPath = normalizedPath;
+    if (input.applyBranding) {
+      const brandedPath = join(tmpDir, 'agent-branded.mp4');
+      await this.renderBrandingOverlay({
+        baseVideoPath: normalizedPath,
+        logoPath: input.logoPath ?? null,
+        settings,
+        outPath: brandedPath,
+        duration: durationSec,
+      });
+      videoPath = brandedPath;
+    }
+
+    await this.muxAudio(ffmpeg.path, {
+      videoPath,
+      voicePath: normalizedPath,
+      musicPath: input.musicFilePath,
+      settings,
+      targetDuration: durationSec,
+      outputPath: input.outPath,
+    });
+
+    const postcheck = await this.validator.validateOutputFile(input.outPath, durationSec);
+    if (!postcheck.ok) {
+      const msg = postcheck.issues.map((i) => i.message).join(' ');
+      throw Object.assign(new Error(`Post-process validace selhala: ${msg}`), { code: 'POSTPROCESS_FAILED' });
+    }
+
+    return { outputPath: input.outPath, durationSec };
+  }
+
   private async resolveBrollImage(
     tmpRoot: string,
     scenes: ReelScenePlan[],
