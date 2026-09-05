@@ -227,10 +227,16 @@ enum ListingImportMethod {
 enum ListingImportPortal {
   reality_cz
   century21_cz
+  sreality
   apify
   xml_feed
   csv_feed
   other
+}
+
+enum ImportSourceAvailabilityStatus {
+  AVAILABLE
+  SOURCE_UNAVAILABLE
 }
 
 /// Z čeho lze u inzerátu skládat shorts (video / fotky / nic).
@@ -1365,6 +1371,10 @@ model Property {
   importExternalId String?
   importSourceUrl  String?
   importedAt       DateTime?
+  /// Originální popis ze zdroje (audit / porovnání při sync).
+  importOriginalDescription String? @db.Text
+  /// Dostupnost zdrojové nabídky (SOURCE_UNAVAILABLE = admin rozhodne).
+  importSourceStatus ImportSourceAvailabilityStatus @default(AVAILABLE)
   lastSyncedAt     DateTime?
   /// Ručně vypnutý importovaný inzerát – synchronizace ho znovu neaktivuje.
   importDisabled   Boolean @default(false)
@@ -1417,6 +1427,8 @@ model Property {
   conversations PropertyConversation[]
   brokerLeadOffers BrokerLeadOffer[]
   importedBrokerContactLinks ImportedBrokerContactListing[]
+  srealityImportDrafts SrealityImportDraft[]
+  aiInfluencerReelJobs AiInfluencerReelJob[]
   listingContactUnlocks ListingContactUnlock[]
   contactLeads          ContactLead[] @relation("ContactLeadListing")
   creditTransactions    CreditTransaction[]
@@ -8243,10 +8255,39 @@ model ArticleReelCandidate {
   @@index([reelPotentialScore])
 }
 
+model SrealityImportDraft {
+  id                    String    @id @default(cuid())
+  adminUserId           String
+  sourceUrl             String
+  sourceExternalId      String?
+  status                String    @default("preview")
+  prefillJson           Json
+  brokerJson            Json?
+  imagesJson            Json      @default("[]")
+  imageImportStats      Json?
+  aiTextJson            Json?
+  brokerMatchStatus     String    @default("NOT_FOUND")
+  matchedBrokerContactId String?
+  propertyId            String?
+  property              Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  settingsJson          Json?
+  publishedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([adminUserId])
+  @@index([sourceUrl])
+  @@index([sourceExternalId])
+  @@index([propertyId])
+  @@index([status])
+}
+
 model AiInfluencerReelJob {
   id                   String                    @id @default(cuid())
-  articleId            String
-  article              NewsArticle               @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId            String?
+  article              NewsArticle?              @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  propertyId           String?
+  property             Property?                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   candidateId          String?
   candidate            ArticleReelCandidate?       @relation(fields: [candidateId], references: [id], onDelete: SetNull)
   profileId            String
@@ -8326,6 +8367,7 @@ model AiInfluencerReelJob {
   providerGenerations  ProviderGeneration[]
   @@index([status, createdAt])
   @@index([articleId])
+  @@index([propertyId])
 }
 
 model ProviderGeneration {

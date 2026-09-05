@@ -6,6 +6,8 @@ import { MessagesModule } from '../messages/messages.module';
 import { ContactMonetizationAdminController } from './contact-monetization-admin.controller';
 import { ListingsController } from './listings.controller';
 import { ListingsPrefillService } from './listings-prefill.service';
+import { SrealityImportService } from './sreality-import.service';
+import { SrealityListingTextRewriteService } from './sreality-listing-text-rewrite.service';
 import { SrealityPlaywrightService } from './sreality-playwright.service';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
@@ -29,6 +31,8 @@ import { ListingContactUnlockModule } from './listing-contact-unlock.module';
 import { SeoModule } from '../seo/seo.module';
 import { SocialModule } from '../social/social.module';
 import { TikTokModule } from '../social/tiktok/tiktok.module';
+import { ImportedBrokerContactsModule } from '../imported-broker-contacts/imported-broker-contact.module';
+import { OpenAiModule } from '../openai/openai.module';
 
 @Module({
   imports: [
@@ -41,6 +45,8 @@ import { TikTokModule } from '../social/tiktok/tiktok.module';
     forwardRef(() => MessagesModule),
     ListingContactUnlockModule,
     SeoModule,
+    ImportedBrokerContactsModule,
+    OpenAiModule,
     EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -66,6 +72,8 @@ import { TikTokModule } from '../social/tiktok/tiktok.module';
     ListingApprovalSettingsService,
     PropertySocialPublishSummaryService,
     ListingsPrefillService,
+    SrealityImportService,
+    SrealityListingTextRewriteService,
     SrealityPlaywrightService,
     ListingShortsFromPhotosService,
     ShortsListingService,
@@ -82,6 +90,7 @@ import { TikTokModule } from '../social/tiktok/tiktok.module';
     ListingShortsFromPhotosService,
     ShortsListingService,
     ListingsPrefillService,
+    SrealityImportService,
     VideoOgThumbnailService,
     FacebookShareImageService,
   ],

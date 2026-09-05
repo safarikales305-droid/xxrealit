@@ -19,6 +19,7 @@ import { YouTubePublishService } from '../social/youtube/youtube-publish.service
 import type { YoutubePrivacyStatus } from '../social/youtube/youtube.constants';
 import type { InstagramConnectionStatus } from '../social/autopost/social-instagram.types';
 import { AI_EDITOR_SYSTEM_EMAIL } from '../news-editorial/news-system-user.service';
+import { buildAiReelListingTrackingUrl } from './ai-reel-listing-tracking.util';
 
 export type FacebookTestResult = {
   ok: boolean;
@@ -51,6 +52,35 @@ export class AiInfluencerPublishService {
     private readonly youtubeOAuth: YouTubeOAuthService,
     private readonly youtubePublish: YouTubePublishService,
   ) {}
+
+  private jobPrimaryTitle(job: {
+    captionTitle?: string | null;
+    selectedHook?: string | null;
+    article?: { title: string } | null;
+    property?: { title: string } | null;
+  }): string {
+    return (
+      job.captionTitle ??
+      job.selectedHook ??
+      job.article?.title ??
+      job.property?.title ??
+      'XXREALIT'
+    );
+  }
+
+  private jobPreviewImage(job: {
+    thumbnailUrl?: string | null;
+    article?: { ogImageUrl?: string | null } | null;
+    property?: { mainImage?: string | null; thumbnailUrl?: string | null } | null;
+  }): string | null {
+    return (
+      job.thumbnailUrl ??
+      job.article?.ogImageUrl ??
+      job.property?.mainImage ??
+      job.property?.thumbnailUrl ??
+      null
+    );
+  }
 
   async testFacebookConnection(): Promise<FacebookTestResult> {
     const result = await this.socialPublisher.testFacebookConnection();
@@ -108,23 +138,45 @@ export class AiInfluencerPublishService {
     return this.formatInstagramTestResult(status);
   }
 
+  private buildJobPublicUrl(
+    job: {
+      id: string;
+      propertyId: string | null;
+      article: { slug: string | null } | null;
+    },
+    platform: 'facebook' | 'instagram' | 'youtube' | 'shorts' | 'portal',
+  ): string {
+    const origin = getSiteOriginForOg();
+    if (job.propertyId) {
+      return buildAiReelListingTrackingUrl({
+        origin,
+        propertyId: job.propertyId,
+        jobId: job.id,
+        platform,
+      });
+    }
+    if (job.article?.slug) {
+      return `${origin}/aktuality/${job.article.slug}`;
+    }
+    return `${origin}/?tab=shorts`;
+  }
+
   private buildInstagramCaption(job: {
+    id: string;
+    propertyId: string | null;
     captionTitle: string | null;
     selectedHook: string | null;
     captionDescription: string | null;
     hashtags: string | null;
-    article: { slug: string | null; title: string };
+    article: { slug: string | null; title: string } | null;
   }): string {
-    const origin = getSiteOriginForOg();
-    const articleUrl = job.article.slug
-      ? `${origin}/aktuality/${job.article.slug}`
-      : `${origin}/?tab=shorts`;
+    const publicUrl = this.buildJobPublicUrl(job, 'instagram');
     return [
       job.captionTitle ?? job.selectedHook ?? 'Novinky z XXREALIT',
       job.captionDescription ?? '',
       '',
       'Více na XXREALIT.cz',
-      articleUrl,
+      publicUrl,
       '',
       job.hashtags ?? '#reality #bydleni #xxrealit',
     ]
@@ -237,7 +289,7 @@ export class AiInfluencerPublishService {
   async publishToFacebook(jobId: string): Promise<{ permalink?: string; postId?: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
-      include: { article: true },
+      include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
     const videoUrl = job.finalMasterUrl ?? job.videoUrl;
@@ -253,15 +305,12 @@ export class AiInfluencerPublishService {
     });
 
     try {
-      const origin = getSiteOriginForOg();
-      const articleUrl = job.article.slug
-        ? `${origin}/aktuality/${job.article.slug}`
-        : `${origin}/?tab=shorts`;
+      const publicUrl = this.buildJobPublicUrl(job, 'facebook');
       const message = [
         job.captionTitle ?? job.selectedHook ?? 'Novinky z XXREALIT',
         job.captionDescription ?? '',
         job.hashtags ?? '',
-        articleUrl,
+        publicUrl,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -312,7 +361,7 @@ export class AiInfluencerPublishService {
   ): Promise<{ videoId: string; url: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
-      include: { article: true },
+      include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
 
@@ -350,15 +399,18 @@ export class AiInfluencerPublishService {
     });
 
     try {
+      const primaryTitle = this.jobPrimaryTitle(job);
+      const categoryLabel = job.article?.category ?? job.property?.propertyType ?? 'reality';
+      const trackingUrl = this.buildJobPublicUrl(job, 'youtube');
       const title = buildYouTubeReelTitle({
         title: job.captionTitle ?? job.selectedHook,
-        segments: [{ title: job.article.title, channelTitle: 'XXREALIT' }],
-        categoryLabel: job.article.category,
+        segments: [{ title: primaryTitle, channelTitle: 'XXREALIT' }],
+        categoryLabel,
       });
       const description = [
-        job.captionDescription ?? `AI redaktorka XXREALIT — ${job.article.title}`,
+        job.captionDescription ?? `AI redaktorka XXREALIT — ${primaryTitle}`,
         '',
-        'https://www.xxrealit.cz/?tab=shorts',
+        trackingUrl,
         '',
         'XXREALIT – reality, bydlení, investice a stavebnictví',
         '',
@@ -369,8 +421,8 @@ export class AiInfluencerPublishService {
       ].join('\n');
       const tags = buildYouTubeReelTags({
         title: job.captionTitle,
-        categoryLabel: job.article.category,
-        segments: [{ title: job.article.title }],
+        categoryLabel,
+        segments: [{ title: primaryTitle }],
       });
 
       const upload = await this.youtubePublish.uploadVideo({
@@ -420,20 +472,22 @@ export class AiInfluencerPublishService {
   async publishToPortal(jobId: string): Promise<{ postId: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
-      include: { article: true },
+      include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
 
     const videoUrl = job.finalMasterUrl ?? job.videoUrl;
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
+    const primaryTitle = this.jobPrimaryTitle(job);
+    const previewImage = this.jobPreviewImage(job);
 
     if (job.postId) {
       await this.prisma.post.update({
         where: { id: job.postId },
         data: {
           videoUrl,
-          previewImage: job.thumbnailUrl ?? job.article.ogImageUrl,
-          description: job.captionDescription ?? job.spokenText ?? job.article.title,
+          previewImage,
+          description: job.captionDescription ?? job.spokenText ?? primaryTitle,
           publishedAt: new Date(),
         },
       });
@@ -450,21 +504,21 @@ export class AiInfluencerPublishService {
 
     const description =
       job.captionDescription?.trim() ||
-      `${job.captionTitle ?? job.selectedHook ?? job.article.title}\n\n${job.hashtags ?? '#xxrealit #reality'}`;
+      `${job.captionTitle ?? job.selectedHook ?? primaryTitle}\n\n${job.hashtags ?? '#xxrealit #reality'}`;
 
     const post = await this.prisma.post.create({
       data: {
         type: 'post',
-        title: (job.captionTitle ?? job.article.title).slice(0, 200),
-        price: 0,
-        city: job.article.region ?? '',
+        title: (job.captionTitle ?? primaryTitle).slice(0, 200),
+        price: job.property?.price ?? 0,
+        city: job.property?.city ?? job.article?.region ?? '',
         description,
         content: description,
         videoUrl,
-        previewImage: job.thumbnailUrl ?? job.article.ogImageUrl,
-        imageUrl: job.thumbnailUrl ?? job.article.ogImageUrl,
+        previewImage,
+        imageUrl: previewImage,
         userId: systemUser.id,
-        newsArticleId: job.article.id,
+        newsArticleId: job.article?.id ?? null,
         publishedAt: new Date(),
         media: {
           create: [{ url: videoUrl, type: 'video', order: 0 }],

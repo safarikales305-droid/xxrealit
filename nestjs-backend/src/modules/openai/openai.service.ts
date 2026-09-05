@@ -30,7 +30,8 @@ export type AiFeature =
   | 'editorial_news'
   | 'editorial_reel_hook'
   | 'ai_influencer_score'
-  | 'ai_influencer_script';
+  | 'ai_influencer_script'
+  | 'sreality_import_text_rewrite';
 
 export type OpenAiCompleteInput = {
   feature: AiFeature;
@@ -392,6 +393,7 @@ export class OpenAiService {
       editorial_reel_hook: db.seoEnabled,
       ai_influencer_score: db.seoEnabled,
       ai_influencer_script: db.seoEnabled,
+      sreality_import_text_rewrite: db.listingDescriptionEnabled,
     };
     if (!options?.adminTest && !featureEnabled[feature]) {
       if (

@@ -71,6 +71,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     children: [
       { id: 'listings-all', label: 'Všechny', href: '/admin/inzeraty', icon: '🏘' },
       { id: 'listings-pending', label: 'Schválení', href: '/admin/inzeraty?status=pending', icon: '⏳', tone: 'yellow' },
+      { id: 'listings-sreality-import', label: 'Import ze Sreality', href: '/admin/inzeraty/import-sreality', icon: '🔗', tone: 'orange' },
       { id: 'shorts-feed', label: 'Shorts feed', href: '/admin/shorts-feed', icon: '📱', tone: 'orange' },
       { id: 'accommodation', label: 'Ubytování', href: '/admin/ubytovani', icon: '🏨', tone: 'blue' },
       { id: 'accommodation-booking', label: 'Booking.com', href: '/admin/integrace/ubytovani/booking', icon: '🅱', tone: 'blue' },

@@ -26,6 +26,15 @@ export type SrealityListingPrefill = {
   sourceImageUrls: string[];
   canUseSourceImages: boolean;
   rawSourceData: Record<string, unknown> | null;
+  sourceExternalId?: string | null;
+  brokerAgentName?: string | null;
+  brokerCompanyName?: string | null;
+  brokerPhone?: string | null;
+  brokerEmail?: string | null;
+  brokerPhotoUrl?: string | null;
+  brokerLogoUrl?: string | null;
+  brokerProfileUrl?: string | null;
+  brokerSourceExternalId?: string | null;
 };
 
 export type SrealityParseDebug = {

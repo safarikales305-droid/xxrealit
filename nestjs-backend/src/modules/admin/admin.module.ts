@@ -1,11 +1,13 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminController } from './admin.controller';
+import { SrealityImportAdminController } from './sreality-import-admin.controller';
 import { AdminSeedService } from './admin-seed.service';
 import { AdminService } from './admin.service';
 import { AgentProfileModule } from '../agent-profile/agent-profile.module';
 import { ImportsModule } from '../imports/imports.module';
 import { PropertiesModule } from '../properties/properties.module';
+import { AiInfluencerModule } from '../ai-influencer/ai-influencer.module';
 import { TiparModule } from '../tipar/tipar.module';
 import { ShareModule } from '../share/share.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -21,11 +23,12 @@ import { CreditsModule } from '../credits/credits.module';
     forwardRef(() => SocialModule),
     ImportsModule,
     PropertiesModule,
+    forwardRef(() => AiInfluencerModule),
     TiparModule,
     ShareModule,
     WhatsAppModule,
   ],
-  controllers: [AdminController],
+  controllers: [AdminController, SrealityImportAdminController],
   providers: [AdminService, AdminSeedService],
 })
 export class AdminModule {}

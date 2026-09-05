@@ -37,7 +37,9 @@ export function shouldMirrorRealityImportedImageUrl(url: string): boolean {
     h === 'reality.cz' ||
     h.endsWith('.reality.cz') ||
     h.endsWith('century21.cz') ||
-    h.includes('igluu.cz')
+    h.includes('igluu.cz') ||
+    h === 'sreality.cz' ||
+    h.endsWith('.sreality.cz')
   );
 }
 

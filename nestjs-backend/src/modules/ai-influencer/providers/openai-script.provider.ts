@@ -179,6 +179,89 @@ Vrať JSON:
     };
   }
 
+  async generatePropertyScript(input: {
+    property: {
+      id: string;
+      title: string;
+      description: string;
+      offerType: string;
+      propertyType: string;
+      subType: string;
+      city: string;
+      district: string;
+      region: string;
+      area: number | null;
+      landArea: number | null;
+      floor: number | null;
+      price: number | null;
+      currency: string;
+      condition: string | null;
+      equipment: string | null;
+      imageCount: number;
+    };
+    targetDurationSec: number;
+    personalityPrompt?: string | null;
+    brandingSettings?: import('../ai-influencer.types').AiInfluencerAutomationSettings;
+  }) {
+    const brand = input.brandingSettings?.brandDisplayName ?? 'XXREALIT';
+    const p = input.property;
+    const userPrompt = `Vytvoř scénář pro vertikální Reel 9:16 (cca ${input.targetDurationSec}s) k inzerátu nemovitosti na XXREALIT.
+
+DŮLEŽITÉ:
+- Hook 1–3 s musí zaujmout (bez nepravdivého clickbaitu).
+- Dynamicky střídej AI avatara a fotografie nemovitosti (6–10 scén, změna každé 2–6 s).
+- Typy scén: AVATAR_FULL, AVATAR_LEFT, AVATAR_RIGHT, AVATAR_CIRCLE, IMAGE_FULL, BROLL_FULL, CTA.
+- mediaQuery pro fotky: "listing photo 1", "listing photo 2", "listing interior", "listing main".
+- NEČTI telefon, e-mail ani jiné kontaktní údaje.
+- CTA: "Více informací a kontakt na makléře najdete na XXREALIT.CZ."
+- Značku ${brand} zapracuj přirozeně (např. "Celou nabídku najdete na XXREALIT.CZ").
+- Používej POUZE níže uvedená fakta. Nevymýšlej ceny, plochy ani lokalitu.
+
+INZERÁT:
+Nadpis: ${p.title}
+Typ: ${p.offerType} · ${p.propertyType}${p.subType ? ` · ${p.subType}` : ''}
+Lokalita: ${[p.city, p.district, p.region].filter(Boolean).join(', ')}
+Plocha: ${p.area ?? '—'} m²${p.landArea ? `, pozemek ${p.landArea} m²` : ''}
+Patro: ${p.floor ?? '—'}
+Cena: ${p.price != null ? `${p.price} ${p.currency}` : 'neuvedena'}
+Stav: ${p.condition ?? '—'}
+Vybavení: ${p.equipment ?? '—'}
+Počet fotografií: ${p.imageCount}
+Popis: ${p.description.slice(0, 4000)}
+
+Vrať JSON stejnou strukturou jako u článkového Reelu (hookCandidates, hook, spokenText, scenes, captionTitle, captionDescription, hashtags, estimatedDuration, factualWarnings).`;
+
+    const result = await this.openAi.complete({
+      feature: 'ai_influencer_script',
+      systemPrompt:
+        input.personalityPrompt?.trim() ||
+        'Jsi moderátor realitních videí XXREALIT. Poutavě představuješ nemovitosti v krátkém vertikálním videu. Bez bulvárního přehánění.',
+      userPrompt,
+      maxOutputTokens: 1800,
+      jsonMode: true,
+      adminTest: true,
+    });
+
+    const parsed = this.parseJson<ScriptJson>(result.text);
+    const script = this.normalizeScript(parsed, input.targetDurationSec);
+    script.contentFormat = 'REALITNI_MINUTA';
+    const hookCandidates = this.normalizeHooks(parsed.hookCandidates, script.hook);
+    const selectedHook = this.pickHook(hookCandidates, script.hook);
+    script.hook = selectedHook;
+
+    const scriptHash = createHash('sha256')
+      .update(JSON.stringify({ propertyId: p.id, script, hookCandidates, selectedHook }))
+      .digest('hex');
+
+    return {
+      script,
+      hookCandidates,
+      selectedHook,
+      costCzk: result.estimatedCostCzk,
+      scriptHash,
+    };
+  }
+
   private parseJson<T>(text: string): T {
     const trimmed = text.trim();
     const start = trimmed.indexOf('{');

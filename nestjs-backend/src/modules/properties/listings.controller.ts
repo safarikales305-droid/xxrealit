@@ -18,6 +18,7 @@ import {
 import { UnlockListingContactDto } from './dto/unlock-listing-contact.dto';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { ListingsPrefillService } from './listings-prefill.service';
+import { SrealityImportService } from './sreality-import.service';
 import { PropertiesService } from './properties.service';
 
 @Controller('listings')
@@ -25,6 +26,7 @@ export class ListingsController {
   constructor(
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly listingsPrefill: ListingsPrefillService,
+    private readonly srealityImport: SrealityImportService,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -44,7 +46,7 @@ export class ListingsController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: PrefillListingFromUrlDto,
   ) {
-    return this.listingsPrefill.prefillFromUrl(dto.sourceUrl).then((r) => {
+    return this.srealityImport.prefillFromUrl(dto.sourceUrl).then((r) => {
       if (r.ok) return { ok: true as const, data: r.data };
       return { ok: false as const, error: r.error };
     });
@@ -57,7 +59,7 @@ export class ListingsController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: FetchListingSourceImagesDto,
   ) {
-    return this.listingsPrefill.fetchSourceImages(dto.urls);
+    return this.srealityImport.fetchSourceImages(dto.urls);
   }
 
   @Post(':id/unlock-contact')

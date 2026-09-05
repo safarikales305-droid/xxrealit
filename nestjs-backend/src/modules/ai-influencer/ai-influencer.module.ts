@@ -22,6 +22,7 @@ import { DIdAvatarProvider } from './providers/did-avatar.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
+import { PropertyMediaProvider } from './providers/property-media.provider';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { OpenAiScriptProvider } from './providers/openai-script.provider';
     DIdAvatarProvider,
     OpenAiScriptProvider,
     ArticleMediaProvider,
+    PropertyMediaProvider,
     ProviderGenerationService,
     AiInfluencerSubtitleService,
     AiInfluencerSceneCompositorService,

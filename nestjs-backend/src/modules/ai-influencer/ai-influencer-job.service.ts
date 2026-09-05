@@ -41,6 +41,7 @@ import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry'
 import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { ArticleMediaProvider } from './providers/article-media.provider';
+import { PropertyMediaProvider } from './providers/property-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { ProviderGenerationService } from './provider-generation.service';
@@ -51,6 +52,7 @@ import { FfmpegRenderError } from './ai-influencer-ffmpeg.util';
 type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
   include: {
     article: true;
+    property: true;
     profile: true;
     candidate: true;
   };
@@ -100,6 +102,7 @@ export class AiInfluencerJobService {
     private readonly registry: AiInfluencerProviderRegistry,
     private readonly scriptProvider: OpenAiScriptProvider,
     private readonly mediaProvider: ArticleMediaProvider,
+    private readonly propertyMediaProvider: PropertyMediaProvider,
     private readonly render: AiInfluencerRenderService,
     private readonly generationCache: ProviderGenerationService,
     private readonly cloudinary: PropertyMediaCloudinaryService,
@@ -120,10 +123,12 @@ export class AiInfluencerJobService {
     });
     return jobs.map((j) => ({
       ...j,
-      article: {
-        ...j.article,
-        title: decodeHtmlEntities(j.article.title),
-      },
+      article: j.article
+        ? {
+            ...j.article,
+            title: decodeHtmlEntities(j.article.title),
+          }
+        : null,
     }));
   }
 
@@ -149,6 +154,7 @@ export class AiInfluencerJobService {
       take: 20,
       include: {
         article: { select: { id: true, title: true } },
+        property: { select: { id: true, title: true } },
         candidate: { select: { reelPotentialScore: true } },
       },
     });
@@ -162,7 +168,7 @@ export class AiInfluencerJobService {
       skipReason: j.skipReason,
       facebookPublishStatus: j.facebookPublishStatus,
       youtubePublishStatus: j.youtubePublishStatus,
-      articleTitle: decodeHtmlEntities(j.article.title),
+      articleTitle: decodeHtmlEntities(j.article?.title ?? j.property?.title ?? 'Inzerát'),
       score: j.candidate?.reelPotentialScore ?? null,
       updatedAt: j.updatedAt,
     }));
@@ -173,6 +179,7 @@ export class AiInfluencerJobService {
       where: { id },
       include: {
         article: true,
+        property: true,
         profile: true,
         candidate: true,
       },
@@ -232,6 +239,67 @@ export class AiInfluencerJobService {
         forceOverride: options?.force === true,
         progressPercent: 5,
         currentStep: 'Příprava',
+      },
+    });
+    await this.advanceJob(job.id);
+    return this.getJob(job.id);
+  }
+
+  async createJobFromProperty(
+    propertyId: string,
+    options?: {
+      force?: boolean;
+      publishFacebook?: boolean;
+      publishInstagram?: boolean;
+      publishYoutube?: boolean;
+      publishPortal?: boolean;
+    },
+  ): Promise<AiInfluencerJobWithRelations> {
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property || !property.isActive) {
+      throw new BadRequestException('Inzerát není aktivní nebo neexistuje.');
+    }
+
+    const existing = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: {
+        propertyId,
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.READY,
+            AiInfluencerReelJobStatus.PUBLISHED,
+            AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+            AiInfluencerReelJobStatus.PUBLISHING,
+            AiInfluencerReelJobStatus.RENDERING,
+            AiInfluencerReelJobStatus.VOICE_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing && !options?.force) {
+      return this.getJob(existing.id);
+    }
+
+    const profile = await this.registry.getDefaultProfile();
+    const job = await this.prisma.aiInfluencerReelJob.create({
+      data: {
+        propertyId,
+        profileId: profile.id,
+        status: AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+        sourceType: 'REAL_ESTATE_LISTING',
+        forceOverride: options?.force === true,
+        progressPercent: 25,
+        currentStep: 'Scénář',
+        renderSettingsJson: {
+          propertyPublish: {
+            facebook: options?.publishFacebook,
+            instagram: options?.publishInstagram,
+            youtube: options?.publishYoutube,
+            portal: options?.publishPortal,
+          },
+        },
       },
     });
     await this.advanceJob(job.id);
@@ -434,6 +502,13 @@ export class AiInfluencerJobService {
 
   private async runEvaluation(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    if (!job.article) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: { status: AiInfluencerReelJobStatus.CANDIDATE },
+      });
+      return;
+    }
     await this.setProgress(jobId, AiInfluencerReelJobStatus.EVALUATING, undefined, 'EVALUATION_STARTED');
     if (job.candidateId && !job.forceOverride) {
       if (job.status !== AiInfluencerReelJobStatus.CANDIDATE) {
@@ -542,8 +617,47 @@ export class AiInfluencerJobService {
 
     const job = await this.getJob(jobId);
     const cfg = this.settings.getCached();
-    const { script, hookCandidates, selectedHook, costCzk, scriptHash } =
-      await this.scriptProvider.generateScript({
+
+    let script: ReelScriptPayload;
+    let hookCandidates: string[];
+    let selectedHook: string;
+    let costCzk: number;
+    let scriptHash: string;
+    let scenes: ReelScriptPayload['scenes'];
+
+    if (job.propertyId && job.property) {
+      const property = job.property;
+      const generated = await this.scriptProvider.generatePropertyScript({
+        property: {
+          id: property.id,
+          title: property.title,
+          description: property.description,
+          offerType: property.offerType,
+          propertyType: property.propertyType,
+          subType: property.subType,
+          city: property.city,
+          district: property.district,
+          region: property.region,
+          area: property.area,
+          landArea: property.landArea,
+          floor: property.floor,
+          price: property.price,
+          currency: property.currency,
+          condition: property.condition,
+          equipment: property.equipment,
+          imageCount: property.images.length,
+        },
+        targetDurationSec: cfg.targetDurationSec,
+        personalityPrompt: job.profile.personalityPrompt,
+        brandingSettings: cfg,
+      });
+      script = generated.script;
+      hookCandidates = generated.hookCandidates;
+      selectedHook = generated.selectedHook;
+      costCzk = generated.costCzk;
+      scriptHash = generated.scriptHash;
+    } else if (job.article) {
+      const generated = await this.scriptProvider.generateScript({
         article: {
           id: job.article.id,
           title: decodeHtmlEntities(job.article.title),
@@ -559,6 +673,14 @@ export class AiInfluencerJobService {
         personalityPrompt: job.profile.personalityPrompt,
         brandingSettings: cfg,
       });
+      script = generated.script;
+      hookCandidates = generated.hookCandidates;
+      selectedHook = generated.selectedHook;
+      costCzk = generated.costCzk;
+      scriptHash = generated.scriptHash;
+    } else {
+      throw new BadRequestException('Job nemá zdrojový článek ani inzerát.');
+    }
 
     const spokenWithBrand = ensureBrandMention(script.spokenText, cfg);
     script.spokenText = spokenWithBrand;
@@ -567,7 +689,13 @@ export class AiInfluencerJobService {
     const storyboard = validateAndNormalizeStoryboard(script, cfg.targetDurationSec);
     script.scenes = storyboard.scenes;
 
-    const scenes = await this.resolveScenes(job.article, script);
+    if (job.propertyId) {
+      scenes = await this.resolvePropertyScenes(job.propertyId, script);
+    } else if (job.article) {
+      scenes = await this.resolveScenes(job.article, script);
+    } else {
+      scenes = script.scenes;
+    }
     const nextStatus =
       cfg.approvalMode === 'FULL_AUTO'
         ? AiInfluencerReelJobStatus.VOICE_GENERATING
@@ -605,6 +733,29 @@ export class AiInfluencerJobService {
 
   private async isDuplicateTopic(job: AiInfluencerJobWithRelations): Promise<boolean> {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    if (job.propertyId) {
+      const sameProperty = await this.prisma.aiInfluencerReelJob.findFirst({
+        where: {
+          propertyId: job.propertyId,
+          id: { not: job.id },
+          createdAt: { gte: since },
+          status: {
+            in: [
+              AiInfluencerReelJobStatus.READY,
+              AiInfluencerReelJobStatus.PUBLISHED,
+              AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+              AiInfluencerReelJobStatus.PUBLISHING,
+            ],
+          },
+        },
+      });
+      if (sameProperty) return true;
+      return false;
+    }
+
+    if (!job.articleId || !job.article) return false;
+
     const sameArticle = await this.prisma.aiInfluencerReelJob.findFirst({
       where: {
         articleId: job.articleId,
@@ -641,6 +792,7 @@ export class AiInfluencerJobService {
     });
     const title = job.article.title;
     for (const other of recent) {
+      if (!other.article) continue;
       if (normalizeArticleTitle(title) === normalizeArticleTitle(other.article.title)) return true;
       if (titleSimilarity(title, other.article.title) >= 0.78) return true;
     }
@@ -902,14 +1054,21 @@ export class AiInfluencerJobService {
     const job = await this.getJob(jobId);
     if (!job.finalMasterUrl && !job.videoUrl) return;
 
+    const publishOverrides = (job.renderSettingsJson as { propertyPublish?: Record<string, boolean | undefined> } | null)
+      ?.propertyPublish;
+
     const fbAuto =
-      cfg.autoPublishFacebook && cfg.facebookPublishMode === 'AUTO_AFTER_GENERATION';
+      (publishOverrides?.facebook ?? cfg.autoPublishFacebook) &&
+      cfg.facebookPublishMode === 'AUTO_AFTER_GENERATION';
     const igAuto =
-      cfg.autoPublishInstagram && cfg.instagramPublishMode === 'AUTO_AFTER_GENERATION';
+      (publishOverrides?.instagram ?? cfg.autoPublishInstagram) &&
+      cfg.instagramPublishMode === 'AUTO_AFTER_GENERATION';
     const ytAuto =
-      cfg.autoPublishYoutube && cfg.youtubePublishMode === 'AUTO_AFTER_GENERATION';
+      (publishOverrides?.youtube ?? cfg.autoPublishYoutube) &&
+      cfg.youtubePublishMode === 'AUTO_AFTER_GENERATION';
     const portalAuto =
-      cfg.autoPublishPortal && cfg.portalPublishMode === 'AUTO_AFTER_GENERATION';
+      (publishOverrides?.portal ?? cfg.autoPublishPortal) &&
+      cfg.portalPublishMode === 'AUTO_AFTER_GENERATION';
     if (!fbAuto && !igAuto && !ytAuto && !portalAuto) return;
 
     let fbOk = job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
@@ -1331,7 +1490,7 @@ export class AiInfluencerJobService {
         renderSettingsJson: renderSettings as object,
         validationPassed: true,
         validationErrors: result.validationWarnings.length ? result.validationWarnings : undefined,
-        thumbnailUrl: job.article.ogImageUrl,
+        thumbnailUrl: job.thumbnailUrl ?? job.article?.ogImageUrl ?? job.property?.mainImage ?? job.property?.thumbnailUrl,
         renderedAt: new Date(),
         failedStage: null,
         errorCode: null,
@@ -1343,6 +1502,23 @@ export class AiInfluencerJobService {
     });
 
     await this.runAutoPublish(job.id);
+  }
+
+  private async resolvePropertyScenes(
+    propertyId: string,
+    script: ReelScriptPayload,
+  ): Promise<ReelScriptPayload['scenes']> {
+    const propertyMedia = await this.propertyMediaProvider.loadPropertyMedia(propertyId);
+    const scenes = [...script.scenes];
+    if (!propertyMedia) return scenes;
+    for (const scene of scenes) {
+      const media = await this.propertyMediaProvider.resolveSceneMedia(propertyMedia, scene);
+      if (media) {
+        scene.mediaUrl = media.url;
+        scene.generatedAsset = media.generatedAsset;
+      }
+    }
+    return scenes;
   }
 
   private async resolveScenes(
