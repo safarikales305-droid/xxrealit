@@ -118,6 +118,35 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     }
   }
 
+  /** Bezpečný health check pro admin diagnostiku. */
+  async runBrowserHealthCheck(): Promise<{ status: 'READY' | 'FAIL'; reason?: string }> {
+    try {
+      const browser = await this.getSharedBrowser();
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 },
+        locale: 'cs-CZ',
+        userAgent:
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      });
+      const page = await context.newPage();
+      await page.goto('https://www.sreality.cz/', {
+        waitUntil: 'domcontentloaded',
+        timeout: 10_000,
+      });
+      const title = (await page.title()).trim();
+      await page.close();
+      await context.close();
+      if (!title) {
+        return { status: 'FAIL', reason: 'Prázdný title testovací stránky' };
+      }
+      return { status: 'READY' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`SREALITY_BROWSER_HEALTH_FAIL err=${msg}`);
+      return { status: 'FAIL', reason: msg.slice(0, 200) };
+    }
+  }
+
   private async enrichImportOnce(url: string): Promise<SrealityPlaywrightEnrichmentResult> {
     this.logger.log(`SREALITY_BROWSER_FALLBACK_START url=${url}`);
     const browser = await this.getSharedBrowser();
@@ -144,6 +173,9 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     }
 
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
     const networkJson: unknown[] = [];
     page.on('response', (response: PlaywrightResponse) => {
       void (async () => {
@@ -165,6 +197,11 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     let galleryOpened = false;
 
     try {
+      await page
+        .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: 5_000 })
+        .catch(() => undefined);
+      await this.delay(page, 200);
+
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS });
       await this.handleSeznamConsent(page, url, context);
       await page
@@ -734,6 +771,8 @@ type PlaywrightResponse = {
 type PlaywrightPage = {
   goto: (url: string, opts: Record<string, unknown>) => Promise<{ status: () => number } | null>;
   url: () => string;
+  title: () => Promise<string>;
+  close: () => Promise<void>;
   on: (event: 'response', handler: (response: PlaywrightResponse) => void) => void;
   addInitScript: (fn: () => void) => Promise<void>;
   waitForSelector: (sel: string, opts: Record<string, unknown>) => Promise<void>;

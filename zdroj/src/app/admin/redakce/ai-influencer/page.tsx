@@ -9,6 +9,10 @@ import { EditorialCenterShell } from '@/components/admin/redakce/EditorialCenter
 import { AiInfluencerReelEditor } from '@/components/admin/redakce/AiInfluencerReelEditor';
 import { nestYoutubeOAuthConnectUrl } from '@/lib/editorial-center-client';
 import {
+  resolveAiInfluencerJobSubtitle,
+  resolveAiInfluencerJobTitle,
+} from '@/lib/ai-influencer-display.util';
+import {
   nestAiInfluencerApproveScript,
   nestAiInfluencerArticles,
   nestAiInfluencerActiveJobs,
@@ -1224,8 +1228,12 @@ export default function AiInfluencerPage() {
             <div key={job.id} className="rounded-lg border border-zinc-100 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="font-medium text-zinc-900">{job.article.title}</p>
-                  <p className="text-xs text-zinc-500">{job.selectedHook || '—'}</p>
+                  <p className="font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                  {resolveAiInfluencerJobSubtitle(job) ? (
+                    <p className="text-xs text-amber-700">{resolveAiInfluencerJobSubtitle(job)}</p>
+                  ) : (
+                    <p className="text-xs text-zinc-500">{job.selectedHook || '—'}</p>
+                  )}
                 </div>
                 <span className={`rounded-full px-2 py-0.5 text-xs ${statusTone(job.status)}`}>
                   {statusLabel(job.status)}

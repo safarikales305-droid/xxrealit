@@ -307,7 +307,9 @@ export type AiInfluencerJobRow = {
   youtubePermalink?: string | null;
   estimatedDurationSec?: number | null;
   createdAt: string;
-  article: { id: string; title: string; publishedAt: string | null; status: string };
+  captionTitle?: string | null;
+  article: { id: string; title: string; publishedAt: string | null; status: string } | null;
+  property?: { id: string; title: string } | null;
   profile: { id: string; name: string; slug: string };
 };
 

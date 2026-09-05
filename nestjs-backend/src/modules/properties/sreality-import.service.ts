@@ -13,6 +13,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import axios from 'axios';
+import sharp from 'sharp';
 import { PrismaService } from '../../database/prisma.service';
 import { ImportImageService } from '../imports/import-image.service';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
@@ -33,7 +34,9 @@ import {
 } from './sreality-broker-extract.util';
 import { isAllowedSrealityImageUrl } from './sreality-import-security.util';
 import {
+  buildSrealityImageFetchCandidates,
   dedupeSrealityImageUrls,
+  sanitizeUrlForDiagnostics,
   srealityImageFetchHeaders,
 } from './sreality-image.util';
 import { mergeBrokerParts, extractSrealityBrokerFromHtml } from './sreality-contact-extract.util';
@@ -41,6 +44,7 @@ import { computeStoredOgMediaFields } from './property-og-media.util';
 import { SeoLocationService } from '../seo/seo-location.service';
 import type {
   SrealityBrokerMatchStatus,
+  SrealityImageDownloadFailureDiag,
   SrealityImportDiagnostics,
   SrealityImportImageRow,
   SrealityImportPreview,
@@ -146,9 +150,10 @@ export class SrealityImportService {
       phone: broker.phone ? 'PASS' : 'NOT_PUBLIC',
       email: broker.email ? 'PASS' : 'NOT_PUBLIC',
       contactClick: 'NOT_REQUIRED',
-      storage: 'FAIL',
+      storage: 'NOT_REACHED',
       storageCount: 0,
       browserFallback: 'NOT_REQUIRED',
+      browser: 'NOT_TESTED',
     };
 
     const needsBrowser =
@@ -157,13 +162,19 @@ export class SrealityImportService {
       (!broker.phone && !broker.email);
 
     if (needsBrowser) {
-      diagnostics.browserFallback = 'PASS';
-      diagnostics.dynamicPage = 'PASS';
+      diagnostics.dynamicPage = 'NOT_REQUIRED';
       const enrichment = await this.playwright.enrichImportData(sourceUrl.trim());
       if (enrichment.errorCode) {
         diagnostics.dynamicPage = 'FAIL';
         diagnostics.browserFallback = 'FAIL';
+        diagnostics.browser = 'FAIL';
+        diagnostics.browserError = enrichment.errorDetail?.slice(0, 200);
       } else {
+        diagnostics.dynamicPage = 'PASS';
+        diagnostics.browserFallback = 'PASS';
+        const browserHealth = await this.playwright.runBrowserHealthCheck();
+        diagnostics.browser = browserHealth.status;
+        if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
         if (enrichment.imageUrls.length) {
           imageUrls = dedupeSrealityImageUrls([...imageUrls, ...enrichment.imageUrls]);
           diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
@@ -188,6 +199,10 @@ export class SrealityImportService {
         if (broker.email) diagnostics.email = 'PASS';
         else if (broker.agentName && !broker.email) diagnostics.email = 'NOT_PUBLIC';
       }
+    } else {
+      const browserHealth = await this.playwright.runBrowserHealthCheck();
+      diagnostics.browser = browserHealth.status;
+      if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
     }
 
     this.log.log(`SREALITY_IMAGES_FOUND count=${imageUrls.length}`);
@@ -201,10 +216,26 @@ export class SrealityImportService {
 
     diagnostics.imagesDownloadedCount = stats.downloaded;
     diagnostics.imagesFailedCount = stats.failed;
-    diagnostics.imagesDownloaded = stats.downloaded > 0 ? 'PASS' : stats.requested > 0 ? 'PARTIAL' : 'FAIL';
-    if (stats.downloaded === stats.requested && stats.requested > 0) diagnostics.imagesDownloaded = 'PASS';
-    diagnostics.storageCount = stats.downloaded;
-    diagnostics.storage = stats.downloaded > 0 ? 'PASS' : 'FAIL';
+    diagnostics.imagesDownloaded =
+      stats.downloaded === stats.requested && stats.requested > 0
+        ? 'PASS'
+        : stats.downloaded > 0
+          ? 'PARTIAL'
+          : stats.requested > 0
+            ? 'FAIL'
+            : 'NOT_REQUIRED';
+    diagnostics.storageCount = stats.uploaded ?? stats.downloaded;
+    if (stats.downloaded === 0 && stats.requested > 0) {
+      diagnostics.storage = (stats.uploadAttempted ?? 0) > 0 ? 'FAIL' : 'NOT_REACHED';
+    } else if (stats.downloaded > 0) {
+      diagnostics.storage =
+        (stats.uploaded ?? stats.downloaded) >= stats.downloaded ? 'PASS' : 'FAIL';
+    } else {
+      diagnostics.storage = 'NOT_REACHED';
+    }
+    if (stats.imageDownloadFailures?.length) {
+      diagnostics.imageDownloadFailures = stats.imageDownloadFailures;
+    }
 
     this.log.log(
       `SREALITY_IMAGES_DOWNLOADED count=${stats.downloaded} failed=${stats.failed}`,
@@ -614,6 +645,10 @@ export class SrealityImportService {
     return { matchStatus: 'NOT_FOUND', matchedId: null, matchedContact: null };
   }
 
+  async runBrowserHealthCheck() {
+    return this.playwright.runBrowserHealthCheck();
+  }
+
   private async mirrorImages(
     urls: string[],
     sourceListingUrl: string,
@@ -621,54 +656,79 @@ export class SrealityImportService {
   ): Promise<{ images: SrealityImportImageRow[]; stats: SrealityImageImportStats }> {
     const unique = dedupeSrealityImageUrls(urls).slice(0, MAX_IMAGES);
     const images: SrealityImportImageRow[] = [];
+    const imageDownloadFailures: SrealityImageDownloadFailureDiag[] = [];
     let downloaded = 0;
+    let uploadAttempted = 0;
+    let uploaded = 0;
 
     for (let i = 0; i < unique.length; i += 1) {
       const sourceUrl = unique[i]!;
       if (!isAllowedSrealityImageUrl(sourceUrl)) {
+        if (imageDownloadFailures.length < 3) {
+          imageDownloadFailures.push({
+            index: i + 1,
+            host: '—',
+            httpStatus: null,
+            contentType: null,
+            responseLength: null,
+            redirectHost: null,
+            error: 'Neplatný hostitel',
+            urlSample: sanitizeUrlForDiagnostics(sourceUrl),
+          });
+        }
         images.push({
           sourceUrl,
           storedUrl: null,
           watermarkedUrl: null,
           sortOrder: i,
-          isMain: i === 0,
+          isMain: false,
           error: 'Neplatný hostitel',
         });
         continue;
       }
 
-      const imported = await this.importImages.importExternalImageToPortal({
-        imageUrl: sourceUrl,
-        propertyId: storageKey,
-        sourcePortalKey: 'sreality',
-        index: i + 1,
-        referer: sourceListingUrl,
-      });
+      let stored: { storedUrl: string; watermarkedUrl: string | null } | null = null;
 
-      if (imported?.storedUrl) {
-        downloaded += 1;
-        images.push({
-          sourceUrl,
-          storedUrl: imported.storedUrl,
-          watermarkedUrl: imported.watermarkedUrl ?? null,
-          sortOrder: i,
-          isMain: downloaded === 1,
+      const direct = await this.downloadImageDirect(
+        sourceUrl,
+        sourceListingUrl,
+        storageKey,
+        i,
+        (diag) => {
+          if (imageDownloadFailures.length < 3) imageDownloadFailures.push(diag);
+        },
+      );
+      if (direct) {
+        stored = direct;
+      } else {
+        const imported = await this.importImages.importExternalImageToPortal({
+          imageUrl: sourceUrl,
+          propertyId: storageKey,
+          sourcePortalKey: 'sreality',
+          index: i + 1,
+          referer: sourceListingUrl,
         });
-        continue;
+        if (imported?.storedUrl) {
+          stored = {
+            storedUrl: imported.storedUrl,
+            watermarkedUrl: imported.watermarkedUrl ?? null,
+          };
+        }
       }
 
-      const fallback = await this.downloadImageDirect(sourceUrl, sourceListingUrl, storageKey, i);
-      if (fallback) {
+      if (stored?.storedUrl) {
         downloaded += 1;
+        uploadAttempted += 1;
+        uploaded += 1;
         images.push({
           sourceUrl,
-          storedUrl: fallback.storedUrl,
-          watermarkedUrl: fallback.watermarkedUrl,
+          storedUrl: stored.storedUrl,
+          watermarkedUrl: stored.watermarkedUrl,
           sortOrder: i,
           isMain: downloaded === 1,
         });
       } else {
-        this.log.warn(`mirror image failed ${sourceUrl}`);
+        this.log.warn(`mirror image failed ${sanitizeUrlForDiagnostics(sourceUrl)}`);
         images.push({
           sourceUrl,
           storedUrl: null,
@@ -690,7 +750,9 @@ export class SrealityImportService {
       requested: unique.length,
       downloaded,
       failed,
-      uploaded: downloaded,
+      uploaded,
+      uploadAttempted,
+      imageDownloadFailures: imageDownloadFailures.length ? imageDownloadFailures : undefined,
       message:
         failed > 0
           ? `Staženo ${downloaded}/${unique.length} fotografií. ${failed} fotografií se nepodařilo stáhnout.`
@@ -705,32 +767,126 @@ export class SrealityImportService {
     referer: string,
     storageKey: string,
     index: number,
+    onFailure?: (diag: SrealityImageDownloadFailureDiag) => void,
   ): Promise<{ storedUrl: string; watermarkedUrl: string | null } | null> {
-    try {
-      const res = await axios.get(sourceUrl, {
-        responseType: 'arraybuffer',
-        timeout: 15_000,
-        maxRedirects: 5,
-        maxContentLength: MAX_IMAGE_BYTES,
-        validateStatus: (s: number) => s >= 200 && s < 300,
-        headers: srealityImageFetchHeaders(referer),
-      });
-      const ct = String(res.headers['content-type'] ?? '').toLowerCase();
-      if (!ct.startsWith('image/')) return null;
-      const buf = Buffer.from(res.data);
-      if (buf.length < MIN_IMAGE_BYTES || buf.length > MAX_IMAGE_BYTES) return null;
+    const candidates = buildSrealityImageFetchCandidates(sourceUrl);
+    let lastDiag: SrealityImageDownloadFailureDiag | null = null;
 
-      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-      const uploaded = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
-        buf,
-        `${storageKey}-${index + 1}.${ext}`,
-      );
-      return {
-        storedUrl: uploaded.originalUrl,
-        watermarkedUrl: uploaded.watermarkedUrl ?? null,
-      };
-    } catch {
-      return null;
+    for (const candidate of candidates) {
+      if (!isAllowedSrealityImageUrl(candidate)) continue;
+      try {
+        const res = await axios.get(candidate, {
+          responseType: 'arraybuffer',
+          timeout: 15_000,
+          maxRedirects: 5,
+          maxContentLength: MAX_IMAGE_BYTES,
+          validateStatus: () => true,
+          headers: srealityImageFetchHeaders(referer),
+        });
+        const ct = String(res.headers['content-type'] ?? '').toLowerCase();
+        const buf = Buffer.from(res.data ?? []);
+        const redirectHost = res.request?.res?.responseUrl
+          ? (() => {
+              try {
+                return new URL(String(res.request.res.responseUrl)).hostname;
+              } catch {
+                return null;
+              }
+            })()
+          : null;
+
+        if (res.status < 200 || res.status >= 300) {
+          lastDiag = {
+            index: index + 1,
+            host: (() => {
+              try {
+                return new URL(candidate).hostname;
+              } catch {
+                return '—';
+              }
+            })(),
+            httpStatus: res.status,
+            contentType: ct || null,
+            responseLength: buf.length || null,
+            redirectHost,
+            error: `HTTP ${res.status}`,
+            urlSample: sanitizeUrlForDiagnostics(candidate),
+          };
+          continue;
+        }
+        if (!ct.startsWith('image/')) {
+          lastDiag = {
+            index: index + 1,
+            host: new URL(candidate).hostname,
+            httpStatus: res.status,
+            contentType: ct || null,
+            responseLength: buf.length || null,
+            redirectHost,
+            error: 'Neplatný content-type',
+            urlSample: sanitizeUrlForDiagnostics(candidate),
+          };
+          continue;
+        }
+        if (buf.length < MIN_IMAGE_BYTES || buf.length > MAX_IMAGE_BYTES) {
+          lastDiag = {
+            index: index + 1,
+            host: new URL(candidate).hostname,
+            httpStatus: res.status,
+            contentType: ct,
+            responseLength: buf.length,
+            redirectHost,
+            error: `Neplatná velikost (${buf.length} B)`,
+            urlSample: sanitizeUrlForDiagnostics(candidate),
+          };
+          continue;
+        }
+
+        const meta = await sharp(buf).metadata().catch(() => null);
+        if (!meta?.width || !meta?.height) {
+          lastDiag = {
+            index: index + 1,
+            host: new URL(candidate).hostname,
+            httpStatus: res.status,
+            contentType: ct,
+            responseLength: buf.length,
+            redirectHost,
+            error: 'Obrázek se nepodařilo dekódovat',
+            urlSample: sanitizeUrlForDiagnostics(candidate),
+          };
+          continue;
+        }
+
+        const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+        const uploaded = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+          buf,
+          `${storageKey}-${index + 1}.${ext}`,
+        );
+        return {
+          storedUrl: uploaded.originalUrl,
+          watermarkedUrl: uploaded.watermarkedUrl ?? null,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastDiag = {
+          index: index + 1,
+          host: (() => {
+            try {
+              return new URL(candidate).hostname;
+            } catch {
+              return '—';
+            }
+          })(),
+          httpStatus: null,
+          contentType: null,
+          responseLength: null,
+          redirectHost: null,
+          error: msg.slice(0, 160),
+          urlSample: sanitizeUrlForDiagnostics(candidate),
+        };
+      }
     }
+
+    if (lastDiag && onFailure) onFailure(lastDiag);
+    return null;
   }
 }

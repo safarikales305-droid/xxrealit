@@ -148,6 +148,7 @@ export class AiInfluencerJobService {
       take: limit,
       include: {
         article: { select: { id: true, title: true, publishedAt: true, status: true } },
+        property: { select: { id: true, title: true } },
         profile: { select: { id: true, name: true, slug: true } },
         candidate: { select: { reelPotentialScore: true } },
       },
@@ -158,6 +159,12 @@ export class AiInfluencerJobService {
         ? {
             ...j.article,
             title: decodeHtmlEntities(j.article.title),
+          }
+        : null,
+      property: j.property
+        ? {
+            ...j.property,
+            title: decodeHtmlEntities(j.property.title),
           }
         : null,
     }));

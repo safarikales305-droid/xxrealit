@@ -8,6 +8,7 @@ import { AdminSubPage } from '@/components/admin/AdminSubPage';
 import {
   nestAdminSrealityImportPreview,
   nestAdminSrealityImportPublish,
+  nestAdminSrealityBrowserTest,
   type SrealityImportPreviewResponse,
   type SrealityImportPublishPayload,
 } from '@/lib/sreality-import-admin-api';
@@ -33,6 +34,7 @@ function diagLabel(value: string | undefined): string {
   if (value === 'NOT_REQUIRED') return 'NOT REQUIRED';
   if (value === 'NOT_PUBLIC') return 'NOT PUBLIC';
   if (value === 'PARTIAL') return 'PARTIAL';
+  if (value === 'NOT_REACHED') return 'NOT REACHED';
   return value;
 }
 
@@ -54,6 +56,8 @@ export default function AdminSrealityImportPage() {
   const [pubYt, setPubYt] = useState(true);
   const [pubShorts, setPubShorts] = useState(true);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [browserTest, setBrowserTest] = useState<{ status: string; reason?: string } | null>(null);
+  const [browserTesting, setBrowserTesting] = useState(false);
 
   const applyPreviewToForm = useCallback((p: SrealityImportPreviewResponse) => {
     const pre = p.prefill as Record<string, unknown>;
@@ -198,7 +202,36 @@ export default function AdminSrealityImportPage() {
           >
             {loading ? 'Načítám…' : 'Načíst inzerát'}
           </button>
+          <button
+            type="button"
+            disabled={browserTesting || !token}
+            onClick={() => {
+              if (!token) return;
+              setBrowserTesting(true);
+              void nestAdminSrealityBrowserTest(token)
+                .then(setBrowserTest)
+                .catch((e) =>
+                  setBrowserTest({
+                    status: 'FAIL',
+                    reason: e instanceof Error ? e.message : 'Test selhal',
+                  }),
+                )
+                .finally(() => setBrowserTesting(false));
+            }}
+            className="rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+          >
+            {browserTesting ? 'Testuji browser…' : 'Otestovat browser'}
+          </button>
         </div>
+        {browserTest ? (
+          <p className="mt-3 text-sm text-zinc-700">
+            Browser:{' '}
+            <span className={browserTest.status === 'READY' ? 'text-emerald-700' : 'text-red-700'}>
+              {browserTest.status}
+            </span>
+            {browserTest.reason ? ` — ${browserTest.reason}` : null}
+          </p>
+        ) : null}
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
       </section>
 
@@ -231,18 +264,37 @@ export default function AdminSrealityImportPage() {
                   {showDiagnostics ? 'Skrýt' : 'Zobrazit'} detail importu
                 </button>
                 {showDiagnostics ? (
+                  <>
                   <dl className="mt-3 grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
                     <div><dt className="font-semibold">Source parser</dt><dd>{diagLabel(preview.diagnostics.sourceParser)}</dd></div>
                     <div><dt className="font-semibold">Dynamic page</dt><dd>{diagLabel(preview.diagnostics.dynamicPage)}</dd></div>
                     <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND</dd></div>
-                    <div><dt className="font-semibold">Images</dt><dd>{preview.diagnostics.imagesDownloadedCount} DOWNLOADED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
+                    <div><dt className="font-semibold">Images</dt><dd>{diagLabel(preview.diagnostics.imagesDownloaded)} · {preview.diagnostics.imagesDownloadedCount} DOWNLOADED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
                     <div><dt className="font-semibold">Agent</dt><dd>{diagLabel(preview.diagnostics.agent)}</dd></div>
                     <div><dt className="font-semibold">Phone</dt><dd>{diagLabel(preview.diagnostics.phone)}</dd></div>
                     <div><dt className="font-semibold">Email</dt><dd>{diagLabel(preview.diagnostics.email)}</dd></div>
                     <div><dt className="font-semibold">Contact click</dt><dd>{diagLabel(preview.diagnostics.contactClick)}</dd></div>
                     <div><dt className="font-semibold">Storage</dt><dd>{diagLabel(preview.diagnostics.storage)} · {preview.diagnostics.storageCount} UPLOADED</dd></div>
                     <div><dt className="font-semibold">Browser fallback</dt><dd>{diagLabel(preview.diagnostics.browserFallback)}</dd></div>
+                    <div><dt className="font-semibold">Browser</dt><dd>{preview.diagnostics.browser ?? 'NOT TESTED'}{preview.diagnostics.browserError ? ` — ${preview.diagnostics.browserError}` : ''}</dd></div>
                   </dl>
+                  {preview.diagnostics.imageDownloadFailures?.length ? (
+                    <div className="mt-4 space-y-3 text-xs text-zinc-700">
+                      {preview.diagnostics.imageDownloadFailures.map((f) => (
+                        <div key={f.index} className="rounded border border-red-100 bg-red-50 p-2">
+                          <p className="font-semibold">IMAGE #{f.index}</p>
+                          <p>host: {f.host}</p>
+                          <p>HTTP status: {f.httpStatus ?? '—'}</p>
+                          <p>content-type: {f.contentType ?? '—'}</p>
+                          <p>response length: {f.responseLength ?? '—'}</p>
+                          <p>redirect host: {f.redirectHost ?? '—'}</p>
+                          <p>error: {f.error}</p>
+                          <p className="truncate">url: {f.urlSample}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  </>
                 ) : null}
               </div>
             ) : null}

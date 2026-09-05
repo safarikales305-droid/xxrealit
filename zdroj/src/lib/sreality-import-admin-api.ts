@@ -68,6 +68,18 @@ export type SrealityImportPreviewResponse = {
     storage: string;
     storageCount: number;
     browserFallback: string;
+    browser?: string;
+    browserError?: string;
+    imageDownloadFailures?: Array<{
+      index: number;
+      host: string;
+      httpStatus: number | null;
+      contentType: string | null;
+      responseLength: number | null;
+      redirectHost: string | null;
+      error: string;
+      urlSample: string;
+    }>;
   };
 };
 
@@ -168,4 +180,10 @@ export function nestAdminSrealityImportUpdateDraft(
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+}
+
+export function nestAdminSrealityBrowserTest(
+  token: string,
+): Promise<{ status: 'READY' | 'FAIL'; reason?: string }> {
+  return adminFetch(token, '/admin/sreality-import/browser-test', { method: 'POST' });
 }

@@ -17,10 +17,29 @@ export type SrealityImageImportStats = {
   downloaded: number;
   failed: number;
   uploaded?: number;
+  uploadAttempted?: number;
   message: string;
+  imageDownloadFailures?: SrealityImageDownloadFailureDiag[];
 };
 
-export type SrealityImportDiagnosticStage = 'PASS' | 'FAIL' | 'NOT_REQUIRED' | 'NOT_PUBLIC' | 'PARTIAL';
+export type SrealityImportDiagnosticStage =
+  | 'PASS'
+  | 'FAIL'
+  | 'NOT_REQUIRED'
+  | 'NOT_PUBLIC'
+  | 'PARTIAL'
+  | 'NOT_REACHED';
+
+export type SrealityImageDownloadFailureDiag = {
+  index: number;
+  host: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  responseLength: number | null;
+  redirectHost: string | null;
+  error: string;
+  urlSample: string;
+};
 
 export type SrealityImportDiagnostics = {
   sourceParser: SrealityImportDiagnosticStage;
@@ -37,6 +56,9 @@ export type SrealityImportDiagnostics = {
   storage: SrealityImportDiagnosticStage;
   storageCount: number;
   browserFallback: SrealityImportDiagnosticStage;
+  browser: 'READY' | 'FAIL' | 'NOT_TESTED';
+  browserError?: string;
+  imageDownloadFailures?: SrealityImageDownloadFailureDiag[];
 };
 
 export type SrealityAiTextPayload = {

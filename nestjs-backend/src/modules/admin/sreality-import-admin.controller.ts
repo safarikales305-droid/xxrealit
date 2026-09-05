@@ -72,6 +72,11 @@ export class SrealityImportAdminController {
     return { ...result, aiReelJobId };
   }
 
+  @Post('browser-test')
+  browserTest() {
+    return this.srealityImport.runBrowserHealthCheck();
+  }
+
   @Post('refresh-diff')
   refreshDiff(
     @Body(new ValidationPipe({ whitelist: true, transform: true }))

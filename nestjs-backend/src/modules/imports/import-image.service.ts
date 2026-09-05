@@ -8,6 +8,7 @@ import { PropertyMediaCloudinaryService } from '../properties/property-media-clo
 import { ProfileImagesService } from '../upload/profile-images.service';
 import { isProfileRemoteStorageConfigured } from '../upload/profile-media-storage.service';
 import { normalizeStoredImageUrl } from './import-image-urls';
+import { srealityImageFetchHeaders } from '../properties/sreality-image.util';
 
 const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
 const MIN_DOWNLOAD_BYTES = 12 * 1024;
@@ -113,17 +114,21 @@ export class ImportImageService {
     let buffer: Buffer;
     let contentType: string | null;
     try {
+      const fetchHeaders =
+        params.sourcePortalKey === 'sreality' && params.referer
+          ? srealityImageFetchHeaders(params.referer)
+          : {
+              'User-Agent':
+                'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
+              Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+              ...(params.referer ? { Referer: params.referer } : {}),
+            };
       const res = await axios.get(originalUrl, {
         responseType: 'arraybuffer',
         timeout: FETCH_TIMEOUT_MS,
         maxRedirects: 5,
         validateStatus: (s: number) => s >= 200 && s < 300,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
-          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-          ...(params.referer ? { Referer: params.referer } : {}),
-        },
+        headers: fetchHeaders,
       });
       const cl = String(res.headers['content-length'] ?? '');
       if (cl && Number(cl) > MAX_DOWNLOAD_BYTES) {
