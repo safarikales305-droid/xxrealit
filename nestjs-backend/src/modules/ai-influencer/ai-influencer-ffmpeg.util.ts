@@ -10,6 +10,7 @@ export type FfmpegErrorClassification = {
     | 'FFMPEG_CODEC_ERROR'
     | 'BRANDING_RENDER_ERROR'
     | 'BRANDING_FAILED'
+    | 'WATERMARK_FAILED'
     | 'FFMPEG_ERROR';
   stage: 'BRANDING_RENDER' | 'COMPOSITING';
   message: string;
@@ -110,10 +111,10 @@ export function classifyFfmpegStderr(
     s.includes('error initializing a simple filtergraph')
   ) {
     return {
-      code: 'FFMPEG_FILTER_ERROR',
+      code: branding ? 'WATERMARK_FAILED' : 'FFMPEG_FILTER_ERROR',
       stage: branding ? 'BRANDING_RENDER' : 'COMPOSITING',
       message: branding
-        ? 'FFmpeg filter není dostupný při brandingu videa.'
+        ? 'FFmpeg filter není dostupný při brandingu videa (watermark/logo).'
         : 'FFmpeg filter není dostupný při kompozici videa.',
     };
   }

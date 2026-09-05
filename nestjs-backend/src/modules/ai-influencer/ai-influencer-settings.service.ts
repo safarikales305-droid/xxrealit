@@ -161,6 +161,29 @@ export class AiInfluencerSettingsService implements OnModuleInit {
         typeof o.automationPaused === 'boolean' ? o.automationPaused : d.automationPaused,
       automationPauseReason:
         typeof o.automationPauseReason === 'string' ? o.automationPauseReason : d.automationPauseReason,
+      videoFormat: 'VERTICAL_SHORT_9_16',
+      durationPreset:
+        o.durationPreset === '35_45' || o.durationPreset === '45_60' ? o.durationPreset : d.durationPreset,
+      scenePacing: o.scenePacing === 'calm' ? 'calm' : d.scenePacing,
+      useArticleImages:
+        typeof o.useArticleImages === 'boolean' ? o.useArticleImages : d.useArticleImages,
+      usePortalMedia:
+        typeof o.usePortalMedia === 'boolean' ? o.usePortalMedia : d.usePortalMedia,
+      useBroll: typeof o.useBroll === 'boolean' ? o.useBroll : d.useBroll,
+      useMusic: typeof o.useMusic === 'boolean' ? o.useMusic : d.useMusic,
+      useSubtitles: typeof o.useSubtitles === 'boolean' ? o.useSubtitles : d.useSubtitles,
+      useLogo: typeof o.useLogo === 'boolean' ? o.useLogo : d.useLogo,
+      useCta: typeof o.useCta === 'boolean' ? o.useCta : d.useCta,
+      mentionBrandInScript:
+        typeof o.mentionBrandInScript === 'boolean' ? o.mentionBrandInScript : d.mentionBrandInScript,
+      videoGoal:
+        o.videoGoal === 'website_traffic' ||
+        o.videoGoal === 'youtube_subscribe' ||
+        o.videoGoal === 'facebook_follow' ||
+        o.videoGoal === 'instagram_follow' ||
+        o.videoGoal === 'auto'
+          ? o.videoGoal
+          : d.videoGoal,
     };
   }
 }

@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DEFAULT_AVATAR_COST_PER_SEC_CZK } from '../ai-influencer.constants';
+import {
+  getHeyGenRuntimeConfig,
+  readRuntimeEnvWithAliases,
+} from '../ai-influencer-runtime-config.util';
 import type {
   AvatarGenerateInput,
   AvatarGenerateStartResult,
@@ -58,6 +62,14 @@ export type HeyGenAvatarVerifyResult = {
   message: string;
 };
 
+export type HeyGenGenerationReadiness = {
+  ready: boolean;
+  status: HeyGenConnectionStatus | 'NOT_CONFIGURED';
+  apiKeyPresence: 'CONFIGURED' | 'MISSING';
+  avatarSelected: boolean;
+  message: string | null;
+};
+
 @Injectable()
 export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   readonly providerId = 'heygen';
@@ -66,33 +78,24 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const apiKeyConfigured = this.isApiKeyConfigured();
+    const runtime = getHeyGenRuntimeConfig();
     const avatarSelected = this.isAvatarSelected();
-    this.log.log(
-      `[AI Influencer] HeyGen API key: ${apiKeyConfigured ? 'CONFIGURED' : 'MISSING'}`,
-    );
+    this.log.log(`[AI Influencer] HEYGEN_API_KEY: ${runtime.apiKeyPresence}`);
     this.log.log(
       `[AI Influencer] HeyGen avatar: ${avatarSelected ? 'SELECTED' : 'NOT SELECTED'}`,
     );
   }
 
   private get apiKey(): string | undefined {
-    return this.readEnv('HEYGEN_API_KEY');
+    return getHeyGenRuntimeConfig().apiKey;
   }
 
   private get defaultAvatarId(): string | undefined {
-    return this.readEnv('HEYGEN_AVATAR_ID');
-  }
-
-  private readEnv(name: string): string | undefined {
-    const raw = this.config.get<string>(name) ?? process.env[name];
-    if (!raw) return undefined;
-    const trimmed = raw.trim().replace(/^["']|["']$/g, '');
-    return trimmed || undefined;
+    return getHeyGenRuntimeConfig().avatarId;
   }
 
   isApiKeyConfigured(): boolean {
-    return Boolean(this.apiKey);
+    return getHeyGenRuntimeConfig().apiKeyPresence === 'CONFIGURED';
   }
 
   isAvatarSelected(profileAvatarId?: string | null): boolean {
@@ -150,12 +153,56 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
     };
   }
 
+  async getGenerationReadiness(
+    profileAvatarId?: string | null,
+  ): Promise<HeyGenGenerationReadiness> {
+    const health = await this.getHealth(profileAvatarId);
+    const ready =
+      health.apiKeyConfigured &&
+      health.status === 'CONNECTED' &&
+      health.avatarStatus === 'SELECTED';
+
+    let message: string | null = null;
+    if (!health.apiKeyConfigured) {
+      message = 'HEYGEN_API_KEY není nakonfigurován.';
+    } else if (health.status === 'INVALID_API_KEY') {
+      message = 'HeyGen API klíč je neplatný.';
+    } else if (health.avatarStatus !== 'SELECTED') {
+      message = 'HeyGen je připojen, ale není vybrán avatar.';
+    } else if (health.status !== 'CONNECTED') {
+      message = health.lastError ?? 'HeyGen API není dostupné.';
+    }
+
+    return {
+      ready,
+      status: health.apiKeyConfigured ? health.status : 'NOT_CONFIGURED',
+      apiKeyPresence: health.apiKeyConfigured ? 'CONFIGURED' : 'MISSING',
+      avatarSelected: health.avatarStatus === 'SELECTED',
+      message,
+    };
+  }
+
+  async assertReadyForGeneration(profileAvatarId?: string | null): Promise<void> {
+    const readiness = await this.getGenerationReadiness(profileAvatarId);
+    if (readiness.ready) return;
+    const code =
+      readiness.apiKeyPresence === 'MISSING'
+        ? 'HEYGEN_NOT_CONFIGURED'
+        : readiness.status === 'INVALID_API_KEY'
+          ? 'HEYGEN_AUTH_FAILED'
+          : !readiness.avatarSelected
+            ? 'HEYGEN_AVATAR_NOT_SELECTED'
+            : 'HEYGEN_NOT_READY';
+    throw Object.assign(new Error(readiness.message ?? 'HeyGen není připraven.'), { code });
+  }
+
   async testConnection(): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    const readiness = await this.getGenerationReadiness();
     const health = await this.getHealth();
     return {
-      ok: health.status === 'CONNECTED',
+      ok: readiness.ready,
       latencyMs: health.latencyMs,
-      error: health.lastError ?? undefined,
+      error: readiness.message ?? undefined,
     };
   }
 

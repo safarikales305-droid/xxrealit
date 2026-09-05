@@ -1,0 +1,91 @@
+/**
+ * Jednotné čtení ENV pro AI Influencer pipeline (status + worker).
+ * Nikdy nelogovat hodnoty — pouze CONFIGURED / MISSING.
+ */
+
+export type EnvPresence = 'CONFIGURED' | 'MISSING';
+
+export type HeyGenRuntimeConfig = {
+  apiKey: string | undefined;
+  avatarId: string | undefined;
+  apiKeyPresence: EnvPresence;
+};
+
+export type CloudinaryRuntimeConfig = {
+  configured: boolean;
+  source: 'CLOUDINARY_URL' | 'CLOUDINARY_NAME_KEY_SECRET' | 'none';
+  cloudNamePresent: boolean;
+  apiKeyPresent: boolean;
+  apiSecretPresent: boolean;
+};
+
+export function readRuntimeEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const trimmed = raw.trim().replace(/^["']|["']$/g, '');
+  return trimmed || undefined;
+}
+
+export function readRuntimeEnvWithAliases(
+  primary: string,
+  aliases: string[] = [],
+): string | undefined {
+  const direct = readRuntimeEnv(primary);
+  if (direct) return direct;
+  for (const alias of aliases) {
+    const v = readRuntimeEnv(alias);
+    if (v) return v;
+  }
+  return undefined;
+}
+
+export function getHeyGenRuntimeConfig(): HeyGenRuntimeConfig {
+  const apiKey = readRuntimeEnvWithAliases('HEYGEN_API_KEY', ['HEYGEN_KEY']);
+  const avatarId = readRuntimeEnvWithAliases('HEYGEN_AVATAR_ID', ['HEYGEN_AVATAR']);
+  return {
+    apiKey,
+    avatarId,
+    apiKeyPresence: apiKey ? 'CONFIGURED' : 'MISSING',
+  };
+}
+
+export function getCloudinaryRuntimeConfig(): CloudinaryRuntimeConfig {
+  const url = readRuntimeEnv('CLOUDINARY_URL');
+  if (url?.startsWith('cloudinary://')) {
+    return {
+      configured: true,
+      source: 'CLOUDINARY_URL',
+      cloudNamePresent: true,
+      apiKeyPresent: true,
+      apiSecretPresent: true,
+    };
+  }
+
+  const cloudName = readRuntimeEnvWithAliases('CLOUDINARY_NAME', ['CLOUDINARY_CLOUD_NAME']);
+  const apiKey = readRuntimeEnvWithAliases('CLOUDINARY_KEY', ['CLOUDINARY_API_KEY']);
+  const apiSecret = readRuntimeEnvWithAliases('CLOUDINARY_SECRET', ['CLOUDINARY_API_SECRET']);
+
+  const configured = Boolean(cloudName && apiKey && apiSecret);
+  return {
+    configured,
+    source: configured ? 'CLOUDINARY_NAME_KEY_SECRET' : 'none',
+    cloudNamePresent: Boolean(cloudName),
+    apiKeyPresent: Boolean(apiKey),
+    apiSecretPresent: Boolean(apiSecret),
+  };
+}
+
+export function cloudinaryMissingMessage(cfg: CloudinaryRuntimeConfig): string {
+  if (cfg.configured) return '';
+  if (cfg.source === 'none') {
+    const missing: string[] = [];
+    if (!cfg.cloudNamePresent) missing.push('CLOUDINARY_NAME');
+    if (!cfg.apiKeyPresent) missing.push('CLOUDINARY_KEY');
+    if (!cfg.apiSecretPresent) missing.push('CLOUDINARY_SECRET');
+    if (missing.length) {
+      return `Chybí ${missing.join(', ')} (nebo nastavte CLOUDINARY_URL).`;
+    }
+    return 'Nastavte CLOUDINARY_URL nebo CLOUDINARY_NAME + CLOUDINARY_KEY + CLOUDINARY_SECRET.';
+  }
+  return 'Cloudinary není nakonfigurován.';
+}

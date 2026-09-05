@@ -18,6 +18,7 @@ import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { YouTubePublishService } from '../social/youtube/youtube-publish.service';
 import type { YoutubePrivacyStatus } from '../social/youtube/youtube.constants';
 import type { InstagramConnectionStatus } from '../social/autopost/social-instagram.types';
+import { AI_EDITOR_SYSTEM_EMAIL } from '../news-editorial/news-system-user.service';
 
 export type FacebookTestResult = {
   ok: boolean;
@@ -416,6 +417,70 @@ export class AiInfluencerPublishService {
     }
   }
 
+  async publishToPortal(jobId: string): Promise<{ postId: string }> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      include: { article: true },
+    });
+    if (!job) throw new Error('Job nenalezen.');
+
+    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
+
+    if (job.postId) {
+      await this.prisma.post.update({
+        where: { id: job.postId },
+        data: {
+          videoUrl,
+          previewImage: job.thumbnailUrl ?? job.article.ogImageUrl,
+          description: job.captionDescription ?? job.spokenText ?? job.article.title,
+          publishedAt: new Date(),
+        },
+      });
+      return { postId: job.postId };
+    }
+
+    const systemUser = await this.prisma.user.findFirst({
+      where: { email: AI_EDITOR_SYSTEM_EMAIL },
+      select: { id: true },
+    });
+    if (!systemUser) {
+      throw new Error('Systémový uživatel AI redakce není k dispozici.');
+    }
+
+    const description =
+      job.captionDescription?.trim() ||
+      `${job.captionTitle ?? job.selectedHook ?? job.article.title}\n\n${job.hashtags ?? '#xxrealit #reality'}`;
+
+    const post = await this.prisma.post.create({
+      data: {
+        type: 'post',
+        title: (job.captionTitle ?? job.article.title).slice(0, 200),
+        price: 0,
+        city: job.article.region ?? '',
+        description,
+        content: description,
+        videoUrl,
+        previewImage: job.thumbnailUrl ?? job.article.ogImageUrl,
+        imageUrl: job.thumbnailUrl ?? job.article.ogImageUrl,
+        userId: systemUser.id,
+        newsArticleId: job.article.id,
+        publishedAt: new Date(),
+        media: {
+          create: [{ url: videoUrl, type: 'video', order: 0 }],
+        },
+      },
+    });
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: { postId: post.id, publishedAt: new Date() },
+    });
+
+    await this.syncOverallPublishStatus(jobId);
+    return { postId: post.id };
+  }
+
   async syncOverallPublishStatus(jobId: string): Promise<void> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
     if (!job) return;
@@ -426,15 +491,17 @@ export class AiInfluencerPublishService {
     const fbPublished = fb === ReelPlatformPublishStatus.PUBLISHED;
     const igPublished = ig === ReelPlatformPublishStatus.PUBLISHED;
     const ytPublished = yt === ReelPlatformPublishStatus.PUBLISHED;
+    const portalPublished = Boolean(job.postId);
 
     const publishOutcomes = [fb, ig, yt].filter(
       (s) => s !== ReelPlatformPublishStatus.SKIPPED,
     );
-    const publishedCount = [fbPublished, igPublished, ytPublished].filter(Boolean).length;
+    const publishedCount =
+      [fbPublished, igPublished, ytPublished, portalPublished].filter(Boolean).length;
     const anyPublished = publishedCount > 0;
     const allAttemptedPublished =
-      publishOutcomes.length > 0 &&
-      publishOutcomes.every((s) => s === ReelPlatformPublishStatus.PUBLISHED);
+      publishOutcomes.every((s) => s === ReelPlatformPublishStatus.PUBLISHED) &&
+      (!job.postId || portalPublished);
 
     let status = job.status;
     if (allAttemptedPublished && publishedCount >= publishOutcomes.length) {

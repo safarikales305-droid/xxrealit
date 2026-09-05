@@ -44,6 +44,7 @@ import {
   type ElevenLabsVoiceOption,
   type HeyGenAvatarOption,
   type HeyGenProviderStatus,
+  type StorageProviderStatus,
 } from '@/lib/ai-influencer-client';
 
 function statusTone(status: string) {
@@ -103,14 +104,25 @@ function elevenLabsLabel(status?: ElevenLabsProviderStatus['status']) {
   return 'NOT CONFIGURED';
 }
 
-function heyGenLabel(status?: HeyGenProviderStatus['status']) {
-  if (status === 'CONNECTED') return 'CONNECTED';
-  if (status === 'INVALID_API_KEY') return 'INVALID API KEY';
-  if (status === 'PERMISSION_REQUIRED') return 'PERMISSION REQUIRED';
-  if (status === 'RATE_LIMITED') return 'RATE LIMITED';
-  if (status === 'API_ERROR') return 'API ERROR';
-  if (status === 'CONNECTION_ERROR') return 'CONNECTION ERROR';
-  return 'NOT CONFIGURED';
+function heyGenLabel(heygen?: HeyGenProviderStatus) {
+  if (heygen?.generationReady || heygen?.connected === true) return 'READY';
+  if (heygen?.apiKeyPresence === 'MISSING' || heygen?.status === 'NOT_CONFIGURED') {
+    return 'NOT CONFIGURED';
+  }
+  if (heygen?.status === 'INVALID_API_KEY') return 'AUTH FAILED';
+  if (heygen?.status === 'PERMISSION_REQUIRED') return 'PERMISSION REQUIRED';
+  if (heygen?.status === 'RATE_LIMITED') return 'RATE LIMITED';
+  if (heygen?.status === 'API_ERROR') return 'API ERROR';
+  if (heygen?.status === 'CONNECTION_ERROR') return 'CONNECTION ERROR';
+  if (heygen?.status === 'CONNECTED' && heygen.avatarStatus !== 'SELECTED') {
+    return 'AVATAR NOT SELECTED';
+  }
+  return heygen?.lastError ?? 'NOT READY';
+}
+
+function storageLabel(storage?: StorageProviderStatus) {
+  if (storage?.configured) return 'READY';
+  return storage?.message ?? 'NOT CONFIGURED';
 }
 
 function ProviderCard({
@@ -363,16 +375,38 @@ export default function AiInfluencerPage() {
             title="HeyGen"
             lines={[
               {
-                ok: heygen?.status === 'CONNECTED',
+                ok: heygen?.generationReady === true || heygen?.connected === true,
                 text:
-                  heygen?.status === 'CONNECTED'
-                    ? 'Připojeno'
-                    : heyGenLabel(heygen?.status),
+                  heygen?.generationReady === true || heygen?.connected === true
+                    ? 'READY'
+                    : heyGenLabel(heygen),
               },
               {
                 ok: heygen?.avatarStatus === 'SELECTED',
                 text:
                   heygen?.avatarStatus === 'SELECTED' ? 'Avatar vybrán' : 'Avatar není vybrán',
+              },
+              {
+                ok: heygen?.apiKeyPresence === 'CONFIGURED',
+                text: `HEYGEN_API_KEY: ${heygen?.apiKeyPresence ?? 'MISSING'}`,
+              },
+            ]}
+          />
+          <ProviderCard
+            title="Storage"
+            lines={[
+              {
+                ok: dashboard?.providers.storage?.configured === true,
+                text: storageLabel(dashboard?.providers.storage),
+              },
+              {
+                ok: dashboard?.providers.storage?.configured === true,
+                text:
+                  dashboard?.providers.storage?.source === 'CLOUDINARY_URL'
+                    ? 'Cloudinary (CLOUDINARY_URL)'
+                    : dashboard?.providers.storage?.source === 'CLOUDINARY_NAME_KEY_SECRET'
+                      ? 'Cloudinary (NAME + KEY + SECRET)'
+                      : 'Permanentní veřejné media storage',
               },
             ]}
           />
@@ -457,6 +491,22 @@ export default function AiInfluencerPage() {
               {
                 ok: dashboard?.providers.renderer?.connected === true,
                 text: `1080×1920 · ${dashboard?.providers.renderer?.preset ?? 'modern_xxrealit'}`,
+              },
+              {
+                ok: dashboard?.providers.renderer?.connected === true,
+                text: dashboard?.providers.renderer?.connected ? 'READY' : 'NOT READY',
+              },
+            ]}
+          />
+          <ProviderCard
+            title="XXREALIT Shorts"
+            lines={[
+              {
+                ok: dashboard?.providers.shorts?.connected === true,
+                text:
+                  dashboard?.providers.shorts?.connected === true
+                    ? 'READY'
+                    : dashboard?.providers.shorts?.message ?? 'NOT CONFIGURED',
               },
             ]}
           />
@@ -801,6 +851,102 @@ export default function AiInfluencerPage() {
         {fbTestMsg ? <p className="mt-2 text-sm text-zinc-600">{fbTestMsg}</p> : null}
         {ytTestMsg ? <p className="mt-2 text-sm text-zinc-600">{ytTestMsg}</p> : null}
         {ytConnectError ? <p className="mt-2 text-sm text-red-700">{ytConnectError}</p> : null}
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-zinc-900">Video styl</h2>
+        <p className="mt-1 text-sm text-zinc-600">
+          Formát: <strong>9:16 · 1080×1920</strong> (VERTICAL_SHORT_9_16) — jediný master pro všechny platformy.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3 text-sm">
+          <label className="block">
+            Délka
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.durationPreset ?? '25_35'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  durationPreset: e.target.value as '25_35' | '35_45' | '45_60',
+                  targetDurationSec:
+                    e.target.value === '45_60' ? 50 : e.target.value === '35_45' ? 40 : 30,
+                }).then(load);
+              }}
+            >
+              <option value="25_35">25–35 s</option>
+              <option value="35_45">35–45 s</option>
+              <option value="45_60">45–60 s</option>
+            </select>
+          </label>
+          <label className="block">
+            Frekvence scén
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.scenePacing ?? 'dynamic'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  scenePacing: e.target.value as 'dynamic' | 'calm',
+                }).then(load);
+              }}
+            >
+              <option value="dynamic">Dynamická</option>
+              <option value="calm">Klidná</option>
+            </select>
+          </label>
+          <label className="block">
+            Cíl videa
+            <select
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+              value={dashboard?.settings.videoGoal ?? 'auto'}
+              onChange={(e) => {
+                if (!apiAccessToken) return;
+                void nestAiInfluencerUpdateSettings(apiAccessToken, {
+                  videoGoal: e.target.value as
+                    | 'website_traffic'
+                    | 'youtube_subscribe'
+                    | 'facebook_follow'
+                    | 'instagram_follow'
+                    | 'auto',
+                }).then(load);
+              }}
+            >
+              <option value="auto">Automaticky</option>
+              <option value="website_traffic">Návštěvnost XXREALIT.CZ</option>
+              <option value="youtube_subscribe">Odběr YouTube</option>
+              <option value="facebook_follow">Sledování Facebook</option>
+              <option value="instagram_follow">Sledování Instagram</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-4 text-sm">
+          {(
+            [
+              ['useArticleImages', 'Obrázky článku'],
+              ['usePortalMedia', 'Média XXREALIT'],
+              ['useBroll', 'B-roll'],
+              ['useMusic', 'Hudba'],
+              ['useSubtitles', 'Titulky'],
+              ['useLogo', 'Logo'],
+              ['useCta', 'CTA'],
+              ['mentionBrandInScript', 'Zmínit XXREALIT'],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={dashboard?.settings[key] !== false}
+                onChange={(e) => {
+                  if (!apiAccessToken) return;
+                  void nestAiInfluencerUpdateSettings(apiAccessToken, { [key]: e.target.checked }).then(
+                    load,
+                  );
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
       </section>
 
       <AiInfluencerReelEditor

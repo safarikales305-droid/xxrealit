@@ -43,6 +43,8 @@ export type ElevenLabsProviderStatus = {
 export type HeyGenProviderStatus = {
   configured: boolean;
   connected: boolean | null;
+  generationReady?: boolean;
+  apiKeyPresence?: 'CONFIGURED' | 'MISSING';
   status?:
     | 'NOT_CONFIGURED'
     | 'CONNECTED'
@@ -60,6 +62,22 @@ export type HeyGenProviderStatus = {
   httpStatus?: number | null;
   errorCode?: string | null;
   detailMessage?: string | null;
+};
+
+export type StorageProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  source?: 'CLOUDINARY_URL' | 'CLOUDINARY_NAME_KEY_SECRET' | 'none';
+  message?: string | null;
+  cloudNamePresent?: boolean;
+  apiKeyPresent?: boolean;
+  apiSecretPresent?: boolean;
+};
+
+export type ShortsProviderStatus = {
+  configured: boolean;
+  connected: boolean | null;
+  message?: string | null;
 };
 
 export type AiInfluencerReadyStatus = {
@@ -137,8 +155,21 @@ export type AiInfluencerDashboard = {
     autoPublishFacebook?: boolean;
     autoPublishInstagram?: boolean;
     autoPublishYoutube?: boolean;
+    autoPublishPortal?: boolean;
     youtubePrivacyStatus?: string;
     defaultMusicTrackId?: string | null;
+    videoFormat?: 'VERTICAL_SHORT_9_16';
+    durationPreset?: '25_35' | '35_45' | '45_60';
+    scenePacing?: 'dynamic' | 'calm';
+    useArticleImages?: boolean;
+    usePortalMedia?: boolean;
+    useBroll?: boolean;
+    useMusic?: boolean;
+    useSubtitles?: boolean;
+    useLogo?: boolean;
+    useCta?: boolean;
+    mentionBrandInScript?: boolean;
+    videoGoal?: 'website_traffic' | 'youtube_subscribe' | 'facebook_follow' | 'instagram_follow' | 'auto';
   };
   stats: {
     reelsToday: number;
@@ -171,7 +202,9 @@ export type AiInfluencerDashboard = {
     instagram?: InstagramProviderStatus;
     youtube?: YoutubeProviderStatus;
     renderer?: { configured: boolean; connected: boolean | null; preset?: string };
-    cloudinary?: { configured: boolean; connected: boolean | null };
+    storage?: StorageProviderStatus;
+    cloudinary?: StorageProviderStatus;
+    shorts?: ShortsProviderStatus;
   };
 };
 

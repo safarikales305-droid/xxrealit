@@ -23,6 +23,7 @@ import {
   type AiInfluencerRenderSettings,
 } from './ai-influencer-render.types';
 import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
+import { AiInfluencerSceneCompositorService } from './ai-influencer-scene-compositor.service';
 import { AiInfluencerSubtitleService } from './ai-influencer-subtitle.service';
 import { renderAiInfluencerBrandingOverlayPng } from './ai-influencer-branding-overlay.render';
 import {
@@ -52,6 +53,7 @@ export class AiInfluencerRenderService {
   constructor(
     private readonly subtitles: AiInfluencerSubtitleService,
     private readonly validator: AiInfluencerRenderValidatorService,
+    private readonly sceneCompositor: AiInfluencerSceneCompositorService,
   ) {}
 
   async render(input: AiInfluencerRenderInput): Promise<AiInfluencerRenderResult> {
@@ -86,18 +88,28 @@ export class AiInfluencerRenderService {
         (await this.resolveBrollImage(tmpRoot, input.scenes, settings));
 
       const composed = join(tmpRoot, 'composed.mp4');
-      await this.composeVideo(ffmpeg.path, {
-        avatarPath: input.avatarVideoPath,
-        layout,
-        settings,
-        targetDuration,
-        brollPath,
-        outPath: composed,
-      });
+      const useSceneTimeline =
+        Array.isArray(input.scenes) &&
+        input.scenes.length >= 2 &&
+        input.scenes.some((s) => s.duration > 0);
 
-      if (await this.detectLikelyPillarbox(ffmpeg.path, composed)) {
-        this.log.warn('Pillarbox detekován — přepínám na AVATAR_BLUR layout.');
-        layout = 'AVATAR_BLUR';
+      if (useSceneTimeline) {
+        const mediaBySceneIndex = await this.sceneCompositor.prepareSceneMedia(
+          tmpRoot,
+          input.scenes,
+        );
+        const timelinePath = await this.sceneCompositor.composeTimeline({
+          tmpRoot,
+          avatarVideoPath: input.avatarVideoPath,
+          scenes: input.scenes,
+          targetDuration,
+          settings,
+          mediaBySceneIndex,
+        });
+        const fs = await import('node:fs/promises');
+        await fs.copyFile(timelinePath, composed);
+        layout = 'AVATAR_FULLSCREEN';
+      } else {
         await this.composeVideo(ffmpeg.path, {
           avatarPath: input.avatarVideoPath,
           layout,
@@ -106,6 +118,19 @@ export class AiInfluencerRenderService {
           brollPath,
           outPath: composed,
         });
+
+        if (await this.detectLikelyPillarbox(ffmpeg.path, composed)) {
+          this.log.warn('Pillarbox detekován — přepínám na AVATAR_BLUR layout.');
+          layout = 'AVATAR_BLUR';
+          await this.composeVideo(ffmpeg.path, {
+            avatarPath: input.avatarVideoPath,
+            layout,
+            settings,
+            targetDuration,
+            brollPath,
+            outPath: composed,
+          });
+        }
       }
 
       const assPath = join(tmpRoot, 'captions.ass');

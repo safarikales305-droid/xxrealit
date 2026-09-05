@@ -10,13 +10,6 @@ import {
   type ShortsMusicOption,
 } from '@/lib/ai-influencer-client';
 
-const LAYOUTS = [
-  ['SMART_AUTO', 'Smart auto'],
-  ['AVATAR_FULLSCREEN', 'Avatar fullscreen'],
-  ['AVATAR_BLUR', 'Avatar + blur'],
-  ['AVATAR_CONTENT', 'Avatar + obsah'],
-  ['PICTURE_IN_PICTURE', 'Picture in picture'],
-] as const;
 
 type Props = {
   apiAccessToken: string | null;
@@ -101,9 +94,17 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
         </div>
 
         <div className="space-y-4 text-sm">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            <p className="font-semibold">Video formát</p>
+            <p className="mt-1">9:16 · 1080×1920 · VERTICAL_SHORT_9_16</p>
+            <p className="mt-1 text-emerald-800">
+              Jediný podporovaný master formát pro TikTok, Reels, Shorts a XXREALIT feed.
+            </p>
+          </div>
+
           <div>
             <label className="font-medium text-zinc-700" htmlFor="reel-preset">
-              Preset
+              Styl (preset)
             </label>
             <select
               id="reel-preset"
@@ -117,22 +118,10 @@ export function AiInfluencerReelEditor({ apiAccessToken, dashboardSettings, onSa
             </select>
           </div>
 
-          <div>
-            <label className="font-medium text-zinc-700" htmlFor="reel-layout">
-              Layout
-            </label>
-            <select
-              id="reel-layout"
-              value={settings.layout}
-              onChange={(e) => setSettings({ ...settings, layout: e.target.value })}
-              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
-            >
-              {LAYOUTS.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+            <p className="font-medium text-zinc-900">Layout scén</p>
+            <p className="mt-1">Automatický storyboard — střídání avatar / B-roll / obrázky článku.</p>
+            <p className="mt-1 text-zinc-500">Plné vyplnění 9:16 bez černých pruhů (cover / blur pozadí).</p>
           </div>
 
           <fieldset className="space-y-2 rounded-lg border border-zinc-200 p-3">

@@ -6,21 +6,28 @@ export type ProgressMeta = {
   stepKey: string;
 };
 
+export const RENDER_PROGRESS = {
+  DOWNLOAD: { percent: 70, step: 'Stahuji video', stepKey: 'DOWNLOAD' },
+  COMPOSITING: { percent: 80, step: 'Renderuji 1080×1920', stepKey: 'COMPOSITING' },
+  BRANDING: { percent: 88, step: 'Přidávám titulky a XXREALIT branding', stepKey: 'BRANDING' },
+  UPLOAD: { percent: 92, step: 'Nahrávám výsledné video', stepKey: 'UPLOAD' },
+} as const;
+
 const BASE: Record<string, ProgressMeta> = {
-  PREP: { percent: 5, step: 'Příprava', stepKey: 'PREP' },
-  EVALUATING: { percent: 10, step: 'Vyhodnocení článku', stepKey: 'EVALUATING' },
-  CANDIDATE: { percent: 15, step: 'Kandidát vybrán', stepKey: 'CANDIDATE' },
-  SCRIPT_GENERATING: { percent: 20, step: 'Generování scénáře', stepKey: 'SCRIPT' },
-  SCRIPT_READY: { percent: 25, step: 'Scénář připraven', stepKey: 'SCRIPT_READY' },
-  VOICE_GENERATING: { percent: 30, step: 'Generování hlasu', stepKey: 'VOICE' },
-  VOICE_READY: { percent: 40, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
-  AVATAR_GENERATING: { percent: 50, step: 'Odeslání do HeyGen', stepKey: 'HEYGEN_START' },
-  AVATAR_READY: { percent: 75, step: 'HeyGen video hotové', stepKey: 'HEYGEN_DONE' },
-  RENDERING: { percent: 80, step: 'Skládání výsledného videa', stepKey: 'COMPOSITING' },
-  VALIDATING: { percent: 95, step: 'Kontrola kvality', stepKey: 'VALIDATING' },
-  UPLOADING: { percent: 97, step: 'Nahrávání master videa', stepKey: 'UPLOADING' },
+  PREP: { percent: 5, step: 'Připravuji článek', stepKey: 'PREP' },
+  EVALUATING: { percent: 5, step: 'Připravuji článek', stepKey: 'EVALUATING' },
+  CANDIDATE: { percent: 10, step: 'Vyhodnocení článku', stepKey: 'CANDIDATE' },
+  SCRIPT_GENERATING: { percent: 15, step: 'Generuji scénář', stepKey: 'SCRIPT' },
+  SCRIPT_READY: { percent: 15, step: 'Scénář připraven', stepKey: 'SCRIPT_READY' },
+  VOICE_GENERATING: { percent: 25, step: 'Generuji hlas', stepKey: 'VOICE' },
+  VOICE_READY: { percent: 25, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
+  AVATAR_GENERATING: { percent: 40, step: 'Vytvářím AI avatara', stepKey: 'HEYGEN_START' },
+  AVATAR_READY: { percent: 55, step: 'HeyGen video hotové', stepKey: 'HEYGEN_DONE' },
+  RENDERING: { percent: 80, step: 'Renderuji 1080×1920', stepKey: 'COMPOSITING' },
+  VALIDATING: { percent: 93, step: 'Kontrola kvality', stepKey: 'VALIDATING' },
+  UPLOADING: { percent: 92, step: 'Nahrávám výsledné video', stepKey: 'UPLOADING' },
   READY: { percent: 100, step: 'Hotovo', stepKey: 'READY' },
-  PUBLISHING: { percent: 100, step: 'Publikování', stepKey: 'PUBLISHING' },
+  PUBLISHING: { percent: 95, step: 'Publikuji', stepKey: 'PUBLISHING' },
   PUBLISHED: { percent: 100, step: 'Publikováno', stepKey: 'PUBLISHED' },
   PARTIALLY_PUBLISHED: { percent: 100, step: 'Částečně publikováno', stepKey: 'PARTIAL' },
   SKIPPED_QUALITY: { percent: 100, step: 'Nevybráno — nízké score', stepKey: 'SKIPPED_QUALITY' },
@@ -34,10 +41,10 @@ export function progressForStatus(
 ): ProgressMeta {
   if (status === AiInfluencerReelJobStatus.AVATAR_GENERATING && avatarPollRatio != null) {
     const ratio = Math.min(1, Math.max(0, avatarPollRatio));
-    const percent = Math.round(50 + ratio * 25);
+    const percent = Math.round(40 + ratio * 15);
     return {
       percent,
-      step: 'HeyGen vytváří avatara',
+      step: 'HeyGen zpracovává video',
       stepKey: 'HEYGEN_PROCESSING',
     };
   }

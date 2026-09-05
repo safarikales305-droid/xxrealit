@@ -17,14 +17,17 @@ import { tmpdir } from 'node:os';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
-import { mergeRenderSettings, REEL_CANVAS_HEIGHT, REEL_CANVAS_WIDTH } from './ai-influencer-render.types';
+import { mergeRenderSettings, REEL_CANVAS_HEIGHT, REEL_CANVAS_WIDTH, type AiInfluencerRenderSettings } from './ai-influencer-render.types';
 import { appendTimelineEvent } from './ai-influencer-timeline.util';
 import {
   isAuthError,
   isTransientError,
   progressForStatus,
+  RENDER_PROGRESS,
   retryDelayMs,
+  type ProgressMeta,
 } from './ai-influencer-progress.util';
+import { resumeJobStatus } from './ai-influencer-retry.util';
 import {
   applyBrandTtsSubstitution,
   decodeHtmlEntities,
@@ -39,8 +42,10 @@ import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { ArticleMediaProvider } from './providers/article-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
+import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
+import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
 import { FfmpegRenderError } from './ai-influencer-ffmpeg.util';
 
 type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
@@ -53,7 +58,8 @@ type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
 
 function errorCode(err: unknown): string | null {
   if (err instanceof FfmpegRenderError) {
-    if (err.stage === 'BRANDING_RENDER') return 'BRANDING_FAILED';
+    if (err.code === 'WATERMARK_FAILED') return 'WATERMARK_FAILED';
+    if (err.stage === 'BRANDING_RENDER') return err.code === 'BRANDING_RENDER_ERROR' ? 'BRANDING_FAILED' : err.code;
     return err.code;
   }
   if (err && typeof err === 'object' && 'code' in err) {
@@ -69,6 +75,9 @@ function failedStageLabel(
 ): string {
   if (err instanceof FfmpegRenderError) {
     return err.stage === 'BRANDING_RENDER' ? 'BRANDING_RENDER' : 'RENDER';
+  }
+  if (stage === AiInfluencerReelJobStatus.VOICE_READY) {
+    if (/heygen|avatar|HEYGEN/i.test(message)) return 'AVATAR';
   }
   if (stage === AiInfluencerReelJobStatus.VOICE_GENERATING) return 'VOICE';
   if (stage === AiInfluencerReelJobStatus.AVATAR_GENERATING) return 'AVATAR';
@@ -96,6 +105,7 @@ export class AiInfluencerJobService {
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly shortsMusic: ShortsMusicService,
     private readonly publish: AiInfluencerPublishService,
+    private readonly heygen: HeyGenAvatarProvider,
   ) {}
 
   async listJobs(limit = 50) {
@@ -281,7 +291,12 @@ export class AiInfluencerJobService {
     if (job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY) {
       return this.forceStartJob(jobId);
     }
-    const resumeStatus = this.resumeStatus(job.status, job.failedStage, job);
+    const resumeStatus = resumeJobStatus(job.status, job.failedStage, {
+      spokenText: job.spokenText,
+      voiceStorageUrl: job.voiceStorageUrl,
+      avatarStorageUrl: job.avatarStorageUrl,
+      avatarExternalJobId: job.avatarExternalJobId,
+    });
     const progress = progressForStatus(resumeStatus);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -373,34 +388,25 @@ export class AiInfluencerJobService {
     }
   }
 
-  private resumeStatus(
-    status: AiInfluencerReelJobStatus,
-    failedStage: string | null,
-    job: AiInfluencerJobWithRelations,
-  ): AiInfluencerReelJobStatus {
-    if (failedStage === 'VOICE') return AiInfluencerReelJobStatus.VOICE_GENERATING;
-    if (failedStage === 'AVATAR') {
-      return job.avatarExternalJobId
-        ? AiInfluencerReelJobStatus.AVATAR_GENERATING
-        : AiInfluencerReelJobStatus.VOICE_READY;
-    }
-    if (failedStage === 'RENDER') return AiInfluencerReelJobStatus.AVATAR_READY;
-    if (failedStage === 'BRANDING_RENDER') {
-      return AiInfluencerReelJobStatus.AVATAR_READY;
-    }
-    if (failedStage === 'SCRIPT') {
-      return job.spokenText ? AiInfluencerReelJobStatus.SCRIPT_READY : AiInfluencerReelJobStatus.CANDIDATE;
-    }
-    if (failedStage === 'PUBLISH') return AiInfluencerReelJobStatus.READY;
-    if (status === AiInfluencerReelJobStatus.FAILED && job.spokenText && job.voiceStorageUrl) {
-      if (job.avatarStorageUrl) return AiInfluencerReelJobStatus.AVATAR_READY;
-      if (job.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
-      return AiInfluencerReelJobStatus.VOICE_READY;
-    }
-    if (status === AiInfluencerReelJobStatus.FAILED && job.spokenText) {
-      return AiInfluencerReelJobStatus.SCRIPT_READY;
-    }
-    return AiInfluencerReelJobStatus.CANDIDATE;
+  private async setProgressMeta(
+    jobId: string,
+    meta: ProgressMeta,
+    timelineLabel?: string,
+  ): Promise<void> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      select: { timelineEvents: true },
+    });
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: meta.percent,
+        currentStep: meta.step,
+        timelineEvents: timelineLabel
+          ? appendTimelineEvent(job?.timelineEvents, timelineLabel, meta.step)
+          : undefined,
+      },
+    });
   }
 
   private async setProgress(
@@ -557,6 +563,9 @@ export class AiInfluencerJobService {
     const spokenWithBrand = ensureBrandMention(script.spokenText, cfg);
     script.spokenText = spokenWithBrand;
     const spokenTextTts = applyBrandTtsSubstitution(spokenWithBrand, cfg);
+
+    const storyboard = validateAndNormalizeStoryboard(script, cfg.targetDurationSec);
+    script.scenes = storyboard.scenes;
 
     const scenes = await this.resolveScenes(job.article, script);
     const nextStatus =
@@ -736,13 +745,19 @@ export class AiInfluencerJobService {
 
     if (!job.voiceStorageUrl) throw new Error('Chybí voice URL pro avatar.');
 
+    if (job.profile.avatarProvider === 'HEYGEN') {
+      await this.heygen.assertReadyForGeneration(job.profile.avatarId);
+    } else {
+      const avatarProvider = this.registry.getAvatarProvider(job.profile.avatarProvider);
+      if (!avatarProvider.isConfigured()) {
+        throw new Error('Avatar provider není nakonfigurován.');
+      }
+      if (!avatarProvider.isAvatarSelected(job.profile.avatarId)) {
+        throw new Error('Avatar provider nemá vybraný avatar.');
+      }
+    }
+
     const avatarProvider = this.registry.getAvatarProvider(job.profile.avatarProvider);
-    if (!avatarProvider.isConfigured()) {
-      throw new Error('HEYGEN_API_KEY není nakonfigurován.');
-    }
-    if (!avatarProvider.isAvatarSelected(job.profile.avatarId)) {
-      throw new Error('HeyGen je připojen, ale není vybrán avatar.');
-    }
 
     const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);
     const contentKey = `${avatarId}:${job.voiceStorageUrl}`;
@@ -861,6 +876,10 @@ export class AiInfluencerJobService {
     return this.publish.publishToInstagram(jobId);
   }
 
+  async publishToPortal(jobId: string) {
+    return this.publish.publishToPortal(jobId);
+  }
+
   async regenerateRender(jobId: string): Promise<AiInfluencerJobWithRelations> {
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -889,11 +908,14 @@ export class AiInfluencerJobService {
       cfg.autoPublishInstagram && cfg.instagramPublishMode === 'AUTO_AFTER_GENERATION';
     const ytAuto =
       cfg.autoPublishYoutube && cfg.youtubePublishMode === 'AUTO_AFTER_GENERATION';
-    if (!fbAuto && !igAuto && !ytAuto) return;
+    const portalAuto =
+      cfg.autoPublishPortal && cfg.portalPublishMode === 'AUTO_AFTER_GENERATION';
+    if (!fbAuto && !igAuto && !ytAuto && !portalAuto) return;
 
     let fbOk = job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
     let igOk = job.instagramPublishStatus === ReelPlatformPublishStatus.PUBLISHED;
     let ytOk = job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
+    let portalOk = Boolean(job.postId);
 
     if (fbAuto && !fbOk) {
       try {
@@ -917,6 +939,14 @@ export class AiInfluencerJobService {
         ytOk = true;
       } catch (err) {
         this.log.warn(`Auto YouTube publish failed for ${jobId}: ${err}`);
+      }
+    }
+    if (portalAuto && !portalOk) {
+      try {
+        await this.publish.publishToPortal(jobId);
+        portalOk = true;
+      } catch (err) {
+        this.log.warn(`Auto XXREALIT Shorts publish failed for ${jobId}: ${err}`);
       }
     }
 
@@ -1030,8 +1060,22 @@ export class AiInfluencerJobService {
         (profile.renderSettingsJson as object) ??
         undefined,
     );
-    renderSettings.music.trackId = job.musicTrackId ?? cfg.defaultMusicTrackId ?? null;
-    if (cfg.brandingEnabled) {
+    renderSettings.music.trackId =
+      cfg.useMusic === false ? null : job.musicTrackId ?? cfg.defaultMusicTrackId ?? null;
+    if (!cfg.useMusic) {
+      renderSettings.music.musicVolume = 0;
+    } else {
+      renderSettings.music.musicVolume = Math.min(renderSettings.music.musicVolume, 0.1);
+      renderSettings.music.ducking = true;
+    }
+    renderSettings.subtitles.enabled = cfg.useSubtitles !== false;
+    renderSettings.layout = 'SMART_AUTO';
+    renderSettings.preset =
+      (profile.renderPreset as AiInfluencerRenderSettings['preset']) ?? 'modern_xxrealit';
+    if (!cfg.useLogo) {
+      renderSettings.branding.logoEnabled = false;
+    }
+    if (cfg.brandingEnabled && cfg.useLogo) {
       renderSettings.branding.logoEnabled = cfg.logoEnabled;
       renderSettings.branding.logoOpacity = cfg.logoOpacity;
       const logoSize = Math.round((REEL_CANVAS_WIDTH * cfg.logoScalePercent) / 100);
@@ -1076,6 +1120,8 @@ export class AiInfluencerJobService {
     });
     await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'COMPOSITOR_STARTED');
 
+    this.cloudinary.assertConfigured();
+
     const job = await this.getJob(jobId);
     if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
       throw new Error('Chybí avatar nebo voice pro render.');
@@ -1097,7 +1143,7 @@ export class AiInfluencerJobService {
     }
 
     if (job.baseMasterUrl?.trim() && cfg.brandingEnabled) {
-      await this.setProgress(jobId, AiInfluencerReelJobStatus.RENDERING, undefined, 'BRANDING_RENDER');
+      await this.setProgressMeta(jobId, RENDER_PROGRESS.BRANDING, 'BRANDING_RENDER');
       try {
         const brandingResult = await this.render.applyBrandingFromUrl({
           baseVideoUrl: job.baseMasterUrl,
@@ -1113,6 +1159,7 @@ export class AiInfluencerJobService {
         const mp4 = await import('node:fs/promises').then((fs) =>
           fs.readFile(brandingResult.outputPath),
         );
+        await this.setProgressMeta(jobId, RENDER_PROGRESS.UPLOAD, 'CLOUDINARY_UPLOAD');
         const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
           mp4,
           `ai-influencer-master-${jobId}.mp4`,
@@ -1135,8 +1182,10 @@ export class AiInfluencerJobService {
     const tmpRoot = join(tmpdir(), `ai-inf-render-${jobId}`);
     const avatarPath = join(tmpRoot, 'avatar.mp4');
     const voicePath = join(tmpRoot, 'voice.mp3');
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.DOWNLOAD, 'DOWNLOAD_SOURCES');
     await this.render.downloadToFile(job.avatarStorageUrl, avatarPath);
     await this.render.downloadToFile(job.voiceStorageUrl, voicePath);
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.COMPOSITING, 'COMPOSITING');
 
     let result;
     const brandingNeeded =
@@ -1170,6 +1219,7 @@ export class AiInfluencerJobService {
 
         let outputPath: string;
         try {
+          await this.setProgressMeta(jobId, RENDER_PROGRESS.BRANDING, 'BRANDING_RENDER');
           outputPath = await this.render.finalizeBranding({
             baseVideoPath: result.baseVideoPath,
             voiceAudioPath: voicePath,
@@ -1236,6 +1286,7 @@ export class AiInfluencerJobService {
     }
 
     const mp4 = await fs.readFile(result.outputPath);
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.UPLOAD, 'CLOUDINARY_UPLOAD');
     const masterUrl = await this.cloudinary.uploadMasterReelBuffer(
       mp4,
       `ai-influencer-master-${jobId}.mp4`,
@@ -1295,25 +1346,33 @@ export class AiInfluencerJobService {
   }
 
   private async resolveScenes(
-    article: { ogImageUrl: string | null },
+    article: {
+      id: string;
+      title: string;
+      perex: string | null;
+      bodyMarkdown: string | null;
+      category: string;
+      region: string | null;
+      publishedAt: Date | null;
+      ogImageUrl: string | null;
+      factClaimsJson: unknown;
+    },
     script: ReelScriptPayload,
   ): Promise<ReelScriptPayload['scenes']> {
     const scenes = [...script.scenes];
+    const articleForMedia = {
+      id: article.id,
+      title: article.title,
+      perex: article.perex ?? '',
+      bodyMarkdown: article.bodyMarkdown ?? '',
+      category: article.category,
+      region: article.region,
+      publishedAt: article.publishedAt,
+      ogImageUrl: article.ogImageUrl,
+      factClaimsJson: article.factClaimsJson,
+    };
     for (const scene of scenes) {
-      const media = await this.mediaProvider.resolveSceneMedia(
-        {
-          id: '',
-          title: '',
-          perex: '',
-          bodyMarkdown: '',
-          category: '',
-          region: null,
-          publishedAt: null,
-          ogImageUrl: article.ogImageUrl,
-          factClaimsJson: null,
-        },
-        scene,
-      );
+      const media = await this.mediaProvider.resolveSceneMedia(articleForMedia, scene);
       if (media) {
         scene.mediaUrl = media.url;
         scene.generatedAsset = media.generatedAsset;

@@ -1,7 +1,15 @@
 import { v2 as cloudinary } from 'cloudinary';
+import {
+  getCloudinaryRuntimeConfig,
+  readRuntimeEnvWithAliases,
+} from '../ai-influencer/ai-influencer-runtime-config.util';
+
+export function isCloudinaryConfigured(): boolean {
+  return getCloudinaryRuntimeConfig().configured;
+}
 
 export function initCloudinary() {
-  const raw = process.env.CLOUDINARY_URL?.trim();
+  const raw = readRuntimeEnvWithAliases('CLOUDINARY_URL')?.trim();
 
   if (raw?.startsWith('cloudinary://')) {
     const rest = raw.slice('cloudinary://'.length);
@@ -27,11 +35,11 @@ export function initCloudinary() {
   }
 
   const cloudName =
-    process.env.CLOUDINARY_NAME ?? process.env.CLOUDINARY_CLOUD_NAME ?? '';
+    readRuntimeEnvWithAliases('CLOUDINARY_NAME', ['CLOUDINARY_CLOUD_NAME']) ?? '';
   const apiKey =
-    process.env.CLOUDINARY_KEY ?? process.env.CLOUDINARY_API_KEY ?? '';
+    readRuntimeEnvWithAliases('CLOUDINARY_KEY', ['CLOUDINARY_API_KEY']) ?? '';
   const apiSecret =
-    process.env.CLOUDINARY_SECRET ?? process.env.CLOUDINARY_API_SECRET ?? '';
+    readRuntimeEnvWithAliases('CLOUDINARY_SECRET', ['CLOUDINARY_API_SECRET']) ?? '';
   if (!cloudName || !apiKey || !apiSecret) {
     throw new Error(
       'Nastavte CLOUDINARY_URL nebo CLOUDINARY_NAME + CLOUDINARY_KEY + CLOUDINARY_SECRET.',

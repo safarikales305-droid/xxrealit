@@ -9,6 +9,7 @@ import { AiInfluencerAdminController } from './ai-influencer-admin.controller';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
+import { AiInfluencerSceneCompositorService } from './ai-influencer-scene-compositor.service';
 import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerRenderValidatorService } from './ai-influencer-render-validator.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
@@ -42,6 +43,7 @@ import { OpenAiScriptProvider } from './providers/openai-script.provider';
     ArticleMediaProvider,
     ProviderGenerationService,
     AiInfluencerSubtitleService,
+    AiInfluencerSceneCompositorService,
     AiInfluencerRenderValidatorService,
     AiInfluencerRenderService,
     AiInfluencerPublishService,

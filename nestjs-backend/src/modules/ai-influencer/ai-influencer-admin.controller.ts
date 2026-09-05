@@ -25,6 +25,8 @@ import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { storyboardPreviewRows } from './ai-influencer-storyboard.util';
+import type { ReelScenePlan } from './ai-influencer.types';
 
 @Controller('admin/ai-influencer')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -209,6 +211,24 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/publish/instagram')
   publishInstagram(@Param('id') id: string) {
     return this.jobs.publishToInstagram(id);
+  }
+
+  @Post('jobs/:id/publish/portal')
+  publishPortal(@Param('id') id: string) {
+    return this.jobs.publishToPortal(id);
+  }
+
+  @Get('jobs/:id/storyboard')
+  async jobStoryboard(@Param('id') id: string) {
+    const job = await this.jobs.getJob(id);
+    const scenes = (job.scenesJson as ReelScenePlan[] | null) ?? [];
+    return {
+      hook: job.selectedHook ?? job.captionTitle,
+      cta: job.captionDescription,
+      scenes: storyboardPreviewRows(scenes),
+      videoFormat: 'VERTICAL_SHORT_9_16',
+      output: { width: 1080, height: 1920, aspectRatio: '9:16' },
+    };
   }
 
   @Get('instagram/status')
@@ -396,22 +416,10 @@ export class AiInfluencerAdminController {
   @Post('test/avatar')
   async testAvatar(@Body() body: { text?: string; avatarId?: string }) {
     const profile = await this.registry.getDefaultProfile();
-    const health = await this.heygen.getHealth(profile.avatarId);
+    const health = await this.heygen.getGenerationReadiness(profile.avatarId);
 
-    if (!health.apiKeyConfigured) {
-      throw new BadRequestException('HEYGEN_API_KEY není nakonfigurován.');
-    }
-    if (health.status === 'INVALID_API_KEY') {
-      throw new BadRequestException('HeyGen API key je neplatný.');
-    }
-    if (health.status === 'PERMISSION_REQUIRED') {
-      throw new BadRequestException('HeyGen API key nemá potřebná oprávnění.');
-    }
-    if (health.status === 'RATE_LIMITED') {
-      throw new BadRequestException('HeyGen rate limit — zkuste později.');
-    }
-    if (health.status !== 'CONNECTED') {
-      throw new BadRequestException(health.lastError || 'HeyGen API není dostupné.');
+    if (!health.ready) {
+      throw new BadRequestException(health.message ?? 'HeyGen není připraven.');
     }
 
     const avatarId =
@@ -475,35 +483,42 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, heygenHealth, did, yt, fb, ig] = await Promise.all([
+    const [aiDiag, elevenHealth, heygenReadiness, did, yt, fb, ig] = await Promise.all([
       this.openAi.getStatus(),
       this.elevenLabs.getHealth(profile.voiceId),
-      this.heygen.getHealth(profile.avatarId),
+      this.heygen.getGenerationReadiness(profile.avatarId),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
       this.publish.testFacebookConnection(),
       this.publish.getInstagramConnectionStatus(),
     ]);
+    const heygenHealth = await this.heygen.getHealth(profile.avatarId);
+    const storageDiag = this.cloudinary.getDiagnostics();
 
     const aiConnected = aiDiag.connected === true;
     const elevenConnected = elevenHealth.status === 'CONNECTED';
     const elevenVoiceSelected = elevenHealth.voiceStatus === 'SELECTED';
-    const heygenConnected = heygenHealth.status === 'CONNECTED';
-    const heygenAvatarSelected = heygenHealth.avatarStatus === 'SELECTED';
+    const heygenGenerationReady = heygenReadiness.ready;
+    const heygenConnected = heygenReadiness.status === 'CONNECTED' && heygenReadiness.apiKeyPresence === 'CONFIGURED';
+    const heygenAvatarSelected = heygenReadiness.avatarSelected;
 
     const productionReady =
       aiConnected &&
       elevenConnected &&
       elevenVoiceSelected &&
-      heygenConnected &&
-      heygenAvatarSelected;
+      heygenGenerationReady &&
+      storageDiag.configured;
 
     const readyReasons: string[] = [];
     if (!aiConnected) readyReasons.push('AI provider není připojen');
     if (!elevenConnected) readyReasons.push('ElevenLabs není připojen');
     if (!elevenVoiceSelected) readyReasons.push('Chybí ElevenLabs hlas');
-    if (!heygenConnected) readyReasons.push('HeyGen není připojen');
-    if (!heygenAvatarSelected) readyReasons.push('Chybí HeyGen avatar');
+    if (!heygenGenerationReady) {
+      readyReasons.push(heygenReadiness.message ?? 'HeyGen není připraven');
+    }
+    if (!storageDiag.configured) {
+      readyReasons.push(storageDiag.message ?? 'Chybí Cloudinary storage');
+    }
 
     const publishReasons: string[] = [];
     if (!fb.ok) publishReasons.push('Facebook není připojen');
@@ -541,27 +556,39 @@ export class AiInfluencerAdminController {
         detailMessage: elevenHealth.detailMessage ?? null,
       },
       heygen: {
-        configured: heygenHealth.apiKeyConfigured,
-        connected: heygenConnected,
-        status: heygenHealth.status,
-        avatarStatus: heygenHealth.avatarStatus,
+        configured: heygenReadiness.apiKeyPresence === 'CONFIGURED',
+        connected: heygenGenerationReady,
+        generationReady: heygenGenerationReady,
+        status: heygenReadiness.status,
+        avatarStatus: heygenReadiness.avatarSelected ? 'SELECTED' : 'NOT_SELECTED',
         avatarsPermission: heygenHealth.avatarsPermission,
-        heygenApiKeyPresent: heygenHealth.heygenApiKeyPresent,
+        heygenApiKeyPresent: heygenReadiness.apiKeyPresence === 'CONFIGURED',
+        apiKeyPresence: heygenReadiness.apiKeyPresence,
         avatarId: heygenHealth.avatarId,
         latencyMs: heygenHealth.latencyMs ?? null,
-        lastError: heygenHealth.lastError ?? null,
+        lastError: heygenReadiness.message ?? heygenHealth.lastError ?? null,
         httpStatus: heygenHealth.httpStatus ?? null,
         errorCode: heygenHealth.errorCode ?? null,
-        detailMessage: heygenHealth.detailMessage ?? null,
+        detailMessage: heygenReadiness.message ?? heygenHealth.detailMessage ?? null,
       },
       renderer: {
         configured: true,
         connected: true,
         preset: profile.renderPreset ?? DEFAULT_RENDER_SETTINGS.preset,
       },
+      storage: {
+        configured: storageDiag.configured,
+        connected: storageDiag.configured,
+        source: storageDiag.source,
+        message: storageDiag.message,
+        cloudNamePresent: storageDiag.cloudNamePresent,
+        apiKeyPresent: storageDiag.apiKeyPresent,
+        apiSecretPresent: storageDiag.apiSecretPresent,
+      },
       cloudinary: {
-        configured: true,
-        connected: true,
+        configured: storageDiag.configured,
+        connected: storageDiag.configured,
+        message: storageDiag.message,
       },
       did: {
         configured: this.did.isConfigured(),
@@ -600,6 +627,13 @@ export class AiInfluencerAdminController {
         publishReady: igPublishReady,
         message: ig.message,
         testStatus: igTest.status,
+      },
+      shorts: {
+        configured: storageDiag.configured,
+        connected: storageDiag.configured,
+        message: storageDiag.configured
+          ? null
+          : 'Missing permanent public media storage (Cloudinary)',
       },
     };
   }

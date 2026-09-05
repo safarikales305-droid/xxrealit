@@ -108,11 +108,11 @@ export const DEFAULT_RENDER_SETTINGS: AiInfluencerRenderSettings = {
   },
   subtitles: {
     enabled: true,
-    fontSize: 52,
+    fontSize: 58,
     maxLines: 2,
     position: 'bottom',
-    bottomMargin: 330,
-    maxWidthPercent: 85,
+    bottomMargin: 340,
+    maxWidthPercent: 88,
     background: true,
     outline: true,
     shadow: true,
@@ -189,7 +189,7 @@ export function mergeRenderSettings(
   partial?: Partial<AiInfluencerRenderSettings> | null,
 ): AiInfluencerRenderSettings {
   if (!partial) return { ...DEFAULT_RENDER_SETTINGS };
-  return {
+  const merged = {
     ...DEFAULT_RENDER_SETTINGS,
     ...partial,
     avatar: { ...DEFAULT_RENDER_SETTINGS.avatar, ...partial.avatar },
@@ -200,6 +200,39 @@ export function mergeRenderSettings(
     colors: { ...DEFAULT_RENDER_SETTINGS.colors, ...partial.colors },
     music: { ...DEFAULT_RENDER_SETTINGS.music, ...partial.music },
   };
+  return applyRenderPreset(merged);
+}
+
+export function applyRenderPreset(settings: AiInfluencerRenderSettings): AiInfluencerRenderSettings {
+  const next = { ...settings };
+  switch (settings.preset) {
+    case 'minimal':
+      next.subtitles = {
+        ...next.subtitles,
+        fontSize: 54,
+        background: false,
+        outline: true,
+      };
+      next.hook = { ...next.hook, fontSize: 52 };
+      next.colors = { ...next.colors, accent: '#38bdf8' };
+      break;
+    case 'bold_hook':
+      next.subtitles = { ...next.subtitles, fontSize: 62, fontWeight: 'bold' };
+      next.hook = { ...next.hook, fontSize: 64, maxLines: 2 };
+      next.colors = { ...next.colors, accent: '#f97316' };
+      break;
+    case 'modern_xxrealit':
+    default:
+      next.layout = 'SMART_AUTO';
+      next.subtitles = {
+        ...next.subtitles,
+        fontSize: Math.max(next.subtitles.fontSize, 58),
+        maxLines: 2,
+        bottomMargin: Math.max(next.subtitles.bottomMargin, 340),
+      };
+      break;
+  }
+  return next;
 }
 
 export function resolveSmartLayout(sourceWidth: number, sourceHeight: number): AiInfluencerLayoutMode {

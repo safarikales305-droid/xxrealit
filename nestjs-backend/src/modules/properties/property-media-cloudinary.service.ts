@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
-import { initCloudinary } from '../posts/cloudinary-upload';
+import { initCloudinary, isCloudinaryConfigured } from '../posts/cloudinary-upload';
+import {
+  cloudinaryMissingMessage,
+  getCloudinaryRuntimeConfig,
+} from '../ai-influencer/ai-influencer-runtime-config.util';
 import { ListingPhotoWatermarkService } from './listing-photo-watermark.service';
 
 function uploadPropertyVideoBuffer(file: Express.Multer.File): Promise<string> {
@@ -76,6 +80,27 @@ export class PropertyMediaCloudinaryService {
     private readonly listingPhotoWatermark: ListingPhotoWatermarkService,
   ) {}
 
+  isConfigured(): boolean {
+    return isCloudinaryConfigured();
+  }
+
+  getDiagnostics() {
+    const cfg = getCloudinaryRuntimeConfig();
+    return {
+      configured: cfg.configured,
+      source: cfg.source,
+      cloudNamePresent: cfg.cloudNamePresent,
+      apiKeyPresent: cfg.apiKeyPresent,
+      apiSecretPresent: cfg.apiSecretPresent,
+      message: cfg.configured ? null : cloudinaryMissingMessage(cfg),
+    };
+  }
+
+  assertConfigured(): void {
+    if (this.isConfigured()) return;
+    throw new Error(cloudinaryMissingMessage(getCloudinaryRuntimeConfig()));
+  }
+
   async uploadImage(file: Express.Multer.File): Promise<string> {
     initCloudinary();
     return uploadPropertyImageBuffer(file);
@@ -116,6 +141,7 @@ export class PropertyMediaCloudinaryService {
 
   /** Master 1080x1920 AI Influencer reel — bez agresivní eager komprese. */
   async uploadMasterReelBuffer(buffer: Buffer, originalname = 'ai-influencer-master.mp4'): Promise<string> {
+    this.assertConfigured();
     initCloudinary();
     return new Promise<string>((resolve, reject) => {
       if (!buffer.length) return reject(new Error('Video buffer is empty'));

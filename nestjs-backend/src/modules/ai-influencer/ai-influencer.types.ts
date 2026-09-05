@@ -57,6 +57,15 @@ export type ArticleScoreResult = {
   contentFormat?: AiInfluencerContentFormat;
 };
 
+export type AiInfluencerDurationPreset = '25_35' | '35_45' | '45_60';
+export type AiInfluencerScenePacing = 'dynamic' | 'calm';
+export type AiInfluencerVideoGoal =
+  | 'website_traffic'
+  | 'youtube_subscribe'
+  | 'facebook_follow'
+  | 'instagram_follow'
+  | 'auto';
+
 export type SpokenBrandingMode = 'AUTO' | 'INTRO' | 'OUTRO' | 'INTRO_AND_OUTRO' | 'OFF';
 export type PublishMode = 'MANUAL' | 'AUTO_AFTER_GENERATION' | 'SCHEDULED';
 export type BrandingFrequency = 'EVERY' | 'EVERY_OTHER' | 'OUTRO_ONLY' | 'INTRO_ONLY' | 'OFF';
@@ -121,6 +130,19 @@ export type AiInfluencerAutomationSettings = {
   heygenConcurrency: number;
   automationPaused: boolean;
   automationPauseReason: string | null;
+  /** Jediný podporovaný formát — vždy VERTICAL_SHORT_9_16 */
+  videoFormat: 'VERTICAL_SHORT_9_16';
+  durationPreset: AiInfluencerDurationPreset;
+  scenePacing: AiInfluencerScenePacing;
+  useArticleImages: boolean;
+  usePortalMedia: boolean;
+  useBroll: boolean;
+  useMusic: boolean;
+  useSubtitles: boolean;
+  useLogo: boolean;
+  useCta: boolean;
+  mentionBrandInScript: boolean;
+  videoGoal: AiInfluencerVideoGoal;
 };
 
 export const DEFAULT_PREFERRED_CATEGORIES = [
@@ -194,6 +216,18 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   heygenConcurrency: 1,
   automationPaused: false,
   automationPauseReason: null,
+  videoFormat: 'VERTICAL_SHORT_9_16',
+  durationPreset: '25_35',
+  scenePacing: 'dynamic',
+  useArticleImages: true,
+  usePortalMedia: true,
+  useBroll: true,
+  useMusic: true,
+  useSubtitles: true,
+  useLogo: true,
+  useCta: true,
+  mentionBrandInScript: true,
+  videoGoal: 'auto',
 };
 
 export type VoiceGenerateInput = {
