@@ -33,6 +33,8 @@ import {
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestVideoAgent,
+  nestAiInfluencerVideoAgentTestActive,
+  nestAiInfluencerVideoAgentTestStatus,
   nestAiInfluencerTestFallback,
   nestAiInfluencerTestFacebook,
   nestAiInfluencerTestInstagram,
@@ -51,6 +53,7 @@ import {
   type HeyGenAvatarOption,
   type HeyGenProviderStatus,
   type StorageProviderStatus,
+  type VideoAgentTestJob,
 } from '@/lib/ai-influencer-client';
 
 function statusTone(status: string) {
@@ -219,6 +222,8 @@ export default function AiInfluencerPage() {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
   const [selectedAvatarId, setSelectedAvatarId] = useState<string>('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [videoAgentTest, setVideoAgentTest] = useState<VideoAgentTestJob | null>(null);
+  const [videoAgentTestError, setVideoAgentTestError] = useState<string | null>(null);
 
   const elevenLabs = dashboard?.providers.elevenLabs;
   const heygen = dashboard?.providers.heygen;
@@ -269,6 +274,24 @@ export default function AiInfluencerPage() {
   }, [isLoading, user, router]);
 
   useEffect(load, [apiAccessToken]);
+
+  useEffect(() => {
+    if (!apiAccessToken) return;
+    void nestAiInfluencerVideoAgentTestActive(apiAccessToken).then((res) => {
+      if (res?.job) setVideoAgentTest(res.job);
+    });
+  }, [apiAccessToken]);
+
+  useEffect(() => {
+    if (!apiAccessToken || !videoAgentTest?.id) return;
+    if (videoAgentTest.status === 'DONE' || videoAgentTest.status === 'FAILED') return;
+    const id = window.setInterval(() => {
+      void nestAiInfluencerVideoAgentTestStatus(apiAccessToken, videoAgentTest.id).then((res) => {
+        if (res?.job) setVideoAgentTest(res.job);
+      });
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [apiAccessToken, videoAgentTest?.id, videoAgentTest?.status]);
 
   useEffect(() => {
     if (!apiAccessToken) return;
@@ -1005,20 +1028,57 @@ export default function AiInfluencerPage() {
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={!apiAccessToken || busy === 'video-agent'}
+            disabled={
+              !apiAccessToken ||
+              busy === 'video-agent' ||
+              (videoAgentTest != null &&
+                videoAgentTest.status !== 'DONE' &&
+                videoAgentTest.status !== 'FAILED')
+            }
             onClick={() => {
               if (!apiAccessToken) return;
               setBusy('video-agent');
+              setVideoAgentTestError(null);
               void nestAiInfluencerTestVideoAgent(apiAccessToken).then((r) => {
                 setBusy(null);
-                if (r.error) alert(r.error);
-                else alert(r.data?.message ?? 'Video Agent test spuštěn.');
+                if (r.error || !r.data) {
+                  setVideoAgentTestError(r.error ?? 'Video Agent test selhal.');
+                  return;
+                }
+                void nestAiInfluencerVideoAgentTestStatus(apiAccessToken, r.data.jobId).then((res) => {
+                  if (res?.job) setVideoAgentTest(res.job);
+                });
               });
             }}
             className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
           >
             Test Video Agent
           </button>
+          {videoAgentTest?.status === 'FAILED' ? (
+            <button
+              type="button"
+              disabled={!apiAccessToken || busy === 'video-agent'}
+              onClick={() => {
+                if (!apiAccessToken) return;
+                setBusy('video-agent');
+                setVideoAgentTestError(null);
+                setVideoAgentTest(null);
+                void nestAiInfluencerTestVideoAgent(apiAccessToken).then((r) => {
+                  setBusy(null);
+                  if (r.error || !r.data) {
+                    setVideoAgentTestError(r.error ?? 'Video Agent test selhal.');
+                    return;
+                  }
+                  void nestAiInfluencerVideoAgentTestStatus(apiAccessToken, r.data.jobId).then((res) => {
+                    if (res?.job) setVideoAgentTest(res.job);
+                  });
+                });
+              }}
+              className="rounded-lg border border-orange-300 px-3 py-1.5 text-sm font-medium text-orange-800 hover:bg-orange-50 disabled:opacity-50"
+            >
+              Zkusit znovu
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={!apiAccessToken || busy === 'fallback'}
@@ -1039,6 +1099,59 @@ export default function AiInfluencerPage() {
             Test fallback
           </button>
         </div>
+        {videoAgentTestError ? (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-semibold">Video Agent test selhal</p>
+            <p className="mt-1">{videoAgentTestError}</p>
+          </div>
+        ) : null}
+        {videoAgentTest ? (
+          <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">Test Video Agent</p>
+              <span className="text-xs text-zinc-500">{videoAgentTest.status}</span>
+            </div>
+            {videoAgentTest.status !== 'DONE' && videoAgentTest.status !== 'FAILED' ? (
+              <div className="mt-2">
+                <div className="mb-1 flex justify-between text-xs text-zinc-600">
+                  <span>{videoAgentTest.progressLabel}</span>
+                  <span>{videoAgentTest.progressPercent} %</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-zinc-200">
+                  <div
+                    className="h-full rounded-full bg-orange-500 transition-all duration-500"
+                    style={{ width: `${Math.min(100, videoAgentTest.progressPercent)}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {videoAgentTest.status === 'FAILED' ? (
+              <div className="mt-2 text-xs text-red-700">
+                <p>Fáze: {videoAgentTest.failedStage ?? '—'}</p>
+                <p>Chyba: {videoAgentTest.errorMessage ?? videoAgentTest.errorCode ?? 'Neznámá chyba'}</p>
+              </div>
+            ) : null}
+            {videoAgentTest.status === 'DONE' ? (
+              <div className="mt-2 space-y-1 text-xs text-emerald-800">
+                <p className="font-semibold text-emerald-900">VIDEO AGENT TEST: PASS</p>
+                <p>Délka: {videoAgentTest.durationSec ?? '—'} s</p>
+                <p>
+                  Rozlišení: {videoAgentTest.width ?? '—'}×{videoAgentTest.height ?? '—'}
+                </p>
+                <p>Provider job id: {videoAgentTest.providerJobIdMasked ?? '—'}</p>
+                {videoAgentTest.previewUrl ? (
+                  <video
+                    className="mt-2 max-h-64 w-full max-w-xs rounded-lg bg-black"
+                    controls
+                    src={videoAgentTest.previewUrl}
+                  >
+                    <track kind="captions" />
+                  </video>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {dashboard?.providers.videoEngine?.heygenVideoAgentMessage ? (
           <p className="mt-2 text-sm text-amber-800">
             {dashboard.providers.videoEngine.heygenVideoAgentMessage}

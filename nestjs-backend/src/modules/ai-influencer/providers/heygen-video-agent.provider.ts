@@ -86,7 +86,10 @@ export class HeyGenVideoAgentProvider {
     };
   }
 
-  async startGeneration(input: HeyGenVideoAgentStartInput): Promise<HeyGenVideoAgentStartResult> {
+  async startGeneration(
+    input: HeyGenVideoAgentStartInput,
+    options?: { timeoutMs?: number },
+  ): Promise<HeyGenVideoAgentStartResult> {
     const apiKey = this.apiKey;
     if (!apiKey) {
       throw Object.assign(new Error('HEYGEN_API_KEY není nakonfigurován.'), {
@@ -110,13 +113,14 @@ export class HeyGenVideoAgentProvider {
     const parsed = await this.request('POST', '/v3/video-agents', {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      timeoutMs: options?.timeoutMs ?? 45_000,
     });
 
     if (!parsed.ok) {
       const code = this.mapSubmitErrorCode(parsed.httpStatus, parsed.errorCode);
       throw Object.assign(
         new Error(parsed.message || `HeyGen Video Agent submit failed (HTTP ${parsed.httpStatus}).`),
-        { code },
+        { code, httpStatus: parsed.httpStatus, providerCode: parsed.errorCode },
       );
     }
 
@@ -277,7 +281,7 @@ export class HeyGenVideoAgentProvider {
   private async request(
     method: string,
     path: string,
-    init?: { headers?: Record<string, string>; body?: string },
+    init?: { headers?: Record<string, string>; body?: string; timeoutMs?: number },
   ): Promise<{
     httpStatus: number;
     ok: boolean;
@@ -297,14 +301,23 @@ export class HeyGenVideoAgentProvider {
     }
 
     try {
-      const res = await fetch(`https://api.heygen.com${path}`, {
-        method,
-        headers: {
-          'X-Api-Key': apiKey,
-          ...(init?.headers ?? {}),
-        },
-        body: init?.body,
-      });
+      const timeoutMs = init?.timeoutMs ?? 30_000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let res: Response;
+      try {
+        res = await fetch(`https://api.heygen.com${path}`, {
+          method,
+          headers: {
+            'X-Api-Key': apiKey,
+            ...(init?.headers ?? {}),
+          },
+          body: init?.body,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       const rawBody = await res.text();
       let message: string | null = null;
       let errorCode: string | null = null;
@@ -324,7 +337,14 @@ export class HeyGenVideoAgentProvider {
       return { httpStatus: res.status, ok: res.ok, errorCode, message, rawBody };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return { httpStatus: 0, ok: false, errorCode: 'connection_error', message, rawBody: '' };
+      const timedOut = err instanceof Error && err.name === 'AbortError';
+      return {
+        httpStatus: 0,
+        ok: false,
+        errorCode: timedOut ? 'timeout' : 'connection_error',
+        message: timedOut ? `HeyGen request timeout (${init?.timeoutMs ?? 30_000} ms)` : message,
+        rawBody: '',
+      };
     }
   }
 }

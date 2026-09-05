@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -26,7 +28,7 @@ import { DIdAvatarProvider } from './providers/did-avatar.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
-import { buildHeyGenVideoAgentPrompt } from './heygen-video-agent-prompt.util';
+import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { storyboardPreviewRows } from './ai-influencer-storyboard.util';
 import type { ReelScenePlan } from './ai-influencer.types';
 
@@ -41,6 +43,7 @@ export class AiInfluencerAdminController {
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly heygen: HeyGenAvatarProvider,
     private readonly videoAgent: HeyGenVideoAgentProvider,
+    private readonly videoAgentTest: HeyGenVideoAgentTestService,
     private readonly did: DIdAvatarProvider,
     private readonly prisma: PrismaService,
     private readonly youtubeOAuth: YouTubeOAuthService,
@@ -446,41 +449,36 @@ export class AiInfluencerAdminController {
   }
 
   @Post('test/video-agent')
-  async testVideoAgent(@Body() body: { articleId?: string; propertyId?: string }) {
-    const cfg = await this.settings.getSettings();
-    const profile = await this.registry.getDefaultProfile();
-    const readiness = await this.videoAgent.getReadiness();
-    if (!readiness.available) {
-      throw new BadRequestException(readiness.message ?? 'HeyGen Video Agent není dostupný.');
+  @HttpCode(HttpStatus.ACCEPTED)
+  async testVideoAgent() {
+    try {
+      const job = await this.videoAgentTest.createTestJob();
+      return {
+        jobId: job.id,
+        status: job.status,
+        progressPercent: job.progressPercent,
+        progressLabel: job.progressLabel,
+      };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code)
+          : 'HEYGEN_VIDEO_AGENT_TEST_FAILED';
+      const message = err instanceof Error ? err.message : 'Video Agent test selhal.';
+      throw new BadRequestException({ message, code });
     }
-    await this.heygen.assertReadyForGeneration(profile.avatarId);
-    const avatarId = this.heygen.resolveAvatarId(profile.avatarId);
-    const prompt =
-      body.articleId || body.propertyId
-        ? 'Test Video Agent — XXREALIT realitní influencer reel (Czech, 9:16, dynamic scenes).'
-        : buildHeyGenVideoAgentPrompt({
-            script: {
-              hook: 'Hypotéky se znovu mění. Co to znamená pro kupující?',
-              spokenText:
-                'Hypotéky se znovu mění. Pro kupující to může znamenat jinou splátku i přístup k bydlení. Sledujte detaily na XXREALIT.',
-              captionTitle: 'Test Video Agent',
-              cta: 'Více najdete na XXREALIT.CZ',
-              estimatedDuration: cfg.targetDurationSec,
-              scenes: [],
-            },
-            settings: cfg,
-            avatarId,
-            videoStyle: cfg.videoStyle,
-            avatarFrequency: cfg.avatarFrequency,
-            contentKind: 'ARTICLE',
-          });
-    const started = await this.videoAgent.startGeneration({ prompt, avatarId });
-    return {
-      ok: true,
-      sessionId: started.sessionId,
-      videoId: started.videoId,
-      message: 'Video Agent test session spuštěna (bez publikace).',
-    };
+  }
+
+  @Get('test/video-agent/active')
+  getActiveVideoAgentTest() {
+    const job = this.videoAgentTest.getActiveJob();
+    return { job };
+  }
+
+  @Get('test/video-agent/:jobId/status')
+  getVideoAgentTestStatus(@Param('jobId') jobId: string) {
+    return { job: this.videoAgentTest.getJob(jobId) };
   }
 
   @Post('test/fallback')
@@ -524,6 +522,22 @@ export class AiInfluencerAdminController {
     if (!id) return null;
     if (id.length <= 6) return '****';
     return `****${id.slice(-4)}`;
+  }
+
+  private resolveVideoAgentUiStatus(
+    readiness: Awaited<ReturnType<HeyGenVideoAgentProvider['getReadiness']>>,
+    testOutcome: ReturnType<HeyGenVideoAgentTestService['getLastTestOutcome']>,
+  ): 'READY' | 'NOT AVAILABLE' | 'AUTH ERROR' {
+    if (readiness.apiKeyPresence === 'MISSING') return 'NOT AVAILABLE';
+    if (readiness.probeStatus === 401 || readiness.probeStatus === 403) return 'AUTH ERROR';
+    if (
+      testOutcome.lastErrorCode === 'HEYGEN_VIDEO_AGENT_AUTH_FAILED' ||
+      testOutcome.lastErrorCode === 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE'
+    ) {
+      return testOutcome.lastErrorCode === 'HEYGEN_VIDEO_AGENT_AUTH_FAILED' ? 'AUTH ERROR' : 'NOT AVAILABLE';
+    }
+    if (!readiness.available) return 'NOT AVAILABLE';
+    return 'READY';
   }
 
   private async getProviderStatus() {
@@ -577,6 +591,8 @@ export class AiInfluencerAdminController {
     const igTest = this.publish.formatInstagramTestResult(ig);
     const igPublishReady = igTest.status === 'READY';
     const cfg = await this.settings.getSettings();
+    const testOutcome = this.videoAgentTest.getLastTestOutcome();
+    const videoAgentUiStatus = this.resolveVideoAgentUiStatus(videoAgentReadiness, testOutcome);
 
     return {
       ready: {
@@ -631,11 +647,7 @@ export class AiInfluencerAdminController {
         httpStatus: heygenHealth.httpStatus ?? null,
         errorCode: heygenHealth.errorCode ?? null,
         detailMessage: heygenReadiness.message ?? heygenHealth.detailMessage ?? null,
-        videoAgentStatus: videoAgentReadiness.available
-          ? 'READY'
-          : videoAgentReadiness.apiKeyPresence === 'MISSING'
-            ? 'NOT AVAILABLE'
-            : 'NOT AVAILABLE',
+        videoAgentStatus: videoAgentUiStatus,
         videoAgentMessage: videoAgentReadiness.message,
       },
       videoEngine: {
@@ -645,7 +657,7 @@ export class AiInfluencerAdminController {
         videoStyle: cfg.videoStyle,
         avatarFrequency: cfg.avatarFrequency,
         format: '1080x1920 · 9:16',
-        heygenVideoAgent: videoAgentReadiness.available ? 'READY' : 'NOT AVAILABLE',
+        heygenVideoAgent: videoAgentUiStatus,
         heygenVideoAgentMessage: videoAgentReadiness.message,
         fallback: heygenGenerationReady ? 'READY' : 'NOT READY',
         selectedAvatarId: heygenHealth.avatarId,

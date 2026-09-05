@@ -221,7 +221,7 @@ export type AiInfluencerDashboard = {
       videoStyle: string;
       avatarFrequency: string;
       format: string;
-      heygenVideoAgent: 'READY' | 'NOT AVAILABLE';
+      heygenVideoAgent: 'READY' | 'NOT AVAILABLE' | 'AUTH ERROR';
       heygenVideoAgentMessage?: string | null;
       fallback: 'READY' | 'NOT READY';
       selectedAvatarId?: string | null;
@@ -418,12 +418,94 @@ export function nestAiInfluencerTestAvatar(token: string, text?: string, avatarI
 }
 
 export function nestAiInfluencerTestVideoAgent(token: string) {
-  return aiInfluencerFetchWithError<{
-    ok: boolean;
-    sessionId: string;
-    videoId: string | null;
-    message: string;
-  }>(token, '/test/video-agent', { method: 'POST', body: JSON.stringify({}) });
+  return aiInfluencerFetchAccepted<VideoAgentTestStartResponse>(token, '/test/video-agent', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export type VideoAgentTestStage =
+  | 'QUEUED'
+  | 'SUBMITTING'
+  | 'SUBMITTED'
+  | 'PROCESSING'
+  | 'READY'
+  | 'DOWNLOADING'
+  | 'VALIDATING'
+  | 'DONE'
+  | 'FAILED';
+
+export type VideoAgentTestJob = {
+  id: string;
+  status: VideoAgentTestStage;
+  progressPercent: number;
+  progressLabel: string;
+  sessionId?: string | null;
+  videoId?: string | null;
+  providerJobIdMasked?: string | null;
+  previewUrl?: string | null;
+  durationSec?: number | null;
+  width?: number | null;
+  height?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  failedStage?: VideoAgentTestStage | null;
+  httpStatus?: number | null;
+  providerCode?: string | null;
+  submittedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VideoAgentTestStartResponse = {
+  jobId: string;
+  status: VideoAgentTestStage;
+  progressPercent: number;
+  progressLabel: string;
+};
+
+async function aiInfluencerFetchAccepted<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T | null; error: string | null; errorCode?: string | null }> {
+  const res = await fetch(`${API_BASE_URL}/admin/ai-influencer${path}`, {
+    ...init,
+    headers: {
+      ...nestAuthHeaders(token),
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  });
+  const json = (await res.json().catch(() => null)) as
+    | T
+    | { message?: string | string[]; code?: string }
+    | null;
+  if (!res.ok) {
+    const msg = Array.isArray((json as { message?: string[] })?.message)
+      ? (json as { message: string[] }).message.join(', ')
+      : (json as { message?: string })?.message;
+    return {
+      data: null,
+      error: msg || `HTTP ${res.status}`,
+      errorCode: (json as { code?: string })?.code ?? null,
+    };
+  }
+  if (res.status !== 202 && res.status !== 200) {
+    return { data: json as T, error: null };
+  }
+  return { data: json as T, error: null };
+}
+
+export function nestAiInfluencerVideoAgentTestStatus(token: string, jobId: string) {
+  return aiInfluencerFetch<{ job: VideoAgentTestJob }>(
+    token,
+    `/test/video-agent/${encodeURIComponent(jobId)}/status`,
+  );
+}
+
+export function nestAiInfluencerVideoAgentTestActive(token: string) {
+  return aiInfluencerFetch<{ job: VideoAgentTestJob | null }>(token, '/test/video-agent/active');
 }
 
 export function nestAiInfluencerTestFallback(token: string, avatarId?: string) {

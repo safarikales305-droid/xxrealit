@@ -137,3 +137,32 @@ export function collectStoryboardMediaUrls(scenes: ReelScenePlan[]): VideoAgentM
   }
   return out.slice(0, 20);
 }
+
+/** Krátký test prompt (5–10 s) pro admin Video Agent test — bez publish. */
+export function buildHeyGenVideoAgentTestPrompt(
+  input: Pick<
+    BuildVideoAgentPromptInput,
+    'settings' | 'avatarId' | 'videoStyle' | 'avatarFrequency'
+  >,
+): string {
+  const brand = input.settings.brandDisplayName || 'XXREALIT';
+  return buildHeyGenVideoAgentPrompt({
+    script: {
+      hook: 'Vítejte na XXREALIT.',
+      spokenText: 'Vítejte na XXREALIT. Toto je test dynamického AI videa.',
+      captionTitle: 'Video Agent test',
+      cta: `Více najdete na ${brand}.CZ`,
+      estimatedDuration: 8,
+      scenes: [
+        { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Vítejte na XXREALIT.' },
+        { type: 'BROLL_FULL', start: 3, duration: 3, text: 'Toto je test dynamického AI videa.' },
+        { type: 'CTA', start: 6, duration: 2, text: `Více na ${brand}.CZ` },
+      ],
+    },
+    settings: { ...input.settings, targetDurationSec: 8 },
+    avatarId: input.avatarId,
+    videoStyle: input.videoStyle,
+    avatarFrequency: input.avatarFrequency,
+    contentKind: 'ARTICLE',
+  });
+}
