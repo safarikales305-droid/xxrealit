@@ -19,6 +19,14 @@ export type CloudinaryRuntimeConfig = {
   apiSecretPresent: boolean;
 };
 
+export type ElevenLabsRuntimeConfig = {
+  apiKey: string | undefined;
+  voiceId: string | undefined;
+  modelId: string;
+  apiKeyPresence: EnvPresence;
+  voiceIdPresence: EnvPresence;
+};
+
 export function readRuntimeEnv(name: string): string | undefined {
   const raw = process.env[name];
   if (!raw) return undefined;
@@ -46,6 +54,20 @@ export function getHeyGenRuntimeConfig(): HeyGenRuntimeConfig {
     apiKey,
     avatarId,
     apiKeyPresence: apiKey ? 'CONFIGURED' : 'MISSING',
+  };
+}
+
+/** Kanonické ENV pro ElevenLabs — pouze ELEVENLABS_* (bez aliasů v kódu). */
+export function getElevenLabsRuntimeConfig(): ElevenLabsRuntimeConfig {
+  const apiKey = readRuntimeEnv('ELEVENLABS_API_KEY');
+  const voiceId = readRuntimeEnv('ELEVENLABS_VOICE_ID');
+  const modelId = readRuntimeEnv('ELEVENLABS_MODEL_ID') ?? 'eleven_multilingual_v2';
+  return {
+    apiKey,
+    voiceId,
+    modelId,
+    apiKeyPresence: apiKey ? 'CONFIGURED' : 'MISSING',
+    voiceIdPresence: voiceId ? 'CONFIGURED' : 'MISSING',
   };
 }
 

@@ -372,20 +372,7 @@ export class AiInfluencerAdminController {
       body.text?.trim() ||
       'Dobrý den, jsem virtuální redaktorka XXREALIT. Přináším vám novinky ze světa realit a bydlení.';
     const profile = await this.registry.getDefaultProfile();
-    const health = await this.elevenLabs.getHealth(profile.voiceId);
-
-    if (!health.apiKeyConfigured) {
-      throw new BadRequestException('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).');
-    }
-    if (health.status === 'INVALID_API_KEY') {
-      throw new BadRequestException('ElevenLabs API key je neplatný.');
-    }
-    if (health.status === 'RATE_LIMITED') {
-      throw new BadRequestException('ElevenLabs rate limit — zkuste později.');
-    }
-    if (health.status === 'QUOTA_EXCEEDED') {
-      throw new BadRequestException('ElevenLabs quota vyčerpána.');
-    }
+    await this.elevenLabs.assertReadyForGeneration(body.voiceId || profile.voiceId);
 
     const voiceId = body.voiceId || profile.voiceId || this.elevenLabs.resolveVoiceId(null);
     if (!voiceId) {
@@ -483,9 +470,10 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, heygenReadiness, did, yt, fb, ig] = await Promise.all([
+    const [aiDiag, elevenHealth, elevenReadiness, heygenReadiness, did, yt, fb, ig] = await Promise.all([
       this.openAi.getStatus(),
       this.elevenLabs.getHealth(profile.voiceId),
+      this.elevenLabs.getGenerationReadiness(profile.voiceId),
       this.heygen.getGenerationReadiness(profile.avatarId),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
@@ -497,22 +485,24 @@ export class AiInfluencerAdminController {
 
     const aiConnected = aiDiag.connected === true;
     const elevenConnected = elevenHealth.status === 'CONNECTED';
-    const elevenVoiceSelected = elevenHealth.voiceStatus === 'SELECTED';
+    const elevenVoiceSelected = elevenReadiness.voiceSelected;
+    const elevenTtsReady =
+      elevenHealth.ttsPermission === 'PASS' || elevenConnected || elevenReadiness.ready;
     const heygenGenerationReady = heygenReadiness.ready;
     const heygenConnected = heygenReadiness.status === 'CONNECTED' && heygenReadiness.apiKeyPresence === 'CONFIGURED';
     const heygenAvatarSelected = heygenReadiness.avatarSelected;
 
     const productionReady =
       aiConnected &&
-      elevenConnected &&
-      elevenVoiceSelected &&
+      elevenReadiness.ready &&
+      elevenTtsReady &&
       heygenGenerationReady &&
       storageDiag.configured;
 
     const readyReasons: string[] = [];
     if (!aiConnected) readyReasons.push('AI provider není připojen');
-    if (!elevenConnected) readyReasons.push('ElevenLabs není připojen');
-    if (!elevenVoiceSelected) readyReasons.push('Chybí ElevenLabs hlas');
+    if (!elevenReadiness.ready) readyReasons.push(elevenReadiness.message ?? 'ElevenLabs není připraven');
+    else if (!elevenTtsReady) readyReasons.push('ElevenLabs TTS není dostupné');
     if (!heygenGenerationReady) {
       readyReasons.push(heygenReadiness.message ?? 'HeyGen není připraven');
     }
@@ -545,9 +535,20 @@ export class AiInfluencerAdminController {
         configured: elevenHealth.apiKeyConfigured,
         connected: elevenConnected,
         status: elevenHealth.status,
+        apiKeyPresence: elevenReadiness.apiKeyPresence,
+        voiceIdPresence: elevenVoiceSelected ? 'CONFIGURED' : 'MISSING',
         voiceStatus: elevenHealth.voiceStatus,
         voicesPermission: elevenHealth.voicesPermission,
+        voicesReadStatus:
+          elevenHealth.voicesPermission === 'PASS'
+            ? 'OPTIONAL / READY'
+            : elevenHealth.voicesPermission === 'PERMISSION_REQUIRED'
+              ? 'OPTIONAL / MISSING'
+              : elevenHealth.voicesPermission === 'NOT_CHECKED'
+                ? 'OPTIONAL / NOT CHECKED'
+                : 'OPTIONAL / FAIL',
         ttsPermission: elevenHealth.ttsPermission,
+        ttsReady: elevenTtsReady,
         voiceId: elevenHealth.voiceId,
         latencyMs: elevenHealth.latencyMs ?? null,
         lastError: elevenHealth.lastError ?? null,

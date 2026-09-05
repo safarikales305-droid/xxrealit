@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DEFAULT_VOICE_COST_PER_1K_CHARS_CZK } from '../ai-influencer.constants';
 import type { VoiceGenerateInput, VoiceGenerateResult } from '../ai-influencer.types';
 import type { VoiceProvider } from './voice.provider';
@@ -11,6 +10,7 @@ import {
   type ElevenLabsConnectionStatus,
   type ElevenLabsParsedResponse,
 } from './elevenlabs-api.util';
+import { getElevenLabsRuntimeConfig } from '../ai-influencer-runtime-config.util';
 
 export type { ElevenLabsConnectionStatus } from './elevenlabs-api.util';
 
@@ -56,36 +56,30 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
   readonly providerId = 'elevenlabs';
   private readonly log = new Logger(ElevenLabsVoiceProvider.name);
 
-  constructor(private readonly config: ConfigService) {}
-
   onModuleInit() {
-    const apiKeyConfigured = this.isApiKeyConfigured();
-    const voiceSelected = this.isVoiceSelected();
+    const cfg = getElevenLabsRuntimeConfig();
     this.log.log(
-      `[AI Influencer] ElevenLabs API key: ${apiKeyConfigured ? 'CONFIGURED' : 'MISSING'}`,
+      `[AI Influencer] ElevenLabs API key: ${cfg.apiKeyPresence}`,
     );
     this.log.log(
-      `[AI Influencer] ElevenLabs voice: ${voiceSelected ? 'SELECTED' : 'NOT SELECTED'}`,
+      `[AI Influencer] ElevenLabs voice ID: ${cfg.voiceIdPresence}`,
     );
+  }
+
+  private get runtimeConfig() {
+    return getElevenLabsRuntimeConfig();
   }
 
   private get apiKey(): string | undefined {
-    return this.readEnv('ELEVENLABS_API_KEY');
+    return this.runtimeConfig.apiKey;
   }
 
   private get defaultVoiceId(): string | undefined {
-    return this.readEnv('ELEVENLABS_VOICE_ID');
+    return this.runtimeConfig.voiceId;
   }
 
   private get modelId(): string {
-    return this.readEnv('ELEVENLABS_MODEL_ID') ?? 'eleven_multilingual_v2';
-  }
-
-  private readEnv(name: string): string | undefined {
-    const raw = this.config.get<string>(name) ?? process.env[name];
-    if (!raw) return undefined;
-    const trimmed = raw.trim().replace(/^["']|["']$/g, '');
-    return trimmed || undefined;
+    return this.runtimeConfig.modelId;
   }
 
   isApiKeyConfigured(): boolean {
@@ -102,6 +96,50 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
 
   isConfigured(): boolean {
     return this.isApiKeyConfigured();
+  }
+
+  async getGenerationReadiness(profileVoiceId?: string | null): Promise<{
+    ready: boolean;
+    apiKeyPresence: 'CONFIGURED' | 'MISSING';
+    voiceSelected: boolean;
+    message: string | null;
+  }> {
+    const cfg = this.runtimeConfig;
+    const voiceId = this.resolveVoiceId(profileVoiceId);
+    if (cfg.apiKeyPresence === 'MISSING') {
+      return {
+        ready: false,
+        apiKeyPresence: 'MISSING',
+        voiceSelected: Boolean(voiceId),
+        message: 'ElevenLabs API key není nakonfigurován (ELEVENLABS_API_KEY).',
+      };
+    }
+    if (!voiceId) {
+      return {
+        ready: false,
+        apiKeyPresence: 'CONFIGURED',
+        voiceSelected: false,
+        message: 'ElevenLabs je připojen. Nejprve vyberte hlas.',
+      };
+    }
+    return {
+      ready: true,
+      apiKeyPresence: 'CONFIGURED',
+      voiceSelected: true,
+      message: null,
+    };
+  }
+
+  async assertReadyForGeneration(profileVoiceId?: string | null): Promise<void> {
+    const readiness = await this.getGenerationReadiness(profileVoiceId);
+    if (readiness.ready) return;
+    const code =
+      readiness.apiKeyPresence === 'MISSING'
+        ? 'ELEVENLABS_NOT_CONFIGURED'
+        : !readiness.voiceSelected
+          ? 'ELEVENLABS_VOICE_NOT_SELECTED'
+          : 'ELEVENLABS_NOT_READY';
+    throw Object.assign(new Error(readiness.message ?? 'ElevenLabs není připraven.'), { code });
   }
 
   async getHealth(profileVoiceId?: string | null): Promise<ElevenLabsHealthResult> {
@@ -234,7 +272,9 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
     const apiKey = this.apiKey;
     const voiceId = input.voiceId || this.defaultVoiceId;
     if (!apiKey) {
-      throw new Error('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).');
+      throw Object.assign(new Error('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).'), {
+        code: 'ELEVENLABS_NOT_CONFIGURED',
+      });
     }
     if (!voiceId) {
       throw new Error('ElevenLabs je připojen. Nejprve vyberte hlas.');
@@ -269,20 +309,22 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
     if (!parsed.ok) {
       const status = classifyElevenLabsResponse(parsed);
       if (status === 'INVALID_API_KEY') {
-        throw Object.assign(new Error('ElevenLabs AUTH_ERROR'), { code: 'AUTH_ERROR' });
+        throw Object.assign(new Error('ElevenLabs AUTH_ERROR'), { code: 'ELEVENLABS_AUTH_FAILED' });
       }
       if (status === 'QUOTA_EXCEEDED') {
-        throw Object.assign(new Error('ElevenLabs CREDITS_EXHAUSTED'), { code: 'CREDITS_EXHAUSTED' });
+        throw Object.assign(new Error('ElevenLabs CREDITS_EXHAUSTED'), { code: 'ELEVENLABS_CREDITS_EXHAUSTED' });
       }
       if (status === 'RATE_LIMITED') {
-        throw Object.assign(new Error('ElevenLabs RATE_LIMITED'), { code: 'RATE_LIMITED' });
+        throw Object.assign(new Error('ElevenLabs RATE_LIMITED'), { code: 'ELEVENLABS_RATE_LIMITED' });
       }
       if (status === 'INSUFFICIENT_PERMISSIONS') {
         throw Object.assign(new Error('ElevenLabs INSUFFICIENT_PERMISSIONS'), {
-          code: 'INSUFFICIENT_PERMISSIONS',
+          code: 'ELEVENLABS_TTS_FAILED',
         });
       }
-      throw new Error(parsed.message || `ElevenLabs TTS selhalo (HTTP ${parsed.httpStatus}).`);
+      throw Object.assign(new Error(parsed.message || `ElevenLabs TTS selhalo (HTTP ${parsed.httpStatus}).`), {
+        code: 'ELEVENLABS_TTS_FAILED',
+      });
     }
 
     const audioBuffer = Buffer.from(parsed.rawBuffer ?? new ArrayBuffer(0));

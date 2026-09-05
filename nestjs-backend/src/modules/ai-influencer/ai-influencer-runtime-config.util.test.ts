@@ -3,6 +3,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import {
   cloudinaryMissingMessage,
   getCloudinaryRuntimeConfig,
+  getElevenLabsRuntimeConfig,
   getHeyGenRuntimeConfig,
   readRuntimeEnv,
 } from './ai-influencer-runtime-config.util';
@@ -52,6 +53,23 @@ describe('ai-influencer-runtime-config', () => {
     process.env.CLOUDINARY_SECRET = 'ss';
     const cfg = getCloudinaryRuntimeConfig();
     assert.equal(cfg.configured, true);
+  });
+
+  it('getElevenLabsRuntimeConfig reports MISSING without key', () => {
+    delete process.env.ELEVENLABS_API_KEY;
+    const cfg = getElevenLabsRuntimeConfig();
+    assert.equal(cfg.apiKeyPresence, 'MISSING');
+    assert.equal(cfg.apiKey, undefined);
+  });
+
+  it('getElevenLabsRuntimeConfig reports CONFIGURED with key and voice', () => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    process.env.ELEVENLABS_VOICE_ID = 'voice-123';
+    const cfg = getElevenLabsRuntimeConfig();
+    assert.equal(cfg.apiKeyPresence, 'CONFIGURED');
+    assert.equal(cfg.voiceIdPresence, 'CONFIGURED');
+    assert.equal(cfg.apiKey, 'test-key');
+    assert.equal(cfg.voiceId, 'voice-123');
   });
 
   it('getHeyGenRuntimeConfig accepts HEYGEN_KEY alias', () => {

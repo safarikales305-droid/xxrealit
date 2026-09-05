@@ -21,6 +21,10 @@ async function aiInfluencerFetch<T>(
 export type ElevenLabsProviderStatus = {
   configured: boolean;
   connected: boolean | null;
+  apiKeyPresence?: 'CONFIGURED' | 'MISSING';
+  voiceIdPresence?: 'CONFIGURED' | 'MISSING';
+  ttsReady?: boolean;
+  voicesReadStatus?: string;
   status?:
     | 'NOT_CONFIGURED'
     | 'CONNECTED'
@@ -156,6 +160,7 @@ export type AiInfluencerDashboard = {
     autoPublishInstagram?: boolean;
     autoPublishYoutube?: boolean;
     autoPublishPortal?: boolean;
+    youtubePublishMode?: string;
     youtubePrivacyStatus?: string;
     defaultMusicTrackId?: string | null;
     videoFormat?: 'VERTICAL_SHORT_9_16';
@@ -282,6 +287,7 @@ export type AiInfluencerJobRow = {
   instagramUsername?: string | null;
   instagramPublishError?: string | null;
   youtubePublishStatus?: string | null;
+  youtubePublishError?: string | null;
   youtubePermalink?: string | null;
   estimatedDurationSec?: number | null;
   createdAt: string;

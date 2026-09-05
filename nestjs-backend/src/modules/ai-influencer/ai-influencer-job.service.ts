@@ -27,7 +27,7 @@ import {
   retryDelayMs,
   type ProgressMeta,
 } from './ai-influencer-progress.util';
-import { resumeJobStatus } from './ai-influencer-retry.util';
+import { resumeJobStatus, resolveFailedStage } from './ai-influencer-retry.util';
 import {
   applyBrandTtsSubstitution,
   decodeHtmlEntities,
@@ -44,6 +44,7 @@ import { ArticleMediaProvider } from './providers/article-media.provider';
 import { PropertyMediaProvider } from './providers/property-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
+import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
 import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
@@ -78,6 +79,7 @@ function failedStageLabel(
   if (err instanceof FfmpegRenderError) {
     return err.stage === 'BRANDING_RENDER' ? 'BRANDING_RENDER' : 'RENDER';
   }
+  if (/elevenlabs|eleven.?labs/i.test(message)) return 'VOICE';
   if (stage === AiInfluencerReelJobStatus.VOICE_READY) {
     if (/heygen|avatar|HEYGEN/i.test(message)) return 'AVATAR';
   }
@@ -87,8 +89,16 @@ function failedStageLabel(
     if (/branding|watermark|logo|drawtext|filter/i.test(message)) return 'BRANDING_RENDER';
     return 'RENDER';
   }
-  if (stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING) return 'SCRIPT';
+  if (
+    stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING ||
+    stage === AiInfluencerReelJobStatus.CANDIDATE
+  ) {
+    if (/voice|tts|hlas/i.test(message)) return 'VOICE';
+    return 'SCRIPT';
+  }
   if (stage === AiInfluencerReelJobStatus.PUBLISHING) return 'PUBLISH';
+  if (/heygen|avatar/i.test(message)) return 'AVATAR';
+  if (/voice|tts|hlas/i.test(message)) return 'VOICE';
   return 'RENDER';
 }
 
@@ -109,6 +119,7 @@ export class AiInfluencerJobService {
     private readonly shortsMusic: ShortsMusicService,
     private readonly publish: AiInfluencerPublishService,
     private readonly heygen: HeyGenAvatarProvider,
+    private readonly elevenLabs: ElevenLabsVoiceProvider,
   ) {}
 
   async listJobs(limit = 50) {
@@ -359,12 +370,18 @@ export class AiInfluencerJobService {
     if (job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY) {
       return this.forceStartJob(jobId);
     }
-    const resumeStatus = resumeJobStatus(job.status, job.failedStage, {
-      spokenText: job.spokenText,
-      voiceStorageUrl: job.voiceStorageUrl,
-      avatarStorageUrl: job.avatarStorageUrl,
-      avatarExternalJobId: job.avatarExternalJobId,
-    });
+    const resumeStatus = resumeJobStatus(
+      job.status,
+      job.failedStage,
+      {
+        spokenText: job.spokenText,
+        voiceStorageUrl: job.voiceStorageUrl,
+        avatarStorageUrl: job.avatarStorageUrl,
+        avatarExternalJobId: job.avatarExternalJobId,
+      },
+      job.errorMessage,
+      job.errorCode,
+    );
     const progress = progressForStatus(resumeStatus);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -451,7 +468,12 @@ export class AiInfluencerJobService {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.failJob(jobId, job.status, errorCode(err), message, err);
+      const current = await this.prisma.aiInfluencerReelJob.findUnique({
+        where: { id: jobId },
+        select: { status: true },
+      });
+      const stageAtFailure = current?.status ?? job.status;
+      await this.failJob(jobId, stageAtFailure, errorCode(err), message, err);
       throw err;
     }
   }
@@ -816,12 +838,7 @@ export class AiInfluencerJobService {
     if (!spokenText) throw new Error('Chybí spokenText pro voice-over.');
 
     const voiceProvider = this.registry.getVoiceProvider(job.profile.voiceProvider);
-    if (!voiceProvider.isConfigured()) {
-      throw new Error('ElevenLabs API key není nakonfigurován.');
-    }
-    if (!voiceProvider.isVoiceSelected(job.profile.voiceId)) {
-      throw new Error('ElevenLabs je připojen. Nejprve vyberte hlas.');
-    }
+    await this.elevenLabs.assertReadyForGeneration(job.profile.voiceId);
 
     const voiceId = this.registry.resolveVoiceId(job.profile.voiceId);
     const cached = job.voiceHash
@@ -1565,8 +1582,9 @@ export class AiInfluencerJobService {
     err?: unknown,
   ): Promise<void> {
     const job = await this.getJob(jobId);
-    const failedStage = failedStageLabel(stage, err ?? { message }, message);
     const resolvedCode = errorCode(err) ?? code;
+    let failedStage = failedStageLabel(stage, err ?? { message }, message);
+    failedStage = resolveFailedStage(failedStage, message, resolvedCode) ?? failedStage;
 
     const attempts = job.attemptCount + 1;
     const transient = isTransientError(err ?? { message });

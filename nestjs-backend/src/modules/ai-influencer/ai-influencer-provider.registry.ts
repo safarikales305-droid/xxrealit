@@ -7,7 +7,7 @@ import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import type { AvatarProvider } from './providers/avatar.provider';
 import type { VoiceProvider } from './providers/voice.provider';
-import { getHeyGenRuntimeConfig } from './ai-influencer-runtime-config.util';
+import { getElevenLabsRuntimeConfig, getHeyGenRuntimeConfig } from './ai-influencer-runtime-config.util';
 
 @Injectable()
 export class AiInfluencerProviderRegistry {
@@ -30,7 +30,7 @@ export class AiInfluencerProviderRegistry {
   }
 
   resolveVoiceId(profileVoiceId?: string | null) {
-    return profileVoiceId?.trim() || this.config.get<string>('ELEVENLABS_VOICE_ID')?.trim() || null;
+    return profileVoiceId?.trim() || getElevenLabsRuntimeConfig().voiceId || null;
   }
 
   resolveAvatarId(profileAvatarId?: string | null) {

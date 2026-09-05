@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AiInfluencerReelJobStatus } from '@prisma/client';
-import { resumeJobStatus } from './ai-influencer-retry.util';
+import { resumeJobStatus, resolveFailedStage } from './ai-influencer-retry.util';
+
+describe('resolveFailedStage', () => {
+  it('legacy RENDER + ElevenLabs message maps to VOICE', () => {
+    assert.equal(
+      resolveFailedStage('RENDER', 'ElevenLabs API key není nakonfigurován.', null),
+      'VOICE',
+    );
+  });
+
+  it('ELEVENLABS error code maps to VOICE', () => {
+    assert.equal(resolveFailedStage('RENDER', 'selhalo', 'ELEVENLABS_NOT_CONFIGURED'), 'VOICE');
+  });
+});
 
 describe('resumeJobStatus', () => {
   it('retry od avataru bez externího jobu pokračuje od VOICE_READY', () => {
@@ -26,6 +39,17 @@ describe('resumeJobStatus', () => {
       voiceStorageUrl: 'https://cdn/voice.mp3',
     });
     assert.equal(next, AiInfluencerReelJobStatus.AVATAR_READY);
+  });
+
+  it('legacy ElevenLabs failure at RENDER resumes at VOICE_GENERATING', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'RENDER',
+      { spokenText: 'text' },
+      'ElevenLabs API key není nakonfigurován.',
+      'ELEVENLABS_NOT_CONFIGURED',
+    );
+    assert.equal(next, AiInfluencerReelJobStatus.VOICE_GENERATING);
   });
 
   it('retry od brandingu pokračuje od AVATAR_READY', () => {

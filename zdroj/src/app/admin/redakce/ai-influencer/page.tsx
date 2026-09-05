@@ -87,6 +87,46 @@ function failedStageLabel(stage: string | null | undefined): string {
   return stage.toLowerCase();
 }
 
+function effectiveFailedStage(job: {
+  failedStage?: string | null;
+  errorMessage?: string | null;
+  errorCode?: string | null;
+}): string | null {
+  const msg = (job.errorMessage ?? '').toLowerCase();
+  const code = (job.errorCode ?? '').toUpperCase();
+  if (
+    code.startsWith('ELEVENLABS_') ||
+    /elevenlabs|eleven.?labs/i.test(msg) ||
+    (job.failedStage === 'RENDER' && /elevenlabs|api key není nakonfigurován|vyberte hlas/i.test(msg))
+  ) {
+    return 'VOICE';
+  }
+  return job.failedStage ?? null;
+}
+
+function youtubePublishLabel(
+  job: {
+    youtubePublishStatus?: string | null;
+    youtubePublishError?: string | null;
+    status: string;
+  },
+  settings?: { autoPublishYoutube?: boolean; youtubePublishMode?: string },
+): string {
+  const status = job.youtubePublishStatus ?? '—';
+  if (status !== 'SKIPPED') return status;
+  if (job.youtubePublishError?.trim()) {
+    return `SKIPPED — ${job.youtubePublishError.trim().slice(0, 80)}`;
+  }
+  const autoEnabled =
+    settings?.autoPublishYoutube === true &&
+    settings?.youtubePublishMode === 'AUTO_AFTER_GENERATION';
+  if (!autoEnabled) return 'SKIPPED — target disabled';
+  if (!['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED', 'PUBLISHING'].includes(job.status)) {
+    return 'SKIPPED — pending generation';
+  }
+  return 'SKIPPED — not attempted';
+}
+
 function providerLabel(connected: boolean | null, configured: boolean) {
   if (!configured) return 'NOT CONFIGURED';
   if (connected === true) return 'CONNECTED';
@@ -358,16 +398,27 @@ export default function AiInfluencerPage() {
             title="ElevenLabs"
             lines={[
               {
+                ok: elevenLabs?.apiKeyPresence === 'CONFIGURED',
+                text: `API key: ${elevenLabs?.apiKeyPresence ?? 'MISSING'}`,
+              },
+              {
+                ok: elevenLabs?.voiceIdPresence === 'CONFIGURED' || elevenLabs?.voiceStatus === 'SELECTED',
+                text: `Voice ID: ${elevenLabs?.voiceIdPresence ?? (elevenLabs?.voiceStatus === 'SELECTED' ? 'CONFIGURED' : 'MISSING')}`,
+              },
+              {
+                ok: elevenLabs?.ttsReady === true || elevenLabs?.status === 'CONNECTED',
+                text: `TTS permission: ${elevenLabs?.ttsReady || elevenLabs?.status === 'CONNECTED' ? 'READY' : 'NOT READY'}`,
+              },
+              {
+                ok: elevenLabs?.voicesReadStatus?.includes('READY') ?? elevenLabs?.voicesPermission === 'PASS',
+                text: `Voices read: ${elevenLabs?.voicesReadStatus ?? (elevenLabs?.voicesPermission === 'PERMISSION_REQUIRED' ? 'OPTIONAL / MISSING' : 'OPTIONAL')}`,
+              },
+              {
                 ok: elevenLabs?.status === 'CONNECTED',
                 text:
                   elevenLabs?.status === 'CONNECTED'
                     ? 'Připojeno'
                     : elevenLabsLabel(elevenLabs?.status),
-              },
-              {
-                ok: elevenLabs?.voiceStatus === 'SELECTED',
-                text:
-                  elevenLabs?.voiceStatus === 'SELECTED' ? 'Hlas vybrán' : 'Hlas není vybrán',
               },
             ]}
           />
@@ -1061,7 +1112,7 @@ export default function AiInfluencerPage() {
               ) : null}
               {job.errorMessage ? (
                 <p className="mt-2 text-xs text-red-700">
-                  Krok: {failedStageLabel(job.failedStage)} — {job.errorMessage}
+                  Krok: {failedStageLabel(effectiveFailedStage(job))} — {job.errorMessage}
                 </p>
               ) : null}
               <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
@@ -1070,7 +1121,7 @@ export default function AiInfluencerPage() {
                   IG: {job.instagramPublishStatus ?? '—'}
                   {job.instagramUsername ? ` @${job.instagramUsername}` : ''}
                 </span>
-                <span>YT: {job.youtubePublishStatus ?? '—'}</span>
+                <span>YT: {youtubePublishLabel(job, dashboard?.settings)}</span>
                 {job.instagramPublishError && job.instagramPublishStatus === 'FAILED' ? (
                   <span className="text-red-600">{job.instagramPublishError.slice(0, 120)}</span>
                 ) : null}
@@ -1112,7 +1163,7 @@ export default function AiInfluencerPage() {
                     }}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs font-medium"
                   >
-                    Zkusit znovu od {failedStageLabel(job.failedStage)}
+                    Zkusit znovu od {failedStageLabel(effectiveFailedStage(job))}
                   </button>
                 ) : null}
                 {job.status === 'FAILED' &&
