@@ -33,6 +33,16 @@ describe('sreality import utilities', () => {
     assert.match(formatImportedContactName(broker), /Jan Novák/);
   });
 
+  it('extracts broker from premise object', () => {
+    const broker = extractSrealityBrokerFromRaw({
+      premise: { name: 'ABC Reality s.r.o.', id: 'prem-1', phone: '+420777111222' },
+      broker: { name: 'Martin Doležel' },
+    });
+    assert.equal(broker.agentName, 'Martin Doležel');
+    assert.equal(broker.companyName, 'ABC Reality s.r.o.');
+    assert.equal(broker.phone, '+420777111222');
+  });
+
   it('returns empty broker for missing data without throwing', () => {
     const broker = extractSrealityBrokerFromRaw(null);
     assert.equal(hasSrealityBrokerData(broker), false);

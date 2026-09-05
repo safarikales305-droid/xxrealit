@@ -136,6 +136,26 @@ export function extractSrealityBrokerFromRaw(
     if (v && typeof v === 'object') parts.push(extractFromObject(v as Record<string, unknown>));
   }
 
+  for (const key of ['premise', 'advert_owner', 'owner', 'agency', 'office']) {
+    const v = root[key];
+    if (v && typeof v === 'object') {
+      const obj = v as Record<string, unknown>;
+      parts.push({
+        companyName: pickName(obj) ?? cleanText(obj.title),
+        phone: pickPhone(obj),
+        email: pickEmail(obj),
+        logoUrl:
+          typeof obj.logo === 'string'
+            ? normalizeImageUrl(obj.logo)
+            : typeof obj.logoUrl === 'string'
+              ? normalizeImageUrl(obj.logoUrl)
+              : null,
+        profileUrl: cleanText(obj.url) ?? cleanText(obj.web),
+        sourceExternalId: cleanText(obj.id),
+      });
+    }
+  }
+
   const embedded = root._embedded;
   if (embedded && typeof embedded === 'object') {
     const emb = embedded as Record<string, unknown>;

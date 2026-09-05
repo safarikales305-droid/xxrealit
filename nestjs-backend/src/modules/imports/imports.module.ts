@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ApifyImportService } from './apify-import.service';
 import { ApifyImportController } from './apify-import.controller';
 import { ApifyImportQueueService } from './apify-import-queue.service';
@@ -17,7 +17,7 @@ import { RealityCzScraperImporter } from './reality-cz-scraper-importer.service'
 import { Century21ScraperImporter } from './century21-scraper-importer.service';
 
 @Module({
-  imports: [PropertiesModule, UploadModule, ImportedBrokerContactsModule],
+  imports: [forwardRef(() => PropertiesModule), UploadModule, ImportedBrokerContactsModule],
   controllers: [ApifyImportController],
   providers: [
     ImportSyncService,

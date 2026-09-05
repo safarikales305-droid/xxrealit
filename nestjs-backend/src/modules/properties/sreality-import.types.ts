@@ -16,7 +16,27 @@ export type SrealityImageImportStats = {
   requested: number;
   downloaded: number;
   failed: number;
+  uploaded?: number;
   message: string;
+};
+
+export type SrealityImportDiagnosticStage = 'PASS' | 'FAIL' | 'NOT_REQUIRED' | 'NOT_PUBLIC' | 'PARTIAL';
+
+export type SrealityImportDiagnostics = {
+  sourceParser: SrealityImportDiagnosticStage;
+  dynamicPage: SrealityImportDiagnosticStage;
+  gallery: SrealityImportDiagnosticStage;
+  galleryCount: number;
+  imagesDownloaded: SrealityImportDiagnosticStage;
+  imagesDownloadedCount: number;
+  imagesFailedCount: number;
+  agent: SrealityImportDiagnosticStage;
+  phone: SrealityImportDiagnosticStage;
+  email: SrealityImportDiagnosticStage;
+  contactClick: SrealityImportDiagnosticStage;
+  storage: SrealityImportDiagnosticStage;
+  storageCount: number;
+  browserFallback: SrealityImportDiagnosticStage;
 };
 
 export type SrealityAiTextPayload = {
@@ -51,6 +71,7 @@ export type SrealityImportPreview = {
   aiText: SrealityAiTextPayload;
   sourceExternalId: string | null;
   sourceUrl: string;
+  diagnostics?: SrealityImportDiagnostics;
 };
 
 export type SrealityImportPublishSettings = {

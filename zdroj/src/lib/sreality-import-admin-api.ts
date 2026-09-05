@@ -53,6 +53,22 @@ export type SrealityImportPreviewResponse = {
   };
   sourceExternalId: string | null;
   sourceUrl: string;
+  diagnostics?: {
+    sourceParser: string;
+    dynamicPage: string;
+    gallery: string;
+    galleryCount: number;
+    imagesDownloaded: string;
+    imagesDownloadedCount: number;
+    imagesFailedCount: number;
+    agent: string;
+    phone: string;
+    email: string;
+    contactClick: string;
+    storage: string;
+    storageCount: number;
+    browserFallback: string;
+  };
 };
 
 export type SrealityImportPublishPayload = {

@@ -81,6 +81,7 @@ export type ImportExternalImageParams = {
   propertyId: string;
   sourcePortalKey: string;
   index: number;
+  referer?: string;
 };
 
 export type ImportExternalImageResult = {
@@ -121,6 +122,7 @@ export class ImportImageService {
           'User-Agent':
             'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
           Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          ...(params.referer ? { Referer: params.referer } : {}),
         },
       });
       const cl = String(res.headers['content-length'] ?? '');

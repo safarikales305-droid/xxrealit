@@ -216,8 +216,13 @@ function collectImageUrls(value: unknown, out: string[], depth = 0): void {
   if (depth > 18 || out.length >= 40) return;
   if (typeof value === 'string') {
     const s = value.trim().replace(/\\\//g, '/');
-    if (/^https:\/\/[^"'\s]+\.(?:jpe?g|webp|png)(?:\?|$)/i.test(s)) {
-      if (!/logo|icon|favicon|sprite|1x1/i.test(s)) out.push(s);
+    if (
+      /^(https?:)?\/\/[^"'\s]+\.(?:jpe?g|webp|png)(?:\?|$)/i.test(s) ||
+      /^\/[^"'\s]+\.(?:jpe?g|webp|png)(?:\?|$)/i.test(s)
+    ) {
+      if (!/logo|icon|favicon|sprite|1x1/i.test(s)) {
+        out.push(s.startsWith('/') && !s.startsWith('//') ? `https://img.sreality.cz${s}` : s.startsWith('//') ? `https:${s}` : s);
+      }
     }
     return;
   }

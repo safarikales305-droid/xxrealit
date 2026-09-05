@@ -18,12 +18,22 @@ const inputClass =
 function brokerMatchLabel(status: SrealityImportPreviewResponse['brokerMatchStatus']): string {
   switch (status) {
     case 'EXISTING_PROFILE':
-      return 'EXISTUJÍCÍ PROFIL';
+      return 'NALEZEN · EXISTUJÍCÍ PROFIL';
     case 'NEW_IMPORTED_CONTACT':
-      return 'NOVÝ IMPORTOVANÝ KONTAKT';
+      return 'NALEZEN · NOVÝ IMPORTOVANÝ KONTAKT';
     default:
       return 'KONTAKT NENALEZEN';
   }
+}
+
+function diagLabel(value: string | undefined): string {
+  if (!value) return '—';
+  if (value === 'PASS') return 'PASS';
+  if (value === 'FAIL') return 'FAIL';
+  if (value === 'NOT_REQUIRED') return 'NOT REQUIRED';
+  if (value === 'NOT_PUBLIC') return 'NOT PUBLIC';
+  if (value === 'PARTIAL') return 'PARTIAL';
+  return value;
 }
 
 export default function AdminSrealityImportPage() {
@@ -43,6 +53,7 @@ export default function AdminSrealityImportPage() {
   const [pubIg, setPubIg] = useState(true);
   const [pubYt, setPubYt] = useState(true);
   const [pubShorts, setPubShorts] = useState(true);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const applyPreviewToForm = useCallback((p: SrealityImportPreviewResponse) => {
     const pre = p.prefill as Record<string, unknown>;
@@ -210,6 +221,31 @@ export default function AdminSrealityImportPage() {
           <section className="rounded-2xl border border-zinc-200 bg-white p-6">
             <p className="text-sm text-zinc-600">{preview.imageImportStats.message}</p>
             <p className="mt-1 text-xs text-zinc-500">Zdroj: {preview.sourceUrl}</p>
+            {preview.diagnostics ? (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-orange-700 hover:underline"
+                  onClick={() => setShowDiagnostics((v) => !v)}
+                >
+                  {showDiagnostics ? 'Skrýt' : 'Zobrazit'} detail importu
+                </button>
+                {showDiagnostics ? (
+                  <dl className="mt-3 grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
+                    <div><dt className="font-semibold">Source parser</dt><dd>{diagLabel(preview.diagnostics.sourceParser)}</dd></div>
+                    <div><dt className="font-semibold">Dynamic page</dt><dd>{diagLabel(preview.diagnostics.dynamicPage)}</dd></div>
+                    <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND</dd></div>
+                    <div><dt className="font-semibold">Images</dt><dd>{preview.diagnostics.imagesDownloadedCount} DOWNLOADED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
+                    <div><dt className="font-semibold">Agent</dt><dd>{diagLabel(preview.diagnostics.agent)}</dd></div>
+                    <div><dt className="font-semibold">Phone</dt><dd>{diagLabel(preview.diagnostics.phone)}</dd></div>
+                    <div><dt className="font-semibold">Email</dt><dd>{diagLabel(preview.diagnostics.email)}</dd></div>
+                    <div><dt className="font-semibold">Contact click</dt><dd>{diagLabel(preview.diagnostics.contactClick)}</dd></div>
+                    <div><dt className="font-semibold">Storage</dt><dd>{diagLabel(preview.diagnostics.storage)} · {preview.diagnostics.storageCount} UPLOADED</dd></div>
+                    <div><dt className="font-semibold">Browser fallback</dt><dd>{diagLabel(preview.diagnostics.browserFallback)}</dd></div>
+                  </dl>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           <section className="grid gap-6 lg:grid-cols-2">
@@ -231,9 +267,24 @@ export default function AdminSrealityImportPage() {
               <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Stav párování: {brokerMatchLabel(preview.brokerMatchStatus)}
               </p>
-              {!preview.broker.phone && !preview.broker.email ? (
+              {preview.broker.agentName ? (
+                <p className="mt-2 text-sm text-zinc-800">
+                  Makléř: {preview.broker.agentName}
+                  {preview.broker.companyName ? ` · ${preview.broker.companyName}` : ''}
+                </p>
+              ) : null}
+              {preview.brokerMatchStatus === 'NOT_FOUND' &&
+              !preview.broker.agentName &&
+              !preview.broker.companyName ? (
                 <p className="mt-2 text-sm text-amber-700">
                   Kontakt makléře nebyl automaticky nalezen. Doplňte jej ručně.
+                </p>
+              ) : null}
+              {preview.brokerMatchStatus !== 'NOT_FOUND' &&
+              !preview.broker.phone &&
+              !preview.broker.email ? (
+                <p className="mt-2 text-sm text-zinc-600">
+                  Telefon/e-mail nebyly veřejně dostupné — doplňte je ručně, pokud je znáte.
                 </p>
               ) : null}
               <div className="mt-3 space-y-3">

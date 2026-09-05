@@ -1,6 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync } from 'node:fs';
+import type { SrealityBrokerPrefill } from './sreality-broker-extract.util';
+import { extractSrealityBrokerFromRaw } from './sreality-broker-extract.util';
+import {
+  extractSrealityBrokerFromHtml,
+  mergeBrokerParts,
+} from './sreality-contact-extract.util';
+import { dedupeSrealityImageUrls } from './sreality-image.util';
+
+export type SrealityPlaywrightEnrichmentResult = {
+  imageUrls: string[];
+  broker: Partial<SrealityBrokerPrefill>;
+  html: string;
+  contactClickAttempted: boolean;
+  contactClickSucceeded: boolean;
+  galleryOpened: boolean;
+  errorCode?: string;
+  errorDetail?: string;
+};
 
 export type SrealityPlaywrightRenderResult = {
   html: string;
@@ -44,10 +62,233 @@ type PlaywrightBrowser = {
 };
 
 @Injectable()
-export class SrealityPlaywrightService {
+export class SrealityPlaywrightService implements OnModuleDestroy {
   private readonly logger = new Logger(SrealityPlaywrightService.name);
+  private sharedBrowser: PlaywrightBrowser | null = null;
+  private sharedBrowserPromise: Promise<PlaywrightBrowser> | null = null;
 
   constructor(private readonly config: ConfigService) {}
+
+  async onModuleDestroy() {
+    if (this.sharedBrowser) {
+      await this.sharedBrowser.close().catch(() => undefined);
+      this.sharedBrowser = null;
+      this.sharedBrowserPromise = null;
+    }
+  }
+
+  private async getSharedBrowser(): Promise<PlaywrightBrowser> {
+    if (this.sharedBrowser) return this.sharedBrowser;
+    if (!this.sharedBrowserPromise) {
+      this.sharedBrowserPromise = (async () => {
+        const playwright = await this.loadPlaywrightModule();
+        const browser = await this.launchChromiumBrowser(playwright);
+        this.sharedBrowser = browser;
+        return browser;
+      })();
+    }
+    return this.sharedBrowserPromise;
+  }
+
+  /** Browser fallback: galerie, lazy images, veřejný kontakt po kliknutí. */
+  async enrichImportData(
+    url: string,
+    options?: { timeoutMs?: number },
+  ): Promise<SrealityPlaywrightEnrichmentResult> {
+    const timeoutMs = Math.min(25_000, options?.timeoutMs ?? 20_000);
+    try {
+      return await this.withTimeout(
+        this.enrichImportOnce(url),
+        timeoutMs,
+        `Playwright enrichment timeout po ${timeoutMs} ms`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`SREALITY_BROWSER_FALLBACK_FAIL url=${url} err=${msg}`);
+      return {
+        imageUrls: [],
+        broker: {},
+        html: '',
+        contactClickAttempted: false,
+        contactClickSucceeded: false,
+        galleryOpened: false,
+        errorCode: /timeout/i.test(msg) ? 'TIMEOUT' : 'PLAYWRIGHT_ERROR',
+        errorDetail: msg,
+      };
+    }
+  }
+
+  private async enrichImportOnce(url: string): Promise<SrealityPlaywrightEnrichmentResult> {
+    this.logger.log(`SREALITY_BROWSER_FALLBACK_START url=${url}`);
+    const browser = await this.getSharedBrowser();
+    const storage = this.readStorageState();
+    const contextOptions: Record<string, unknown> = {
+      viewport: { width: 1440, height: 2400 },
+      locale: 'cs-CZ',
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      extraHTTPHeaders: { 'Accept-Language': 'cs-CZ,cs;q=0.9,en;q=0.8' },
+    };
+    if (storage && 'path' in storage) contextOptions.storageState = storage.path;
+
+    const context = await browser.newContext(contextOptions);
+    if (storage && 'cookies' in storage) {
+      await context.addCookies(
+        storage.cookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path ?? '/',
+        })),
+      );
+    }
+
+    const page = await context.newPage();
+    const networkJson: unknown[] = [];
+    page.on('response', (response: PlaywrightResponse) => {
+      void (async () => {
+        const resUrl = response.url();
+        if (!/contact|phone|broker|makler|client|premise|seller/i.test(resUrl)) return;
+        if (response.status() < 200 || response.status() >= 300) return;
+        const ct = response.headers()['content-type'] ?? '';
+        if (!ct.includes('json')) return;
+        try {
+          networkJson.push(await response.json());
+        } catch {
+          /* ignore */
+        }
+      })();
+    });
+
+    let contactClickAttempted = false;
+    let contactClickSucceeded = false;
+    let galleryOpened = false;
+
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS });
+      await this.handleSeznamConsent(page, url, context);
+      await page
+        .waitForSelector('h1, [data-e2e="detail-heading"], main', { timeout: SELECTOR_TIMEOUT_MS })
+        .catch(() => undefined);
+
+      await page.evaluate(async () => {
+        const steps = 4;
+        for (let i = 1; i <= steps; i += 1) {
+          window.scrollTo(0, (document.body.scrollHeight * i) / steps);
+          await new Promise((r) => setTimeout(r, 350));
+        }
+      });
+
+      const gallerySelectors = [
+        '[data-e2e="detail-gallery"] img',
+        '[data-e2e="detail-image"]',
+        '.gallery img',
+        'picture img',
+        'main img[src*="sreality"]',
+      ];
+      for (const sel of gallerySelectors) {
+        try {
+          const el = page.locator(sel).first();
+          if ((await el.count()) > 0) {
+            await el.click({ timeout: 2000 }).catch(() => undefined);
+            galleryOpened = true;
+            await this.delay(page, 500);
+            break;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const contactSelectors = [
+        'button:has-text("Zobrazit telefon")',
+        'button:has-text("Ukázat telefon")',
+        'button:has-text("Zobrazit kontakt")',
+        'button:has-text("Kontakt")',
+        '[data-e2e="show-phone"]',
+        '[data-e2e="contact-show"]',
+      ];
+      for (const sel of contactSelectors) {
+        try {
+          const el = page.locator(sel).first();
+          if ((await el.count()) > 0) {
+            contactClickAttempted = true;
+            await el.click({ timeout: 2500 }).catch(() => undefined);
+            await this.delay(page, 800);
+            contactClickSucceeded = true;
+            break;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (!contactClickSucceeded) {
+        await page
+          .getByRole('button', { name: /zobrazit telefon|ukázat telefon|kontakt/i })
+          .first()
+          .click({ timeout: 1500 })
+          .then(() => {
+            contactClickAttempted = true;
+            contactClickSucceeded = true;
+          })
+          .catch(() => undefined);
+        if (contactClickSucceeded) await this.delay(page, 600);
+      }
+
+      const extracted = await page.evaluate(() => {
+        const urls = new Set<string>();
+        const addUrl = (raw: string | null | undefined) => {
+          if (!raw) return;
+          const s = raw.trim();
+          if (!s || /logo|icon|sprite|1x1|avatar|profile/i.test(s)) return;
+          if (/sreality\.cz/i.test(s) || /^\/.*\.(jpe?g|webp|png)/i.test(s)) {
+            urls.add(s.startsWith('//') ? `https:${s}` : s);
+          }
+        };
+        for (const img of Array.from(document.querySelectorAll('img'))) {
+          addUrl(img.getAttribute('src'));
+          addUrl(img.getAttribute('data-src'));
+          addUrl(img.getAttribute('data-original'));
+          const srcset = img.getAttribute('srcset');
+          if (srcset) {
+            for (const part of srcset.split(',')) {
+              addUrl(part.trim().split(/\s+/)[0]);
+            }
+          }
+        }
+        for (const source of Array.from(document.querySelectorAll('picture source'))) {
+          addUrl(source.getAttribute('srcset')?.split(',')[0]?.trim().split(/\s+/)[0]);
+        }
+        return Array.from(urls);
+      });
+
+      const html = await page.evaluate(() => document.documentElement.outerHTML);
+      const htmlBroker = extractSrealityBrokerFromHtml(html);
+      const networkBrokerParts = networkJson.map((payload) =>
+        extractSrealityBrokerFromRaw(
+          payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null,
+        ),
+      );
+      const broker = mergeBrokerParts([htmlBroker, ...networkBrokerParts]);
+      const imageUrls = dedupeSrealityImageUrls([...extracted]);
+
+      this.logger.log(
+        `SREALITY_GALLERY_LOADED images=${imageUrls.length} contactClick=${contactClickSucceeded} agent=${Boolean(broker.agentName || broker.companyName)}`,
+      );
+
+      return {
+        imageUrls,
+        broker,
+        html,
+        contactClickAttempted,
+        contactClickSucceeded,
+        galleryOpened,
+      };
+    } finally {
+      await context.close().catch(() => undefined);
+    }
+  }
 
   async renderPage(
     url: string,
@@ -483,9 +724,17 @@ type PlaywrightContext = {
   };
 };
 
+type PlaywrightResponse = {
+  url: () => string;
+  status: () => number;
+  headers: () => Record<string, string>;
+  json: () => Promise<unknown>;
+};
+
 type PlaywrightPage = {
   goto: (url: string, opts: Record<string, unknown>) => Promise<{ status: () => number } | null>;
   url: () => string;
+  on: (event: 'response', handler: (response: PlaywrightResponse) => void) => void;
   addInitScript: (fn: () => void) => Promise<void>;
   waitForSelector: (sel: string, opts: Record<string, unknown>) => Promise<void>;
   waitForLoadState: (state: string, opts: Record<string, unknown>) => Promise<void>;

@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import {
   ImportSourceAvailabilityStatus,
@@ -12,11 +14,13 @@ import {
 } from '@prisma/client';
 import axios from 'axios';
 import { PrismaService } from '../../database/prisma.service';
+import { ImportImageService } from '../imports/import-image.service';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
 import { ListingsPrefillService } from './listings-prefill.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
 import { SrealityListingTextRewriteService } from './sreality-listing-text-rewrite.service';
+import { SrealityPlaywrightService } from './sreality-playwright.service';
 import {
   extractListingIdFromUrl,
   type SrealityListingPrefill,
@@ -27,11 +31,17 @@ import {
   hasSrealityBrokerData,
   type SrealityBrokerPrefill,
 } from './sreality-broker-extract.util';
-import { isSrealityHost } from '../link-preview/sreality-scraper.util';
+import { isAllowedSrealityImageUrl } from './sreality-import-security.util';
+import {
+  dedupeSrealityImageUrls,
+  srealityImageFetchHeaders,
+} from './sreality-image.util';
+import { mergeBrokerParts, extractSrealityBrokerFromHtml } from './sreality-contact-extract.util';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { SeoLocationService } from '../seo/seo-location.service';
 import type {
   SrealityBrokerMatchStatus,
+  SrealityImportDiagnostics,
   SrealityImportImageRow,
   SrealityImportPreview,
   SrealityImportPublishPayload,
@@ -40,8 +50,6 @@ import type {
 } from './sreality-import.types';
 import type { SrealityPrefillResult } from './listings-prefill.service';
 
-const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MIN_IMAGE_BYTES = 12 * 1024;
 const MAX_IMAGES = 30;
@@ -58,6 +66,9 @@ export class SrealityImportService {
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly seoLocation: SeoLocationService,
+    private readonly playwright: SrealityPlaywrightService,
+    @Inject(forwardRef(() => ImportImageService))
+    private readonly importImages: ImportImageService,
   ) {}
 
   /** Sdílený entrypoint pro veřejný formulář i administraci. */
@@ -110,22 +121,99 @@ export class SrealityImportService {
   }
 
   async createImportPreview(adminUserId: string, sourceUrl: string): Promise<SrealityImportPreview> {
+    this.log.log(`SREALITY_IMPORT_START url=${sourceUrl.trim()}`);
     const duplicate = await this.findDuplicateByUrl(sourceUrl);
     const prefillResult = await this.prefillFromUrl(sourceUrl, { debug: true });
     if (!prefillResult.ok) {
       throw new BadRequestException(prefillResult.error);
     }
 
+    this.log.log('SREALITY_STATIC_PARSE_OK');
     const prefill = prefillResult.data;
     const listingId = extractListingIdFromUrl(sourceUrl);
-    const broker = this.brokerFromPrefill(prefill);
-    const { matchStatus, matchedId, matchedContact } = await this.matchBroker(broker);
+    let broker = this.brokerFromPrefill(prefill);
+    let imageUrls = dedupeSrealityImageUrls(prefill.sourceImageUrls ?? []);
+
+    const diagnostics: SrealityImportDiagnostics = {
+      sourceParser: prefillResult.log.strategyUsed !== 'none' ? 'PASS' : 'FAIL',
+      dynamicPage: 'NOT_REQUIRED',
+      gallery: imageUrls.length > 0 ? 'PASS' : 'FAIL',
+      galleryCount: imageUrls.length,
+      imagesDownloaded: 'FAIL',
+      imagesDownloadedCount: 0,
+      imagesFailedCount: 0,
+      agent: hasSrealityBrokerData(broker) ? 'PASS' : 'FAIL',
+      phone: broker.phone ? 'PASS' : 'NOT_PUBLIC',
+      email: broker.email ? 'PASS' : 'NOT_PUBLIC',
+      contactClick: 'NOT_REQUIRED',
+      storage: 'FAIL',
+      storageCount: 0,
+      browserFallback: 'NOT_REQUIRED',
+    };
+
+    const needsBrowser =
+      imageUrls.length === 0 ||
+      !broker.agentName ||
+      (!broker.phone && !broker.email);
+
+    if (needsBrowser) {
+      diagnostics.browserFallback = 'PASS';
+      diagnostics.dynamicPage = 'PASS';
+      const enrichment = await this.playwright.enrichImportData(sourceUrl.trim());
+      if (enrichment.errorCode) {
+        diagnostics.dynamicPage = 'FAIL';
+        diagnostics.browserFallback = 'FAIL';
+      } else {
+        if (enrichment.imageUrls.length) {
+          imageUrls = dedupeSrealityImageUrls([...imageUrls, ...enrichment.imageUrls]);
+          diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
+          diagnostics.galleryCount = imageUrls.length;
+        }
+        if (enrichment.html) {
+          broker = mergeBrokerParts([
+            broker,
+            extractSrealityBrokerFromHtml(enrichment.html),
+            enrichment.broker,
+          ]);
+        } else if (enrichment.broker) {
+          broker = mergeBrokerParts([broker, enrichment.broker]);
+        }
+        diagnostics.contactClick = enrichment.contactClickAttempted
+          ? enrichment.contactClickSucceeded
+            ? 'PASS'
+            : 'FAIL'
+          : 'NOT_REQUIRED';
+        if (broker.agentName || broker.companyName) diagnostics.agent = 'PASS';
+        if (broker.phone) diagnostics.phone = 'PASS';
+        if (broker.email) diagnostics.email = 'PASS';
+        else if (broker.agentName && !broker.email) diagnostics.email = 'NOT_PUBLIC';
+      }
+    }
+
+    this.log.log(`SREALITY_IMAGES_FOUND count=${imageUrls.length}`);
 
     const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const { images, stats } = await this.mirrorImages(
-      prefill.sourceImageUrls,
+      imageUrls,
+      sourceUrl.trim(),
       `sreality-draft-${draftId}`,
     );
+
+    diagnostics.imagesDownloadedCount = stats.downloaded;
+    diagnostics.imagesFailedCount = stats.failed;
+    diagnostics.imagesDownloaded = stats.downloaded > 0 ? 'PASS' : stats.requested > 0 ? 'PARTIAL' : 'FAIL';
+    if (stats.downloaded === stats.requested && stats.requested > 0) diagnostics.imagesDownloaded = 'PASS';
+    diagnostics.storageCount = stats.downloaded;
+    diagnostics.storage = stats.downloaded > 0 ? 'PASS' : 'FAIL';
+
+    this.log.log(
+      `SREALITY_IMAGES_DOWNLOADED count=${stats.downloaded} failed=${stats.failed}`,
+    );
+    if (broker.agentName || broker.companyName) {
+      this.log.log('SREALITY_AGENT_FOUND');
+    }
+
+    const { matchStatus, matchedId, matchedContact } = await this.matchBroker(broker);
     const aiText = await this.textRewrite.rewriteListingText(prefill);
 
     const draft = await this.prisma.srealityImportDraft.create({
@@ -135,15 +223,18 @@ export class SrealityImportService {
         sourceUrl: sourceUrl.trim(),
         sourceExternalId: listingId,
         status: 'preview',
-        prefillJson: prefill as unknown as Prisma.InputJsonValue,
+        prefillJson: { ...prefill, sourceImageUrls: imageUrls } as unknown as Prisma.InputJsonValue,
         brokerJson: broker as unknown as Prisma.InputJsonValue,
         imagesJson: images as unknown as Prisma.InputJsonValue,
         imageImportStats: stats as unknown as Prisma.InputJsonValue,
         aiTextJson: aiText as unknown as Prisma.InputJsonValue,
         brokerMatchStatus: matchStatus,
         matchedBrokerContactId: matchedId,
+        settingsJson: { diagnostics } as unknown as Prisma.InputJsonValue,
       },
     });
+
+    this.log.log('SREALITY_IMPORT_DONE');
 
     return {
       draftId: draft.id,
@@ -152,7 +243,7 @@ export class SrealityImportService {
         propertyId: duplicate?.id,
         importedAt: duplicate?.importedAt?.toISOString(),
       },
-      prefill,
+      prefill: { ...prefill, sourceImageUrls: imageUrls },
       broker,
       brokerMatchStatus: matchStatus,
       matchedBrokerContactId: matchedId,
@@ -162,6 +253,7 @@ export class SrealityImportService {
       aiText,
       sourceExternalId: listingId,
       sourceUrl: sourceUrl.trim(),
+      diagnostics,
     };
   }
 
@@ -524,15 +616,16 @@ export class SrealityImportService {
 
   private async mirrorImages(
     urls: string[],
+    sourceListingUrl: string,
     storageKey: string,
   ): Promise<{ images: SrealityImportImageRow[]; stats: SrealityImageImportStats }> {
-    const unique = [...new Set(urls.map((u) => u.trim()).filter(Boolean))].slice(0, MAX_IMAGES);
+    const unique = dedupeSrealityImageUrls(urls).slice(0, MAX_IMAGES);
     const images: SrealityImportImageRow[] = [];
     let downloaded = 0;
 
     for (let i = 0; i < unique.length; i += 1) {
       const sourceUrl = unique[i]!;
-      if (!isSrealityHost(sourceUrl)) {
+      if (!isAllowedSrealityImageUrl(sourceUrl)) {
         images.push({
           sourceUrl,
           storedUrl: null,
@@ -544,57 +637,38 @@ export class SrealityImportService {
         continue;
       }
 
-      try {
-        const res = await axios.get(sourceUrl, {
-          responseType: 'arraybuffer',
-          timeout: 15_000,
-          maxRedirects: 5,
-          maxContentLength: MAX_IMAGE_BYTES,
-          validateStatus: (s: number) => s >= 200 && s < 300,
-          headers: { Accept: 'image/*', 'User-Agent': BROWSER_USER_AGENT },
-        });
-        const ct = String(res.headers['content-type'] ?? '').toLowerCase();
-        if (!ct.startsWith('image/')) {
-          images.push({
-            sourceUrl,
-            storedUrl: null,
-            watermarkedUrl: null,
-            sortOrder: i,
-            isMain: i === 0,
-            error: 'Neplatný content-type',
-          });
-          continue;
-        }
-        const buf = Buffer.from(res.data);
-        if (buf.length < MIN_IMAGE_BYTES || buf.length > MAX_IMAGE_BYTES) {
-          images.push({
-            sourceUrl,
-            storedUrl: null,
-            watermarkedUrl: null,
-            sortOrder: i,
-            isMain: i === 0,
-            error: 'Neplatná velikost',
-          });
-          continue;
-        }
+      const imported = await this.importImages.importExternalImageToPortal({
+        imageUrl: sourceUrl,
+        propertyId: storageKey,
+        sourcePortalKey: 'sreality',
+        index: i + 1,
+        referer: sourceListingUrl,
+      });
 
-        const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-        const uploaded = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
-          buf,
-          `${storageKey}-${i + 1}.${ext}`,
-        );
+      if (imported?.storedUrl) {
         downloaded += 1;
         images.push({
           sourceUrl,
-          storedUrl: uploaded.originalUrl,
-          watermarkedUrl: uploaded.watermarkedUrl ?? null,
+          storedUrl: imported.storedUrl,
+          watermarkedUrl: imported.watermarkedUrl ?? null,
           sortOrder: i,
           isMain: downloaded === 1,
         });
-      } catch (err) {
-        this.log.warn(
-          `mirror image failed ${sourceUrl}: ${err instanceof Error ? err.message : err}`,
-        );
+        continue;
+      }
+
+      const fallback = await this.downloadImageDirect(sourceUrl, sourceListingUrl, storageKey, i);
+      if (fallback) {
+        downloaded += 1;
+        images.push({
+          sourceUrl,
+          storedUrl: fallback.storedUrl,
+          watermarkedUrl: fallback.watermarkedUrl,
+          sortOrder: i,
+          isMain: downloaded === 1,
+        });
+      } else {
+        this.log.warn(`mirror image failed ${sourceUrl}`);
         images.push({
           sourceUrl,
           storedUrl: null,
@@ -611,13 +685,52 @@ export class SrealityImportService {
       if (firstOk) firstOk.isMain = true;
     }
 
+    const failed = unique.length - downloaded;
     const stats: SrealityImageImportStats = {
       requested: unique.length,
       downloaded,
-      failed: unique.length - downloaded,
-      message: `Staženo ${downloaded}/${unique.length} fotografií.`,
+      failed,
+      uploaded: downloaded,
+      message:
+        failed > 0
+          ? `Staženo ${downloaded}/${unique.length} fotografií. ${failed} fotografií se nepodařilo stáhnout.`
+          : `Staženo ${downloaded}/${unique.length} fotografií.`,
     };
 
     return { images, stats };
+  }
+
+  private async downloadImageDirect(
+    sourceUrl: string,
+    referer: string,
+    storageKey: string,
+    index: number,
+  ): Promise<{ storedUrl: string; watermarkedUrl: string | null } | null> {
+    try {
+      const res = await axios.get(sourceUrl, {
+        responseType: 'arraybuffer',
+        timeout: 15_000,
+        maxRedirects: 5,
+        maxContentLength: MAX_IMAGE_BYTES,
+        validateStatus: (s: number) => s >= 200 && s < 300,
+        headers: srealityImageFetchHeaders(referer),
+      });
+      const ct = String(res.headers['content-type'] ?? '').toLowerCase();
+      if (!ct.startsWith('image/')) return null;
+      const buf = Buffer.from(res.data);
+      if (buf.length < MIN_IMAGE_BYTES || buf.length > MAX_IMAGE_BYTES) return null;
+
+      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+      const uploaded = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+        buf,
+        `${storageKey}-${index + 1}.${ext}`,
+      );
+      return {
+        storedUrl: uploaded.originalUrl,
+        watermarkedUrl: uploaded.watermarkedUrl ?? null,
+      };
+    } catch {
+      return null;
+    }
   }
 }
