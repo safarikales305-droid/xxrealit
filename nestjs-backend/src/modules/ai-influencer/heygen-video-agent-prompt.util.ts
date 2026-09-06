@@ -114,6 +114,8 @@ export function buildHeyGenVideoAgentPrompt(input: BuildVideoAgentPromptInput): 
     'Delivery: short spoken Czech sentences (5–15 words), natural pauses, natural gestures, direct eye contact — NOT reading an article.',
     'Editing: modern Reels/Shorts cut — mostly hard CUTs, occasional short crossfade; jump cuts on avatar between sentences; scene length 2–6s (hook 1.5–3s, CTA 3–5s).',
     'Never keep the same avatar size, position, framing, or background for more than one short scene. Alternate full/medium/close, left/right, PIP, avatar-over-visual.',
+    'Default avatar framing: FULLSCREEN_CROP — presenter fills the 9:16 frame edge-to-edge with cover crop, never letterbox/pillarbox contain.',
+    'Use dynamic crop per scene: medium center, close-up, slight left/right, full-height — never one static crop for the whole reel.',
     'Vary backgrounds: interiors, city, office, listing photos, article images, thematic B-roll — NOT one static backdrop for the whole video.',
     'Scene plan:',
     ...sceneLines,

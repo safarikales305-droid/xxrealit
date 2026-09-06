@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   EditorialReelOwnershipType,
   ReelPlatformPublishStatus,
@@ -191,6 +191,7 @@ export class AiInfluencerPublishService {
       include: { article: true },
     });
     if (!job) throw new Error('Job nenalezen.');
+    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
     const videoUrl = job.finalMasterUrl ?? job.videoUrl;
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
 
@@ -292,6 +293,7 @@ export class AiInfluencerPublishService {
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
+    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
     const videoUrl = job.finalMasterUrl ?? job.videoUrl;
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
 
@@ -364,6 +366,7 @@ export class AiInfluencerPublishService {
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
+    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
 
     if (job.ownershipType === EditorialReelOwnershipType.EXTERNAL) {
       throw new Error('EXTERNAL: Externí videa nelze reuploadovat na XXREALIT kanál.');
@@ -475,6 +478,7 @@ export class AiInfluencerPublishService {
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
+    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
 
     const videoUrl = job.finalMasterUrl ?? job.videoUrl;
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');

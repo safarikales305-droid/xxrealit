@@ -71,6 +71,10 @@ export type AiInfluencerVideoStyle =
   | 'educational'
   | 'auto';
 export type AiInfluencerAvatarFrequency = 'low' | 'medium' | 'high';
+export type AiInfluencerAvatarFraming = 'auto' | 'fullscreen' | 'medium' | 'closeup_mix';
+export type AiInfluencerBackgroundMode = 'auto' | 'real_estate' | 'urban' | 'interiors' | 'mix';
+export type AiInfluencerSceneFrequency = 'very_dynamic' | 'dynamic' | 'balanced';
+export type AiInfluencerVideoTempo = 'dynamic' | 'balanced' | 'calm';
 
 export type AiInfluencerSceneMediaSource =
   | 'PROPERTY_IMAGE'
@@ -92,6 +96,8 @@ export type AiInfluencerJobRenderMeta = {
   videoAgentSubmittedAt?: string;
   pronunciationRulesApplied?: string[];
   qualityMetrics?: Record<string, unknown>;
+  isProductionTest?: boolean;
+  testDurationSec?: number;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'
@@ -182,6 +188,15 @@ export type AiInfluencerAutomationSettings = {
   allowVideoAgentFallback: boolean;
   videoStyle: AiInfluencerVideoStyle;
   avatarFrequency: AiInfluencerAvatarFrequency;
+  avatarFraming: AiInfluencerAvatarFraming;
+  backgroundMode: AiInfluencerBackgroundMode;
+  sceneFrequency: AiInfluencerSceneFrequency;
+  videoTempo: AiInfluencerVideoTempo;
+  usePropertyImages: boolean;
+  useTextGraphics: boolean;
+  ctaTextMode: 'auto' | 'custom';
+  customCtaText: string;
+  youtubeCtaText: string;
 };
 
 export const DEFAULT_PREFERRED_CATEGORIES = [
@@ -271,6 +286,15 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   allowVideoAgentFallback: true,
   videoStyle: 'auto',
   avatarFrequency: 'medium',
+  avatarFraming: 'fullscreen',
+  backgroundMode: 'auto',
+  sceneFrequency: 'dynamic',
+  videoTempo: 'dynamic',
+  usePropertyImages: true,
+  useTextGraphics: true,
+  ctaTextMode: 'auto',
+  customCtaText: 'Více najdete na XXREALIT.CZ.',
+  youtubeCtaText: 'Sledujte XXREALIT a dejte odběr.',
 };
 
 export type VoiceGenerateInput = {

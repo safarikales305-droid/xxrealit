@@ -71,7 +71,9 @@ export function runQualityGate(input: {
   if (consecutive > 2) {
     failures.push(`SCENE_VARIATION: same type ${consecutive}x in a row`);
   }
-  if (backgroundVariationCount < 2 && durationSec > 20) {
+  if (backgroundVariationCount < 3 && durationSec > 25) {
+    failures.push(`BACKGROUND_REPETITION: only ${backgroundVariationCount} distinct backgrounds (min 3)`);
+  } else if (backgroundVariationCount < 2 && durationSec > 20) {
     failures.push(`BACKGROUND_VARIATION: only ${backgroundVariationCount} distinct backgrounds`);
   }
   if (avatarSceneCount === scenes.length && scenes.length > 2) {

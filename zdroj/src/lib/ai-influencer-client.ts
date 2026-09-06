@@ -179,6 +179,17 @@ export type AiInfluencerDashboard = {
     allowVideoAgentFallback?: boolean;
     videoStyle?: 'dynamic_influencer' | 'real_estate_news' | 'property_showcase' | 'educational' | 'auto';
     avatarFrequency?: 'low' | 'medium' | 'high';
+    avatarFraming?: 'auto' | 'fullscreen' | 'medium' | 'closeup_mix';
+    backgroundMode?: 'auto' | 'real_estate' | 'urban' | 'interiors' | 'mix';
+    sceneFrequency?: 'very_dynamic' | 'dynamic' | 'balanced';
+    videoTempo?: 'dynamic' | 'balanced' | 'calm';
+    usePropertyImages?: boolean;
+    useTextGraphics?: boolean;
+    ctaTextMode?: 'auto' | 'custom';
+    customCtaText?: string;
+    youtubeCtaText?: string;
+    videoGenerationMode?: 'VIDEO_AGENT' | 'AVATAR';
+    allowVideoAgentFallback?: boolean;
   };
   stats: {
     reelsToday: number;
@@ -331,6 +342,20 @@ export type AiInfluencerActiveJob = {
   sourceType?: 'article' | 'property';
 };
 
+export type AiInfluencerGalleryMeta = {
+  masterVideoUrl: string | null;
+  videoCreatedAt: string | null;
+  masterCreatedAt: string | null;
+  finishedAt: string | null;
+  sceneCount: number;
+  backgroundVariationCount: number | null;
+  galleryStatus: 'READY' | 'PUBLISHED' | 'PARTIAL' | 'QUALITY_REVIEW';
+  durationFormatted: string | null;
+  createdDateLabel: string | null;
+  createdTimeLabel: string | null;
+  createdCombinedLabel: string | null;
+};
+
 export type AiInfluencerJobRow = {
   id: string;
   status: string;
@@ -370,6 +395,10 @@ export type AiInfluencerJobRow = {
   hasMasterVideo?: boolean;
   display?: AiInfluencerJobDisplay;
   candidate?: { reelPotentialScore: number | null } | null;
+  gallery?: AiInfluencerGalleryMeta;
+  isTest?: boolean;
+  renderedAt?: string | null;
+  postId?: string | null;
 };
 
 export type ShortsMusicOption = {
@@ -728,8 +757,61 @@ export function nestAiInfluencerGetJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}`);
 }
 
-export function nestAiInfluencerVideos(token: string, limit = 60) {
-  return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/videos?limit=${limit}`);
+export function nestAiInfluencerVideos(token: string, limit = 60, includeTest = false) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (includeTest) qs.set('includeTest', '1');
+  return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/videos?${qs.toString()}`);
+}
+
+export type ProductionTestStartResponse = {
+  jobId: string;
+  status: string;
+  progressPercent: number;
+  progressLabel: string;
+  generationMode: 'VIDEO_AGENT' | 'AVATAR';
+  articleTitle: string;
+};
+
+export type ProductionTestStatus = {
+  jobId: string;
+  status: string;
+  progress: {
+    progressPercent: number;
+    progressLabel: string;
+    stage: string;
+    outcome: 'RUNNING' | 'PASS' | 'FAIL' | 'QUALITY_REVIEW';
+  };
+  masterVideoUrl: string | null;
+  gallery: AiInfluencerGalleryMeta;
+  qualityReport: Record<string, string>;
+  resolution: string | null;
+  isTest: true;
+};
+
+export function nestAiInfluencerStartProductionTest(token: string, articleId?: string) {
+  return aiInfluencerFetchAccepted<ProductionTestStartResponse>(token, '/test/production', {
+    method: 'POST',
+    body: JSON.stringify(articleId ? { articleId } : {}),
+  });
+}
+
+export function nestAiInfluencerProductionTestActive(token: string) {
+  return aiInfluencerFetch<{ job: ProductionTestStatus | null }>(token, '/test/production/active');
+}
+
+export function nestAiInfluencerProductionTestStatus(token: string, jobId: string) {
+  return aiInfluencerFetch<{ job: ProductionTestStatus }>(
+    token,
+    `/test/production/${encodeURIComponent(jobId)}/status`,
+  );
+}
+
+export function nestAiInfluencerDeleteProductionTest(token: string, jobId: string) {
+  return aiInfluencerFetch<{ ok: boolean; deletedId: string }>(
+    token,
+    `/test/production/${encodeURIComponent(jobId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export function nestAiInfluencerCancelJob(token: string, jobId: string, reason?: string) {

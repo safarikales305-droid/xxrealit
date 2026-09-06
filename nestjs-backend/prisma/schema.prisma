@@ -8399,6 +8399,7 @@ model AiInfluencerReelJob {
   post                 Post?                     @relation(fields: [postId], references: [id], onDelete: SetNull)
   sourceType           String                    @default("AI_INFLUENCER")
   ownershipType        EditorialReelOwnershipType @default(OWNED)
+  isTest               Boolean                   @default(false)
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
   providerGenerations  ProviderGeneration[]

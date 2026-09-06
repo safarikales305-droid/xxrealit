@@ -44,6 +44,12 @@ import { prepareSpeechTextForProvider } from './ai-influencer-pronunciation.util
 import { runQualityGate } from './ai-influencer-quality-gate.util';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import { buildJobAdminDisplay, type JobDisplayInput } from './ai-influencer-job-display.util';
+import { buildGalleryVideoMeta } from './ai-influencer-video-gallery.util';
+import {
+  buildProductionTestStatus,
+  isProductionTestJob,
+  resolveJobTargetDurationSec,
+} from './ai-influencer-production-test.util';
 import { getElevenLabsRuntimeConfig } from './ai-influencer-runtime-config.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
@@ -235,7 +241,15 @@ export class AiInfluencerJobService {
     });
     if (!job) throw new NotFoundException('AI Influencer job nenalezen.');
     const cfg = this.settings.getCached();
-    return this.enrichJobRow(job, cfg, getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED');
+    const enriched = this.enrichJobRow(job, cfg, getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED');
+    return {
+      ...enriched,
+      gallery: buildGalleryVideoMeta(job),
+      isTest: job.isTest,
+    } as AiInfluencerJobWithRelations & {
+      gallery: ReturnType<typeof buildGalleryVideoMeta>;
+      isTest: boolean;
+    };
   }
 
   async listArticles(limit = 40) {
@@ -488,12 +502,12 @@ export class AiInfluencerJobService {
     return { ok: true, deleted: result.count };
   }
 
-  async listVideos(limit = 60) {
+  async listVideos(limit = 60, options?: { includeTest?: boolean }) {
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
-      where: galleryVideoWhere(),
-      orderBy: { updatedAt: 'desc' },
+      where: galleryVideoWhere({ includeTest: options?.includeTest }),
+      orderBy: [{ renderedAt: 'desc' }, { updatedAt: 'desc' }],
       take: limit,
       include: {
         article: { select: { id: true, title: true, category: true } },
@@ -501,8 +515,8 @@ export class AiInfluencerJobService {
         candidate: { select: { reelPotentialScore: true } },
       },
     });
-    return rows.map((j) =>
-      this.enrichJobRow(
+    return rows.map((j) => {
+      const enriched = this.enrichJobRow(
         {
           ...j,
           article: j.article
@@ -514,8 +528,107 @@ export class AiInfluencerJobService {
         },
         cfg,
         workerElevenConfigured,
-      ),
-    );
+      );
+      return {
+        ...enriched,
+        gallery: buildGalleryVideoMeta(j),
+        isTest: j.isTest,
+      };
+    });
+  }
+
+  async createProductionTestJob(options?: { articleId?: string }) {
+    await this.assertProductionReadyForNewJob();
+    const profile = await this.registry.getDefaultProfile();
+    const cfg = this.settings.getCached();
+    const generationMode = resolveVideoGenerationMode(cfg);
+
+    let articleId = options?.articleId?.trim();
+    if (!articleId) {
+      const latest = await this.prisma.newsArticle.findFirst({
+        where: { status: NewsArticleStatus.PUBLISHED },
+        orderBy: { publishedAt: 'desc' },
+        select: { id: true },
+      });
+      if (!latest) {
+        throw new BadRequestException('Není k dispozici testovací článek.');
+      }
+      articleId = latest.id;
+    }
+
+    const article = await this.prisma.newsArticle.findUnique({ where: { id: articleId } });
+    if (!article || article.status !== NewsArticleStatus.PUBLISHED) {
+      throw new BadRequestException('Článek není publikovaný.');
+    }
+
+    const initialRenderMeta = mergeJobRenderMeta(this.buildInitialJobRenderMeta(), {
+      isProductionTest: true,
+      testDurationSec: 12,
+    });
+
+    const job = await this.prisma.aiInfluencerReelJob.create({
+      data: {
+        articleId,
+        profileId: profile.id,
+        status: AiInfluencerReelJobStatus.EVALUATING,
+        sourceType: 'ARTICLE',
+        isTest: true,
+        forceOverride: true,
+        estimatedDurationSec: 12,
+        progressPercent: 5,
+        currentStep: 'Zakládám test job',
+        facebookPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        instagramPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        youtubePublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        renderSettingsJson: initialRenderMeta as object,
+        timelineEvents: appendTimelineEvent(null, 'TEST_JOB_CREATED') as object,
+      },
+    });
+
+    void this.bootstrapCreatedJob(job.id);
+    return {
+      jobId: job.id,
+      status: job.status,
+      progressPercent: 5,
+      progressLabel: 'Zakládám job',
+      generationMode,
+      articleTitle: decodeHtmlEntities(article.title),
+    };
+  }
+
+  async getActiveProductionTestJob() {
+    const job = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: {
+        isTest: true,
+        status: {
+          notIn: [
+            AiInfluencerReelJobStatus.CANCELLED,
+            AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
+            AiInfluencerReelJobStatus.SKIPPED_QUALITY,
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!job) return null;
+    return buildProductionTestStatus(job);
+  }
+
+  async getProductionTestStatus(jobId: string) {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
+    if (!job?.isTest) {
+      throw new NotFoundException('Test job nenalezen.');
+    }
+    return buildProductionTestStatus(job);
+  }
+
+  async deleteProductionTestJob(jobId: string) {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
+    if (!job?.isTest) {
+      throw new NotFoundException('Test job nenalezen.');
+    }
+    await this.prisma.aiInfluencerReelJob.delete({ where: { id: jobId } });
+    return { ok: true, deletedId: jobId };
   }
 
   async retryJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
@@ -866,7 +979,7 @@ export class AiInfluencerJobService {
           equipment: property.equipment,
           imageCount: property.images.length,
         },
-        targetDurationSec: cfg.targetDurationSec,
+        targetDurationSec: resolveJobTargetDurationSec(job.renderSettingsJson, cfg.targetDurationSec),
         personalityPrompt: job.profile.personalityPrompt,
         brandingSettings: cfg,
       });
@@ -888,7 +1001,7 @@ export class AiInfluencerJobService {
           ogImageUrl: job.article.ogImageUrl,
           factClaimsJson: job.article.factClaimsJson,
         },
-        targetDurationSec: cfg.targetDurationSec,
+        targetDurationSec: resolveJobTargetDurationSec(job.renderSettingsJson, cfg.targetDurationSec),
         personalityPrompt: job.profile.personalityPrompt,
         brandingSettings: cfg,
       });
@@ -906,7 +1019,10 @@ export class AiInfluencerJobService {
     const ttsPrepared = prepareSpeechTextForProvider(spokenWithBrand, 'ELEVENLABS', cfg);
     const spokenTextTts = ttsPrepared.speechText;
 
-    const storyboard = validateAndNormalizeStoryboard(script, cfg.targetDurationSec);
+    const storyboard = validateAndNormalizeStoryboard(
+      script,
+      resolveJobTargetDurationSec(job.renderSettingsJson, cfg.targetDurationSec),
+    );
     script.scenes = storyboard.scenes;
 
     if (job.propertyId) {
@@ -1572,6 +1688,7 @@ export class AiInfluencerJobService {
   private async runAutoPublish(jobId: string): Promise<void> {
     const cfg = this.settings.getCached();
     const job = await this.getJob(jobId);
+    if (job.isTest || isProductionTestJob(job.renderSettingsJson)) return;
     if (!job.finalMasterUrl && !job.videoUrl) return;
 
     const publishOverrides = (job.renderSettingsJson as { propertyPublish?: Record<string, boolean | undefined> } | null)
@@ -1748,7 +1865,12 @@ export class AiInfluencerJobService {
       renderSettings.music.ducking = true;
     }
     renderSettings.subtitles.enabled = cfg.useSubtitles !== false;
-    renderSettings.layout = 'SMART_AUTO';
+    renderSettings.layout =
+      cfg.avatarFraming === 'medium'
+        ? 'AVATAR_CONTENT'
+        : cfg.avatarFraming === 'closeup_mix'
+          ? 'SMART_AUTO'
+          : 'AVATAR_FULLSCREEN';
     renderSettings.preset =
       (profile.renderPreset as AiInfluencerRenderSettings['preset']) ?? 'modern_xxrealit';
     if (!cfg.useLogo) {
@@ -2058,6 +2180,7 @@ export class AiInfluencerJobService {
           renderSettingsJson: qualityMeta as object,
           validationPassed: false,
           validationErrors: quality.failures,
+          renderedAt: new Date(),
           progressPercent: progress.percent,
           currentStep: 'Quality gate — vyžaduje kontrolu',
           timelineEvents: appendTimelineEvent(job.timelineEvents, 'QUALITY_GATE_FAILED'),

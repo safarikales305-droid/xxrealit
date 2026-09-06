@@ -57,15 +57,20 @@ export function hasMasterVideoAsset(job: VideoAssetFields): boolean {
   return Boolean(resolveMasterVideoUrl(job));
 }
 
-export function galleryVideoWhere(): Prisma.AiInfluencerReelJobWhereInput {
+export function masterVideoAssetWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return {
-    status: { in: GALLERY_VIDEO_STATUSES },
     OR: [
       { finalMasterUrl: { not: null } },
       { baseMasterUrl: { not: null } },
       { videoUrl: { not: null } },
-      { avatarStorageUrl: { not: null } },
     ],
+  };
+}
+
+export function galleryVideoWhere(options?: { includeTest?: boolean }): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    ...(options?.includeTest ? {} : { isTest: false }),
+    ...masterVideoAssetWhere(),
   };
 }
 

@@ -205,6 +205,38 @@ export class AiInfluencerSettingsService implements OnModuleInit {
         o.avatarFrequency === 'low' || o.avatarFrequency === 'medium' || o.avatarFrequency === 'high'
           ? o.avatarFrequency
           : d.avatarFrequency,
+      avatarFraming:
+        o.avatarFraming === 'auto' ||
+        o.avatarFraming === 'fullscreen' ||
+        o.avatarFraming === 'medium' ||
+        o.avatarFraming === 'closeup_mix'
+          ? o.avatarFraming
+          : d.avatarFraming,
+      backgroundMode:
+        o.backgroundMode === 'auto' ||
+        o.backgroundMode === 'real_estate' ||
+        o.backgroundMode === 'urban' ||
+        o.backgroundMode === 'interiors' ||
+        o.backgroundMode === 'mix'
+          ? o.backgroundMode
+          : d.backgroundMode,
+      sceneFrequency:
+        o.sceneFrequency === 'very_dynamic' ||
+        o.sceneFrequency === 'dynamic' ||
+        o.sceneFrequency === 'balanced'
+          ? o.sceneFrequency
+          : d.sceneFrequency,
+      videoTempo:
+        o.videoTempo === 'dynamic' || o.videoTempo === 'balanced' || o.videoTempo === 'calm'
+          ? o.videoTempo
+          : d.videoTempo,
+      usePropertyImages:
+        typeof o.usePropertyImages === 'boolean' ? o.usePropertyImages : d.usePropertyImages,
+      useTextGraphics:
+        typeof o.useTextGraphics === 'boolean' ? o.useTextGraphics : d.useTextGraphics,
+      ctaTextMode: o.ctaTextMode === 'custom' ? 'custom' : d.ctaTextMode,
+      customCtaText: str(o.customCtaText, d.customCtaText),
+      youtubeCtaText: str(o.youtubeCtaText, d.youtubeCtaText),
     };
   }
 }
