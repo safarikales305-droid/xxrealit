@@ -79,6 +79,11 @@ export function SrealityImportProgressPanel({
   const active = ['QUEUED', 'PROCESSING', 'LONG_RUNNING'].includes(job.status);
   const failed = job.status === 'FAILED';
   const partial = job.status === 'PARTIAL';
+  const imageCaptureProblem =
+    job.stage === 'CAPTURING_IMAGES' &&
+    job.imagesProcessed > 0 &&
+    job.imagesImported === 0 &&
+    job.imagesFailed >= 3;
 
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -98,11 +103,21 @@ export function SrealityImportProgressPanel({
       <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-100">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
-            failed ? 'bg-red-500' : partial ? 'bg-amber-500' : 'bg-orange-500'
+            failed || imageCaptureProblem
+              ? 'bg-red-500'
+              : partial
+                ? 'bg-amber-500'
+                : 'bg-orange-500'
           }`}
           style={{ width: `${Math.min(100, job.progress)}%` }}
         />
       </div>
+
+      {imageCaptureProblem ? (
+        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+          Získávání fotografií má problém — {job.imagesFailed} selhalo, {job.imagesImported} uloženo.
+        </p>
+      ) : null}
 
       <p className="mt-3 text-sm font-medium text-zinc-800">
         Aktuální krok: {stageHuman(job.stage)}
@@ -111,6 +126,12 @@ export function SrealityImportProgressPanel({
       {job.stageStalledWarning ? (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Tento krok trvá déle než obvykle ({Math.round(job.stageStalledMs / 1000)} s).
+          {job.imagesFailed > 0 ? (
+            <>
+              <br />
+              {job.imagesFailed} fotografií selhalo, {job.imagesImported} uloženo.
+            </>
+          ) : null}
         </p>
       ) : null}
 

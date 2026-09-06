@@ -23,6 +23,11 @@ import {
   type SrealityImageCaptureMethod,
   type SrealityValidatedImageBuffer,
 } from './sreality-browser-media.util';
+import {
+  formatImageCaptureAttemptLog,
+  IMAGE_CAPTURE_ERROR_CODES,
+  type SrealityImageCaptureAttempt,
+} from './sreality-image-capture.pipeline';
 
 export type SrealityPlaywrightEnrichmentResult = {
   imageUrls: string[];
@@ -55,6 +60,12 @@ export type SrealityGalleryCaptureResult = {
     domBlobSuccess: number;
     failed: number;
     responsesSeen: number;
+  };
+  captureAttempts?: SrealityImageCaptureAttempt[];
+  galleryDiagnostics?: {
+    galleryOpen: boolean;
+    activeImageVisible: boolean;
+    activeImageDimensions: string | null;
   };
 };
 
@@ -161,6 +172,8 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     listingUrl: string;
     targetUrls: string[];
     enrichContact?: boolean;
+    onImageAttempt?: (attempt: SrealityImageCaptureAttempt) => void | Promise<void>;
+    elementCaptureOnly?: boolean;
   }): Promise<SrealityGalleryCaptureResult> {
     const targetUrls = dedupeSrealityImageUrls(options.targetUrls);
     const enrichContact = options.enrichContact ?? false;
@@ -187,7 +200,13 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     }
 
     try {
-      return await this.captureGalleryImagesOnce(options.listingUrl, targetUrls, enrichContact);
+      return await this.captureGalleryImagesOnce(
+        options.listingUrl,
+        targetUrls,
+        enrichContact,
+        options.onImageAttempt,
+        options.elementCaptureOnly ?? false,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`SREALITY_BROWSER_MEDIA_CAPTURE_FAIL url=${options.listingUrl} err=${msg}`);
@@ -428,6 +447,8 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     listingUrl: string,
     targetUrls: string[],
     enrichContact: boolean,
+    onImageAttempt?: (attempt: SrealityImageCaptureAttempt) => void | Promise<void>,
+    elementCaptureOnly = false,
   ): Promise<SrealityGalleryCaptureResult> {
     this.logger.log(
       `SREALITY_BROWSER_MEDIA_START url=${listingUrl} targets=${targetUrls.length} contact=${enrichContact}`,
@@ -725,6 +746,181 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
 
       await assignValidatedPoolToPending();
 
+      const galleryState = await this.getActiveGalleryImageState(page);
+      this.logger.log(
+        `SREALITY_GALLERY_STATE open=${galleryOpened} visible=${galleryState.visible} size=${galleryState.dimensions ?? '—'}`,
+      );
+
+      const captureAttempts: SrealityImageCaptureAttempt[] = [];
+      const pendingTargets = targetUrls.filter((url) => {
+        for (const key of matchKeysForImageUrl(url)) {
+          if (capturedByKey.has(key)) return false;
+        }
+        return true;
+      });
+      const targetsToCapture = pendingTargets.length > 0 ? pendingTargets : targetUrls;
+      let lastContentHash: string | null = null;
+      let sameHashStreak = 0;
+      let consecutiveFailures = 0;
+      let skipDirectAttempts = elementCaptureOnly;
+
+      for (let index = 0; index < targetsToCapture.length; index += 1) {
+        const sourceUrl = targetsToCapture[index]!;
+        if (index > 0) {
+          await this.advanceGalleryStep(page, responseTasks);
+          await this.drainResponseTasks(responseTasks);
+          await processRawResponseBuffers();
+        }
+
+        const activeState = await this.getActiveGalleryImageState(page);
+        const attempt: SrealityImageCaptureAttempt = {
+          index: index + 1,
+          total: targetsToCapture.length,
+          sourceUrl,
+          directHttp: skipDirectAttempts ? 'SKIPPED' : 'NOT_REACHED',
+          directHttpStatus: skipDirectAttempts ? 401 : null,
+          browserResponse: 'NOT_REACHED',
+          browserContext: 'NOT_REACHED',
+          domImage: 'NOT_REACHED',
+          elementScreenshot: 'NOT_REACHED',
+          storage: 'NOT_REACHED',
+          galleryOpen: galleryOpened,
+          activeImageVisible: activeState.visible,
+          activeImageDimensions: activeState.dimensions,
+        };
+
+        let capturedForTarget: SrealityBrowserCapturedImage | undefined;
+        for (const key of matchKeysForImageUrl(sourceUrl)) {
+          capturedForTarget = capturedByKey.get(key);
+          if (capturedForTarget) break;
+        }
+
+        if (!capturedForTarget && !skipDirectAttempts) {
+          const referer = page.url() || listingUrl;
+          const contextResult = await this.tryBrowserContextImage(context, sourceUrl, referer);
+          if (contextResult) {
+            attempt.browserContext = 'PASS';
+            attempt.browserContextStatus = 200;
+            await storeBuffer(sourceUrl, contextResult.buffer, contextResult.contentType, 'BROWSER_CONTEXT');
+          } else {
+            attempt.browserContext = 'FAIL';
+            attempt.browserContextStatus = 401;
+          }
+          for (const key of matchKeysForImageUrl(sourceUrl)) {
+            capturedForTarget = capturedByKey.get(key);
+            if (capturedForTarget) break;
+          }
+        } else if (skipDirectAttempts) {
+          attempt.browserContext = 'SKIPPED';
+          attempt.browserContextStatus = 401;
+        }
+
+        const pooled = findBestCapturedForTargetUrl(sourceUrl, allResponsesByKey);
+        if (pooled) {
+          attempt.browserResponse = 'PASS';
+          if (!capturedForTarget) {
+            await storeBuffer(sourceUrl, pooled.buffer, pooled.contentType, pooled.method);
+            for (const key of matchKeysForImageUrl(sourceUrl)) {
+              capturedForTarget = capturedByKey.get(key);
+              if (capturedForTarget) break;
+            }
+          }
+        } else {
+          attempt.browserResponse = 'FAIL';
+        }
+
+        if (!capturedForTarget) {
+          const domBuffer = await this.captureDomBlobForUrl(page, sourceUrl);
+          if (domBuffer) {
+            attempt.domImage = 'PASS';
+            attempt.domNaturalSize = activeState.dimensions;
+            await storeBuffer(sourceUrl, domBuffer, 'image/jpeg', 'DOM_BLOB');
+          } else {
+            attempt.domImage = activeState.visible ? 'FAIL' : 'NOT_REACHED';
+            attempt.domNaturalSize = activeState.dimensions;
+          }
+          for (const key of matchKeysForImageUrl(sourceUrl)) {
+            capturedForTarget = capturedByKey.get(key);
+            if (capturedForTarget) break;
+          }
+        }
+
+        if (!capturedForTarget) {
+          const elementShot = await this.captureActiveGalleryElementScreenshot(page);
+          if (elementShot) {
+            attempt.elementScreenshot = 'PASS';
+            attempt.bytes = elementShot.buffer.length;
+            await storeBuffer(sourceUrl, elementShot.buffer, 'image/jpeg', 'ELEMENT_CAPTURE');
+          } else {
+            const urlShot = await this.captureElementForUrl(page, sourceUrl);
+            if (urlShot) {
+              attempt.elementScreenshot = 'PASS';
+              attempt.bytes = urlShot.length;
+              await storeBuffer(sourceUrl, urlShot, 'image/jpeg', 'ELEMENT_CAPTURE');
+            } else {
+              attempt.elementScreenshot = 'FAIL';
+              attempt.errorCode = activeState.visible
+                ? IMAGE_CAPTURE_ERROR_CODES.ELEMENT_SCREENSHOT_FAILED
+                : IMAGE_CAPTURE_ERROR_CODES.GALLERY_NOT_OPEN;
+              attempt.errorMessage = activeState.visible
+                ? 'Element screenshot selhal'
+                : 'Aktivní fotografie není viditelná v galerii';
+            }
+          }
+          for (const key of matchKeysForImageUrl(sourceUrl)) {
+            capturedForTarget = capturedByKey.get(key);
+            if (capturedForTarget) break;
+          }
+        } else {
+          attempt.elementScreenshot = capturedForTarget.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'NOT_REACHED';
+          attempt.storage = 'PASS';
+          attempt.captureMethod = capturedForTarget.method;
+          attempt.bytes = capturedForTarget.buffer.length;
+        }
+
+        if (capturedForTarget) {
+          attempt.storage = 'PASS';
+          attempt.captureMethod = capturedForTarget.method;
+          attempt.bytes = capturedForTarget.buffer.length;
+          consecutiveFailures = 0;
+          if (capturedForTarget.contentHash === lastContentHash) {
+            sameHashStreak += 1;
+            if (sameHashStreak >= 2) {
+              attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.GALLERY_NAVIGATION_FAILED;
+              attempt.errorMessage = 'GALLERY_IMAGE_NOT_CHANGED';
+              this.logger.warn(`SREALITY_GALLERY_IMAGE_NOT_CHANGED index=${index + 1}`);
+            }
+          } else {
+            sameHashStreak = 0;
+            lastContentHash = capturedForTarget.contentHash;
+          }
+        } else {
+          attempt.storage = 'FAIL';
+          consecutiveFailures += 1;
+          if (!attempt.errorCode) {
+            attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.ELEMENT_SCREENSHOT_FAILED;
+          }
+        }
+
+        if (consecutiveFailures >= 3 && captureAttempts.every((a) => a.storage !== 'PASS')) {
+          attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.CAPTURE_SYSTEM_FAILURE;
+          attempt.errorMessage = 'Browser nedokázal získat obrazová data z galerie.';
+          captureAttempts.push(attempt);
+          await onImageAttempt?.(attempt);
+          this.logger.error(formatImageCaptureAttemptLog(attempt));
+          break;
+        }
+
+        if (consecutiveFailures >= 2 && !skipDirectAttempts) {
+          skipDirectAttempts = true;
+          this.logger.warn('SREALITY_IMAGE_STRATEGY element-only after repeated CDN 401');
+        }
+
+        captureAttempts.push(attempt);
+        await onImageAttempt?.(attempt);
+        this.logger.log(formatImageCaptureAttemptLog(attempt));
+      }
+
       const extracted = await page.evaluate(() => {
         const urls = new Set<string>();
         const addUrl = (raw: string | null | undefined) => {
@@ -750,42 +946,6 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       });
       imageUrlsFound = dedupeSrealityImageUrls(extracted);
       html = await page.evaluate(() => document.documentElement.outerHTML);
-
-      const stillPending = [...pendingByKey.entries()].filter(([key]) => !capturedByKey.has(key));
-      for (const [key, sourceUrl] of stillPending) {
-        try {
-          await this.withTimeout(
-            (async () => {
-              this.logger.log(`SREALITY_BROWSER_IMAGE_FALLBACK url=${sourceUrl.slice(0, 96)}`);
-              await this.activateGalleryImageForUrl(page, sourceUrl);
-              await this.drainResponseTasks(responseTasks);
-              await processRawResponseBuffers();
-
-              const referer = page.url() || listingUrl;
-              const contextResult = await this.tryBrowserContextImage(context, sourceUrl, referer);
-              if (contextResult) {
-                await storeBuffer(sourceUrl, contextResult.buffer, contextResult.contentType, 'BROWSER_CONTEXT');
-                if (capturedByKey.has(key)) return;
-              }
-
-              const domBuffer = await this.captureDomBlobForUrl(page, sourceUrl);
-              if (domBuffer) {
-                await storeBuffer(sourceUrl, domBuffer, 'image/jpeg', 'DOM_BLOB');
-                if (capturedByKey.has(key)) return;
-              }
-
-              const elementBuffer = await this.captureElementForUrl(page, sourceUrl);
-              if (elementBuffer) {
-                await storeBuffer(sourceUrl, elementBuffer, 'image/jpeg', 'ELEMENT_CAPTURE');
-              }
-            })(),
-            SREALITY_BROWSER_MEDIA_TIMEOUTS.ELEMENT_CAPTURE_MS,
-            `IMAGE_CAPTURE timeout pro ${sourceUrl.slice(0, 80)}`,
-          );
-        } catch {
-          enrichmentStatus = 'PARTIAL';
-        }
-      }
 
       await this.drainResponseTasks(responseTasks);
       await processRawResponseBuffers();
@@ -826,6 +986,12 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         contactClickSucceeded,
         galleryOpened,
         imageUrlsFound,
+        captureAttempts,
+        galleryDiagnostics: {
+          galleryOpen: galleryOpened,
+          activeImageVisible: galleryState.visible,
+          activeImageDimensions: galleryState.dimensions,
+        },
         stats,
       };
     } finally {
@@ -840,9 +1006,26 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
   }
 
   private async activateGalleryImageForUrl(page: PlaywrightPage, sourceUrl: string): Promise<void> {
-    const matchKeys = matchKeysForImageUrl(sourceUrl);
+    const matchKeys = new Set(matchKeysForImageUrl(sourceUrl));
     await page
       .evaluate((keys: string[]) => {
+        const keySet = new Set(keys);
+        const urlMatchesKey = (value: string): boolean => {
+          try {
+            const normalized = value.startsWith('//') ? `https:${value}` : value;
+            const absolute = normalized.startsWith('http')
+              ? normalized
+              : new URL(normalized, window.location.origin).href;
+            const segments = new URL(absolute).pathname.split('/').filter(Boolean);
+            const file = segments[segments.length - 1] ?? '';
+            const parent = segments[segments.length - 2] ?? '';
+            const compact = `${new URL(absolute).hostname}/${parent}/${file}`.toLowerCase();
+            if (keySet.has(compact)) return true;
+            return keys.some((k) => absolute.includes(k) || k.includes(file));
+          } catch {
+            return false;
+          }
+        };
         const imgs = Array.from(document.querySelectorAll('img, picture img'));
         for (const node of imgs) {
           const img = node as HTMLImageElement;
@@ -857,26 +1040,14 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
               values.push(part.trim().split(/\s+/)[0] ?? '');
             }
           }
-          const hit = values.some((value) => {
-            try {
-              const segments = new URL(value.startsWith('//') ? `https:${value}` : value, window.location.origin)
-                .pathname.split('/')
-                .filter(Boolean);
-              const file = segments[segments.length - 1] ?? '';
-              const parent = segments[segments.length - 2] ?? '';
-              const key = `${new URL(value.startsWith('//') ? `https:${value}` : value).hostname}/${parent}/${file}`.toLowerCase();
-              return keys.includes(key);
-            } catch {
-              return false;
-            }
-          });
+          const hit = values.some(urlMatchesKey);
           if (!hit) continue;
           img.scrollIntoView({ block: 'center', inline: 'center' });
           img.click();
           return true;
         }
         return false;
-      }, matchKeys)
+      }, [...matchKeys])
       .catch(() => undefined);
     await this.waitForGalleryImageLoaded(page);
   }
@@ -1107,6 +1278,129 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         { timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS },
       )
       .catch(() => undefined);
+  }
+
+  private async getActiveGalleryImageState(page: PlaywrightPage): Promise<{
+    visible: boolean;
+    dimensions: string | null;
+    naturalWidth: number;
+    naturalHeight: number;
+  }> {
+    const state = await page
+      .evaluate(() => {
+        const selectors = [
+          '[role="dialog"] img',
+          '[data-e2e="detail-gallery"] img',
+          '.gallery img',
+          'picture img',
+          'main img[src*="sdn.cz"]',
+        ];
+        let best: { w: number; h: number } | null = null;
+        for (const sel of selectors) {
+          for (const node of Array.from(document.querySelectorAll(sel))) {
+            const img = node as HTMLImageElement;
+            const rect = img.getBoundingClientRect();
+            if (rect.width < 40 || rect.height < 40) continue;
+            if (!img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) continue;
+            const area = img.naturalWidth * img.naturalHeight;
+            if (!best || area > best.w * best.h) {
+              best = { w: img.naturalWidth, h: img.naturalHeight };
+            }
+          }
+        }
+        return best;
+      })
+      .catch(() => null);
+    if (!state) {
+      return { visible: false, dimensions: null, naturalWidth: 0, naturalHeight: 0 };
+    }
+    return {
+      visible: true,
+      dimensions: `${state.w}x${state.h}`,
+      naturalWidth: state.w,
+      naturalHeight: state.h,
+    };
+  }
+
+  private async captureActiveGalleryElementScreenshot(
+    page: PlaywrightPage,
+  ): Promise<{ buffer: Buffer; width: number; height: number } | null> {
+    const selectors = [
+      '[role="dialog"] img',
+      '[data-e2e="detail-gallery"] img',
+      '.gallery img',
+      'picture img',
+      'main img[src*="sdn.cz"]',
+      'main img[src*="sreality"]',
+    ];
+
+    let bestIndex = -1;
+    let bestSelector = selectors[0]!;
+    let bestArea = 0;
+
+    for (const sel of selectors) {
+      const imgs = page.locator(sel);
+      const count = await imgs.count();
+      for (let i = 0; i < count; i += 1) {
+        const meta = await imgs.nth(i).evaluate((el) => {
+          const img = el as HTMLImageElement;
+          const rect = img.getBoundingClientRect();
+          return {
+            area: img.naturalWidth * img.naturalHeight,
+            visible: rect.width > 40 && rect.height > 40,
+            complete: img.complete && img.naturalWidth > 0 && img.naturalHeight > 0,
+            w: img.naturalWidth,
+            h: img.naturalHeight,
+          };
+        });
+        if (!meta.visible || !meta.complete) continue;
+        if (meta.area > bestArea) {
+          bestArea = meta.area;
+          bestIndex = i;
+          bestSelector = sel;
+        }
+      }
+    }
+
+    if (bestIndex < 0) return null;
+
+    const img = page.locator(bestSelector).nth(bestIndex);
+    const box = await img.evaluate((el) => {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    if (!box || box.width < 20 || box.height < 20) return null;
+
+    const screenshot = await img.screenshot({ type: 'jpeg', quality: 92, timeout: 6_000 });
+    const validated = await validateSrealityImageBuffer(screenshot, 'image/jpeg');
+    if (!validated) return null;
+    return { buffer: screenshot, width: validated.width, height: validated.height };
+  }
+
+  private async advanceGalleryStep(page: PlaywrightPage, responseTasks: Promise<void>[]): Promise<boolean> {
+    const nextSelectors = [
+      '[data-e2e="gallery-next"]',
+      'button[aria-label*="Další"]',
+      'button[aria-label*="Next"]',
+      'button[aria-label*="následuj"]',
+      'button:has-text("Další")',
+    ];
+    for (const sel of nextSelectors) {
+      try {
+        const next = page.locator(sel).first();
+        if ((await next.count()) === 0) continue;
+        await next.click({ timeout: 1500 }).catch(() => undefined);
+        await this.waitForGalleryImageLoaded(page).catch(() => undefined);
+        await this.drainResponseTasks(responseTasks);
+        return true;
+      } catch {
+        /* ignore */
+      }
+    }
+    await page.keyboard?.press?.('ArrowRight').catch(() => undefined);
+    await this.delay(page, 400);
+    await this.drainResponseTasks(responseTasks);
+    return false;
   }
 
   private async tryBrowserContextImage(

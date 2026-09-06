@@ -52,6 +52,11 @@ import {
   shouldSuggestBrowserMediaFallback,
   type SrealityImageCaptureMethod,
 } from './sreality-browser-media.util';
+import {
+  formatImageCaptureAttemptLog,
+  IMAGE_CAPTURE_ERROR_CODES,
+  shouldTripImageCaptureCircuitBreaker,
+} from './sreality-image-capture.pipeline';
 import { mergeBrokerParts, extractSrealityBrokerFromHtml } from './sreality-contact-extract.util';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { SeoLocationService } from '../seo/seo-location.service';
@@ -931,9 +936,11 @@ export class SrealityImportService {
 
       if (isBrowserRequiredImageUrl(sourceUrl)) {
         pendingBrowser.push({ index: i, sourceUrl, directHttpStatus: 401 });
-        await reporter.log(`Fotografie ${i + 1}/${unique.length}: přímé stažení odmítnuto → browser capture`, 'warn', {
-          httpStatus: 401,
-        });
+        await reporter.log(
+          `Fotografie ${i + 1}/${unique.length}: DIRECT_HTTP 401 (SDN) → browser pipeline`,
+          'warn',
+          { httpStatus: 401 },
+        );
         pushImageDiag({
           index: i + 1,
           host: (() => {
@@ -1058,7 +1065,40 @@ export class SrealityImportService {
         listingUrl: sourceListingUrl,
         targetUrls: pendingBrowser.map((item) => item.sourceUrl),
         enrichContact: options?.enrichContact ?? false,
+        elementCaptureOnly: pendingBrowser.length > 0,
+        onImageAttempt: async (attempt) => {
+          await reporter.log(formatImageCaptureAttemptLog(attempt), attempt.storage === 'PASS' ? 'info' : 'warn');
+          await reporter.updateCounts({
+            stage: 'CAPTURING_IMAGES',
+            imagesSelected: unique.length,
+            imagesProcessed: attempt.index,
+            imagesImported: downloaded,
+            imagesFailed: images.filter((img) => img.error && !img.storedUrl).length,
+            message:
+              attempt.storage === 'PASS'
+                ? `Ukládám fotografie ${downloaded}/${unique.length}`
+                : `Zpracováno ${attempt.index}/${attempt.total}, selhalo ${attempt.index - downloaded}`,
+          });
+        },
       });
+
+      if (browserCapture.galleryDiagnostics) {
+        const g = browserCapture.galleryDiagnostics;
+        await reporter.log(
+          `GALLERY_OPEN: ${g.galleryOpen ? 'PASS' : 'FAIL'} · ACTIVE_IMAGE_VISIBLE: ${g.activeImageVisible ? 'PASS' : 'FAIL'} · ${g.activeImageDimensions ?? '—'}`,
+          g.galleryOpen && g.activeImageVisible ? 'info' : 'warn',
+        );
+      }
+
+      if (
+        browserCapture.captureAttempts &&
+        shouldTripImageCaptureCircuitBreaker(browserCapture.captureAttempts)
+      ) {
+        throw Object.assign(
+          new Error('Browser nedokázal získat obrazová data z galerie.'),
+          { code: IMAGE_CAPTURE_ERROR_CODES.CAPTURE_SYSTEM_FAILURE },
+        );
+      }
 
       const capturedPool = new Map<
         string,
@@ -1169,6 +1209,15 @@ export class SrealityImportService {
           };
           if (okIdx >= 0) imageDownloadFailures[okIdx] = okDiag;
           else pushImageDiag(okDiag);
+          await reporter.log(`Fotografie ${pending.index + 1}/${unique.length}: STORAGE PASS`);
+          await reporter.updateCounts({
+            stage: 'UPLOADING_IMAGES',
+            imagesSelected: unique.length,
+            imagesProcessed: pending.index + 1,
+            imagesImported: downloaded,
+            imagesFailed: images.filter((img) => img.error && !img.storedUrl).length,
+            message: `Ukládám fotografie ${downloaded}/${unique.length}`,
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (rowIndex >= 0) {
