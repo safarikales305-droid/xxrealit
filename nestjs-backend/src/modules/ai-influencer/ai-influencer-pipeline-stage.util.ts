@@ -66,7 +66,7 @@ export function resolvePipelineFailedStage(input: {
   }
 
   if (
-    /openai je vypnuto|openai není|api klíč není nastaven|ai limit byl dosažen|tato ai funkce není povolena|není dostupný aktivní ai provider|script provider/i.test(
+    /openai je vypnuto|openai není|api klíč není nastaven|ai limit byl dosažen|tato ai funkce není povolena|není dostupný aktivní ai provider|script provider|ai generování scénáře není povoleno/i.test(
       msg,
     )
   ) {

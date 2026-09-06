@@ -9,6 +9,12 @@ describe('getScriptProviderReadiness', () => {
     assert.equal(r.code, 'AI_PROVIDER_DISABLED');
   });
 
+  it('fails when API key exists but provider is disabled', () => {
+    const r = getScriptProviderReadiness({ enabled: false, configured: true, connected: null });
+    assert.equal(r.ready, false);
+    assert.equal(r.code, 'AI_PROVIDER_DISABLED');
+  });
+
   it('allows script generation when enabled and configured even without prior connection test', () => {
     const r = getScriptProviderReadiness({ enabled: true, configured: true, connected: null });
     assert.equal(r.ready, true);

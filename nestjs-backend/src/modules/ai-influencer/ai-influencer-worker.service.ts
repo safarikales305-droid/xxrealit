@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { OpenAiService } from '../openai/openai.service';
+import { AiProviderService } from '../openai/ai-provider.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { AI_INFLUENCER_WORKER_TICK_MS } from './ai-influencer.constants';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
@@ -29,7 +29,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     private readonly jobs: AiInfluencerJobService,
     private readonly registry: AiInfluencerProviderRegistry,
     private readonly settings: AiInfluencerSettingsService,
-    private readonly openAi: OpenAiService,
+    private readonly aiProvider: AiProviderService,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly heygen: HeyGenAvatarProvider,
     private readonly videoAgent: HeyGenVideoAgentProvider,
@@ -49,7 +49,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     const eleven = getElevenLabsRuntimeConfig();
     const heygen = getHeyGenRuntimeConfig();
     const storage = getCloudinaryRuntimeConfig();
-    const aiStatus = await this.openAi.getStatus();
+    const activeAi = await this.aiProvider.getActiveAiProvider();
     const profile = await this.registry.getDefaultProfile();
     const elevenHealth = await this.elevenLabs.getHealth(profile.voiceId);
     const elevenReadiness = await this.elevenLabs.getGenerationReadiness(profile.voiceId);
@@ -71,7 +71,9 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     this.log.log(`[AI Influencer] WORKER HEYGEN_API_KEY: ${heygen.apiKeyPresence}`);
     this.log.log(`[AI Influencer] PROVIDER ELEVENLABS_API_KEY: ${elevenReadiness.apiKeyPresence}`);
     this.log.log(`[AI Influencer] PROVIDER HEYGEN_API_KEY: ${heygenReadiness.apiKeyPresence}`);
-    this.log.log(`[AI Influencer] AI_PROVIDER: ${aiStatus.connected ? 'READY' : 'NOT READY'}`);
+    this.log.log(
+      `[AI Influencer] AI_PROVIDER: ${activeAi.scriptGenerationEnabled ? 'READY' : 'NOT READY'} (${activeAi.provider}, enabled=${activeAi.enabled}, configured=${activeAi.configured})`,
+    );
     this.log.log(`[AI Influencer] ELEVENLABS_VOICE_ID: ${eleven.voiceIdPresence}`);
     this.log.log(
       `[AI Influencer] ELEVENLABS_TTS: ${

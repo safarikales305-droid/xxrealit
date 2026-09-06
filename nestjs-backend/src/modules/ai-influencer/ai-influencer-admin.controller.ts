@@ -15,6 +15,7 @@ import {
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OpenAiService } from '../openai/openai.service';
+import { AiProviderService } from '../openai/ai-provider.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { YouTubePublishService } from '../social/youtube/youtube-publish.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -32,7 +33,7 @@ import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
-import { getScriptProviderReadiness } from './ai-influencer-script-provider.util';
+import { getScriptProviderReadinessFromActiveProvider } from './ai-influencer-script-provider.util';
 import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import { aggregateAiInfluencerDashboardStats } from './ai-influencer-dashboard-stats.util';
 import {
@@ -50,6 +51,7 @@ export class AiInfluencerAdminController {
     private readonly settings: AiInfluencerSettingsService,
     private readonly registry: AiInfluencerProviderRegistry,
     private readonly openAi: OpenAiService,
+    private readonly aiProvider: AiProviderService,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly heygen: HeyGenAvatarProvider,
     private readonly videoAgent: HeyGenVideoAgentProvider,
@@ -609,8 +611,8 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [aiDiag, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
-      this.openAi.getStatus(),
+    const [activeAi, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
+      this.aiProvider.getActiveAiProvider(),
       this.elevenLabs.getHealth(profile.voiceId),
       this.elevenLabs.getGenerationReadiness(profile.voiceId),
       this.heygen.getGenerationReadiness(profile.avatarId),
@@ -624,8 +626,8 @@ export class AiInfluencerAdminController {
     const storageDiag = this.cloudinary.getDiagnostics();
     const cfg = await this.settings.getSettings();
 
-    const aiConnected = aiDiag.connected === true;
-    const scriptProvider = getScriptProviderReadiness(aiDiag);
+    const aiConnected = activeAi.connected === true;
+    const scriptProvider = getScriptProviderReadinessFromActiveProvider(activeAi);
     const elevenConnected = elevenHealth.status === 'CONNECTED';
     const elevenVoiceSelected = elevenReadiness.voiceSelected;
     const elevenTtsReady =
@@ -680,12 +682,20 @@ export class AiInfluencerAdminController {
         publishReasons,
       },
       ai: {
-        configured: aiDiag.configured,
+        provider: activeAi.provider,
+        configured: activeAi.configured,
+        enabled: activeAi.enabled,
+        dbEnabled: activeAi.dbEnabled,
+        envEnabled: activeAi.envEnabled,
         connected: aiConnected,
         ready: scriptProvider.ready,
         scriptProvider: scriptProvider.label,
+        scriptGenerationEnabled: activeAi.scriptGenerationEnabled,
         disabled: !scriptProvider.ready,
         message: scriptProvider.message,
+        model: activeAi.model,
+        source: activeAi.source,
+        settingsPath: activeAi.settingsPath,
       },
       elevenLabs: {
         configured: elevenHealth.apiKeyConfigured,

@@ -254,6 +254,21 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     if (!productionTest || productionTest.progress.outcome === 'PASS' || productionTest.progress.outcome === 'FAIL') {
       return;
     }
+    const pollActive = () => {
+      void nestAiInfluencerActiveJobs(apiAccessToken).then((active) => {
+        if (active) setActiveJobs(active);
+      });
+    };
+    pollActive();
+    const activeId = window.setInterval(pollActive, 2500);
+    return () => window.clearInterval(activeId);
+  }, [apiAccessToken, tab, productionTest?.jobId, productionTest?.progress.outcome]);
+
+  useEffect(() => {
+    if (!apiAccessToken || tab !== 'settings') return;
+    if (!productionTest || productionTest.progress.outcome === 'PASS' || productionTest.progress.outcome === 'FAIL') {
+      return;
+    }
     const poll = () => {
       void nestAiInfluencerProductionTestStatus(apiAccessToken, productionTest.jobId).then((res) => {
         if (res?.job) setProductionTest(res.job);
@@ -572,7 +587,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   <div key={job.id} className="rounded-lg border border-zinc-100 p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <p className="font-medium text-zinc-900">{job.articleTitle}</p>
+                        <p className="font-medium text-zinc-900">
+                          {job.isTest ? (
+                            <span className="mr-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800">
+                              Test
+                            </span>
+                          ) : null}
+                          {job.articleTitle}
+                        </p>
                         <p className="text-xs text-zinc-500">
                           {job.sourceType === 'property' ? 'nemovitost' : 'článek'} · {modeLabel(job.generationMode)} · {elapsedSince(job.createdAt ?? job.updatedAt)}
                         </p>
@@ -615,7 +637,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   <div key={job.id} className="rounded-lg border border-zinc-100 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-zinc-900">{job.articleTitle}</p>
+                        <p className="font-medium text-zinc-900">
+                          {job.isTest ? (
+                            <span className="mr-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800">
+                              Test
+                            </span>
+                          ) : null}
+                          {job.articleTitle}
+                        </p>
                         <p className="text-xs text-zinc-500">
                           Zdroj: {job.sourceType === 'property' ? 'nemovitost' : 'článek'} · Režim: {modeLabel(job.generationMode)}
                         </p>
@@ -1077,6 +1106,32 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <p className="mt-1 text-xs text-zinc-500">
               Oba testy používají stejnou produkční orchestraci v DB jobu. Bez publikace.
             </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {[
+                ['AI provider', providers?.ai?.ready === true, providers?.ai?.message],
+                ['Scénář', providers?.ai?.scriptGenerationEnabled === true, providers?.ai?.ready === false ? providers?.ai?.message : 'Připraveno'],
+                ['Video Agent', providers?.videoEngine?.heygenVideoAgent === 'READY', providers?.videoEngine?.heygenVideoAgentMessage],
+                ['Storage', providers?.storage?.configured === true, providers?.storage?.message],
+              ].map(([label, ok, detail]) => (
+                <div
+                  key={String(label)}
+                  className={`rounded border px-3 py-2 text-xs ${ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}
+                >
+                  <span className="font-medium">{label}</span> {ok ? '✓ READY' : '✕ FAIL'}
+                  {!ok && detail ? <p className="mt-1 text-[11px] opacity-90">{String(detail)}</p> : null}
+                </div>
+              ))}
+            </div>
+            {providers?.ai?.ready === false ? (
+              <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                <p className="font-medium">Kompletní výrobu nelze spustit.</p>
+                <p className="mt-1">AI generování scénáře není připraveno.</p>
+                <p className="mt-1 text-xs">Důvod: {providers.ai.message}</p>
+                <a href="/admin/marketing/ai-centrum" className="mt-2 inline-block text-xs font-semibold text-orange-700 underline">
+                  Otevřít nastavení AI
+                </a>
+              </div>
+            ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1465,9 +1520,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 AI scénář → storyboard → média → Video Agent → storage · 10–15 s · bez publikace
               </p>
               {providers?.ai?.ready === false ? (
-                <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Nelze spustit test – script provider není READY: {providers.ai.message}
-                </p>
+                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p className="font-medium">Kompletní výrobu nelze spustit.</p>
+                  <p className="mt-1">AI generování scénáře není připraveno: {providers.ai.message}</p>
+                  <a href="/admin/marketing/ai-centrum" className="mt-2 inline-block text-xs font-semibold text-orange-700 underline">
+                    Otevřít nastavení AI
+                  </a>
+                </div>
               ) : null}
               <button
                 type="button"

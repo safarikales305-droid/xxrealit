@@ -52,7 +52,8 @@ import {
   isProductionTestJob,
   resolveJobTargetDurationSec,
 } from './ai-influencer-production-test.util';
-import { getScriptProviderReadiness } from './ai-influencer-script-provider.util';
+import { getScriptProviderReadinessFromActiveProvider } from './ai-influencer-script-provider.util';
+import { AiProviderService } from '../openai/ai-provider.service';
 import {
   extractPipelineErrorCode,
   pipelineError,
@@ -137,6 +138,7 @@ export class AiInfluencerJobService {
     private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly openAi: OpenAiService,
+    private readonly aiProvider: AiProviderService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -184,8 +186,17 @@ export class AiInfluencerJobService {
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
     return active.map((j) => {
       const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured });
+      const meta = readJobRenderMeta(j.renderSettingsJson);
+      const testLabel =
+        j.isTest && meta.testKind === 'VIDEO_AGENT'
+          ? 'TEST – Video Agent'
+          : j.isTest
+            ? 'TEST – Kompletní pipeline'
+            : null;
       return {
         id: j.id,
+        isTest: j.isTest,
+        testKind: meta.testKind ?? null,
         status: j.status,
         progressPercent: j.progressPercent,
         currentStep: j.currentStep,
@@ -195,7 +206,9 @@ export class AiInfluencerJobService {
         skipReason: j.skipReason,
         facebookPublishStatus: j.facebookPublishStatus,
         youtubePublishStatus: j.youtubePublishStatus,
-        articleTitle: decodeHtmlEntities(j.article?.title ?? j.property?.title ?? 'Inzerát'),
+        articleTitle:
+          testLabel ??
+          decodeHtmlEntities(j.article?.title ?? j.property?.title ?? 'Inzerát'),
         score: j.candidate?.reelPotentialScore ?? null,
         updatedAt: j.updatedAt,
         createdAt: j.createdAt,
@@ -1020,8 +1033,8 @@ export class AiInfluencerJobService {
       return;
     }
 
-    const aiStatus = await this.openAi.getStatus();
-    const scriptProvider = getScriptProviderReadiness(aiStatus);
+    const aiStatus = await this.aiProvider.getActiveAiProvider();
+    const scriptProvider = getScriptProviderReadinessFromActiveProvider(aiStatus);
     if (!scriptProvider.ready) {
       throw pipelineError(
         scriptProvider.message,
@@ -2415,8 +2428,8 @@ export class AiInfluencerJobService {
     let scriptProviderReady = true;
 
     if (requireScriptProvider) {
-      const aiStatus = await this.openAi.getStatus();
-      const scriptProvider = getScriptProviderReadiness(aiStatus);
+      const active = await this.aiProvider.getActiveAiProvider();
+      const scriptProvider = getScriptProviderReadinessFromActiveProvider(active);
       scriptProviderReady = scriptProvider.ready;
       if (!scriptProviderReady) {
         reasons.push(scriptProvider.message);
@@ -2452,12 +2465,13 @@ export class AiInfluencerJobService {
     const requireScriptProvider = options?.requireScriptProvider ?? true;
 
     if (requireScriptProvider) {
-      const aiStatus = await this.openAi.getStatus();
-      const scriptProvider = getScriptProviderReadiness(aiStatus);
+      const active = await this.aiProvider.getActiveAiProvider();
+      const scriptProvider = getScriptProviderReadinessFromActiveProvider(active);
       if (!scriptProvider.ready) {
         throw new BadRequestException({
           message: scriptProvider.message,
           code: scriptProvider.code ?? 'AI_PROVIDER_DISABLED',
+          settingsPath: scriptProvider.settingsPath,
         });
       }
     }

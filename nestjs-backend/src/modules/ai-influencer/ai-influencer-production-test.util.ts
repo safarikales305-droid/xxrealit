@@ -32,11 +32,11 @@ export type ProductionTestStatus = {
 
 export function buildFixedVideoAgentTestScript(): ReelScriptPayload {
   const spokenText =
-    'Dobrý den, toto je test video systému XXREALIT. Ověřujeme obraz, hlas a vertikální formát videa.';
+    'Dobrý den, sledujete XXREALIT. Toto je test systému pro automatickou výrobu videí.';
   return {
-    hook: 'Dobrý den, toto je test video systému XXREALIT.',
-    intro: 'Dobrý den, toto je test video systému XXREALIT.',
-    segments: [{ text: 'Ověřujeme obraz, hlas a vertikální formát videa.' }],
+    hook: 'Dobrý den, sledujete XXREALIT.',
+    intro: 'Dobrý den, sledujete XXREALIT.',
+    segments: [{ text: 'Toto je test systému pro automatickou výrobu videí.' }],
     spokenText,
     captionTitle: 'Video Agent test',
     captionDescription: 'Interní test Video Agent pipeline.',
@@ -45,9 +45,9 @@ export function buildFixedVideoAgentTestScript(): ReelScriptPayload {
     hashtags: ['#xxrealit', '#test'],
     contentFormat: 'REALITNI_MINUTA',
     scenes: [
-      { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Dobrý den, toto je test video systému XXREALIT.' },
-      { type: 'BROLL_FULL', start: 3, duration: 3, text: 'Ověřujeme obraz a pozadí.' },
-      { type: 'AVATAR_FULL', start: 6, duration: 3, text: 'Ověřujeme hlas a vertikální formát videa.' },
+      { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Dobrý den, sledujete XXREALIT.' },
+      { type: 'BROLL_FULL', start: 3, duration: 3, text: 'Toto je test systému pro automatickou výrobu videí.' },
+      { type: 'AVATAR_FULL', start: 6, duration: 3, text: 'Ověřujeme obraz, hlas a vertikální formát.' },
       { type: 'CTA', start: 9, duration: 3, text: 'Více na XXREALIT.CZ' },
     ],
   };
@@ -58,15 +58,30 @@ export function hashFixedTestScript(script: ReelScriptPayload): string {
 }
 
 const TEST_PROGRESS_STAGES: Array<{ min: number; label: string; stage: string }> = [
-  { min: 5, label: 'Zakládám job', stage: 'QUEUED' },
-  { min: 15, label: 'Připravuji scénář', stage: 'SCRIPT' },
-  { min: 25, label: 'Storyboard', stage: 'STORYBOARD' },
-  { min: 35, label: 'Média', stage: 'MEDIA' },
-  { min: 50, label: 'Video Agent', stage: 'VIDEO_AGENT' },
-  { min: 70, label: 'HeyGen render', stage: 'HEYGEN_RENDER' },
-  { min: 85, label: 'Post-processing', stage: 'POSTPROCESS' },
-  { min: 95, label: 'Storage', stage: 'STORAGE' },
-  { min: 100, label: 'Hotovo', stage: 'DONE' },
+  { min: 5, label: 'Inicializace', stage: 'QUEUED' },
+  { min: 15, label: 'Generuji scénář', stage: 'SCRIPT' },
+  { min: 25, label: 'Připravuji storyboard', stage: 'STORYBOARD' },
+  { min: 35, label: 'Připravuji média', stage: 'MEDIA' },
+  { min: 45, label: 'Odesílám Video Agent', stage: 'VIDEO_AGENT' },
+  { min: 60, label: 'HeyGen generuje video', stage: 'HEYGEN_RENDER' },
+  { min: 75, label: 'Video dokončeno', stage: 'HEYGEN_DONE' },
+  { min: 82, label: 'Stahuji video', stage: 'DOWNLOAD' },
+  { min: 90, label: 'Post-processing', stage: 'POSTPROCESS' },
+  { min: 96, label: 'Ukládám video', stage: 'STORAGE' },
+  { min: 100, label: 'HOTOVO', stage: 'DONE' },
+];
+
+const VIDEO_AGENT_TEST_PROGRESS_STAGES: Array<{ min: number; label: string; stage: string }> = [
+  { min: 5, label: 'Inicializace', stage: 'QUEUED' },
+  { min: 25, label: 'Fixní scénář připraven', stage: 'SCRIPT' },
+  { min: 35, label: 'Storyboard připraven', stage: 'STORYBOARD' },
+  { min: 45, label: 'Odesílám Video Agent', stage: 'VIDEO_AGENT' },
+  { min: 60, label: 'HeyGen generuje video', stage: 'HEYGEN_RENDER' },
+  { min: 75, label: 'Video dokončeno', stage: 'HEYGEN_DONE' },
+  { min: 82, label: 'Stahuji video', stage: 'DOWNLOAD' },
+  { min: 90, label: 'Post-processing', stage: 'POSTPROCESS' },
+  { min: 96, label: 'Ukládám video', stage: 'STORAGE' },
+  { min: 100, label: 'HOTOVO', stage: 'DONE' },
 ];
 
 export function mapProductionTestProgress(input: {
@@ -75,6 +90,7 @@ export function mapProductionTestProgress(input: {
   currentStep?: string | null;
   errorCode?: string | null;
   hasMasterVideo: boolean;
+  testKind?: 'FULL' | 'VIDEO_AGENT';
 }): ProductionTestProgress {
   if (input.status === 'FAILED' && input.errorCode !== 'QUALITY_REVIEW_REQUIRED') {
     return {
@@ -94,8 +110,9 @@ export function mapProductionTestProgress(input: {
   }
 
   const pct = Math.max(5, Math.min(99, input.progressPercent || 5));
-  let matched = TEST_PROGRESS_STAGES[0];
-  for (const stage of TEST_PROGRESS_STAGES) {
+  const stages = input.testKind === 'VIDEO_AGENT' ? VIDEO_AGENT_TEST_PROGRESS_STAGES : TEST_PROGRESS_STAGES;
+  let matched = stages[0];
+  for (const stage of stages) {
     if (pct >= stage.min) matched = stage;
   }
   return {
@@ -180,6 +197,7 @@ export function buildProductionTestStatus(job: {
     currentStep: job.currentStep,
     errorCode: job.errorCode,
     hasMasterVideo: Boolean(masterVideoUrl),
+    testKind: meta.testKind === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'FULL',
   });
 
   return {

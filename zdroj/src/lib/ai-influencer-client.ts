@@ -228,12 +228,20 @@ export type AiInfluencerDashboard = {
       productionVerifiedAt?: string | null;
     };
     ai?: {
+      provider?: string;
       configured: boolean;
+      enabled?: boolean;
+      dbEnabled?: boolean;
+      envEnabled?: boolean;
       connected: boolean | null;
       ready?: boolean;
       scriptProvider?: 'READY' | 'CONFIGURED' | 'NOT_READY';
+      scriptGenerationEnabled?: boolean;
       disabled?: boolean;
       message?: string;
+      model?: string;
+      source?: 'database' | 'environment' | 'both' | 'none';
+      settingsPath?: string;
     };
     elevenLabs?: ElevenLabsProviderStatus;
     heygen?: HeyGenProviderStatus;
@@ -337,6 +345,8 @@ export type AiInfluencerJobDisplay = {
 
 export type AiInfluencerActiveJob = {
   id: string;
+  isTest?: boolean;
+  testKind?: 'FULL' | 'VIDEO_AGENT' | null;
   status: string;
   progressPercent: number;
   currentStep: string | null;
