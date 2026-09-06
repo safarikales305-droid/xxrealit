@@ -47,7 +47,14 @@ export type SrealityImportPreviewResponse = {
     directHttpSuccess?: number;
     browserResponseSuccess?: number;
     browserContextSuccess?: number;
+    domBlobSuccess?: number;
     elementCaptureSuccess?: number;
+    captureMethods?: Partial<
+      Record<
+        'DIRECT_HTTP' | 'BROWSER_RESPONSE' | 'BROWSER_CONTEXT' | 'DOM_BLOB' | 'ELEMENT_CAPTURE',
+        number
+      >
+    >;
   };
   aiText: {
     originalTitle: string | null;
@@ -76,6 +83,8 @@ export type SrealityImportPreviewResponse = {
     storageCount: number;
     browserFallback: string;
     browser?: string;
+    pageData?: string;
+    imageAcquisition?: string;
     dynamicEnrichment?: string;
     browserError?: string;
     imageDownloadFailures?: Array<{
@@ -89,9 +98,17 @@ export type SrealityImportPreviewResponse = {
       redirectHost: string | null;
       error: string;
       urlSample: string;
+      sourceUrl?: string;
+      selectedUrl?: string;
       captureMethod?: string;
       browserResponse?: string;
+      browserContext?: string;
+      domBlob?: string;
       elementCapture?: string;
+      mime?: string | null;
+      bytes?: number | null;
+      dimensions?: string | null;
+      storage?: 'UPLOADED' | 'FAILED' | 'PENDING';
     }>;
   };
 };

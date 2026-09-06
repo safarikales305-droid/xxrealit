@@ -16,6 +16,7 @@ export type SrealityImageCaptureMethod =
   | 'DIRECT_HTTP'
   | 'BROWSER_RESPONSE'
   | 'BROWSER_CONTEXT'
+  | 'DOM_BLOB'
   | 'ELEMENT_CAPTURE';
 
 export type SrealityImageDownloadFailureDiag = {
@@ -28,10 +29,18 @@ export type SrealityImageDownloadFailureDiag = {
   redirectHost: string | null;
   error: string;
   urlSample: string;
+  sourceUrl?: string;
+  selectedUrl?: string;
   captureMethod?: SrealityImageCaptureMethod;
   directHttpStatus?: number | null;
   browserResponse?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
+  browserContext?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
+  domBlob?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
   elementCapture?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
+  mime?: string | null;
+  bytes?: number | null;
+  dimensions?: string | null;
+  storage?: 'UPLOADED' | 'FAILED' | 'PENDING';
 };
 
 export type SrealityImageImportStats = {
@@ -47,6 +56,7 @@ export type SrealityImageImportStats = {
   directHttpSuccess?: number;
   browserResponseSuccess?: number;
   browserContextSuccess?: number;
+  domBlobSuccess?: number;
   elementCaptureSuccess?: number;
   captureMethods?: Partial<Record<SrealityImageCaptureMethod, number>>;
 };
@@ -76,6 +86,8 @@ export type SrealityImportDiagnostics = {
   storageCount: number;
   browserFallback: SrealityImportDiagnosticStage;
   browser: 'READY' | 'FAIL' | 'NOT_TESTED';
+  pageData?: 'STATIC_OK' | 'DYNAMIC_OK' | 'FAIL';
+  imageAcquisition?: 'BROWSER_REQUIRED' | 'DIRECT_HTTP';
   dynamicEnrichment?: SrealityImportDiagnosticStage;
   browserError?: string;
   imageDownloadFailures?: SrealityImageDownloadFailureDiag[];

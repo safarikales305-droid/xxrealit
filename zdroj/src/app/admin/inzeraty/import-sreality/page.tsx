@@ -267,6 +267,8 @@ export default function AdminSrealityImportPage() {
                   <>
                   <dl className="mt-3 grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
                     <div><dt className="font-semibold">Source parser</dt><dd>{diagLabel(preview.diagnostics.sourceParser)}</dd></div>
+                    <div><dt className="font-semibold">Page data</dt><dd>{diagLabel(preview.diagnostics.pageData ?? 'STATIC_OK')}</dd></div>
+                    <div><dt className="font-semibold">Image acquisition</dt><dd>{preview.diagnostics.imageAcquisition ?? 'DIRECT_HTTP'}</dd></div>
                     <div><dt className="font-semibold">Dynamic page</dt><dd>{diagLabel(preview.diagnostics.dynamicPage)}</dd></div>
                     <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND{preview.diagnostics.imagesSelectedCount ? ` · ${preview.diagnostics.imagesSelectedCount} SELECTED` : ''}</dd></div>
                     <div><dt className="font-semibold">Images</dt><dd>{diagLabel(preview.diagnostics.imagesDownloaded)} · {preview.diagnostics.imagesDownloadedCount} CAPTURED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
@@ -279,6 +281,8 @@ export default function AdminSrealityImportPage() {
                           browser response {preview.imageImportStats.browserResponseSuccess ?? 0}
                           {' · '}
                           browser context {preview.imageImportStats.browserContextSuccess ?? 0}
+                          {' · '}
+                          DOM blob {preview.imageImportStats.domBlobSuccess ?? 0}
                           {' · '}
                           element capture {preview.imageImportStats.elementCaptureSuccess ?? 0}
                         </dd>
@@ -296,19 +300,34 @@ export default function AdminSrealityImportPage() {
                   {preview.diagnostics.imageDownloadFailures?.length ? (
                     <div className="mt-4 space-y-3 text-xs text-zinc-700">
                       {preview.diagnostics.imageDownloadFailures.map((f) => (
-                        <div key={f.index} className="rounded border border-red-100 bg-red-50 p-2">
+                        <div
+                          key={f.index}
+                          className={`rounded border p-2 ${
+                            f.storage === 'UPLOADED'
+                              ? 'border-green-100 bg-green-50'
+                              : f.storage === 'PENDING'
+                                ? 'border-amber-100 bg-amber-50'
+                                : 'border-red-100 bg-red-50'
+                          }`}
+                        >
                           <p className="font-semibold">IMAGE #{f.index}</p>
+                          {f.sourceUrl ? <p className="truncate">source: {f.sourceUrl}</p> : null}
+                          {f.selectedUrl ? <p className="truncate">selected URL: {f.selectedUrl}</p> : null}
+                          {f.captureMethod ? <p>method: {f.captureMethod}</p> : null}
+                          {f.directHttpStatus != null ? <p>direct HTTP: {f.directHttpStatus}</p> : null}
+                          {f.browserResponse ? <p>browser response: {f.browserResponse}</p> : null}
+                          {f.browserContext ? <p>browser context: {f.browserContext}</p> : null}
+                          {f.domBlob ? <p>DOM blob: {f.domBlob}</p> : null}
+                          {f.elementCapture ? <p>element capture: {f.elementCapture}</p> : null}
+                          <p>HTTP: {f.httpStatus ?? '—'}</p>
+                          {f.mime ? <p>mime: {f.mime}</p> : null}
+                          {f.bytes != null ? <p>bytes: {f.bytes}</p> : null}
+                          {f.dimensions ? <p>dimensions: {f.dimensions}</p> : null}
+                          {f.storage ? <p>storage: {f.storage}</p> : null}
                           <p>host: {f.host}</p>
                           {f.hostValidation ? <p>host validation: {f.hostValidation}</p> : null}
-                          {f.directHttpStatus != null ? <p>direct HTTP: {f.directHttpStatus}</p> : null}
-                          {f.captureMethod ? <p>capture method: {f.captureMethod}</p> : null}
-                          {f.browserResponse ? <p>browser response: {f.browserResponse}</p> : null}
-                          {f.elementCapture ? <p>element capture: {f.elementCapture}</p> : null}
-                          <p>HTTP status: {f.httpStatus ?? '—'}</p>
                           <p>content-type: {f.contentType ?? '—'}</p>
-                          <p>response length: {f.responseLength ?? '—'}</p>
-                          <p>redirect host: {f.redirectHost ?? '—'}</p>
-                          <p>error: {f.error}</p>
+                          {f.error ? <p>error: {f.error}</p> : null}
                           <p className="truncate">url: {f.urlSample}</p>
                         </div>
                       ))}

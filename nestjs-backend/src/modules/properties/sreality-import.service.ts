@@ -46,6 +46,9 @@ import {
 } from './sreality-image.util';
 import {
   extFromContentType,
+  findBestCapturedForTargetUrl,
+  isBrowserRequiredImageUrl,
+  matchKeysForImageUrl,
   shouldSuggestBrowserMediaFallback,
   type SrealityImageCaptureMethod,
 } from './sreality-browser-media.util';
@@ -164,6 +167,8 @@ export class SrealityImportService {
       storageCount: 0,
       browserFallback: 'NOT_REQUIRED',
       browser: 'NOT_TESTED',
+      pageData: 'STATIC_OK',
+      imageAcquisition: 'DIRECT_HTTP',
     };
 
     const needsContactEnrichment =
@@ -221,6 +226,16 @@ export class SrealityImportService {
     }
 
     this.log.log(`SREALITY_IMAGES_FOUND count=${imageUrls.length}`);
+
+    if (imageUrls.some((url) => isBrowserRequiredImageUrl(url))) {
+      diagnostics.imageAcquisition = 'BROWSER_REQUIRED';
+      diagnostics.browserFallback =
+        diagnostics.browser === 'READY'
+          ? 'NOT_REACHED'
+          : diagnostics.browser === 'FAIL'
+            ? 'FAIL'
+            : 'NOT_REACHED';
+    }
 
     const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const { images, stats, browserCapture } = await this.mirrorImages(
@@ -718,12 +733,16 @@ export class SrealityImportService {
     const unique = found.slice(0, SREALITY_IMPORT_MAX_IMAGES);
     const images: SrealityImportImageRow[] = [];
     const imageDownloadFailures: SrealityImageDownloadFailureDiag[] = [];
+    const pushImageDiag = (diag: SrealityImageDownloadFailureDiag) => {
+      if (imageDownloadFailures.length < unique.length) imageDownloadFailures.push(diag);
+    };
     const pendingBrowser: Array<{ index: number; sourceUrl: string; directHttpStatus: number | null }> =
       [];
     const captureMethods: Partial<Record<SrealityImageCaptureMethod, number>> = {
       DIRECT_HTTP: 0,
       BROWSER_RESPONSE: 0,
       BROWSER_CONTEXT: 0,
+      DOM_BLOB: 0,
       ELEMENT_CAPTURE: 0,
     };
     let downloaded = 0;
@@ -734,19 +753,19 @@ export class SrealityImportService {
       const sourceUrl = unique[i]!;
       const mediaValidation = validateSrealityMediaUrl(sourceUrl);
       if (!mediaValidation.allowed) {
-        if (imageDownloadFailures.length < 3) {
-          imageDownloadFailures.push({
-            index: i + 1,
-            host: mediaValidation.host ?? '—',
-            hostValidation: mediaValidation.hostValidation,
-            httpStatus: null,
-            contentType: null,
-            responseLength: null,
-            redirectHost: null,
-            error: mediaValidation.reason ?? 'Neplatný hostitel',
-            urlSample: sanitizeUrlForDiagnostics(sourceUrl),
-          });
-        }
+        pushImageDiag({
+          index: i + 1,
+          host: mediaValidation.host ?? '—',
+          hostValidation: mediaValidation.hostValidation,
+          httpStatus: null,
+          contentType: null,
+          responseLength: null,
+          redirectHost: null,
+          error: mediaValidation.reason ?? 'Neplatný hostitel',
+          urlSample: sanitizeUrlForDiagnostics(sourceUrl),
+          sourceUrl,
+          storage: 'FAILED',
+        });
         images.push({
           sourceUrl,
           storedUrl: null,
@@ -761,6 +780,40 @@ export class SrealityImportService {
       let stored: { storedUrl: string; watermarkedUrl: string | null } | null = null;
       let directHttpStatus: number | null = null;
 
+      if (isBrowserRequiredImageUrl(sourceUrl)) {
+        pendingBrowser.push({ index: i, sourceUrl, directHttpStatus: 401 });
+        pushImageDiag({
+          index: i + 1,
+          host: (() => {
+            try {
+              return new URL(sourceUrl).hostname;
+            } catch {
+              return '—';
+            }
+          })(),
+          hostValidation: 'PASS',
+          httpStatus: 401,
+          directHttpStatus: 401,
+          contentType: 'text/html',
+          responseLength: null,
+          redirectHost: null,
+          error: 'SDN CDN vyžaduje browser session',
+          urlSample: sanitizeUrlForDiagnostics(sourceUrl),
+          sourceUrl,
+          selectedUrl: sourceUrl,
+          storage: 'PENDING',
+        });
+        images.push({
+          sourceUrl,
+          storedUrl: null,
+          watermarkedUrl: null,
+          sortOrder: i,
+          isMain: false,
+          error: 'Čeká na browser capture',
+        });
+        continue;
+      }
+
       const direct = await this.downloadImageDirect(
         sourceUrl,
         sourceListingUrl,
@@ -768,7 +821,7 @@ export class SrealityImportService {
         i,
         (diag) => {
           directHttpStatus = diag.httpStatus;
-          if (imageDownloadFailures.length < 3) imageDownloadFailures.push(diag);
+          pushImageDiag(diag);
         },
       );
       if (direct) {
@@ -782,6 +835,28 @@ export class SrealityImportService {
         downloaded += 1;
         uploadAttempted += 1;
         uploaded += 1;
+        pushImageDiag({
+          index: i + 1,
+          host: (() => {
+            try {
+              return new URL(sourceUrl).hostname;
+            } catch {
+              return '—';
+            }
+          })(),
+          hostValidation: 'PASS',
+          httpStatus: 200,
+          contentType: 'image/jpeg',
+          responseLength: null,
+          redirectHost: null,
+          error: '',
+          urlSample: sanitizeUrlForDiagnostics(sourceUrl),
+          sourceUrl,
+          selectedUrl: sourceUrl,
+          captureMethod: 'DIRECT_HTTP',
+          mime: 'image/jpeg',
+          storage: 'UPLOADED',
+        });
         images.push({
           sourceUrl,
           storedUrl: stored.storedUrl,
@@ -822,13 +897,21 @@ export class SrealityImportService {
         enrichContact: options?.enrichContact ?? false,
       });
 
-      const capturedBySource = new Map<string, NonNullable<typeof browserCapture>['captured'][number]>();
-      for (const captured of browserCapture.captured) {
-        capturedBySource.set(captured.sourceUrl, captured);
+      const capturedPool = new Map<
+        string,
+        NonNullable<typeof browserCapture>['captured'][number]
+      >();
+      for (const item of browserCapture.captured) {
+        for (const key of matchKeysForImageUrl(item.sourceUrl)) {
+          const existing = capturedPool.get(key);
+          if (!existing || item.buffer.length > existing.buffer.length) {
+            capturedPool.set(key, item);
+          }
+        }
       }
 
       for (const pending of pendingBrowser) {
-        const captured = capturedBySource.get(pending.sourceUrl);
+        const captured = findBestCapturedForTargetUrl(pending.sourceUrl, capturedPool);
         const rowIndex = images.findIndex(
           (row) => row.sourceUrl === pending.sourceUrl && !row.storedUrl,
         );
@@ -839,28 +922,34 @@ export class SrealityImportService {
               error: 'Browser capture selhal',
             };
           }
-          if (imageDownloadFailures.length < 5) {
-            imageDownloadFailures.push({
-              index: pending.index + 1,
-              host: (() => {
-                try {
-                  return new URL(pending.sourceUrl).hostname;
-                } catch {
-                  return '—';
-                }
-              })(),
-              hostValidation: 'PASS',
-              httpStatus: pending.directHttpStatus,
-              directHttpStatus: pending.directHttpStatus,
-              contentType: null,
-              responseLength: null,
-              redirectHost: null,
-              error: 'Browser capture selhal',
-              urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
-              browserResponse: 'FAIL',
-              elementCapture: 'FAIL',
-            });
-          }
+          const failIdx = imageDownloadFailures.findIndex((d) => d.index === pending.index + 1);
+          const failDiag: SrealityImageDownloadFailureDiag = {
+            index: pending.index + 1,
+            host: (() => {
+              try {
+                return new URL(pending.sourceUrl).hostname;
+              } catch {
+                return '—';
+              }
+            })(),
+            hostValidation: 'PASS',
+            httpStatus: pending.directHttpStatus,
+            directHttpStatus: pending.directHttpStatus,
+            contentType: null,
+            responseLength: null,
+            redirectHost: null,
+            error: 'Browser capture selhal',
+            urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+            sourceUrl: pending.sourceUrl,
+            selectedUrl: pending.sourceUrl,
+            browserResponse: 'FAIL',
+            browserContext: 'FAIL',
+            domBlob: 'FAIL',
+            elementCapture: 'FAIL',
+            storage: 'FAILED',
+          };
+          if (failIdx >= 0) imageDownloadFailures[failIdx] = failDiag;
+          else pushImageDiag(failDiag);
           continue;
         }
 
@@ -884,6 +973,39 @@ export class SrealityImportService {
           };
           if (rowIndex >= 0) images[rowIndex] = storedRow;
           else images.push(storedRow);
+
+          const okIdx = imageDownloadFailures.findIndex((d) => d.index === pending.index + 1);
+          const okDiag: SrealityImageDownloadFailureDiag = {
+            index: pending.index + 1,
+            host: (() => {
+              try {
+                return new URL(pending.sourceUrl).hostname;
+              } catch {
+                return '—';
+              }
+            })(),
+            hostValidation: 'PASS',
+            httpStatus: 200,
+            directHttpStatus: pending.directHttpStatus,
+            contentType: captured.contentType,
+            responseLength: captured.buffer.length,
+            redirectHost: null,
+            error: '',
+            urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+            sourceUrl: pending.sourceUrl,
+            selectedUrl: captured.sourceUrl,
+            captureMethod: captured.method,
+            mime: captured.contentType,
+            bytes: captured.buffer.length,
+            dimensions: `${captured.width}x${captured.height}`,
+            browserResponse: captured.method === 'BROWSER_RESPONSE' ? 'PASS' : 'UNAVAILABLE',
+            browserContext: captured.method === 'BROWSER_CONTEXT' ? 'PASS' : 'UNAVAILABLE',
+            domBlob: captured.method === 'DOM_BLOB' ? 'PASS' : 'UNAVAILABLE',
+            elementCapture: captured.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'UNAVAILABLE',
+            storage: 'UPLOADED',
+          };
+          if (okIdx >= 0) imageDownloadFailures[okIdx] = okDiag;
+          else pushImageDiag(okDiag);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (rowIndex >= 0) {
@@ -892,29 +1014,38 @@ export class SrealityImportService {
               error: msg.slice(0, 120),
             };
           }
-          if (imageDownloadFailures.length < 5) {
-            imageDownloadFailures.push({
-              index: pending.index + 1,
-              host: (() => {
-                try {
-                  return new URL(pending.sourceUrl).hostname;
-                } catch {
-                  return '—';
-                }
-              })(),
-              hostValidation: 'PASS',
-              httpStatus: pending.directHttpStatus,
-              directHttpStatus: pending.directHttpStatus,
-              contentType: captured.contentType,
-              responseLength: captured.buffer.length,
-              redirectHost: null,
-              error: msg.slice(0, 160),
-              urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
-              captureMethod: captured.method,
-              browserResponse: captured.method === 'BROWSER_RESPONSE' ? 'PASS' : 'UNAVAILABLE',
-              elementCapture: captured.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'UNAVAILABLE',
-            });
-          }
+          const errIdx = imageDownloadFailures.findIndex((d) => d.index === pending.index + 1);
+          const errDiag: SrealityImageDownloadFailureDiag = {
+            index: pending.index + 1,
+            host: (() => {
+              try {
+                return new URL(pending.sourceUrl).hostname;
+              } catch {
+                return '—';
+              }
+            })(),
+            hostValidation: 'PASS',
+            httpStatus: pending.directHttpStatus,
+            directHttpStatus: pending.directHttpStatus,
+            contentType: captured.contentType,
+            responseLength: captured.buffer.length,
+            redirectHost: null,
+            error: msg.slice(0, 160),
+            urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+            sourceUrl: pending.sourceUrl,
+            selectedUrl: captured.sourceUrl,
+            captureMethod: captured.method,
+            mime: captured.contentType,
+            bytes: captured.buffer.length,
+            dimensions: `${captured.width}x${captured.height}`,
+            browserResponse: captured.method === 'BROWSER_RESPONSE' ? 'PASS' : 'UNAVAILABLE',
+            browserContext: captured.method === 'BROWSER_CONTEXT' ? 'PASS' : 'UNAVAILABLE',
+            domBlob: captured.method === 'DOM_BLOB' ? 'PASS' : 'UNAVAILABLE',
+            elementCapture: captured.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'UNAVAILABLE',
+            storage: 'FAILED',
+          };
+          if (errIdx >= 0) imageDownloadFailures[errIdx] = errDiag;
+          else pushImageDiag(errDiag);
         }
       }
     }
@@ -941,6 +1072,7 @@ export class SrealityImportService {
       directHttpSuccess: captureMethods.DIRECT_HTTP ?? 0,
       browserResponseSuccess: captureMethods.BROWSER_RESPONSE ?? 0,
       browserContextSuccess: captureMethods.BROWSER_CONTEXT ?? 0,
+      domBlobSuccess: captureMethods.DOM_BLOB ?? 0,
       elementCaptureSuccess: captureMethods.ELEMENT_CAPTURE ?? 0,
       captureMethods,
       message:
