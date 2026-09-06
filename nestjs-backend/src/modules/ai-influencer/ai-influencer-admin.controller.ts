@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminGuard } from '../admin/guards/admin.guard';
@@ -159,6 +161,17 @@ export class AiInfluencerAdminController {
     return this.jobs.listActiveJobs();
   }
 
+  @Get('videos')
+  listVideos(@Query('limit') limit?: string) {
+    const parsed = limit ? Number.parseInt(limit, 10) : 60;
+    return this.jobs.listVideos(Number.isFinite(parsed) ? parsed : 60);
+  }
+
+  @Delete('jobs/bulk/failed')
+  deleteFailedJobs() {
+    return this.jobs.deleteFailedJobs();
+  }
+
   @Get('jobs/:id')
   getJob(@Param('id') id: string) {
     return this.jobs.getJob(id);
@@ -180,6 +193,16 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/skip')
   skipJob(@Param('id') id: string, @Body() body?: { reason?: string }) {
     return this.jobs.skipJob(id, body?.reason);
+  }
+
+  @Post('jobs/:id/cancel')
+  cancelJob(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.jobs.cancelJob(id, body?.reason);
+  }
+
+  @Delete('jobs/:id')
+  deleteJob(@Param('id') id: string, @Query('historyOnly') historyOnly?: string) {
+    return this.jobs.deleteJob(id, { historyOnly: historyOnly === '1' || historyOnly === 'true' });
   }
 
   @Post('automation/resume')

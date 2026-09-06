@@ -280,12 +280,31 @@ export type AiInfluencerArticleRow = {
   latestJob: { id: string; status: string; candidate?: { reelPotentialScore: number } | null } | null;
 };
 
+export type AiInfluencerPipelineStep = {
+  key: string;
+  label: string;
+  state: 'done' | 'active' | 'pending' | 'failed';
+};
+
+export type AiInfluencerJobDisplay = {
+  generationMode: 'VIDEO_AGENT' | 'AVATAR';
+  failedStageResolved: string | null;
+  errorKind: 'NONE' | 'ACTIVE' | 'LEGACY_STALE';
+  displayErrorMessage: string | null;
+  displayErrorCode: string | null;
+  retryLabel: string;
+  retryHint: string | null;
+  hasMasterVideo: boolean;
+  pipelineSteps: AiInfluencerPipelineStep[];
+};
+
 export type AiInfluencerActiveJob = {
   id: string;
   status: string;
   progressPercent: number;
   currentStep: string | null;
   errorMessage: string | null;
+  errorCode?: string | null;
   failedStage: string | null;
   skipReason: string | null;
   facebookPublishStatus: string | null;
@@ -293,6 +312,12 @@ export type AiInfluencerActiveJob = {
   articleTitle: string;
   score: number | null;
   updatedAt: string;
+  createdAt?: string;
+  generationMode?: 'VIDEO_AGENT' | 'AVATAR';
+  retryLabel?: string;
+  errorKind?: 'NONE' | 'ACTIVE' | 'LEGACY_STALE';
+  pipelineSteps?: AiInfluencerPipelineStep[];
+  sourceType?: 'article' | 'property';
 };
 
 export type AiInfluencerJobRow = {
@@ -323,10 +348,17 @@ export type AiInfluencerJobRow = {
   youtubePermalink?: string | null;
   estimatedDurationSec?: number | null;
   createdAt: string;
+  updatedAt?: string;
   captionTitle?: string | null;
-  article: { id: string; title: string; publishedAt: string | null; status: string } | null;
+  article: { id: string; title: string; publishedAt: string | null; status: string; category?: string } | null;
   property?: { id: string; title: string } | null;
   profile: { id: string; name: string; slug: string };
+  generationMode?: 'VIDEO_AGENT' | 'AVATAR';
+  retryLabel?: string;
+  errorKind?: 'NONE' | 'ACTIVE' | 'LEGACY_STALE';
+  hasMasterVideo?: boolean;
+  display?: AiInfluencerJobDisplay;
+  candidate?: { reelPotentialScore: number | null } | null;
 };
 
 export type ShortsMusicOption = {
@@ -668,5 +700,29 @@ export function nestAiInfluencerTestInstagram(token: string) {
 }
 
 export function nestAiInfluencerGetJob(token: string, jobId: string) {
-  return aiInfluencerFetch<Record<string, unknown>>(token, `/jobs/${jobId}`);
+  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}`);
+}
+
+export function nestAiInfluencerVideos(token: string, limit = 60) {
+  return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/videos?limit=${limit}`);
+}
+
+export function nestAiInfluencerCancelJob(token: string, jobId: string, reason?: string) {
+  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function nestAiInfluencerDeleteJob(token: string, jobId: string, historyOnly = false) {
+  const qs = historyOnly ? '?historyOnly=1' : '';
+  return aiInfluencerFetch<{ ok: boolean; deletedId: string }>(token, `/jobs/${jobId}${qs}`, {
+    method: 'DELETE',
+  });
+}
+
+export function nestAiInfluencerDeleteFailedJobs(token: string) {
+  return aiInfluencerFetch<{ ok: boolean; deleted: number }>(token, '/jobs/bulk/failed', {
+    method: 'DELETE',
+  });
 }

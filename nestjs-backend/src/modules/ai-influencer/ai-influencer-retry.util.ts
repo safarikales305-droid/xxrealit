@@ -84,7 +84,13 @@ export function resumeJobStatus(
     if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
     return AiInfluencerReelJobStatus.SCRIPT_READY;
   }
-  if (stage === 'VOICE') return AiInfluencerReelJobStatus.VOICE_GENERATING;
+  if (stage === 'VOICE') {
+    if (mode === 'VIDEO_AGENT') {
+      if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+    }
+    return AiInfluencerReelJobStatus.VOICE_GENERATING;
+  }
   if (stage === 'AVATAR') {
     return artifacts.avatarExternalJobId
       ? AiInfluencerReelJobStatus.AVATAR_GENERATING

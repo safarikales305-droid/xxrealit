@@ -38,6 +38,8 @@ import {
 import { prepareSpeechTextForProvider } from './ai-influencer-pronunciation.util';
 import { runQualityGate } from './ai-influencer-quality-gate.util';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import { buildJobAdminDisplay, type JobDisplayInput } from './ai-influencer-job-display.util';
+import { getElevenLabsRuntimeConfig } from './ai-influencer-runtime-config.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
@@ -158,21 +160,23 @@ export class AiInfluencerJobService {
         candidate: { select: { reelPotentialScore: true } },
       },
     });
-    return jobs.map((j) => ({
-      ...j,
-      article: j.article
-        ? {
-            ...j.article,
-            title: decodeHtmlEntities(j.article.title),
-          }
-        : null,
-      property: j.property
-        ? {
-            ...j.property,
-            title: decodeHtmlEntities(j.property.title),
-          }
-        : null,
-    }));
+    const cfg = this.settings.getCached();
+    const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    return jobs.map((j) =>
+      this.enrichJobRow(
+        {
+          ...j,
+          article: j.article
+            ? { ...j.article, title: decodeHtmlEntities(j.article.title) }
+            : null,
+          property: j.property
+            ? { ...j.property, title: decodeHtmlEntities(j.property.title) }
+            : null,
+        },
+        cfg,
+        workerElevenConfigured,
+      ),
+    );
   }
 
   async listActiveJobs() {
@@ -201,20 +205,32 @@ export class AiInfluencerJobService {
         candidate: { select: { reelPotentialScore: true } },
       },
     });
-    return active.map((j) => ({
-      id: j.id,
-      status: j.status,
-      progressPercent: j.progressPercent,
-      currentStep: j.currentStep,
-      errorMessage: j.errorMessage,
-      failedStage: j.failedStage,
-      skipReason: j.skipReason,
-      facebookPublishStatus: j.facebookPublishStatus,
-      youtubePublishStatus: j.youtubePublishStatus,
-      articleTitle: decodeHtmlEntities(j.article?.title ?? j.property?.title ?? 'Inzerát'),
-      score: j.candidate?.reelPotentialScore ?? null,
-      updatedAt: j.updatedAt,
-    }));
+    const cfg = this.settings.getCached();
+    const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    return active.map((j) => {
+      const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured });
+      return {
+        id: j.id,
+        status: j.status,
+        progressPercent: j.progressPercent,
+        currentStep: j.currentStep,
+        errorMessage: display.displayErrorMessage ?? j.errorMessage,
+        errorCode: display.displayErrorCode ?? j.errorCode,
+        failedStage: display.failedStageResolved ?? j.failedStage,
+        skipReason: j.skipReason,
+        facebookPublishStatus: j.facebookPublishStatus,
+        youtubePublishStatus: j.youtubePublishStatus,
+        articleTitle: decodeHtmlEntities(j.article?.title ?? j.property?.title ?? 'Inzerát'),
+        score: j.candidate?.reelPotentialScore ?? null,
+        updatedAt: j.updatedAt,
+        createdAt: j.createdAt,
+        generationMode: display.generationMode,
+        retryLabel: display.retryLabel,
+        errorKind: display.errorKind,
+        pipelineSteps: display.pipelineSteps,
+        sourceType: j.propertyId ? 'property' : 'article',
+      };
+    });
   }
 
   async getJob(id: string): Promise<AiInfluencerJobWithRelations> {
@@ -228,7 +244,8 @@ export class AiInfluencerJobService {
       },
     });
     if (!job) throw new NotFoundException('AI Influencer job nenalezen.');
-    return job;
+    const cfg = this.settings.getCached();
+    return this.enrichJobRow(job, cfg, getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED');
   }
 
   async listArticles(limit = 40) {
@@ -414,6 +431,110 @@ export class AiInfluencerJobService {
     return this.getJob(jobId);
   }
 
+  async cancelJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
+    const job = await this.getJob(jobId);
+    const active: AiInfluencerReelJobStatus[] = [
+      AiInfluencerReelJobStatus.EVALUATING,
+      AiInfluencerReelJobStatus.CANDIDATE,
+      AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+      AiInfluencerReelJobStatus.SCRIPT_READY,
+      AiInfluencerReelJobStatus.VOICE_GENERATING,
+      AiInfluencerReelJobStatus.VOICE_READY,
+      AiInfluencerReelJobStatus.AVATAR_GENERATING,
+      AiInfluencerReelJobStatus.AVATAR_READY,
+      AiInfluencerReelJobStatus.RENDERING,
+      AiInfluencerReelJobStatus.PUBLISHING,
+    ];
+    if (!active.includes(job.status)) {
+      throw new BadRequestException('Job nelze zrušit — není ve zpracování.');
+    }
+    return this.skipJob(jobId, reason ?? 'Zrušeno administrátorem');
+  }
+
+  async deleteJob(jobId: string, options?: { historyOnly?: boolean }) {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('AI Influencer job nenalezen.');
+
+    const processing: AiInfluencerReelJobStatus[] = [
+      AiInfluencerReelJobStatus.EVALUATING,
+      AiInfluencerReelJobStatus.CANDIDATE,
+      AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+      AiInfluencerReelJobStatus.SCRIPT_READY,
+      AiInfluencerReelJobStatus.VOICE_GENERATING,
+      AiInfluencerReelJobStatus.VOICE_READY,
+      AiInfluencerReelJobStatus.AVATAR_GENERATING,
+      AiInfluencerReelJobStatus.AVATAR_READY,
+      AiInfluencerReelJobStatus.RENDERING,
+      AiInfluencerReelJobStatus.PUBLISHING,
+    ];
+    if (processing.includes(job.status)) {
+      throw new BadRequestException('Nejdříve zrušte aktivní job.');
+    }
+
+    if (
+      (job.status === AiInfluencerReelJobStatus.PUBLISHED ||
+        job.status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED) &&
+      !options?.historyOnly
+    ) {
+      throw new BadRequestException(
+        'Publikované video lze odstranit pouze z admin historie (historyOnly).',
+      );
+    }
+
+    await this.prisma.aiInfluencerReelJob.delete({ where: { id: jobId } });
+    return { ok: true, deletedId: jobId };
+  }
+
+  async deleteFailedJobs() {
+    const result = await this.prisma.aiInfluencerReelJob.deleteMany({
+      where: { status: AiInfluencerReelJobStatus.FAILED },
+    });
+    return { ok: true, deleted: result.count };
+  }
+
+  async listVideos(limit = 60) {
+    const cfg = this.settings.getCached();
+    const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        OR: [
+          { finalMasterUrl: { not: null } },
+          { baseMasterUrl: { not: null } },
+          { videoUrl: { not: null } },
+        ],
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.READY,
+            AiInfluencerReelJobStatus.PUBLISHED,
+            AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+          ],
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+      include: {
+        article: { select: { id: true, title: true, category: true } },
+        property: { select: { id: true, title: true } },
+        candidate: { select: { reelPotentialScore: true } },
+      },
+    });
+    return rows.map((j) =>
+      this.enrichJobRow(
+        {
+          ...j,
+          article: j.article
+            ? { ...j.article, title: decodeHtmlEntities(j.article.title) }
+            : null,
+          property: j.property
+            ? { ...j.property, title: decodeHtmlEntities(j.property.title) }
+            : null,
+        },
+        cfg,
+        workerElevenConfigured,
+      ),
+    );
+  }
+
   async retryJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
     const job = await this.getJob(jobId);
     if (job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY) {
@@ -441,6 +562,15 @@ export class AiInfluencerJobService {
       job.errorMessage,
       job.errorCode,
     );
+    const mode = inferJobGenerationMode(
+      readJobRenderMeta(job.renderSettingsJson),
+      this.settings.getCached(),
+      {
+        voiceStorageUrl: job.voiceStorageUrl,
+        avatarExternalJobId: job.avatarExternalJobId,
+        baseMasterUrl: job.baseMasterUrl,
+      },
+    );
     const progress = progressForStatus(resumeStatus);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -448,11 +578,16 @@ export class AiInfluencerJobService {
         status: resumeStatus,
         errorCode: null,
         errorMessage: null,
+        failedStage: null,
         nextRetryAt: null,
         attemptCount: { increment: 1 },
         lastAttemptAt: new Date(),
         progressPercent: progress.percent,
         currentStep: progress.step,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          videoGenerationMode: mode,
+          generationModeUsed: mode,
+        }) as object,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY', resumeStatus),
       },
     });
@@ -2040,6 +2175,22 @@ export class AiInfluencerJobService {
       videoGenerationMode: mode,
       generationModeUsed: mode,
     });
+  }
+
+  private enrichJobRow<T extends JobDisplayInput>(
+    job: T,
+    cfg: ReturnType<AiInfluencerSettingsService['getCached']>,
+    workerElevenConfigured: boolean,
+  ) {
+    const display = buildJobAdminDisplay(job, cfg, { workerElevenConfigured });
+    return {
+      ...job,
+      display,
+      generationMode: display.generationMode,
+      retryLabel: display.retryLabel,
+      errorKind: display.errorKind,
+      hasMasterVideo: display.hasMasterVideo,
+    };
   }
 
   private async assertProductionReadyForNewJob(): Promise<void> {

@@ -78,15 +78,26 @@ describe('resumeJobStatus', () => {
     assert.equal(next, AiInfluencerReelJobStatus.AVATAR_READY);
   });
 
-  it('legacy ElevenLabs failure at RENDER resumes at VOICE_GENERATING', () => {
+  it('legacy ElevenLabs failure at RENDER resumes at VOICE_GENERATING for AVATAR mode', () => {
     const next = resumeJobStatus(
       AiInfluencerReelJobStatus.FAILED,
       'RENDER',
-      { spokenText: 'text' },
+      { spokenText: 'text', generationMode: 'AVATAR' },
       'ElevenLabs API key není nakonfigurován.',
       'ELEVENLABS_NOT_CONFIGURED',
     );
     assert.equal(next, AiInfluencerReelJobStatus.VOICE_GENERATING);
+  });
+
+  it('legacy ElevenLabs failure on VIDEO_AGENT job resumes at AVATAR_GENERATING', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'VOICE',
+      { spokenText: 'text', generationMode: 'VIDEO_AGENT' },
+      'ElevenLabs API key není nakonfigurován.',
+      'ELEVENLABS_NOT_CONFIGURED',
+    );
+    assert.equal(next, AiInfluencerReelJobStatus.AVATAR_GENERATING);
   });
 
   it('retry od brandingu pokračuje od AVATAR_READY', () => {
