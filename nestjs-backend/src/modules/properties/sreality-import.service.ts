@@ -64,11 +64,20 @@ import type {
   SrealityImportPublishPayload,
   SrealityImportUpdateDiff,
   SrealityImageImportStats,
+  SrealityImportJobOptions,
+  SrealityImportProgressReporter,
 } from './sreality-import.types';
 import type { SrealityPrefillResult } from './listings-prefill.service';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MIN_IMAGE_BYTES = 12 * 1024;
+
+const NOOP_REPORTER: SrealityImportProgressReporter = {
+  isCancelled: async () => false,
+  setStage: async () => {},
+  log: async () => {},
+  updateCounts: async () => {},
+};
 
 @Injectable()
 export class SrealityImportService {
@@ -137,14 +146,33 @@ export class SrealityImportService {
   }
 
   async createImportPreview(adminUserId: string, sourceUrl: string): Promise<SrealityImportPreview> {
+    return this.runImportForJob(adminUserId, sourceUrl, NOOP_REPORTER);
+  }
+
+  async runImportForJob(
+    adminUserId: string,
+    sourceUrl: string,
+    reporter: SrealityImportProgressReporter = NOOP_REPORTER,
+    options?: SrealityImportJobOptions,
+  ): Promise<SrealityImportPreview> {
+    await this.assertNotCancelled(reporter);
     this.log.log(`SREALITY_IMPORT_START url=${sourceUrl.trim()}`);
+    await reporter.log('Spouštím import inzerátu');
+    await reporter.setStage('OPENING_PAGE', 'Otevírám stránku Sreality');
     const duplicate = await this.findDuplicateByUrl(sourceUrl);
+    await reporter.setStage('PARSING_SOURCE', 'Parsuji zdroj');
     const prefillResult = await this.prefillFromUrl(sourceUrl, { debug: true });
     if (!prefillResult.ok) {
-      throw new BadRequestException(prefillResult.error);
+      throw Object.assign(new BadRequestException(prefillResult.error), {
+        code: 'SREALITY_PARSE_FAILED',
+      });
     }
 
     this.log.log('SREALITY_STATIC_PARSE_OK');
+    await reporter.log('Parser našel základní data');
+    await reporter.setStage('READING_PROPERTY_DATA', 'Načítám údaje inzerátu', {
+      pageStatus: 'LOADED',
+    });
     const prefill = prefillResult.data;
     const listingId = extractListingIdFromUrl(sourceUrl);
     let broker = this.brokerFromPrefill(prefill);
@@ -178,9 +206,25 @@ export class SrealityImportService {
     const browserHealth = await this.playwright.runBrowserHealthCheck();
     diagnostics.browser = browserHealth.status;
     if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
+    await reporter.setStage('STARTING_BROWSER', 'Browser připraven', {
+      browserStatus: browserHealth.status,
+    });
+    await reporter.log(`Browser ${browserHealth.status}`);
+    if (browserHealth.status === 'FAIL') {
+      await reporter.log(browserHealth.reason ?? 'Browser není dostupný', 'warn');
+    }
+    await this.assertNotCancelled(reporter);
+
+    if (needsContactEnrichment || needsGalleryDiscovery) {
+      await reporter.setStage(
+        needsGalleryDiscovery ? 'FINDING_GALLERY' : 'FINDING_AGENT',
+        needsGalleryDiscovery ? 'Hledám galerii' : 'Hledám makléře',
+      );
+    }
 
     if (needsGalleryDiscovery) {
       diagnostics.dynamicPage = 'NOT_REQUIRED';
+      await reporter.setStage('LOADING_GALLERY', 'Načítám galerii');
       const enrichment = await this.playwright.enrichImportData(sourceUrl.trim());
       diagnostics.dynamicEnrichment =
         enrichment.enrichmentStatus === 'PASS'
@@ -196,6 +240,12 @@ export class SrealityImportService {
         imageUrls = dedupeSrealityImageUrls([...imageUrls, ...enrichment.imageUrls]);
         diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
         diagnostics.galleryCount = imageUrls.length;
+        await reporter.log(`Galerie: ${imageUrls.length} fotografií`);
+        await reporter.setStage('LOADING_GALLERY', `Galerie: ${imageUrls.length} fotografií`, {
+          galleryStatus: 'OPEN',
+          imagesFound: imageUrls.length,
+          imagesSelected: Math.min(imageUrls.length, SREALITY_IMPORT_MAX_IMAGES),
+        });
       }
       if (enrichment.html) {
         broker = mergeBrokerParts([
@@ -219,6 +269,7 @@ export class SrealityImportService {
       diagnostics.dynamicPage = 'NOT_REQUIRED';
       diagnostics.dynamicEnrichment = 'NOT_REQUIRED';
       diagnostics.browserFallback = 'NOT_REQUIRED';
+      await reporter.setStage('OPENING_CONTACT', 'Otevírám kontakt');
     } else {
       diagnostics.dynamicPage = 'NOT_REQUIRED';
       diagnostics.dynamicEnrichment = 'NOT_REQUIRED';
@@ -237,12 +288,38 @@ export class SrealityImportService {
             : 'NOT_REACHED';
     }
 
-    const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (broker.agentName || broker.companyName) {
+      diagnostics.agent = 'PASS';
+      await reporter.setStage('FINDING_AGENT', 'Makléř nalezen', { agentStatus: 'FOUND' });
+    } else {
+      await reporter.setStage('FINDING_AGENT', 'Makléř nenalezen', { agentStatus: 'NOT_FOUND' });
+    }
+    await reporter.updateCounts({
+      imagesFound: imageUrls.length,
+      imagesSelected: Math.min(imageUrls.length, SREALITY_IMPORT_MAX_IMAGES),
+      message:
+        imageUrls.length > 0
+          ? `Připraveno ${Math.min(imageUrls.length, SREALITY_IMPORT_MAX_IMAGES)} fotografií`
+          : 'Galerie prázdná',
+    });
+    await reporter.log(
+      `Kontakt telefon=${broker.phone ? 'FOUND' : 'NOT_PUBLIC'} email=${broker.email ? 'FOUND' : 'NOT_PUBLIC'}`,
+    );
+
+    const draftId =
+      options?.existingDraftId ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await reporter.setStage('CAPTURING_IMAGES', 'Získávám fotografie', {
+      imagesFound: imageUrls.length,
+      imagesSelected: Math.min(imageUrls.length, SREALITY_IMPORT_MAX_IMAGES),
+    });
     const { images, stats, browserCapture } = await this.mirrorImages(
       imageUrls,
       sourceUrl.trim(),
       `sreality-draft-${draftId}`,
-      { enrichContact: needsContactEnrichment && !needsGalleryDiscovery },
+      {
+        enrichContact: needsContactEnrichment && !needsGalleryDiscovery,
+        reporter,
+      },
     );
 
     if (browserCapture) {
@@ -315,27 +392,43 @@ export class SrealityImportService {
     }
 
     const { matchStatus, matchedId, matchedContact } = await this.matchBroker(broker);
+    await reporter.setStage('PREPARING_PREVIEW', 'Připravuji náhled');
     const aiText = await this.textRewrite.rewriteListingText(prefill);
 
-    const draft = await this.prisma.srealityImportDraft.create({
-      data: {
-        id: draftId,
-        adminUserId,
-        sourceUrl: sourceUrl.trim(),
-        sourceExternalId: listingId,
-        status: 'preview',
-        prefillJson: { ...prefill, sourceImageUrls: imageUrls } as unknown as Prisma.InputJsonValue,
-        brokerJson: broker as unknown as Prisma.InputJsonValue,
-        imagesJson: images as unknown as Prisma.InputJsonValue,
-        imageImportStats: stats as unknown as Prisma.InputJsonValue,
-        aiTextJson: aiText as unknown as Prisma.InputJsonValue,
-        brokerMatchStatus: matchStatus,
-        matchedBrokerContactId: matchedId,
-        settingsJson: { diagnostics } as unknown as Prisma.InputJsonValue,
-      },
-    });
+    const draft = options?.existingDraftId
+      ? await this.prisma.srealityImportDraft.update({
+          where: { id: options.existingDraftId },
+          data: {
+            prefillJson: { ...prefill, sourceImageUrls: imageUrls } as unknown as Prisma.InputJsonValue,
+            brokerJson: broker as unknown as Prisma.InputJsonValue,
+            imagesJson: images as unknown as Prisma.InputJsonValue,
+            imageImportStats: stats as unknown as Prisma.InputJsonValue,
+            aiTextJson: aiText as unknown as Prisma.InputJsonValue,
+            brokerMatchStatus: matchStatus,
+            matchedBrokerContactId: matchedId,
+            settingsJson: { diagnostics } as unknown as Prisma.InputJsonValue,
+          },
+        })
+      : await this.prisma.srealityImportDraft.create({
+          data: {
+            id: draftId,
+            adminUserId,
+            sourceUrl: sourceUrl.trim(),
+            sourceExternalId: listingId,
+            status: 'preview',
+            prefillJson: { ...prefill, sourceImageUrls: imageUrls } as unknown as Prisma.InputJsonValue,
+            brokerJson: broker as unknown as Prisma.InputJsonValue,
+            imagesJson: images as unknown as Prisma.InputJsonValue,
+            imageImportStats: stats as unknown as Prisma.InputJsonValue,
+            aiTextJson: aiText as unknown as Prisma.InputJsonValue,
+            brokerMatchStatus: matchStatus,
+            matchedBrokerContactId: matchedId,
+            settingsJson: { diagnostics } as unknown as Prisma.InputJsonValue,
+          },
+        });
 
     this.log.log('SREALITY_IMPORT_DONE');
+    await reporter.log('Import preview připraven');
 
     return {
       draftId: draft.id,
@@ -362,6 +455,43 @@ export class SrealityImportService {
     const draft = await this.prisma.srealityImportDraft.findUnique({ where: { id: draftId } });
     if (!draft) throw new NotFoundException('Import koncept nenalezen.');
     return draft;
+  }
+
+  async getPreviewFromDraft(draftId: string): Promise<SrealityImportPreview> {
+    const draft = await this.getDraft(draftId);
+    const duplicate = await this.findDuplicateByUrl(draft.sourceUrl);
+    const prefill = draft.prefillJson as SrealityListingPrefill;
+    const broker = (draft.brokerJson ?? {}) as SrealityBrokerPrefill;
+    const images = (draft.imagesJson ?? []) as SrealityImportImageRow[];
+    const stats = (draft.imageImportStats ?? {}) as SrealityImageImportStats;
+    const aiText = (draft.aiTextJson ?? {}) as import('./sreality-import.types').SrealityAiTextPayload;
+    const settings = (draft.settingsJson ?? {}) as { diagnostics?: SrealityImportDiagnostics };
+    let matchedContact = null;
+    if (draft.matchedBrokerContactId) {
+      matchedContact = await this.prisma.importedBrokerContact.findUnique({
+        where: { id: draft.matchedBrokerContactId },
+        select: { id: true, fullName: true, companyName: true, email: true, phone: true },
+      });
+    }
+    return {
+      draftId: draft.id,
+      duplicate: {
+        isDuplicate: Boolean(duplicate),
+        propertyId: duplicate?.id,
+        importedAt: duplicate?.importedAt?.toISOString(),
+      },
+      prefill,
+      broker,
+      brokerMatchStatus: draft.brokerMatchStatus as SrealityBrokerMatchStatus,
+      matchedBrokerContactId: draft.matchedBrokerContactId,
+      matchedBrokerContact: matchedContact,
+      images,
+      imageImportStats: stats,
+      aiText,
+      sourceExternalId: draft.sourceExternalId,
+      sourceUrl: draft.sourceUrl,
+      diagnostics: settings.diagnostics,
+    };
   }
 
   async updateDraft(
@@ -719,11 +849,19 @@ export class SrealityImportService {
     return this.playwright.runBrowserHealthCheck();
   }
 
+  private async assertNotCancelled(reporter: SrealityImportProgressReporter) {
+    if (await reporter.isCancelled()) {
+      throw Object.assign(new Error('Import zrušen administrátorem.'), {
+        code: 'SREALITY_IMPORT_CANCELLED',
+      });
+    }
+  }
+
   private async mirrorImages(
     urls: string[],
     sourceListingUrl: string,
     storageKey: string,
-    options?: { enrichContact?: boolean },
+    options?: { enrichContact?: boolean; reporter?: SrealityImportProgressReporter },
   ): Promise<{
     images: SrealityImportImageRow[];
     stats: SrealityImageImportStats;
@@ -731,6 +869,7 @@ export class SrealityImportService {
   }> {
     const found = dedupeSrealityImageUrls(urls);
     const unique = found.slice(0, SREALITY_IMPORT_MAX_IMAGES);
+    const reporter = options?.reporter ?? NOOP_REPORTER;
     const images: SrealityImportImageRow[] = [];
     const imageDownloadFailures: SrealityImageDownloadFailureDiag[] = [];
     const pushImageDiag = (diag: SrealityImageDownloadFailureDiag) => {
@@ -750,7 +889,17 @@ export class SrealityImportService {
     let uploaded = 0;
 
     for (let i = 0; i < unique.length; i += 1) {
+      await this.assertNotCancelled(reporter);
       const sourceUrl = unique[i]!;
+      await reporter.log(`Fotografie ${i + 1}/${unique.length}`, 'info', { index: i + 1 });
+      await reporter.updateCounts({
+        stage: 'CAPTURING_IMAGES',
+        imagesSelected: unique.length,
+        imagesProcessed: i,
+        imagesImported: downloaded,
+        imagesFailed: images.filter((img) => img.error && !img.storedUrl).length,
+        message: `Zpracovávám fotografii ${i + 1}/${unique.length}`,
+      });
       const mediaValidation = validateSrealityMediaUrl(sourceUrl);
       if (!mediaValidation.allowed) {
         pushImageDiag({
@@ -782,6 +931,9 @@ export class SrealityImportService {
 
       if (isBrowserRequiredImageUrl(sourceUrl)) {
         pendingBrowser.push({ index: i, sourceUrl, directHttpStatus: 401 });
+        await reporter.log(`Fotografie ${i + 1}/${unique.length}: přímé stažení odmítnuto → browser capture`, 'warn', {
+          httpStatus: 401,
+        });
         pushImageDiag({
           index: i + 1,
           host: (() => {
@@ -828,6 +980,7 @@ export class SrealityImportService {
         stored = direct;
         captureMethods.DIRECT_HTTP = (captureMethods.DIRECT_HTTP ?? 0) + 1;
       } else if (shouldSuggestBrowserMediaFallback(directHttpStatus)) {
+        await reporter.log(`Fotografie ${i + 1}/${unique.length}: HTTP ${directHttpStatus ?? '—'} → browser fallback`, 'warn');
         pendingBrowser.push({ index: i, sourceUrl, directHttpStatus });
       }
 
@@ -835,6 +988,15 @@ export class SrealityImportService {
         downloaded += 1;
         uploadAttempted += 1;
         uploaded += 1;
+        await reporter.log(`Fotografie ${i + 1}/${unique.length}: storage upload PASS`);
+        await reporter.updateCounts({
+          stage: 'UPLOADING_IMAGES',
+          imagesSelected: unique.length,
+          imagesProcessed: i + 1,
+          imagesImported: downloaded,
+          imagesFailed: images.filter((img) => img.error && !img.storedUrl).length,
+          message: `Ukládám fotografie ${downloaded}/${unique.length}`,
+        });
         pushImageDiag({
           index: i + 1,
           host: (() => {
@@ -891,6 +1053,7 @@ export class SrealityImportService {
       this.log.log(
         `SREALITY_BROWSER_MEDIA_PENDING count=${pendingBrowser.length} enrichContact=${Boolean(options?.enrichContact)}`,
       );
+      await reporter.setStage('CAPTURING_IMAGES', 'Získávám fotografie přes browser');
       browserCapture = await this.playwright.captureGalleryImages({
         listingUrl: sourceListingUrl,
         targetUrls: pendingBrowser.map((item) => item.sourceUrl),

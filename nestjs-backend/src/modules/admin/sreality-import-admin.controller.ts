@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -13,6 +16,7 @@ import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
 import { SrealityImportService } from '../properties/sreality-import.service';
+import { SrealityImportJobService } from '../properties/sreality-import-job.service';
 import {
   SrealityImportPreviewDto,
   SrealityImportPublishDto,
@@ -25,9 +29,63 @@ import { AiInfluencerJobService } from '../ai-influencer/ai-influencer-job.servi
 export class SrealityImportAdminController {
   constructor(
     private readonly srealityImport: SrealityImportService,
+    private readonly srealityJobs: SrealityImportJobService,
     private readonly aiJobs: AiInfluencerJobService,
   ) {}
 
+  @Post('jobs')
+  @HttpCode(HttpStatus.ACCEPTED)
+  createJob(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SrealityImportPreviewDto,
+  ) {
+    return this.srealityJobs.createJob(user.id, dto.sourceUrl);
+  }
+
+  @Get('jobs/active')
+  getActiveJob(@CurrentUser() user: AuthUser) {
+    return this.srealityJobs.getActiveJob(user.id);
+  }
+
+  @Get('jobs')
+  listJobs(@CurrentUser() user: AuthUser) {
+    return this.srealityJobs.listJobs(user.id);
+  }
+
+  @Get('jobs/:id')
+  getJob(@Param('id') id: string) {
+    return this.srealityJobs.getJob(id);
+  }
+
+  @Get('jobs/:id/preview')
+  async getJobPreview(@Param('id') id: string) {
+    const job = await this.srealityJobs.getJob(id);
+    if (!job.draftId) return { preview: null };
+    const preview = await this.srealityImport.getPreviewFromDraft(job.draftId);
+    return { preview, job };
+  }
+
+  @Post('jobs/:id/cancel')
+  cancelJob(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.srealityJobs.cancelJob(id, user.id);
+  }
+
+  @Post('jobs/:id/retry')
+  retryJob(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: { fromStage?: string },
+  ) {
+    return this.srealityJobs.retryJob(id, user.id, body?.fromStage);
+  }
+
+  @Delete('jobs/:id')
+  deleteJob(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.srealityJobs.deleteJob(id, user.id);
+  }
+
+  /** @deprecated Sync preview — prefer POST /jobs */
   @Post('preview')
   preview(
     @CurrentUser() user: AuthUser,

@@ -181,3 +181,39 @@ export type SrealityImportUpdateDiff = {
     incoming: SrealityBrokerPrefill;
   };
 };
+
+export type SrealityImportJobLogEntry = {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  stage?: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type SrealityImportProgressReporter = {
+  isCancelled: () => Promise<boolean>;
+  setStage: (
+    stage: import('./sreality-import-progress.util').SrealityImportJobStage,
+    message: string,
+    extra?: Record<string, unknown>,
+  ) => Promise<void>;
+  log: (
+    message: string,
+    level?: SrealityImportJobLogEntry['level'],
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
+  updateCounts: (counts: {
+    stage?: 'CAPTURING_IMAGES' | 'UPLOADING_IMAGES';
+    message?: string;
+    imagesFound?: number;
+    imagesSelected?: number;
+    imagesProcessed?: number;
+    imagesImported?: number;
+    imagesFailed?: number;
+  }) => Promise<void>;
+};
+
+export type SrealityImportJobOptions = {
+  retryFromStage?: import('./sreality-import-progress.util').SrealityImportJobStage;
+  existingDraftId?: string;
+};

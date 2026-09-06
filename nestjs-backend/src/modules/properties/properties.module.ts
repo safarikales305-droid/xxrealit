@@ -8,6 +8,7 @@ import { ContactMonetizationAdminController } from './contact-monetization-admin
 import { ListingsController } from './listings.controller';
 import { ListingsPrefillService } from './listings-prefill.service';
 import { SrealityImportService } from './sreality-import.service';
+import { SrealityImportJobService } from './sreality-import-job.service';
 import { SrealityListingTextRewriteService } from './sreality-listing-text-rewrite.service';
 import { SrealityPlaywrightService } from './sreality-playwright.service';
 import { PropertiesController } from './properties.controller';
@@ -75,6 +76,7 @@ import { OpenAiModule } from '../openai/openai.module';
     PropertySocialPublishSummaryService,
     ListingsPrefillService,
     SrealityImportService,
+    SrealityImportJobService,
     SrealityListingTextRewriteService,
     SrealityPlaywrightService,
     ListingShortsFromPhotosService,
@@ -93,6 +95,7 @@ import { OpenAiModule } from '../openai/openai.module';
     ShortsListingService,
     ListingsPrefillService,
     SrealityImportService,
+    SrealityImportJobService,
     VideoOgThumbnailService,
     FacebookShareImageService,
   ],

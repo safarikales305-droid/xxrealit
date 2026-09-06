@@ -2,13 +2,23 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { AdminSubPage } from '@/components/admin/AdminSubPage';
+import { SrealityImportProgressPanel } from '@/components/admin/inzeraty/SrealityImportProgressPanel';
 import {
-  nestAdminSrealityImportPreview,
+  nestAdminSrealityImportCancelJob,
+  nestAdminSrealityImportCreateJob,
+  nestAdminSrealityImportDeleteJob,
+  nestAdminSrealityImportGetActiveJob,
+  nestAdminSrealityImportGetJob,
+  nestAdminSrealityImportJobPreview,
+  nestAdminSrealityImportListJobs,
   nestAdminSrealityImportPublish,
+  nestAdminSrealityImportRetryJob,
   nestAdminSrealityBrowserTest,
+  type SrealityImportJobHistoryRow,
+  type SrealityImportJobStatus,
   type SrealityImportPreviewResponse,
   type SrealityImportPublishPayload,
 } from '@/lib/sreality-import-admin-api';
@@ -25,6 +35,20 @@ function brokerMatchLabel(status: SrealityImportPreviewResponse['brokerMatchStat
     default:
       return 'KONTAKT NENALEZEN';
   }
+}
+
+const ACTIVE_JOB_STATUSES = new Set(['QUEUED', 'PROCESSING', 'LONG_RUNNING']);
+const TERMINAL_JOB_STATUSES = new Set(['DONE', 'PARTIAL', 'FAILED', 'CANCELLED']);
+
+function isActiveJob(job: SrealityImportJobStatus | null): boolean {
+  return Boolean(job && ACTIVE_JOB_STATUSES.has(job.status));
+}
+
+function formatHistoryDuration(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 function diagLabel(value: string | undefined): string {
@@ -48,6 +72,10 @@ export default function AdminSrealityImportPage() {
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<SrealityImportPreviewResponse | null>(null);
+  const [activeJob, setActiveJob] = useState<SrealityImportJobStatus | null>(null);
+  const [importHistory, setImportHistory] = useState<SrealityImportJobHistoryRow[]>([]);
+  const [jobCancelling, setJobCancelling] = useState(false);
+  const previewLoadedForJobRef = useRef<string | null>(null);
 
   const [form, setForm] = useState<Partial<SrealityImportPublishPayload>>({});
   const [autoReel, setAutoReel] = useState(true);
@@ -101,21 +129,149 @@ export default function AdminSrealityImportPage() {
     });
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    if (!token) return;
+    try {
+      const rows = await nestAdminSrealityImportListJobs(token);
+      setImportHistory(rows);
+    } catch {
+      /* history is optional UI */
+    }
+  }, [token]);
+
+  const loadPreviewForJob = useCallback(
+    async (jobId: string) => {
+      if (!token) return;
+      try {
+        const { preview: p } = await nestAdminSrealityImportJobPreview(token, jobId);
+        if (p) {
+          setPreview(p);
+          applyPreviewToForm(p);
+          previewLoadedForJobRef.current = jobId;
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Náhled se nepodařilo načíst.');
+      }
+    },
+    [applyPreviewToForm, token],
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    void (async () => {
+      try {
+        const [active, history] = await Promise.all([
+          nestAdminSrealityImportGetActiveJob(token),
+          nestAdminSrealityImportListJobs(token),
+        ]);
+        setImportHistory(history);
+        if (active) {
+          setActiveJob(active);
+          setSourceUrl(active.sourceUrl);
+        }
+      } catch {
+        /* recovery is best-effort */
+      }
+    })();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !activeJob || !isActiveJob(activeJob)) return;
+
+    const poll = async () => {
+      try {
+        const job = await nestAdminSrealityImportGetJob(token, activeJob.id);
+        setActiveJob(job);
+        if (TERMINAL_JOB_STATUSES.has(job.status)) {
+          void refreshHistory();
+          if ((job.status === 'DONE' || job.status === 'PARTIAL') && previewLoadedForJobRef.current !== job.id) {
+            void loadPreviewForJob(job.id);
+          }
+        }
+      } catch {
+        /* polling continues on next tick */
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => void poll(), 2500);
+    return () => window.clearInterval(interval);
+  }, [activeJob?.id, activeJob?.status, loadPreviewForJob, refreshHistory, token]);
+
   async function handleLoad() {
     if (!token) return;
     setError(null);
+    setPreview(null);
+    previewLoadedForJobRef.current = null;
     setLoading(true);
     try {
-      const p = await nestAdminSrealityImportPreview(token, sourceUrl.trim());
-      setPreview(p);
-      applyPreviewToForm(p);
+      const created = await nestAdminSrealityImportCreateJob(token, sourceUrl.trim());
+      const job = await nestAdminSrealityImportGetJob(token, created.jobId);
+      setActiveJob(job);
+      void refreshHistory();
     } catch (e) {
-      setPreview(null);
+      setActiveJob(null);
       setError(e instanceof Error ? e.message : 'Import selhal.');
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleCancelJob() {
+    if (!token || !activeJob) return;
+    setJobCancelling(true);
+    try {
+      const job = await nestAdminSrealityImportCancelJob(token, activeJob.id);
+      setActiveJob(job);
+      void refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Zrušení importu selhalo.');
+    } finally {
+      setJobCancelling(false);
+    }
+  }
+
+  async function handleRetryJob(fromStage?: string) {
+    if (!token || !activeJob) return;
+    setError(null);
+    previewLoadedForJobRef.current = null;
+    setPreview(null);
+    try {
+      const job = await nestAdminSrealityImportRetryJob(token, activeJob.id, fromStage);
+      setActiveJob(job);
+      void refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Opakování importu selhalo.');
+    }
+  }
+
+  async function handleDeleteJob(jobId: string) {
+    if (!token) return;
+    try {
+      await nestAdminSrealityImportDeleteJob(token, jobId);
+      if (activeJob?.id === jobId) setActiveJob(null);
+      void refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Smazání importu selhalo.');
+    }
+  }
+
+  async function handleOpenHistoryJob(row: SrealityImportJobHistoryRow) {
+    if (!token) return;
+    setError(null);
+    try {
+      const job = await nestAdminSrealityImportGetJob(token, row.id);
+      setActiveJob(job);
+      setSourceUrl(row.sourceUrl);
+      if (row.status === 'DONE' || row.status === 'PARTIAL') {
+        await loadPreviewForJob(row.id);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Import se nepodařilo otevřít.');
+    }
+  }
+
+  const importRunning = isActiveJob(activeJob);
 
   async function handlePublish(withReel: boolean) {
     if (!token || !preview) return;
@@ -196,11 +352,11 @@ export default function AdminSrealityImportPage() {
           </div>
           <button
             type="button"
-            disabled={loading || !sourceUrl.trim()}
+            disabled={loading || importRunning || !sourceUrl.trim()}
             onClick={() => void handleLoad()}
             className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
           >
-            {loading ? 'Načítám…' : 'Načíst inzerát'}
+            {loading ? 'Spouštím import…' : importRunning ? 'Import probíhá' : 'Načíst inzerát'}
           </button>
           <button
             type="button"
@@ -234,6 +390,162 @@ export default function AdminSrealityImportPage() {
         ) : null}
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
       </section>
+
+      {activeJob ? (
+        <div className="mt-6">
+          <SrealityImportProgressPanel
+            job={activeJob}
+            cancelling={jobCancelling}
+            onCancel={importRunning ? () => void handleCancelJob() : undefined}
+            onRetry={
+              activeJob.status === 'FAILED' || activeJob.status === 'PARTIAL'
+                ? () =>
+                    void handleRetryJob(
+                      activeJob.status === 'PARTIAL' || activeJob.stage === 'CAPTURING_IMAGES'
+                        ? 'CAPTURING_IMAGES'
+                        : undefined,
+                    )
+                : undefined
+            }
+            onDelete={
+              activeJob.status === 'FAILED' || activeJob.status === 'CANCELLED'
+                ? () => void handleDeleteJob(activeJob.id)
+                : undefined
+            }
+          />
+        </div>
+      ) : null}
+
+      {activeJob && (activeJob.status === 'DONE' || activeJob.status === 'PARTIAL') ? (
+        <section className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          <p className="font-semibold text-emerald-900">
+            {activeJob.status === 'PARTIAL' ? 'Import dokončen s upozorněním' : 'Import dokončen'}
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-emerald-900">
+            <li>✓ Základní údaje</li>
+            <li>{activeJob.agentStatus === 'FOUND' ? '✓' : '○'} Makléř</li>
+            <li>
+              {activeJob.phoneStatus === 'FOUND' ? '✓' : activeJob.phoneStatus === 'NOT_PUBLIC' ? '○' : '○'} Telefon
+            </li>
+            <li>
+              {activeJob.emailStatus === 'FOUND' ? '✓' : activeJob.emailStatus === 'NOT_PUBLIC' ? '○' : '○'} Email
+            </li>
+            <li>
+              {activeJob.status === 'PARTIAL' ? '⚠' : '✓'}{' '}
+              {activeJob.imagesImported}/{activeJob.imagesSelected || activeJob.imagesFound} fotografií
+            </li>
+          </ul>
+        </section>
+      ) : null}
+
+      {importHistory.length > 0 ? (
+        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Poslední importy</h2>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="px-2 py-2">Datum</th>
+                  <th className="px-2 py-2">Zdroj</th>
+                  <th className="px-2 py-2">Stav</th>
+                  <th className="px-2 py-2">Fotografie</th>
+                  <th className="px-2 py-2">Makléř</th>
+                  <th className="px-2 py-2">Doba</th>
+                  <th className="px-2 py-2">Akce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importHistory.map((row) => (
+                  <tr key={row.id} className="border-b border-zinc-100">
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      {new Date(row.createdAt).toLocaleString('cs-CZ', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-2 py-2">Sreality</td>
+                    <td className="px-2 py-2">
+                      <span
+                        className={
+                          row.status === 'DONE'
+                            ? 'text-emerald-700'
+                            : row.status === 'PARTIAL'
+                              ? 'text-amber-700'
+                              : row.status === 'FAILED' || row.status === 'CANCELLED'
+                                ? 'text-red-700'
+                                : 'text-orange-700'
+                        }
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.imagesImported}/{row.imagesSelected || '—'}
+                    </td>
+                    <td className="px-2 py-2">{row.agentStatus ?? '—'}</td>
+                    <td className="px-2 py-2">{formatHistoryDuration(row.elapsedMs)}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {row.status === 'DONE' || row.status === 'PARTIAL' ? (
+                          <button
+                            type="button"
+                            className="text-orange-700 hover:underline"
+                            onClick={() => void handleOpenHistoryJob(row)}
+                          >
+                            Otevřít
+                          </button>
+                        ) : null}
+                        {row.status === 'FAILED' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="text-orange-700 hover:underline"
+                              onClick={() => void handleOpenHistoryJob(row)}
+                            >
+                              Detail
+                            </button>
+                            <button
+                              type="button"
+                              className="text-orange-700 hover:underline"
+                              onClick={async () => {
+                                if (!token) return;
+                                const job = await nestAdminSrealityImportRetryJob(token, row.id);
+                                setActiveJob(job);
+                                setSourceUrl(row.sourceUrl);
+                                void refreshHistory();
+                              }}
+                            >
+                              Zkusit znovu
+                            </button>
+                            <button
+                              type="button"
+                              className="text-red-700 hover:underline"
+                              onClick={() => void handleDeleteJob(row.id)}
+                            >
+                              Odstranit
+                            </button>
+                          </>
+                        ) : null}
+                        {row.status === 'CANCELLED' ? (
+                          <button
+                            type="button"
+                            className="text-red-700 hover:underline"
+                            onClick={() => void handleDeleteJob(row.id)}
+                          >
+                            Odstranit
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {preview?.duplicate.isDuplicate ? (
         <section className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">

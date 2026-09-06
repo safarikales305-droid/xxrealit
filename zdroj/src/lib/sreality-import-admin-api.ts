@@ -180,6 +180,152 @@ async function adminFetch<T>(
   return res.json() as Promise<T>;
 }
 
+export type SrealityImportJobLogEntry = {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  stage?: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type SrealityImportJobStatus = {
+  id: string;
+  sourceUrl: string;
+  status: string;
+  stage: string;
+  progress: number;
+  message: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  elapsedMs: number;
+  stageStalledMs: number;
+  stageStalledWarning: boolean;
+  imagesFound: number;
+  imagesSelected: number;
+  imagesProcessed: number;
+  imagesImported: number;
+  imagesFailed: number;
+  agentFound: boolean;
+  agentStatus: string | null;
+  phoneStatus: string | null;
+  emailStatus: string | null;
+  browserStatus: string | null;
+  pageStatus: string | null;
+  galleryStatus: string | null;
+  draftId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  logs: SrealityImportJobLogEntry[];
+  diagnostics?: SrealityImportPreviewResponse['diagnostics'];
+};
+
+export type SrealityImportJobHistoryRow = {
+  id: string;
+  sourceUrl: string;
+  status: string;
+  stage: string;
+  progress: number;
+  imagesImported: number;
+  imagesSelected: number;
+  agentStatus: string | null;
+  elapsedMs: number;
+  draftId: string | null;
+  createdAt: string;
+  errorCode: string | null;
+};
+
+async function adminFetchAccepted<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (res.status !== 202 && !res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string | { message?: string } };
+    const msg =
+      typeof body.message === 'string'
+        ? body.message
+        : typeof body.message === 'object' && body.message?.message
+          ? body.message.message
+          : `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function nestAdminSrealityImportCreateJob(
+  token: string,
+  sourceUrl: string,
+): Promise<{ jobId: string; status: string; existing?: boolean }> {
+  return adminFetchAccepted(token, '/admin/sreality-import/jobs', {
+    method: 'POST',
+    body: JSON.stringify({ sourceUrl }),
+  });
+}
+
+export function nestAdminSrealityImportGetJob(
+  token: string,
+  jobId: string,
+): Promise<SrealityImportJobStatus> {
+  return adminFetch(token, `/admin/sreality-import/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export function nestAdminSrealityImportGetActiveJob(
+  token: string,
+): Promise<SrealityImportJobStatus | null> {
+  return adminFetch(token, '/admin/sreality-import/jobs/active');
+}
+
+export function nestAdminSrealityImportListJobs(
+  token: string,
+): Promise<SrealityImportJobHistoryRow[]> {
+  return adminFetch(token, '/admin/sreality-import/jobs');
+}
+
+export function nestAdminSrealityImportJobPreview(
+  token: string,
+  jobId: string,
+): Promise<{ preview: SrealityImportPreviewResponse | null; job: SrealityImportJobStatus }> {
+  return adminFetch(token, `/admin/sreality-import/jobs/${encodeURIComponent(jobId)}/preview`);
+}
+
+export function nestAdminSrealityImportCancelJob(
+  token: string,
+  jobId: string,
+): Promise<SrealityImportJobStatus> {
+  return adminFetch(token, `/admin/sreality-import/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function nestAdminSrealityImportRetryJob(
+  token: string,
+  jobId: string,
+  fromStage?: string,
+): Promise<SrealityImportJobStatus> {
+  return adminFetch(token, `/admin/sreality-import/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ fromStage }),
+  });
+}
+
+export function nestAdminSrealityImportDeleteJob(
+  token: string,
+  jobId: string,
+): Promise<{ ok: boolean; deletedId: string }> {
+  return adminFetch(token, `/admin/sreality-import/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** @deprecated Prefer nestAdminSrealityImportCreateJob */
 export function nestAdminSrealityImportPreview(
   token: string,
   sourceUrl: string,

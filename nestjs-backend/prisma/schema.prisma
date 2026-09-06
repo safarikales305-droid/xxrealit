@@ -8282,6 +8282,43 @@ model SrealityImportDraft {
   @@index([status])
 }
 
+model SrealityImportJob {
+  id               String    @id @default(cuid())
+  adminUserId      String
+  sourceUrl        String
+  status           String    @default("QUEUED")
+  stage            String    @default("QUEUED")
+  progress         Int       @default(0)
+  message          String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  stageUpdatedAt   DateTime?
+  errorCode        String?
+  errorMessage     String?
+  imagesFound      Int       @default(0)
+  imagesSelected   Int       @default(0)
+  imagesProcessed  Int       @default(0)
+  imagesImported   Int       @default(0)
+  imagesFailed     Int       @default(0)
+  agentStatus      String?
+  phoneStatus      String?
+  emailStatus      String?
+  browserStatus    String?
+  pageStatus       String?
+  galleryStatus    String?
+  draftId          String?
+  retryFromStage   String?
+  logsJson         Json      @default("[]")
+  diagnosticsJson  Json?
+  cancelRequested  Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([adminUserId, createdAt])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model AiInfluencerReelJob {
   id                   String                    @id @default(cuid())
   articleId            String?
