@@ -33,6 +33,7 @@ import {
   type SrealityBrokerPrefill,
 } from './sreality-broker-extract.util';
 import {
+  assertSrealityImportListingUrl,
   isAllowedSrealityImageRedirectUrl,
   isAllowedSrealityImageUrl,
   SREALITY_IMPORT_MAX_IMAGES,
@@ -854,6 +855,22 @@ export class SrealityImportService {
     return this.playwright.runBrowserHealthCheck();
   }
 
+  async testFirstGalleryImage(sourceUrl: string, imageUrl?: string) {
+    const parsed = assertSrealityImportListingUrl(sourceUrl);
+    const storageKey = `sreality-test-${Date.now()}`;
+    return this.playwright.testFirstGalleryImage({
+      listingUrl: parsed.href,
+      targetUrl: imageUrl,
+      upload: async (buffer, contentType, fileName) => {
+        const uploaded = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+          buffer,
+          `${storageKey}-${fileName}`,
+        );
+        return uploaded.originalUrl;
+      },
+    });
+  }
+
   private async assertNotCancelled(reporter: SrealityImportProgressReporter) {
     if (await reporter.isCancelled()) {
       throw Object.assign(new Error('Import zrušen administrátorem.'), {
@@ -1061,11 +1078,13 @@ export class SrealityImportService {
         `SREALITY_BROWSER_MEDIA_PENDING count=${pendingBrowser.length} enrichContact=${Boolean(options?.enrichContact)}`,
       );
       await reporter.setStage('CAPTURING_IMAGES', 'Získávám fotografie přes browser');
+      const uploadedBySource = new Map<string, SrealityImportImageRow>();
+
       browserCapture = await this.playwright.captureGalleryImages({
         listingUrl: sourceListingUrl,
         targetUrls: pendingBrowser.map((item) => item.sourceUrl),
         enrichContact: options?.enrichContact ?? false,
-        elementCaptureOnly: pendingBrowser.length > 0,
+        elementCaptureOnly: true,
         onImageAttempt: async (attempt) => {
           await reporter.log(formatImageCaptureAttemptLog(attempt), attempt.storage === 'PASS' ? 'info' : 'warn');
           await reporter.updateCounts({
@@ -1078,6 +1097,38 @@ export class SrealityImportService {
               attempt.storage === 'PASS'
                 ? `Ukládám fotografie ${downloaded}/${unique.length}`
                 : `Zpracováno ${attempt.index}/${attempt.total}, selhalo ${attempt.index - downloaded}`,
+          });
+        },
+        onImageCaptured: async ({ index, sourceUrl, captured }) => {
+          const pending = pendingBrowser.find((p) => p.sourceUrl === sourceUrl);
+          if (!pending) return;
+          const ext = extFromContentType(captured.contentType);
+          uploadAttempted += 1;
+          const uploadedMedia = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+            captured.buffer,
+            `${storageKey}-${pending.index + 1}.${ext}`,
+          );
+          uploaded += 1;
+          downloaded += 1;
+          captureMethods[captured.method] = (captureMethods[captured.method] ?? 0) + 1;
+          const storedRow: SrealityImportImageRow = {
+            sourceUrl: pending.sourceUrl,
+            storedUrl: uploadedMedia.originalUrl,
+            watermarkedUrl: uploadedMedia.watermarkedUrl ?? null,
+            sortOrder: pending.index,
+            isMain: downloaded === 1,
+          };
+          uploadedBySource.set(pending.sourceUrl, storedRow);
+          const rowIndex = images.findIndex((row) => row.sourceUrl === pending.sourceUrl && !row.storedUrl);
+          if (rowIndex >= 0) images[rowIndex] = storedRow;
+          await reporter.log(`Fotografie ${pending.index + 1}/${unique.length}: STORAGE PASS`);
+          await reporter.updateCounts({
+            stage: 'UPLOADING_IMAGES',
+            imagesSelected: unique.length,
+            imagesProcessed: index,
+            imagesImported: downloaded,
+            imagesFailed: images.filter((img) => img.error && !img.storedUrl).length,
+            message: `Ukládám fotografie ${downloaded}/${unique.length}`,
           });
         },
       });
@@ -1114,6 +1165,35 @@ export class SrealityImportService {
       }
 
       for (const pending of pendingBrowser) {
+        if (uploadedBySource.has(pending.sourceUrl)) {
+          const storedRow = uploadedBySource.get(pending.sourceUrl)!;
+          const okIdx = imageDownloadFailures.findIndex((d) => d.index === pending.index + 1);
+          const okDiag: SrealityImageDownloadFailureDiag = {
+            index: pending.index + 1,
+            host: (() => {
+              try {
+                return new URL(pending.sourceUrl).hostname;
+              } catch {
+                return '—';
+              }
+            })(),
+            hostValidation: 'PASS',
+            httpStatus: 200,
+            directHttpStatus: pending.directHttpStatus,
+            contentType: 'image/jpeg',
+            responseLength: null,
+            redirectHost: null,
+            error: '',
+            urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+            sourceUrl: pending.sourceUrl,
+            selectedUrl: pending.sourceUrl,
+            storage: 'UPLOADED',
+          };
+          if (okIdx >= 0) imageDownloadFailures[okIdx] = okDiag;
+          else pushImageDiag(okDiag);
+          continue;
+        }
+
         const captured = findBestCapturedForTargetUrl(pending.sourceUrl, capturedPool);
         const rowIndex = images.findIndex(
           (row) => row.sourceUrl === pending.sourceUrl && !row.storedUrl,

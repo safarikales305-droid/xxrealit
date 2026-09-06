@@ -363,3 +363,56 @@ export function nestAdminSrealityBrowserTest(
 ): Promise<{ status: 'READY' | 'FAIL'; reason?: string }> {
   return adminFetch(token, '/admin/sreality-import/browser-test', { method: 'POST' });
 }
+
+export type SrealityFirstImageTestResponse = {
+  ok: boolean;
+  galleryOpen: boolean;
+  imageVisible: boolean;
+  naturalSize: string | null;
+  captureMethod:
+    | 'DIRECT_HTTP'
+    | 'BROWSER_RESPONSE'
+    | 'BROWSER_CONTEXT'
+    | 'DOM_BLOB'
+    | 'ELEMENT_CAPTURE'
+    | null;
+  dimensions: string | null;
+  bytes: number | null;
+  contentHash: string | null;
+  storedUrl: string | null;
+  previewUrl: string | null;
+  attempt: {
+    index: number;
+    total: number;
+    sourceUrl: string;
+    directHttp: string;
+    directHttpStatus?: number | null;
+    gallery?: string;
+    activeImageVisible?: boolean;
+    activeImageDimensions?: string | null;
+    browserResponse: string;
+    browserContext: string;
+    browserContextStatus?: number | null;
+    domImage: string;
+    elementScreenshot: string;
+    sharp?: string;
+    storage: string;
+    captureMethod?: string;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    bytes?: number | null;
+  } | null;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export function nestAdminSrealityTestFirstImage(
+  token: string,
+  sourceUrl: string,
+  imageUrl?: string,
+): Promise<SrealityFirstImageTestResponse> {
+  return adminFetch(token, '/admin/sreality-import/test-first-image', {
+    method: 'POST',
+    body: JSON.stringify({ sourceUrl, imageUrl }),
+  });
+}

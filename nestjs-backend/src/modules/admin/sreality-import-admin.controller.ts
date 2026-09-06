@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -133,6 +134,14 @@ export class SrealityImportAdminController {
   @Post('browser-test')
   browserTest() {
     return this.srealityImport.runBrowserHealthCheck();
+  }
+
+  @Post('test-first-image')
+  testFirstImage(@Body() body: { sourceUrl?: string; imageUrl?: string }) {
+    if (!body?.sourceUrl?.trim()) {
+      throw new BadRequestException('Chybí sourceUrl.');
+    }
+    return this.srealityImport.testFirstGalleryImage(body.sourceUrl.trim(), body.imageUrl?.trim());
   }
 
   @Post('refresh-diff')

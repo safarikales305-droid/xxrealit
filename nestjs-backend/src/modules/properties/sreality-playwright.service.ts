@@ -11,10 +11,12 @@ import { dedupeSrealityImageUrls, imageDedupeKey, buildSrealityImageFetchCandida
 import {
   buildSdnFullSizeCandidates,
   findBestCapturedForTargetUrl,
+  findPoolEntryForTargetUrl,
   isLikelyImageResponse,
   isSrealityCdnResponseUrl,
   isSuccessfulImageStatus,
   matchKeysForImageUrl,
+  urlsLikelySameImage,
   SREALITY_BROWSER_MEDIA_LIMITS,
   SREALITY_BROWSER_MEDIA_TIMEOUTS,
   inspectSrealityImageBuffer,
@@ -28,6 +30,36 @@ import {
   IMAGE_CAPTURE_ERROR_CODES,
   type SrealityImageCaptureAttempt,
 } from './sreality-image-capture.pipeline';
+
+/** Serializovaný browser script — bez vnořených funkcí kvůli esbuild __name v page.evaluate. */
+const BROWSER_EXTRACT_GALLERY_IMAGE_URLS = `
+(() => {
+  const urls = new Set();
+  const push = (raw) => {
+    if (!raw) return;
+    const s = String(raw).trim();
+    if (!s || /logo|icon|sprite|1x1|avatar|profile/i.test(s)) return;
+    if (/sdn\\.cz|sreality\\.cz/i.test(s) || /^\\/.*\\.(jpe?g|webp|png)/i.test(s)) {
+      urls.add(s.startsWith('//') ? 'https:' + s : s);
+    }
+  };
+  for (const img of Array.from(document.querySelectorAll('img'))) {
+    push(img.getAttribute('src'));
+    push(img.getAttribute('data-src'));
+    push(img.getAttribute('data-original'));
+    const srcset = img.getAttribute('srcset');
+    if (srcset) {
+      for (const part of srcset.split(',')) {
+        push(part.trim().split(/\\s+/)[0]);
+      }
+    }
+  }
+  for (const source of Array.from(document.querySelectorAll('picture source'))) {
+    push(source.getAttribute('srcset')?.split(',')[0]?.trim().split(/\\s+/)[0]);
+  }
+  return Array.from(urls);
+})()
+`;
 
 export type SrealityPlaywrightEnrichmentResult = {
   imageUrls: string[];
@@ -67,6 +99,22 @@ export type SrealityGalleryCaptureResult = {
     activeImageVisible: boolean;
     activeImageDimensions: string | null;
   };
+};
+
+export type SrealityFirstImageTestResult = {
+  ok: boolean;
+  galleryOpen: boolean;
+  imageVisible: boolean;
+  naturalSize: string | null;
+  captureMethod: SrealityImageCaptureMethod | null;
+  dimensions: string | null;
+  bytes: number | null;
+  contentHash: string | null;
+  storedUrl: string | null;
+  previewUrl: string | null;
+  attempt: SrealityImageCaptureAttempt | null;
+  errorCode?: string;
+  errorMessage?: string;
 };
 
 export type SrealityPlaywrightRenderResult = {
@@ -173,11 +221,17 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     targetUrls: string[];
     enrichContact?: boolean;
     onImageAttempt?: (attempt: SrealityImageCaptureAttempt) => void | Promise<void>;
+    onImageCaptured?: (payload: {
+      index: number;
+      sourceUrl: string;
+      captured: SrealityBrowserCapturedImage;
+    }) => void | Promise<void>;
     elementCaptureOnly?: boolean;
+    firstImageOnly?: boolean;
   }): Promise<SrealityGalleryCaptureResult> {
     const targetUrls = dedupeSrealityImageUrls(options.targetUrls);
     const enrichContact = options.enrichContact ?? false;
-    if (!targetUrls.length && !enrichContact) {
+    if (!targetUrls.length && !enrichContact && !options.firstImageOnly) {
       return {
         browserRuntime: 'READY',
         enrichmentStatus: 'NOT_REQUIRED',
@@ -206,6 +260,8 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         enrichContact,
         options.onImageAttempt,
         options.elementCaptureOnly ?? false,
+        options.firstImageOnly ?? false,
+        options.onImageCaptured,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -232,6 +288,97 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         },
       };
     }
+  }
+
+  /** Admin diagnostika — pouze první fotografie až do buffer/storage. */
+  async testFirstGalleryImage(options: {
+    listingUrl: string;
+    targetUrl?: string;
+    upload?: (buffer: Buffer, contentType: string, fileName: string) => Promise<string>;
+  }): Promise<SrealityFirstImageTestResult> {
+    const urls = options.targetUrl ? dedupeSrealityImageUrls([options.targetUrl]) : [];
+    const capture = await this.captureGalleryImages({
+      listingUrl: options.listingUrl,
+      targetUrls: urls,
+      enrichContact: false,
+      firstImageOnly: true,
+      elementCaptureOnly: true,
+    });
+
+    const attempt = capture.captureAttempts?.[0] ?? null;
+    const captured = capture.captured[0];
+    if (!captured) {
+      return {
+        ok: false,
+        galleryOpen: capture.galleryDiagnostics?.galleryOpen ?? false,
+        imageVisible: capture.galleryDiagnostics?.activeImageVisible ?? false,
+        naturalSize: capture.galleryDiagnostics?.activeImageDimensions ?? null,
+        captureMethod: null,
+        dimensions: null,
+        bytes: null,
+        contentHash: null,
+        storedUrl: null,
+        previewUrl: null,
+        attempt,
+        errorCode: attempt?.errorCode ?? capture.errorCode ?? IMAGE_CAPTURE_ERROR_CODES.CAPTURE_SYSTEM_FAILURE,
+        errorMessage: attempt?.errorMessage ?? capture.errorDetail ?? 'Capture selhal',
+      };
+    }
+
+    let storedUrl: string | null = null;
+    if (options.upload) {
+      try {
+        const ext = captured.contentType.includes('png')
+          ? 'png'
+          : captured.contentType.includes('webp')
+            ? 'webp'
+            : 'jpg';
+        storedUrl = await options.upload(
+          captured.buffer,
+          captured.contentType,
+          `sreality-first-image-test.${ext}`,
+        );
+        if (attempt) attempt.storage = 'PASS';
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (attempt) {
+          attempt.storage = 'FAIL';
+          attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.STORAGE_UPLOAD_FAILED;
+          attempt.errorMessage = msg;
+        }
+        return {
+          ok: false,
+          galleryOpen: capture.galleryDiagnostics?.galleryOpen ?? true,
+          imageVisible: true,
+          naturalSize: `${captured.width}x${captured.height}`,
+          captureMethod: captured.method,
+          dimensions: `${captured.width}x${captured.height}`,
+          bytes: captured.buffer.length,
+          contentHash: captured.contentHash,
+          storedUrl: null,
+          previewUrl: null,
+          attempt,
+          errorCode: IMAGE_CAPTURE_ERROR_CODES.STORAGE_UPLOAD_FAILED,
+          errorMessage: msg,
+        };
+      }
+    } else if (attempt) {
+      attempt.storage = 'PASS';
+    }
+
+    return {
+      ok: true,
+      galleryOpen: capture.galleryDiagnostics?.galleryOpen ?? true,
+      imageVisible: true,
+      naturalSize: `${captured.width}x${captured.height}`,
+      captureMethod: captured.method,
+      dimensions: `${captured.width}x${captured.height}`,
+      bytes: captured.buffer.length,
+      contentHash: captured.contentHash,
+      storedUrl,
+      previewUrl: storedUrl,
+      attempt,
+    };
   }
 
   /** Bezpečný health check pro admin diagnostiku. */
@@ -389,32 +536,7 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         if (contactClickSucceeded) await this.delay(page, 600);
       }
 
-      const extracted = await page.evaluate(() => {
-        const urls = new Set<string>();
-        const addUrl = (raw: string | null | undefined) => {
-          if (!raw) return;
-          const s = raw.trim();
-          if (!s || /logo|icon|sprite|1x1|avatar|profile/i.test(s)) return;
-          if (/sreality\.cz/i.test(s) || /^\/.*\.(jpe?g|webp|png)/i.test(s)) {
-            urls.add(s.startsWith('//') ? `https:${s}` : s);
-          }
-        };
-        for (const img of Array.from(document.querySelectorAll('img'))) {
-          addUrl(img.getAttribute('src'));
-          addUrl(img.getAttribute('data-src'));
-          addUrl(img.getAttribute('data-original'));
-          const srcset = img.getAttribute('srcset');
-          if (srcset) {
-            for (const part of srcset.split(',')) {
-              addUrl(part.trim().split(/\s+/)[0]);
-            }
-          }
-        }
-        for (const source of Array.from(document.querySelectorAll('picture source'))) {
-          addUrl(source.getAttribute('srcset')?.split(',')[0]?.trim().split(/\s+/)[0]);
-        }
-        return Array.from(urls);
-      });
+      const extracted = await this.extractGalleryImageUrlsFromPage(page);
 
       const html = await page.evaluate(() => document.documentElement.outerHTML);
       const htmlBroker = extractSrealityBrokerFromHtml(html);
@@ -449,6 +571,12 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     enrichContact: boolean,
     onImageAttempt?: (attempt: SrealityImageCaptureAttempt) => void | Promise<void>,
     elementCaptureOnly = false,
+    firstImageOnly = false,
+    onImageCaptured?: (payload: {
+      index: number;
+      sourceUrl: string;
+      captured: SrealityBrowserCapturedImage;
+    }) => void | Promise<void>,
   ): Promise<SrealityGalleryCaptureResult> {
     this.logger.log(
       `SREALITY_BROWSER_MEDIA_START url=${listingUrl} targets=${targetUrls.length} contact=${enrichContact}`,
@@ -536,6 +664,24 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       }
     };
 
+    const forceAssignToTargetUrl = (
+      targetUrl: string,
+      validated: SrealityValidatedImageBuffer,
+      method: SrealityImageCaptureMethod,
+    ) => {
+      assignToPending(targetUrl, validated, method);
+      for (const key of matchKeysForImageUrl(targetUrl)) {
+        if (contentHashes.has(validated.contentHash) && capturedByKey.has(key)) return;
+        capturedByKey.set(key, {
+          ...validated,
+          sourceUrl: targetUrl,
+          matchKey: key,
+          method,
+        });
+        contentHashes.add(validated.contentHash);
+      }
+    };
+
     const storeBuffer = async (
       url: string,
       buffer: Buffer,
@@ -578,6 +724,11 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         if (processedRawKeys.has(key)) continue;
         processedRawKeys.add(key);
         await storeBuffer(raw.url, raw.buffer, raw.contentType, raw.method);
+        for (const pendingUrl of new Set(pendingByKey.values())) {
+          if (urlsLikelySameImage(raw.url, pendingUrl)) {
+            await storeBuffer(pendingUrl, raw.buffer, raw.contentType, raw.method);
+          }
+        }
       }
     };
 
@@ -604,7 +755,11 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
           if (!isLikelyImageResponse(ct)) return;
           responsesSeen += 1;
           try {
-            const body = await response.body();
+            const body = await this.withTimeout(
+              response.body(),
+              SREALITY_BROWSER_MEDIA_TIMEOUTS.RESPONSE_BODY_MS,
+              'response.body timeout',
+            ).catch(() => null);
             if (!body?.length) return;
             const key = imageDedupeKey(resUrl);
             const existing = rawResponseBuffers.get(key);
@@ -663,6 +818,25 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       await this.drainResponseTasks(responseTasks);
       await processRawResponseBuffers();
 
+      let effectiveTargetUrls = [...targetUrls];
+      if (!effectiveTargetUrls.length) {
+        const discovered = await this.extractGalleryImageUrlsFromPage(page);
+        if (discovered.length) {
+          effectiveTargetUrls = firstImageOnly ? [discovered[0]!] : discovered;
+        } else if (allResponsesByKey.size > 0) {
+          const largest = [...allResponsesByKey.values()].sort(
+            (a, b) => b.buffer.length - a.buffer.length,
+          )[0];
+          if (largest?.sourceUrl) effectiveTargetUrls = [largest.sourceUrl];
+        }
+        pendingByKey.clear();
+        for (const url of effectiveTargetUrls) {
+          for (const key of matchKeysForImageUrl(url)) {
+            if (!pendingByKey.has(key)) pendingByKey.set(key, url);
+          }
+        }
+      }
+
       if (enrichContact) {
         try {
           await this.withTimeout(
@@ -679,14 +853,21 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       }
 
       try {
+        this.logger.log('SREALITY_GALLERY_FOUND');
+        this.logger.log('SREALITY_GALLERY_OPENING');
         galleryOpened = await this.withTimeout(
-          this.openGalleryAndBrowse(page, pendingByKey, capturedByKey, responseTasks),
-          SREALITY_BROWSER_MEDIA_TIMEOUTS.GALLERY_OPEN_MS +
-            targetUrls.length * SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS,
+          this.openGalleryLightbox(page, responseTasks),
+          SREALITY_BROWSER_MEDIA_TIMEOUTS.GALLERY_OPEN_MS,
           `GALLERY_OPEN timeout`,
         );
+        this.logger.log(
+          galleryOpened ? 'SREALITY_GALLERY_OPEN_PASS' : 'SREALITY_GALLERY_OPEN_FAILED',
+        );
         this.logger.log(`SREALITY_BROWSER_GALLERY_OPENED opened=${galleryOpened}`);
-      } catch {
+      } catch (err) {
+        this.logger.warn(
+          `SREALITY_GALLERY_OPEN_FAILED err=${err instanceof Error ? err.message : String(err)}`,
+        );
         enrichmentStatus = 'PARTIAL';
       }
       await this.drainResponseTasks(responseTasks);
@@ -752,37 +933,44 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       );
 
       const captureAttempts: SrealityImageCaptureAttempt[] = [];
-      const pendingTargets = targetUrls.filter((url) => {
+      const loopTargets = firstImageOnly ? effectiveTargetUrls.slice(0, 1) : effectiveTargetUrls;
+      const pendingTargets = loopTargets.filter((url) => {
         for (const key of matchKeysForImageUrl(url)) {
           if (capturedByKey.has(key)) return false;
         }
         return true;
       });
-      const targetsToCapture = pendingTargets.length > 0 ? pendingTargets : targetUrls;
+      const targetsToCapture = pendingTargets.length > 0 ? pendingTargets : loopTargets;
       let lastContentHash: string | null = null;
       let sameHashStreak = 0;
       let consecutiveFailures = 0;
       let skipDirectAttempts = elementCaptureOnly;
+      let firstImageStored = false;
 
       for (let index = 0; index < targetsToCapture.length; index += 1) {
         const sourceUrl = targetsToCapture[index]!;
         if (index > 0) {
-          await this.advanceGalleryStep(page, responseTasks);
+          const advanced = await this.advanceGalleryStep(page, responseTasks);
+          if (!advanced) {
+            this.logger.warn(`SREALITY_GALLERY_NAVIGATION_FAILED index=${index + 1}`);
+          }
           await this.drainResponseTasks(responseTasks);
           await processRawResponseBuffers();
         }
 
-        const activeState = await this.getActiveGalleryImageState(page);
+        const activeState = await this.waitForActiveGalleryImage(page);
         const attempt: SrealityImageCaptureAttempt = {
           index: index + 1,
           total: targetsToCapture.length,
           sourceUrl,
           directHttp: skipDirectAttempts ? 'SKIPPED' : 'NOT_REACHED',
           directHttpStatus: skipDirectAttempts ? 401 : null,
+          gallery: galleryOpened ? 'PASS' : 'FAIL',
           browserResponse: 'NOT_REACHED',
           browserContext: 'NOT_REACHED',
           domImage: 'NOT_REACHED',
           elementScreenshot: 'NOT_REACHED',
+          sharp: 'NOT_REACHED',
           storage: 'NOT_REACHED',
           galleryOpen: galleryOpened,
           activeImageVisible: activeState.visible,
@@ -815,7 +1003,9 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
           attempt.browserContextStatus = 401;
         }
 
-        const pooled = findBestCapturedForTargetUrl(sourceUrl, allResponsesByKey);
+        const pooled =
+          findBestCapturedForTargetUrl(sourceUrl, allResponsesByKey) ??
+          findPoolEntryForTargetUrl(sourceUrl, allResponsesByKey);
         if (pooled) {
           attempt.browserResponse = 'PASS';
           if (!capturedForTarget) {
@@ -850,21 +1040,32 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
           if (elementShot) {
             attempt.elementScreenshot = 'PASS';
             attempt.bytes = elementShot.buffer.length;
-            await storeBuffer(sourceUrl, elementShot.buffer, 'image/jpeg', 'ELEMENT_CAPTURE');
+            attempt.sharp = 'PASS';
+            forceAssignToTargetUrl(sourceUrl, elementShot.validated, 'ELEMENT_CAPTURE');
           } else {
             const urlShot = await this.captureElementForUrl(page, sourceUrl);
             if (urlShot) {
-              attempt.elementScreenshot = 'PASS';
-              attempt.bytes = urlShot.length;
-              await storeBuffer(sourceUrl, urlShot, 'image/jpeg', 'ELEMENT_CAPTURE');
+              const validated = await validateSrealityImageBuffer(urlShot, 'image/jpeg');
+              if (validated) {
+                attempt.elementScreenshot = 'PASS';
+                attempt.bytes = urlShot.length;
+                attempt.sharp = 'PASS';
+                forceAssignToTargetUrl(sourceUrl, validated, 'ELEMENT_CAPTURE');
+              } else {
+                attempt.elementScreenshot = 'PASS';
+                attempt.sharp = 'FAIL';
+                attempt.errorMessage = 'Sharp validace screenshotu selhala';
+              }
             } else {
               attempt.elementScreenshot = 'FAIL';
+              attempt.sharp = 'NOT_REACHED';
               attempt.errorCode = activeState.visible
                 ? IMAGE_CAPTURE_ERROR_CODES.ELEMENT_SCREENSHOT_FAILED
                 : IMAGE_CAPTURE_ERROR_CODES.GALLERY_NOT_OPEN;
               attempt.errorMessage = activeState.visible
                 ? 'Element screenshot selhal'
                 : 'Aktivní fotografie není viditelná v galerii';
+              await this.saveDiagnosticGalleryScreenshot(page, index + 1);
             }
           }
           for (const key of matchKeysForImageUrl(sourceUrl)) {
@@ -872,7 +1073,9 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
             if (capturedForTarget) break;
           }
         } else {
-          attempt.elementScreenshot = capturedForTarget.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'NOT_REACHED';
+          attempt.elementScreenshot =
+            capturedForTarget.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'NOT_REACHED';
+          attempt.sharp = 'PASS';
           attempt.storage = 'PASS';
           attempt.captureMethod = capturedForTarget.method;
           attempt.bytes = capturedForTarget.buffer.length;
@@ -882,7 +1085,16 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
           attempt.storage = 'PASS';
           attempt.captureMethod = capturedForTarget.method;
           attempt.bytes = capturedForTarget.buffer.length;
+          attempt.sharp = attempt.sharp === 'NOT_REACHED' ? 'PASS' : attempt.sharp;
           consecutiveFailures = 0;
+          firstImageStored = true;
+          if (capturedForTarget) {
+            await onImageCaptured?.({
+              index: index + 1,
+              sourceUrl,
+              captured: capturedForTarget,
+            });
+          }
           if (capturedForTarget.contentHash === lastContentHash) {
             sameHashStreak += 1;
             if (sameHashStreak >= 2) {
@@ -904,10 +1116,31 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
 
         if (consecutiveFailures >= 3 && captureAttempts.every((a) => a.storage !== 'PASS')) {
           attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.CAPTURE_SYSTEM_FAILURE;
-          attempt.errorMessage = 'Browser nedokázal získat obrazová data z galerie.';
+          attempt.errorMessage = '3/3 browser capture attempts failed. Stopping image pipeline.';
           captureAttempts.push(attempt);
           await onImageAttempt?.(attempt);
           this.logger.error(formatImageCaptureAttemptLog(attempt));
+          this.logger.error('SREALITY_IMAGE_CAPTURE_SYSTEM_FAILURE 3/3 browser capture attempts failed.');
+          break;
+        }
+
+        if (firstImageOnly && index === 0 && !capturedForTarget) {
+          break;
+        }
+
+        if (!firstImageOnly && index === 0 && !capturedForTarget) {
+          attempt.errorCode = IMAGE_CAPTURE_ERROR_CODES.CAPTURE_SYSTEM_FAILURE;
+          attempt.errorMessage = 'FIRST_IMAGE_STORAGE failed — stopping image pipeline.';
+          captureAttempts.push(attempt);
+          await onImageAttempt?.(attempt);
+          this.logger.error('SREALITY_FIRST_IMAGE_STORAGE_FAIL stopping image pipeline.');
+          break;
+        }
+
+        if (firstImageOnly && firstImageStored) {
+          captureAttempts.push(attempt);
+          await onImageAttempt?.(attempt);
+          this.logger.log(formatImageCaptureAttemptLog(attempt));
           break;
         }
 
@@ -921,31 +1154,14 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         this.logger.log(formatImageCaptureAttemptLog(attempt));
       }
 
-      const extracted = await page.evaluate(() => {
-        const urls = new Set<string>();
-        const addUrl = (raw: string | null | undefined) => {
-          if (!raw) return;
-          const s = raw.trim();
-          if (!s || /logo|icon|sprite|1x1|avatar|profile/i.test(s)) return;
-          if (/sdn\.cz|sreality\.cz/i.test(s) || /^\/.*\.(jpe?g|webp|png)/i.test(s)) {
-            urls.add(s.startsWith('//') ? `https:${s}` : s);
-          }
-        };
-        for (const img of Array.from(document.querySelectorAll('img'))) {
-          addUrl(img.getAttribute('src'));
-          addUrl(img.getAttribute('data-src'));
-          addUrl(img.getAttribute('data-original'));
-          const srcset = img.getAttribute('srcset');
-          if (srcset) {
-            for (const part of srcset.split(',')) {
-              addUrl(part.trim().split(/\s+/)[0]);
-            }
-          }
-        }
-        return Array.from(urls);
-      });
-      imageUrlsFound = dedupeSrealityImageUrls(extracted);
-      html = await page.evaluate(() => document.documentElement.outerHTML);
+      try {
+        imageUrlsFound = await this.extractGalleryImageUrlsFromPage(page);
+        html = await page.evaluate(() => document.documentElement.outerHTML);
+      } catch (err) {
+        this.logger.warn(
+          `SREALITY_PAGE_EXTRACT_FAIL err=${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
 
       await this.drainResponseTasks(responseTasks);
       await processRawResponseBuffers();
@@ -959,21 +1175,21 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       );
       const broker = mergeBrokerParts([htmlBroker, ...networkBrokerParts]);
 
-      const captured = this.orderCapturedImages(targetUrls, capturedByKey, contentHashes);
+      const captured = this.orderCapturedImages(effectiveTargetUrls, capturedByKey, contentHashes);
       const stats = {
         browserResponseSuccess: captured.filter((x) => x.method === 'BROWSER_RESPONSE').length,
         elementCaptureSuccess: captured.filter((x) => x.method === 'ELEMENT_CAPTURE').length,
         browserContextSuccess: captured.filter((x) => x.method === 'BROWSER_CONTEXT').length,
         domBlobSuccess: captured.filter((x) => x.method === 'DOM_BLOB').length,
-        failed: Math.max(0, targetUrls.length - captured.length),
+        failed: Math.max(0, effectiveTargetUrls.length - captured.length),
         responsesSeen,
       };
 
       if (stats.failed > 0 && captured.length > 0) enrichmentStatus = 'PARTIAL';
-      if (captured.length === 0 && targetUrls.length > 0) enrichmentStatus = 'FAIL';
+      if (captured.length === 0 && effectiveTargetUrls.length > 0) enrichmentStatus = 'FAIL';
 
       this.logger.log(
-        `SREALITY_BROWSER_MEDIA_DONE captured=${captured.length}/${targetUrls.length} responsesSeen=${responsesSeen} pool=${allResponsesByKey.size} response=${stats.browserResponseSuccess} context=${stats.browserContextSuccess} dom=${stats.domBlobSuccess} element=${stats.elementCaptureSuccess}`,
+        `SREALITY_BROWSER_MEDIA_DONE captured=${captured.length}/${effectiveTargetUrls.length} responsesSeen=${responsesSeen} pool=${allResponsesByKey.size} response=${stats.browserResponseSuccess} context=${stats.browserContextSuccess} dom=${stats.domBlobSuccess} element=${stats.elementCaptureSuccess}`,
       );
 
       return {
@@ -1000,9 +1216,25 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     }
   }
 
-  private async drainResponseTasks(tasks: Promise<void>[]): Promise<void> {
+  private async extractGalleryImageUrlsFromPage(page: PlaywrightPage): Promise<string[]> {
+    try {
+      const extracted = await page.evaluate(BROWSER_EXTRACT_GALLERY_IMAGE_URLS);
+      return dedupeSrealityImageUrls(Array.isArray(extracted) ? (extracted as string[]) : []);
+    } catch {
+      return [];
+    }
+  }
+
+  private async drainResponseTasks(
+    tasks: Promise<void>[],
+    timeoutMs = SREALITY_BROWSER_MEDIA_TIMEOUTS.RESPONSE_DRAIN_MS,
+  ): Promise<void> {
     if (!tasks.length) return;
-    await Promise.allSettled(tasks);
+    const batch = tasks.splice(0, tasks.length);
+    await Promise.race([
+      Promise.allSettled(batch),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 
   private async activateGalleryImageForUrl(page: PlaywrightPage, sourceUrl: string): Promise<void> {
@@ -1010,22 +1242,6 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     await page
       .evaluate((keys: string[]) => {
         const keySet = new Set(keys);
-        const urlMatchesKey = (value: string): boolean => {
-          try {
-            const normalized = value.startsWith('//') ? `https:${value}` : value;
-            const absolute = normalized.startsWith('http')
-              ? normalized
-              : new URL(normalized, window.location.origin).href;
-            const segments = new URL(absolute).pathname.split('/').filter(Boolean);
-            const file = segments[segments.length - 1] ?? '';
-            const parent = segments[segments.length - 2] ?? '';
-            const compact = `${new URL(absolute).hostname}/${parent}/${file}`.toLowerCase();
-            if (keySet.has(compact)) return true;
-            return keys.some((k) => absolute.includes(k) || k.includes(file));
-          } catch {
-            return false;
-          }
-        };
         const imgs = Array.from(document.querySelectorAll('img, picture img'));
         for (const node of imgs) {
           const img = node as HTMLImageElement;
@@ -1040,11 +1256,29 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
               values.push(part.trim().split(/\s+/)[0] ?? '');
             }
           }
-          const hit = values.some(urlMatchesKey);
-          if (!hit) continue;
-          img.scrollIntoView({ block: 'center', inline: 'center' });
-          img.click();
-          return true;
+          for (let vi = 0; vi < values.length; vi += 1) {
+            const value = values[vi]!;
+            try {
+              const normalized = value.startsWith('//') ? `https:${value}` : value;
+              const absolute = normalized.startsWith('http')
+                ? normalized
+                : new URL(normalized, window.location.origin).href;
+              const segments = new URL(absolute).pathname.split('/').filter(Boolean);
+              const file = segments[segments.length - 1] ?? '';
+              const parent = segments[segments.length - 2] ?? '';
+              const compact = `${new URL(absolute).hostname}/${parent}/${file}`.toLowerCase();
+              if (
+                keySet.has(compact) ||
+                keys.some((k) => absolute.includes(k) || k.includes(file))
+              ) {
+                img.scrollIntoView({ block: 'center', inline: 'center' });
+                img.click();
+                return true;
+              }
+            } catch {
+              /* ignore */
+            }
+          }
         }
         return false;
       }, [...matchKeys])
@@ -1166,6 +1400,80 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     return { attempted: succeeded, succeeded };
   }
 
+  private async openGalleryLightbox(
+    page: PlaywrightPage,
+    responseTasks: Promise<void>[],
+  ): Promise<boolean> {
+    const galleryOpenSelectors = [
+      '[data-e2e="detail-gallery"] img',
+      '[data-e2e="detail-image"]',
+      '[data-e2e="detail-gallery"] button',
+      'button:has-text("fotografi")',
+      'a:has-text("fotografi")',
+      '[aria-label*="fotografi"]',
+      '[aria-label*="galerie"]',
+      '[aria-label*="Fotografie"]',
+      '[class*="Gallery"] img',
+      '[class*="Lightbox"] img',
+      '[class*="carousel"] img',
+      'picture img',
+      'main img[src*="sdn.cz"]',
+      'main img[src*="sreality"]',
+    ];
+
+    let galleryOpened = false;
+    for (const sel of galleryOpenSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if ((await el.count()) > 0) {
+          await el.scrollIntoViewIfNeeded?.().catch(() => undefined);
+          await el.click({ timeout: 2500, force: true }).catch(() => undefined);
+          galleryOpened = true;
+          await this.waitForActiveGalleryImage(page);
+          await this.drainResponseTasks(responseTasks);
+          if (await page.locator('[role="dialog"], [class*="Lightbox"], [class*="Gallery"]').count()) {
+            return true;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!galleryOpened) {
+      await page
+        .getByRole('button', { name: /fotografi|galerie|zobrazit/i })
+        .first()
+        .click({ timeout: 2000, force: true })
+        .then(() => {
+          galleryOpened = true;
+        })
+        .catch(() => undefined);
+      if (galleryOpened) {
+        await this.waitForActiveGalleryImage(page);
+        await this.drainResponseTasks(responseTasks);
+      }
+    }
+
+    if (!galleryOpened) {
+      await page
+        .locator('main img[src*="sdn"], main picture img, [data-e2e="detail-gallery"] img')
+        .first()
+        .click({ timeout: 2000, force: true })
+        .then(() => {
+          galleryOpened = true;
+        })
+        .catch(() => undefined);
+      if (galleryOpened) {
+        await this.waitForActiveGalleryImage(page);
+        await this.drainResponseTasks(responseTasks);
+      }
+    }
+
+    return galleryOpened;
+  }
+
+  /** @deprecated Use openGalleryLightbox + per-image advanceGalleryStep */
   private async openGalleryAndBrowse(
     page: PlaywrightPage,
     pendingByKey: Map<string, string>,
@@ -1280,6 +1588,59 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
       .catch(() => undefined);
   }
 
+  private async waitForActiveGalleryImage(page: PlaywrightPage): Promise<{
+    visible: boolean;
+    dimensions: string | null;
+    naturalWidth: number;
+    naturalHeight: number;
+  }> {
+    await page
+      .waitForFunction(
+        () => {
+          const selectors = [
+            '[role="dialog"] img',
+            '[data-e2e="detail-gallery"] img',
+            '[class*="Lightbox"] img',
+            '[class*="Gallery"] img',
+            '.gallery img',
+            'picture img',
+            'main img[src*="sdn.cz"]',
+          ];
+          for (const sel of selectors) {
+            for (const img of Array.from(document.querySelectorAll(sel))) {
+              const el = img as HTMLImageElement;
+              const rect = el.getBoundingClientRect();
+              if (rect.width < 40 || rect.height < 40) continue;
+              if (el.complete && el.naturalWidth > 160 && el.naturalHeight > 120) return true;
+            }
+          }
+          return false;
+        },
+        { timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS },
+      )
+      .catch(() => undefined);
+    await this.delay(page, 350);
+    return this.getActiveGalleryImageState(page);
+  }
+
+  private async saveDiagnosticGalleryScreenshot(page: PlaywrightPage, imageIndex: number): Promise<void> {
+    try {
+      const { mkdir, writeFile, rm } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const { tmpdir } = await import('node:os');
+      const dir = join(tmpdir(), 'sreality-gallery-diag');
+      await mkdir(dir, { recursive: true });
+      const file = join(dir, `gallery-fail-${Date.now()}-${imageIndex}.png`);
+      await page.screenshot({ path: file, fullPage: true, timeout: 8_000 });
+      this.logger.warn(`SREALITY_GALLERY_DIAGNOSTIC_SCREENSHOT path=${file}`);
+      setTimeout(() => {
+        void rm(file, { force: true }).catch(() => undefined);
+      }, 15 * 60_000);
+    } catch {
+      /* ignore */
+    }
+  }
+
   private async getActiveGalleryImageState(page: PlaywrightPage): Promise<{
     visible: boolean;
     dimensions: string | null;
@@ -1291,24 +1652,29 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         const selectors = [
           '[role="dialog"] img',
           '[data-e2e="detail-gallery"] img',
+          '[class*="Lightbox"] img',
+          '[class*="Gallery"] img',
+          '[class*="carousel"] img',
           '.gallery img',
           'picture img',
           'main img[src*="sdn.cz"]',
         ];
-        let best: { w: number; h: number } | null = null;
+        let best: { w: number; h: number; viewportArea: number } | null = null;
         for (const sel of selectors) {
           for (const node of Array.from(document.querySelectorAll(sel))) {
             const img = node as HTMLImageElement;
             const rect = img.getBoundingClientRect();
             if (rect.width < 40 || rect.height < 40) continue;
             if (!img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) continue;
+            if (/logo|icon|sprite|avatar|profile|1x1/i.test(img.src || img.currentSrc || '')) continue;
+            const viewportArea = rect.width * rect.height;
             const area = img.naturalWidth * img.naturalHeight;
-            if (!best || area > best.w * best.h) {
-              best = { w: img.naturalWidth, h: img.naturalHeight };
+            if (!best || viewportArea > best.viewportArea || (viewportArea === best.viewportArea && area > best.w * best.h)) {
+              best = { w: img.naturalWidth, h: img.naturalHeight, viewportArea };
             }
           }
         }
-        return best;
+        return best ? { w: best.w, h: best.h } : null;
       })
       .catch(() => null);
     if (!state) {
@@ -1324,19 +1690,24 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
 
   private async captureActiveGalleryElementScreenshot(
     page: PlaywrightPage,
-  ): Promise<{ buffer: Buffer; width: number; height: number } | null> {
+  ): Promise<{ buffer: Buffer; width: number; height: number; validated: SrealityValidatedImageBuffer } | null> {
     const selectors = [
       '[role="dialog"] img',
       '[data-e2e="detail-gallery"] img',
+      '[class*="Lightbox"] img',
+      '[class*="Gallery"] img',
+      '[class*="carousel"] img',
       '.gallery img',
       'picture img',
       'main img[src*="sdn.cz"]',
       'main img[src*="sreality"]',
     ];
 
+    await this.waitForActiveGalleryImage(page);
+
     let bestIndex = -1;
     let bestSelector = selectors[0]!;
-    let bestArea = 0;
+    let bestViewportArea = 0;
 
     for (const sel of selectors) {
       const imgs = page.locator(sel);
@@ -1345,17 +1716,19 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         const meta = await imgs.nth(i).evaluate((el) => {
           const img = el as HTMLImageElement;
           const rect = img.getBoundingClientRect();
+          const src = img.src || img.currentSrc || '';
           return {
-            area: img.naturalWidth * img.naturalHeight,
-            visible: rect.width > 40 && rect.height > 40,
+            viewportArea: rect.width * rect.height,
+            visible: rect.width > 80 && rect.height > 80,
             complete: img.complete && img.naturalWidth > 0 && img.naturalHeight > 0,
             w: img.naturalWidth,
             h: img.naturalHeight,
+            isUiAsset: /logo|icon|sprite|avatar|profile|1x1/i.test(src),
           };
         });
-        if (!meta.visible || !meta.complete) continue;
-        if (meta.area > bestArea) {
-          bestArea = meta.area;
+        if (!meta.visible || !meta.complete || meta.isUiAsset) continue;
+        if (meta.viewportArea > bestViewportArea) {
+          bestViewportArea = meta.viewportArea;
           bestIndex = i;
           bestSelector = sel;
         }
@@ -1365,16 +1738,17 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     if (bestIndex < 0) return null;
 
     const img = page.locator(bestSelector).nth(bestIndex);
-    const box = await img.evaluate((el) => {
-      const rect = (el as HTMLElement).getBoundingClientRect();
-      return { width: rect.width, height: rect.height };
-    });
+    const box = await img.boundingBox();
     if (!box || box.width < 20 || box.height < 20) return null;
 
-    const screenshot = await img.screenshot({ type: 'jpeg', quality: 92, timeout: 6_000 });
+    const screenshot = await img.screenshot({
+      type: 'jpeg',
+      quality: 92,
+      timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.ELEMENT_CAPTURE_MS,
+    });
     const validated = await validateSrealityImageBuffer(screenshot, 'image/jpeg');
     if (!validated) return null;
-    return { buffer: screenshot, width: validated.width, height: validated.height };
+    return { buffer: screenshot, width: validated.width, height: validated.height, validated };
   }
 
   private async advanceGalleryStep(page: PlaywrightPage, responseTasks: Promise<void>[]): Promise<boolean> {
@@ -1954,6 +2328,7 @@ type PlaywrightLocator = {
   click: (opts?: Record<string, unknown>) => Promise<void>;
   first: () => PlaywrightLocator;
   nth: (index: number) => PlaywrightLocator;
+  boundingBox: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
   screenshot: (opts?: Record<string, unknown>) => Promise<Buffer>;
   evaluate: <T>(fn: (el: Element) => T | Promise<T>) => Promise<T>;
   scrollIntoViewIfNeeded?: () => Promise<void>;
@@ -1975,11 +2350,15 @@ type PlaywrightPage = {
     ...args: unknown[]
   ) => Promise<void>;
   waitForTimeout?: (ms: number) => Promise<void>;
-  evaluate: <T>(fn: (...args: unknown[]) => T | Promise<T>, ...args: unknown[]) => Promise<T>;
+  evaluate: <T>(
+    fn: string | ((...args: unknown[]) => T | Promise<T>),
+    ...args: unknown[]
+  ) => Promise<T>;
   locator: (sel: string) => PlaywrightLocator;
   keyboard?: { press: (key: string) => Promise<void> };
   getByRole: (
     role: string,
     opts: { name: RegExp },
   ) => { first: () => { click: (opts: Record<string, unknown>) => Promise<void> } };
+  screenshot: (opts?: Record<string, unknown>) => Promise<Buffer>;
 };

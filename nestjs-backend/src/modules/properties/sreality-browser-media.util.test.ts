@@ -6,6 +6,7 @@ import {
   isSrealityCdnResponseUrl,
   matchKeysForImageUrl,
   shouldSuggestBrowserMediaFallback,
+  urlsLikelySameImage,
   validateSrealityImageBuffer,
 } from './sreality-browser-media.util';
 
@@ -27,6 +28,12 @@ describe('sreality-browser-media.util', () => {
     const keys = matchKeysForImageUrl(url);
     assert.ok(keys.length > 0);
     assert.equal(new Set(keys).size, keys.length);
+  });
+
+  it('fuzzy-matches CDN response URL to parser URL', () => {
+    const parser = 'https://d18-a.sdn.cz/dms/monline2/photo/abc/def/image.jpg';
+    const response = 'https://d18-a.sdn.cz/dms/monline2/photo/abc/def/image.jpg?fl=res,1920,1280';
+    assert.equal(urlsLikelySameImage(parser, response), true);
   });
 
   it('validates a real JPEG buffer', async () => {

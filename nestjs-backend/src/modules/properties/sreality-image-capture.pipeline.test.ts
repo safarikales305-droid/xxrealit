@@ -23,6 +23,8 @@ assert.match(
     activeImageDimensions: '1600x1067',
   }),
   /ELEMENT_SCREENSHOT: PASS/,
+  /SHARP: PASS/,
+  /STORAGE: PASS/,
 );
 
 assert.equal(

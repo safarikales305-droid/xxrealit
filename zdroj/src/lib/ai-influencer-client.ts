@@ -188,8 +188,6 @@ export type AiInfluencerDashboard = {
     ctaTextMode?: 'auto' | 'custom';
     customCtaText?: string;
     youtubeCtaText?: string;
-    videoGenerationMode?: 'VIDEO_AGENT' | 'AVATAR';
-    allowVideoAgentFallback?: boolean;
   };
   stats: {
     reelsToday: number;

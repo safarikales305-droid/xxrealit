@@ -17,6 +17,8 @@ import {
   nestAdminSrealityImportPublish,
   nestAdminSrealityImportRetryJob,
   nestAdminSrealityBrowserTest,
+  nestAdminSrealityTestFirstImage,
+  type SrealityFirstImageTestResponse,
   type SrealityImportJobHistoryRow,
   type SrealityImportJobStatus,
   type SrealityImportPreviewResponse,
@@ -86,6 +88,8 @@ export default function AdminSrealityImportPage() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [browserTest, setBrowserTest] = useState<{ status: string; reason?: string } | null>(null);
   const [browserTesting, setBrowserTesting] = useState(false);
+  const [firstImageTest, setFirstImageTest] = useState<SrealityFirstImageTestResponse | null>(null);
+  const [firstImageTesting, setFirstImageTesting] = useState(false);
 
   const applyPreviewToForm = useCallback((p: SrealityImportPreviewResponse) => {
     const pre = p.prefill as Record<string, unknown>;
@@ -378,6 +382,38 @@ export default function AdminSrealityImportPage() {
           >
             {browserTesting ? 'Testuji browser…' : 'Otestovat browser'}
           </button>
+          <button
+            type="button"
+            disabled={firstImageTesting || !token || !sourceUrl.trim()}
+            onClick={() => {
+              if (!token || !sourceUrl.trim()) return;
+              setFirstImageTest(null);
+              setFirstImageTesting(true);
+              const firstImageUrl = preview?.images?.[0]?.sourceUrl;
+              void nestAdminSrealityTestFirstImage(token, sourceUrl.trim(), firstImageUrl)
+                .then(setFirstImageTest)
+                .catch((e) =>
+                  setFirstImageTest({
+                    ok: false,
+                    galleryOpen: false,
+                    imageVisible: false,
+                    naturalSize: null,
+                    captureMethod: null,
+                    dimensions: null,
+                    bytes: null,
+                    contentHash: null,
+                    storedUrl: null,
+                    previewUrl: null,
+                    attempt: null,
+                    errorMessage: e instanceof Error ? e.message : 'Test selhal',
+                  }),
+                )
+                .finally(() => setFirstImageTesting(false));
+            }}
+            className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-semibold text-orange-900 hover:bg-orange-100 disabled:opacity-60"
+          >
+            {firstImageTesting ? 'Testuji první fotografii…' : 'Otestovat první fotografii'}
+          </button>
         </div>
         {browserTest ? (
           <p className="mt-3 text-sm text-zinc-700">
@@ -387,6 +423,38 @@ export default function AdminSrealityImportPage() {
             </span>
             {browserTest.reason ? ` — ${browserTest.reason}` : null}
           </p>
+        ) : null}
+        {firstImageTest ? (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-800">
+            <p className="font-semibold text-zinc-900">
+              Test první fotografie:{' '}
+              <span className={firstImageTest.ok ? 'text-emerald-700' : 'text-red-700'}>
+                {firstImageTest.ok ? 'PASS' : 'FAIL'}
+              </span>
+            </p>
+            <div className="mt-2 grid gap-1 sm:grid-cols-2">
+              <p>Gallery: {firstImageTest.galleryOpen ? 'PASS' : 'FAIL'}</p>
+              <p>Image visible: {firstImageTest.imageVisible ? 'PASS' : 'FAIL'}</p>
+              <p>Method: {firstImageTest.captureMethod ?? '—'}</p>
+              <p>Dimensions: {firstImageTest.dimensions ?? firstImageTest.naturalSize ?? '—'}</p>
+              <p>Storage: {firstImageTest.storedUrl ? 'PASS' : 'FAIL'}</p>
+              <p>Bytes: {firstImageTest.bytes ?? '—'}</p>
+            </div>
+            {firstImageTest.errorMessage ? (
+              <p className="mt-2 text-red-700">{firstImageTest.errorMessage}</p>
+            ) : null}
+            {firstImageTest.previewUrl ? (
+              <div className="mt-3">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Preview</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={firstImageTest.previewUrl}
+                  alt="Test první fotografie"
+                  className="max-h-48 rounded-lg border border-zinc-200 object-contain"
+                />
+              </div>
+            ) : null}
+          </div>
         ) : null}
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
       </section>

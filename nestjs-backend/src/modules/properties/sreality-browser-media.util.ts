@@ -23,6 +23,7 @@ export const SREALITY_BROWSER_MEDIA_TIMEOUTS = {
   CONTACT_CLICK_MS: 6_000,
   ELEMENT_CAPTURE_MS: 6_000,
   PER_IMAGE_PIPELINE_MS: 12_000,
+  RESPONSE_BODY_MS: 4_000,
   RESPONSE_DRAIN_MS: 2_000,
 } as const;
 
@@ -199,7 +200,45 @@ export function findBestCapturedForTargetUrl<
     if (key === targetKey) return value;
     if (value.sourceUrl && imageDedupeKey(value.sourceUrl) === targetKey) return value;
   }
+  for (const value of pool.values()) {
+    if (urlsLikelySameImage(value.sourceUrl, targetUrl)) return value;
+  }
   return undefined;
+}
+
+/** Fuzzy match — CDN response URL often differs from parser URL (resize, query, shard). */
+export function urlsLikelySameImage(a: string, b: string): boolean {
+  if (imageDedupeKey(a) === imageDedupeKey(b)) return true;
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    if (ua.hostname.toLowerCase() !== ub.hostname.toLowerCase()) return false;
+    const fileA = ua.pathname.split('/').filter(Boolean).pop() ?? '';
+    const fileB = ub.pathname.split('/').filter(Boolean).pop() ?? '';
+    if (fileA.length > 6 && fileB.length > 6 && fileA === fileB) return true;
+    const idA = ua.searchParams.get('id') ?? ua.searchParams.get('photo') ?? '';
+    const idB = ub.searchParams.get('id') ?? ub.searchParams.get('photo') ?? '';
+    if (idA.length > 4 && idB.length > 4 && idA === idB) return true;
+    const segA = ua.pathname.split('/').filter(Boolean).slice(-4).join('/');
+    const segB = ub.pathname.split('/').filter(Boolean).slice(-4).join('/');
+    if (segA.length > 12 && segA === segB) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+export function findPoolEntryForTargetUrl<
+  T extends { sourceUrl: string; buffer: Buffer },
+>(targetUrl: string, pool: Map<string, T> | Iterable<T>): T | undefined {
+  const entries = pool instanceof Map ? pool.values() : pool;
+  let best: T | undefined;
+  for (const item of entries) {
+    if (urlsLikelySameImage(item.sourceUrl, targetUrl)) {
+      if (!best || item.buffer.length > best.buffer.length) best = item;
+    }
+  }
+  return best;
 }
 
 export function extFromContentType(contentType: string): string {
