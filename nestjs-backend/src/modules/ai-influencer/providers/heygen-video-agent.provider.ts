@@ -99,10 +99,9 @@ export class HeyGenVideoAgentProvider {
 
     const payload: Record<string, unknown> = {
       prompt: input.prompt,
-      mode: 'generate',
       orientation: 'portrait',
-      auto_proceed: true,
     };
+    // generate mode auto-proceeds; auto_proceed is only valid for chat follow-ups.
     if (input.avatarId?.trim()) payload.avatar_id = input.avatarId.trim();
     if (input.voiceId?.trim()) payload.voice_id = input.voiceId.trim();
     if (input.callbackUrl?.trim()) payload.callback_url = input.callbackUrl.trim();
