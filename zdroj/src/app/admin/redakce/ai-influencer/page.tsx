@@ -228,6 +228,7 @@ export default function AiInfluencerPage() {
 
   const elevenLabs = dashboard?.providers.elevenLabs;
   const heygen = dashboard?.providers.heygen;
+  const workerRuntime = dashboard?.providers.workerRuntime;
   const ready = dashboard?.providers.ready;
 
   const load = () => {
@@ -425,11 +426,57 @@ export default function AiInfluencerPage() {
             ]}
           />
           <ProviderCard
+            title="Generation worker"
+            lines={[
+              {
+                ok: workerRuntime?.aiProvider === 'READY',
+                text: `AI provider: ${workerRuntime?.aiProvider ?? '—'}`,
+              },
+              {
+                ok: workerRuntime?.heygenVideoAgent === 'READY',
+                text: `HeyGen Video Agent: ${workerRuntime?.heygenVideoAgent ?? '—'}`,
+              },
+              {
+                ok:
+                  workerRuntime?.elevenLabsStatus === 'NOT_REQUIRED' ||
+                  workerRuntime?.elevenLabsStatus === 'READY',
+                text: `ElevenLabs: ${workerRuntime?.elevenLabsStatus ?? '—'}`,
+              },
+              {
+                ok: workerRuntime?.avatarFallback === 'READY',
+                text: `Avatar fallback: ${workerRuntime?.avatarFallback ?? '—'}`,
+              },
+              {
+                ok: workerRuntime?.storage === 'READY',
+                text: `Storage: ${workerRuntime?.storage ?? '—'}`,
+              },
+              {
+                ok: workerRuntime?.heygenApiKey === 'CONFIGURED',
+                text: `WORKER HEYGEN_API_KEY: ${workerRuntime?.heygenApiKey ?? 'MISSING'}`,
+              },
+              {
+                ok:
+                  workerRuntime?.elevenLabsApiKey === 'CONFIGURED' ||
+                  workerRuntime?.elevenLabsStatus === 'NOT_REQUIRED',
+                text: `WORKER ELEVENLABS_API_KEY: ${workerRuntime?.elevenLabsApiKey ?? 'MISSING'}`,
+              },
+              {
+                ok: true,
+                text: `Generation mode: ${workerRuntime?.generationMode ?? dashboard?.providers.videoEngine?.videoGenerationMode ?? 'VIDEO_AGENT'}`,
+              },
+            ]}
+          />
+          <ProviderCard
             title="ElevenLabs"
             lines={[
               {
-                ok: elevenLabs?.apiKeyPresence === 'CONFIGURED',
-                text: `API key: ${elevenLabs?.apiKeyPresence ?? 'MISSING'}`,
+                ok:
+                  workerRuntime?.elevenLabsStatus === 'NOT_REQUIRED' ||
+                  elevenLabs?.apiKeyPresence === 'CONFIGURED',
+                text:
+                  workerRuntime?.elevenLabsStatus === 'NOT_REQUIRED'
+                    ? 'Not required for VIDEO_AGENT'
+                    : `API key: ${elevenLabs?.apiKeyPresence ?? 'MISSING'}`,
               },
               {
                 ok: elevenLabs?.voiceIdPresence === 'CONFIGURED' || elevenLabs?.voiceStatus === 'SELECTED',

@@ -37,6 +37,7 @@ import {
 } from './ai-influencer-text.util';
 import { prepareSpeechTextForProvider } from './ai-influencer-pronunciation.util';
 import { runQualityGate } from './ai-influencer-quality-gate.util';
+import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
@@ -273,6 +274,8 @@ export class AiInfluencerJobService {
       throw new BadRequestException('Článek není publikovaný.');
     }
     const profile = await this.registry.getDefaultProfile();
+    await this.assertProductionReadyForNewJob();
+    const initialRenderMeta = this.buildInitialJobRenderMeta();
     const job = await this.prisma.aiInfluencerReelJob.create({
       data: {
         articleId,
@@ -281,6 +284,7 @@ export class AiInfluencerJobService {
         forceOverride: options?.force === true,
         progressPercent: 5,
         currentStep: 'Příprava',
+        renderSettingsJson: initialRenderMeta as object,
       },
     });
     await this.advanceJob(job.id);
@@ -325,6 +329,7 @@ export class AiInfluencerJobService {
     }
 
     const profile = await this.registry.getDefaultProfile();
+    await this.assertProductionReadyForNewJob();
     const job = await this.prisma.aiInfluencerReelJob.create({
       data: {
         propertyId,
@@ -334,14 +339,14 @@ export class AiInfluencerJobService {
         forceOverride: options?.force === true,
         progressPercent: 25,
         currentStep: 'Scénář',
-        renderSettingsJson: {
+        renderSettingsJson: this.buildInitialJobRenderMeta({
           propertyPublish: {
             facebook: options?.publishFacebook,
             instagram: options?.publishInstagram,
             youtube: options?.publishYoutube,
             portal: options?.publishPortal,
           },
-        },
+        }) as object,
       },
     });
     await this.advanceJob(job.id);
@@ -353,9 +358,22 @@ export class AiInfluencerJobService {
     if (job.status !== AiInfluencerReelJobStatus.SCRIPT_READY) {
       throw new BadRequestException('Job není ve stavu SCRIPT_READY.');
     }
+    await this.assertProductionReadyForNewJob();
+    const cfg = this.settings.getCached();
+    const mode = resolveVideoGenerationMode(cfg);
+    const nextStatus =
+      mode === 'VIDEO_AGENT'
+        ? AiInfluencerReelJobStatus.AVATAR_GENERATING
+        : AiInfluencerReelJobStatus.VOICE_GENERATING;
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
-      data: { status: AiInfluencerReelJobStatus.VOICE_GENERATING },
+      data: {
+        status: nextStatus,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          videoGenerationMode: mode,
+          generationModeUsed: mode,
+        }) as object,
+      },
     });
     await this.advanceJob(jobId);
     return this.getJob(jobId);
@@ -897,6 +915,22 @@ export class AiInfluencerJobService {
 
   private async runVoiceGeneration(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    const mode = inferJobGenerationMode(meta, cfg, {
+      voiceStorageUrl: job.voiceStorageUrl,
+      avatarExternalJobId: job.avatarExternalJobId,
+      baseMasterUrl: job.baseMasterUrl,
+    });
+    if (mode === 'VIDEO_AGENT' && !meta.usedVideoAgentFallback) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: { status: AiInfluencerReelJobStatus.AVATAR_GENERATING },
+      });
+      await this.runVideoAgentStart(jobId);
+      return;
+    }
+
     await this.setProgress(jobId, AiInfluencerReelJobStatus.VOICE_GENERATING, undefined, 'VOICE_STARTED');
     if (job.voiceStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.VOICE_READY) {
@@ -1997,6 +2031,52 @@ export class AiInfluencerJobService {
       }
     }
     return scenes;
+  }
+
+  private buildInitialJobRenderMeta(extra?: Record<string, unknown>): Record<string, unknown> {
+    const cfg = this.settings.getCached();
+    const mode = resolveVideoGenerationMode(cfg);
+    return mergeJobRenderMeta(extra ?? {}, {
+      videoGenerationMode: mode,
+      generationModeUsed: mode,
+    });
+  }
+
+  private async assertProductionReadyForNewJob(): Promise<void> {
+    const cfg = await this.settings.getSettings();
+    const profile = await this.registry.getDefaultProfile();
+    const aiStatus = await this.openAi.getStatus();
+    if (!aiStatus.connected) {
+      throw new BadRequestException({
+        message: 'AI script provider není připraven.',
+        code: 'SCRIPT_PROVIDER_DISABLED',
+      });
+    }
+
+    const [elevenReadiness, heygenReadiness, videoAgentReadiness] = await Promise.all([
+      this.elevenLabs.getGenerationReadiness(profile.voiceId),
+      this.heygen.getGenerationReadiness(profile.avatarId),
+      this.videoAgent.getReadiness(),
+    ]);
+    const storageDiag = this.cloudinary.getDiagnostics();
+    const production = computeProductionReadiness({
+      settings: cfg,
+      storageConfigured: storageDiag.configured,
+      heygenReady: heygenReadiness.ready,
+      videoAgentAvailable: videoAgentReadiness.available,
+      elevenReady: elevenReadiness.ready,
+      elevenTtsReady: elevenReadiness.ready,
+    });
+
+    if (production.ready) return;
+
+    throw new BadRequestException({
+      message: production.reasons.join('; '),
+      code: 'AI_INFLUENCER_NOT_READY',
+      reasons: production.reasons,
+      mode: production.mode,
+      elevenRequired: production.elevenRequired,
+    });
   }
 
   private async failJob(

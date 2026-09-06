@@ -27,6 +27,8 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     usedVideoAgentFallback: o.usedVideoAgentFallback === true,
     videoAgentMaster: o.videoAgentMaster === true,
     fallbackNotice: typeof o.fallbackNotice === 'string' ? o.fallbackNotice : undefined,
+    videoAgentSubmittedAt:
+      typeof o.videoAgentSubmittedAt === 'string' ? o.videoAgentSubmittedAt : undefined,
     pronunciationRulesApplied:
       Array.isArray(o.pronunciationRulesApplied) ?
         (o.pronunciationRulesApplied as string[])

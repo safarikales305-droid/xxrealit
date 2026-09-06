@@ -3,6 +3,8 @@
  * Nikdy nelogovat hodnoty — pouze CONFIGURED / MISSING.
  */
 
+import type { AiInfluencerVideoGenerationMode } from './ai-influencer.types';
+
 export type EnvPresence = 'CONFIGURED' | 'MISSING';
 
 export type HeyGenRuntimeConfig = {
@@ -48,7 +50,7 @@ export function readRuntimeEnvWithAliases(
 }
 
 export function getHeyGenRuntimeConfig(): HeyGenRuntimeConfig {
-  const apiKey = readRuntimeEnvWithAliases('HEYGEN_API_KEY', ['HEYGEN_KEY']);
+  const apiKey = readRuntimeEnvWithAliases('HEYGEN_API_KEY', ['HEYGEN_KEY', 'HEYGEN_API_TOKEN']);
   const avatarId = readRuntimeEnvWithAliases('HEYGEN_AVATAR_ID', ['HEYGEN_AVATAR']);
   return {
     apiKey,
@@ -57,9 +59,13 @@ export function getHeyGenRuntimeConfig(): HeyGenRuntimeConfig {
   };
 }
 
-/** Kanonické ENV pro ElevenLabs — pouze ELEVENLABS_* (bez aliasů v kódu). */
+/** Kanonické ENV pro ElevenLabs — aliasy XI_API_KEY / ELEVENLABS_KEY kvůli Railway deployům. */
 export function getElevenLabsRuntimeConfig(): ElevenLabsRuntimeConfig {
-  const apiKey = readRuntimeEnv('ELEVENLABS_API_KEY');
+  const apiKey = readRuntimeEnvWithAliases('ELEVENLABS_API_KEY', [
+    'XI_API_KEY',
+    'ELEVENLABS_KEY',
+    'ELEVEN_LABS_API_KEY',
+  ]);
   const voiceId = readRuntimeEnv('ELEVENLABS_VOICE_ID');
   const modelId = readRuntimeEnv('ELEVENLABS_MODEL_ID') ?? 'eleven_multilingual_v2';
   return {
@@ -94,6 +100,35 @@ export function getCloudinaryRuntimeConfig(): CloudinaryRuntimeConfig {
     cloudNamePresent: Boolean(cloudName),
     apiKeyPresent: Boolean(apiKey),
     apiSecretPresent: Boolean(apiSecret),
+  };
+}
+
+export type WorkerRuntimeDiagnostics = {
+  service: string;
+  railwayServiceHint: string;
+  elevenLabsApiKey: EnvPresence;
+  heygenApiKey: EnvPresence;
+  storage: 'READY' | 'NOT READY';
+  generationMode: AiInfluencerVideoGenerationMode;
+  elevenRequired: boolean;
+};
+
+/** Stejná runtime vrstva pro admin dashboard i worker — bez logování secret hodnot. */
+export function buildWorkerRuntimeDiagnostics(input: {
+  generationMode: AiInfluencerVideoGenerationMode;
+  elevenRequired: boolean;
+  storageConfigured: boolean;
+}): WorkerRuntimeDiagnostics {
+  const eleven = getElevenLabsRuntimeConfig();
+  const heygen = getHeyGenRuntimeConfig();
+  return {
+    service: 'AiInfluencerWorkerService (in-process NestJS worker tick)',
+    railwayServiceHint: 'nestjs-backend — stejný Railway service jako admin API',
+    elevenLabsApiKey: eleven.apiKeyPresence,
+    heygenApiKey: heygen.apiKeyPresence,
+    storage: input.storageConfigured ? 'READY' : 'NOT READY',
+    generationMode: input.generationMode,
+    elevenRequired: input.elevenRequired,
   };
 }
 

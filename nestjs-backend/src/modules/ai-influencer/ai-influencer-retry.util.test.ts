@@ -17,6 +17,13 @@ describe('resolveFailedStage', () => {
       'VIDEO_AGENT',
     );
   });
+
+  it('RENDER_INPUT_MISSING for missing Video Agent master maps to VIDEO_AGENT', () => {
+    assert.equal(
+      resolveFailedStage('RENDER', 'Video Agent master video chybí pro render.', 'RENDER_INPUT_MISSING'),
+      'VIDEO_AGENT',
+    );
+  });
 });
 
 describe('resumeJobStatus', () => {
@@ -33,6 +40,20 @@ describe('resumeJobStatus', () => {
     );
     assert.equal(next, AiInfluencerReelJobStatus.AVATAR_GENERATING);
   });
+  it('VIDEO_AGENT render retry without master resumes at SCRIPT_READY', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'RENDER',
+      {
+        generationMode: 'VIDEO_AGENT',
+        spokenText: 'text',
+      },
+      'Video Agent master video chybí pro render.',
+      'RENDER_INPUT_MISSING',
+    );
+    assert.equal(next, AiInfluencerReelJobStatus.SCRIPT_READY);
+  });
+
   it('retry od avataru bez externího jobu pokračuje od VOICE_READY', () => {
     const next = resumeJobStatus(AiInfluencerReelJobStatus.FAILED, 'AVATAR', {
       spokenText: 'text',

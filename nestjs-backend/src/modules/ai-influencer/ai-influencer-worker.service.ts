@@ -10,6 +10,9 @@ import {
   getElevenLabsRuntimeConfig,
   getHeyGenRuntimeConfig,
 } from './ai-influencer-runtime-config.util';
+import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import { resolveVideoGenerationMode } from './ai-influencer-video-agent.util';
+import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { OpenAiService } from '../openai/openai.service';
@@ -43,6 +46,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     private readonly openAi: OpenAiService,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly heygen: HeyGenAvatarProvider,
+    private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly youtubeOAuth: YouTubeOAuthService,
   ) {}
 
@@ -54,17 +58,34 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   }
 
   private async logStartupDiagnostics(): Promise<void> {
+    const cfg = this.settings.getCached();
+    const mode = resolveVideoGenerationMode(cfg);
     const eleven = getElevenLabsRuntimeConfig();
     const heygen = getHeyGenRuntimeConfig();
     const storage = getCloudinaryRuntimeConfig();
     const aiStatus = await this.openAi.getStatus();
     const profile = await this.registry.getDefaultProfile();
     const elevenHealth = await this.elevenLabs.getHealth(profile.voiceId);
+    const elevenReadiness = await this.elevenLabs.getGenerationReadiness(profile.voiceId);
     const heygenReadiness = await this.heygen.getGenerationReadiness(profile.avatarId);
+    const videoAgentReadiness = await this.videoAgent.getReadiness();
     const yt = await this.youtubeOAuth.getConnectionStatus();
+    const production = computeProductionReadiness({
+      settings: cfg,
+      storageConfigured: storage.configured,
+      heygenReady: heygenReadiness.ready,
+      videoAgentAvailable: videoAgentReadiness.available,
+      elevenReady: elevenReadiness.ready,
+      elevenTtsReady: elevenReadiness.ready,
+    });
 
+    this.log.log(`[AI Influencer] GENERATION WORKER: AiInfluencerWorkerService (in-process)`);
+    this.log.log(`[AI Influencer] GENERATION MODE: ${mode}`);
+    this.log.log(`[AI Influencer] WORKER ELEVENLABS_API_KEY: ${eleven.apiKeyPresence}${production.elevenRequired ? '' : ' (NOT REQUIRED FOR VIDEO_AGENT)'}`);
+    this.log.log(`[AI Influencer] WORKER HEYGEN_API_KEY: ${heygen.apiKeyPresence}`);
+    this.log.log(`[AI Influencer] PROVIDER ELEVENLABS_API_KEY: ${elevenReadiness.apiKeyPresence}`);
+    this.log.log(`[AI Influencer] PROVIDER HEYGEN_API_KEY: ${heygenReadiness.apiKeyPresence}`);
     this.log.log(`[AI Influencer] AI_PROVIDER: ${aiStatus.connected ? 'READY' : 'NOT READY'}`);
-    this.log.log(`[AI Influencer] ELEVENLABS_API_KEY: ${eleven.apiKeyPresence}`);
     this.log.log(`[AI Influencer] ELEVENLABS_VOICE_ID: ${eleven.voiceIdPresence}`);
     this.log.log(
       `[AI Influencer] ELEVENLABS_TTS: ${
@@ -73,10 +94,15 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
           : 'NOT READY'
       }`,
     );
-    this.log.log(`[AI Influencer] HEYGEN_API_KEY: ${heygen.apiKeyPresence}`);
     this.log.log(`[AI Influencer] STORAGE: ${storage.configured ? 'READY' : 'NOT READY'}`);
     this.log.log(
       `[AI Influencer] HEYGEN: ${heygenReadiness.ready ? 'READY' : 'NOT READY'}`,
+    );
+    this.log.log(
+      `[AI Influencer] VIDEO_AGENT: ${videoAgentReadiness.available ? 'READY' : 'NOT AVAILABLE'}`,
+    );
+    this.log.log(
+      `[AI Influencer] PRODUCTION READY: ${production.ready ? 'PASS' : 'FAIL'}${production.reasons.length ? ` (${production.reasons[0]})` : ''}`,
     );
     this.log.log(`[AI Influencer] YOUTUBE: ${yt.connected && yt.autoPublishReady ? 'READY' : 'NOT READY'}`);
   }

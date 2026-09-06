@@ -30,6 +30,7 @@ import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import {
   BRAND_PRONUNCIATION_TEST_SENTENCE,
   prepareSpeechTextForProvider,
@@ -631,6 +632,12 @@ export class AiInfluencerAdminController {
     const testOutcome = this.videoAgentTest.getLastTestOutcome();
     const videoAgentUiStatus = this.resolveVideoAgentUiStatus(videoAgentReadiness, testOutcome);
 
+    const workerRuntime = buildWorkerRuntimeDiagnostics({
+      generationMode: production.mode,
+      elevenRequired: production.elevenRequired,
+      storageConfigured: storageDiag.configured,
+    });
+
     return {
       ready: {
         ready: productionReady,
@@ -767,6 +774,20 @@ export class AiInfluencerAdminController {
         message: storageDiag.configured
           ? null
           : 'Missing permanent public media storage (Cloudinary)',
+      },
+      workerRuntime: {
+        ...workerRuntime,
+        aiProvider: aiConnected ? 'READY' : 'NOT READY',
+        heygenVideoAgent: videoAgentUiStatus,
+        elevenLabsRequired: production.elevenRequired,
+        elevenLabsStatus: workerRuntime.elevenRequired
+          ? workerRuntime.elevenLabsApiKey === 'CONFIGURED'
+            ? 'READY'
+            : 'MISSING'
+          : 'NOT_REQUIRED',
+        avatarFallback: heygenGenerationReady ? 'READY' : 'NOT READY',
+        providerElevenLabsApiKey: elevenReadiness.apiKeyPresence,
+        providerHeygenApiKey: heygenReadiness.apiKeyPresence,
       },
     };
   }

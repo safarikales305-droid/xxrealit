@@ -48,6 +48,8 @@ export function resolveFailedStage(
     return 'BRANDING_RENDER';
   }
   if (code === 'RENDER_INPUT_MISSING') {
+    if (/video agent master/i.test(msg)) return 'VIDEO_AGENT';
+    if (/avatar nebo voice/i.test(msg)) return 'RENDER';
     return 'RENDER';
   }
   if (/ffmpeg|render|mux|media composition/i.test(msg)) {
@@ -89,8 +91,10 @@ export function resumeJobStatus(
       : AiInfluencerReelJobStatus.VOICE_READY;
   }
   if (stage === 'RENDER' || stage === 'BRANDING_RENDER') {
-    if (mode === 'VIDEO_AGENT' && artifacts.baseMasterUrl) {
-      return AiInfluencerReelJobStatus.AVATAR_READY;
+    if (mode === 'VIDEO_AGENT') {
+      if (artifacts.baseMasterUrl) return AiInfluencerReelJobStatus.AVATAR_READY;
+      if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      return AiInfluencerReelJobStatus.SCRIPT_READY;
     }
     return AiInfluencerReelJobStatus.AVATAR_READY;
   }

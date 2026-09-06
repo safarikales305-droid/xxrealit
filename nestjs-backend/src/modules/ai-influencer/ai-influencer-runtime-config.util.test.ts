@@ -72,6 +72,14 @@ describe('ai-influencer-runtime-config', () => {
     assert.equal(cfg.voiceId, 'voice-123');
   });
 
+  it('getElevenLabsRuntimeConfig accepts XI_API_KEY alias', () => {
+    delete process.env.ELEVENLABS_API_KEY;
+    process.env.XI_API_KEY = 'xi-key';
+    const cfg = getElevenLabsRuntimeConfig();
+    assert.equal(cfg.apiKeyPresence, 'CONFIGURED');
+    assert.equal(cfg.apiKey, 'xi-key');
+  });
+
   it('getHeyGenRuntimeConfig accepts HEYGEN_KEY alias', () => {
     delete process.env.HEYGEN_API_KEY;
     process.env.HEYGEN_KEY = 'alias-key';

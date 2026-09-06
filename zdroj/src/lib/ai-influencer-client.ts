@@ -226,6 +226,22 @@ export type AiInfluencerDashboard = {
       fallback: 'READY' | 'NOT READY';
       selectedAvatarId?: string | null;
     };
+    workerRuntime?: {
+      service: string;
+      railwayServiceHint: string;
+      generationMode: 'VIDEO_AGENT' | 'AVATAR';
+      elevenRequired: boolean;
+      elevenLabsApiKey: 'CONFIGURED' | 'MISSING';
+      heygenApiKey: 'CONFIGURED' | 'MISSING';
+      storage: 'READY' | 'NOT READY';
+      aiProvider: 'READY' | 'NOT READY';
+      heygenVideoAgent: 'READY' | 'NOT AVAILABLE' | 'AUTH ERROR';
+      elevenLabsRequired: boolean;
+      elevenLabsStatus: 'READY' | 'MISSING' | 'NOT_REQUIRED';
+      avatarFallback: 'READY' | 'NOT READY';
+      providerElevenLabsApiKey: 'CONFIGURED' | 'MISSING';
+      providerHeygenApiKey: 'CONFIGURED' | 'MISSING';
+    };
   };
 };
 
