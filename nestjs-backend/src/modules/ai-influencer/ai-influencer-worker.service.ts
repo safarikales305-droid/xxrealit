@@ -1,36 +1,22 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AiInfluencerReelJobStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { OpenAiService } from '../openai/openai.service';
+import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { AI_INFLUENCER_WORKER_TICK_MS } from './ai-influencer.constants';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
+import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import {
   getCloudinaryRuntimeConfig,
   getElevenLabsRuntimeConfig,
   getHeyGenRuntimeConfig,
 } from './ai-influencer-runtime-config.util';
-import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import { resolveVideoGenerationMode } from './ai-influencer-video-agent.util';
-import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
+import { WORKER_ACTIVE_STATUSES } from './ai-influencer-job-status.util';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
-import { OpenAiService } from '../openai/openai.service';
-import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
-
-const ACTIVE_STATUSES: AiInfluencerReelJobStatus[] = [
-  AiInfluencerReelJobStatus.EVALUATING,
-  AiInfluencerReelJobStatus.CANDIDATE,
-  AiInfluencerReelJobStatus.SCRIPT_GENERATING,
-  AiInfluencerReelJobStatus.SCRIPT_READY,
-  AiInfluencerReelJobStatus.VOICE_GENERATING,
-  AiInfluencerReelJobStatus.VOICE_READY,
-  AiInfluencerReelJobStatus.AVATAR_GENERATING,
-  AiInfluencerReelJobStatus.AVATAR_READY,
-  AiInfluencerReelJobStatus.RENDERING,
-  AiInfluencerReelJobStatus.READY,
-  AiInfluencerReelJobStatus.PUBLISHING,
-];
+import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 
 @Injectable()
 export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -114,7 +100,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   private async recoverStuckJobs(): Promise<void> {
     const stuck = await this.prisma.aiInfluencerReelJob.findMany({
       where: {
-        status: { in: ACTIVE_STATUSES },
+        status: { in: WORKER_ACTIVE_STATUSES },
         OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
       },
       select: { id: true },
@@ -137,7 +123,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       const concurrency = Math.max(1, cfg.jobsConcurrency);
       const active = await this.prisma.aiInfluencerReelJob.findMany({
         where: {
-          status: { in: ACTIVE_STATUSES },
+          status: { in: WORKER_ACTIVE_STATUSES },
           OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
         },
         orderBy: { createdAt: 'asc' },

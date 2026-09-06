@@ -20,6 +20,11 @@ import { ShortsMusicService } from '../shorts-music/shorts-music.service';
 import { mergeRenderSettings, REEL_CANVAS_HEIGHT, REEL_CANVAS_WIDTH, type AiInfluencerRenderSettings } from './ai-influencer-render.types';
 import { appendTimelineEvent } from './ai-influencer-timeline.util';
 import {
+  activeJobWhere,
+  ACTIVE_JOB_STATUSES,
+  galleryVideoWhere,
+} from './ai-influencer-job-status.util';
+import {
   isAuthError,
   isTransientError,
   progressForStatus,
@@ -181,22 +186,7 @@ export class AiInfluencerJobService {
 
   async listActiveJobs() {
     const active = await this.prisma.aiInfluencerReelJob.findMany({
-      where: {
-        status: {
-          in: [
-            AiInfluencerReelJobStatus.EVALUATING,
-            AiInfluencerReelJobStatus.CANDIDATE,
-            AiInfluencerReelJobStatus.SCRIPT_GENERATING,
-            AiInfluencerReelJobStatus.SCRIPT_READY,
-            AiInfluencerReelJobStatus.VOICE_GENERATING,
-            AiInfluencerReelJobStatus.VOICE_READY,
-            AiInfluencerReelJobStatus.AVATAR_GENERATING,
-            AiInfluencerReelJobStatus.AVATAR_READY,
-            AiInfluencerReelJobStatus.RENDERING,
-            AiInfluencerReelJobStatus.PUBLISHING,
-          ],
-        },
-      },
+      where: activeJobWhere(),
       orderBy: { updatedAt: 'desc' },
       take: 20,
       include: {
@@ -285,28 +275,57 @@ export class AiInfluencerJobService {
   async createJobFromArticle(
     articleId: string,
     options?: { force?: boolean },
-  ): Promise<AiInfluencerJobWithRelations> {
+  ): Promise<{
+    jobId: string;
+    status: string;
+    progress: number;
+    articleTitle: string;
+    generationMode: 'VIDEO_AGENT' | 'AVATAR';
+    sourceType: 'ARTICLE';
+    sourceId: string;
+  }> {
     const article = await this.prisma.newsArticle.findUnique({ where: { id: articleId } });
     if (!article || article.status !== NewsArticleStatus.PUBLISHED) {
       throw new BadRequestException('Článek není publikovaný.');
     }
     const profile = await this.registry.getDefaultProfile();
     await this.assertProductionReadyForNewJob();
+    const cfg = this.settings.getCached();
+    const generationMode = resolveVideoGenerationMode(cfg);
     const initialRenderMeta = this.buildInitialJobRenderMeta();
     const job = await this.prisma.aiInfluencerReelJob.create({
       data: {
         articleId,
         profileId: profile.id,
         status: AiInfluencerReelJobStatus.EVALUATING,
+        sourceType: 'ARTICLE',
         forceOverride: options?.force === true,
         progressPercent: 5,
-        currentStep: 'Příprava',
+        currentStep: 'Job vytvořen',
         renderSettingsJson: initialRenderMeta as object,
+        timelineEvents: appendTimelineEvent(null, 'JOB_CREATED') as object,
       },
     });
-    await this.advanceJob(job.id);
-    return this.getJob(job.id);
+    void this.bootstrapCreatedJob(job.id);
+    return {
+      jobId: job.id,
+      status: job.status,
+      progress: job.progressPercent,
+      articleTitle: decodeHtmlEntities(article.title),
+      generationMode,
+      sourceType: 'ARTICLE',
+      sourceId: articleId,
+    };
   }
+
+  private async bootstrapCreatedJob(jobId: string): Promise<void> {
+    try {
+      await this.advanceJob(jobId);
+    } catch (err) {
+      this.log.error(`bootstrapCreatedJob ${jobId} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
 
   async createJobFromProperty(
     propertyId: string,
@@ -433,19 +452,7 @@ export class AiInfluencerJobService {
 
   async cancelJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
     const job = await this.getJob(jobId);
-    const active: AiInfluencerReelJobStatus[] = [
-      AiInfluencerReelJobStatus.EVALUATING,
-      AiInfluencerReelJobStatus.CANDIDATE,
-      AiInfluencerReelJobStatus.SCRIPT_GENERATING,
-      AiInfluencerReelJobStatus.SCRIPT_READY,
-      AiInfluencerReelJobStatus.VOICE_GENERATING,
-      AiInfluencerReelJobStatus.VOICE_READY,
-      AiInfluencerReelJobStatus.AVATAR_GENERATING,
-      AiInfluencerReelJobStatus.AVATAR_READY,
-      AiInfluencerReelJobStatus.RENDERING,
-      AiInfluencerReelJobStatus.PUBLISHING,
-    ];
-    if (!active.includes(job.status)) {
+    if (!ACTIVE_JOB_STATUSES.includes(job.status)) {
       throw new BadRequestException('Job nelze zrušit — není ve zpracování.');
     }
     return this.skipJob(jobId, reason ?? 'Zrušeno administrátorem');
@@ -455,18 +462,7 @@ export class AiInfluencerJobService {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('AI Influencer job nenalezen.');
 
-    const processing: AiInfluencerReelJobStatus[] = [
-      AiInfluencerReelJobStatus.EVALUATING,
-      AiInfluencerReelJobStatus.CANDIDATE,
-      AiInfluencerReelJobStatus.SCRIPT_GENERATING,
-      AiInfluencerReelJobStatus.SCRIPT_READY,
-      AiInfluencerReelJobStatus.VOICE_GENERATING,
-      AiInfluencerReelJobStatus.VOICE_READY,
-      AiInfluencerReelJobStatus.AVATAR_GENERATING,
-      AiInfluencerReelJobStatus.AVATAR_READY,
-      AiInfluencerReelJobStatus.RENDERING,
-      AiInfluencerReelJobStatus.PUBLISHING,
-    ];
+    const processing = ACTIVE_JOB_STATUSES;
     if (processing.includes(job.status)) {
       throw new BadRequestException('Nejdříve zrušte aktivní job.');
     }
@@ -496,20 +492,7 @@ export class AiInfluencerJobService {
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
-      where: {
-        OR: [
-          { finalMasterUrl: { not: null } },
-          { baseMasterUrl: { not: null } },
-          { videoUrl: { not: null } },
-        ],
-        status: {
-          in: [
-            AiInfluencerReelJobStatus.READY,
-            AiInfluencerReelJobStatus.PUBLISHED,
-            AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
-          ],
-        },
-      },
+      where: galleryVideoWhere(),
       orderBy: { updatedAt: 'desc' },
       take: limit,
       include: {

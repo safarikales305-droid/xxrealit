@@ -34,6 +34,11 @@ import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import {
+  activeJobWhere,
+  galleryVideoWhere,
+  GALLERY_VIDEO_STATUSES,
+} from './ai-influencer-job-status.util';
+import {
   BRAND_PRONUNCIATION_TEST_SENTENCE,
   prepareSpeechTextForProvider,
 } from './ai-influencer-pronunciation.util';
@@ -70,33 +75,48 @@ export class AiInfluencerAdminController {
     const weekStart = new Date(dayStart);
     weekStart.setDate(weekStart.getDate() - 7);
 
-    const [todayJobs, weekJobs, queueCount, publishedCount, failedCount, costToday, costMonth] =
+    const [jobsStartedToday, jobsCompletedToday, activeCount, publishedCount, failedToday, costToday, costMonth, galleryVideos] =
       await Promise.all([
         this.prisma.aiInfluencerReelJob.count({
           where: { createdAt: { gte: dayStart } },
         }),
         this.prisma.aiInfluencerReelJob.count({
-          where: { createdAt: { gte: weekStart } },
-        }),
-        this.prisma.aiInfluencerReelJob.count({
           where: {
-            status: {
-              in: [
-                'EVALUATING',
-                'CANDIDATE',
-                'SCRIPT_GENERATING',
-                'SCRIPT_READY',
-                'VOICE_GENERATING',
-                'VOICE_READY',
-                'AVATAR_GENERATING',
-                'AVATAR_READY',
-                'RENDERING',
+            status: { in: GALLERY_VIDEO_STATUSES },
+            OR: [
+              { renderedAt: { gte: dayStart } },
+              {
+                AND: [
+                  { renderedAt: null },
+                  { updatedAt: { gte: dayStart } },
+                ],
+              },
+            ],
+            NOT: {
+              AND: [
+                { finalMasterUrl: null },
+                { baseMasterUrl: null },
+                { videoUrl: null },
+                { avatarStorageUrl: null },
               ],
             },
           },
         }),
-        this.prisma.aiInfluencerReelJob.count({ where: { status: 'PUBLISHED' } }),
-        this.prisma.aiInfluencerReelJob.count({ where: { status: 'FAILED' } }),
+        this.prisma.aiInfluencerReelJob.count({ where: activeJobWhere() }),
+        this.prisma.aiInfluencerReelJob.count({
+          where: {
+            OR: [
+              { status: 'PUBLISHED' },
+              { status: 'PARTIALLY_PUBLISHED' },
+              { facebookPublishStatus: 'PUBLISHED' },
+              { instagramPublishStatus: 'PUBLISHED' },
+              { youtubePublishStatus: 'PUBLISHED' },
+            ],
+          },
+        }),
+        this.prisma.aiInfluencerReelJob.count({
+          where: { status: 'FAILED', updatedAt: { gte: dayStart } },
+        }),
         this.prisma.aiInfluencerReelJob.aggregate({
           where: { createdAt: { gte: dayStart } },
           _sum: { totalExternalCost: true },
@@ -105,6 +125,7 @@ export class AiInfluencerAdminController {
           where: { createdAt: { gte: new Date(dayStart.getFullYear(), dayStart.getMonth(), 1) } },
           _sum: { totalExternalCost: true },
         }),
+        this.prisma.aiInfluencerReelJob.count({ where: galleryVideoWhere() }),
       ]);
 
     const providers = await this.getProviderStatus();
@@ -116,7 +137,7 @@ export class AiInfluencerAdminController {
         paused: cfg.automationPaused,
         pauseReason: cfg.automationPauseReason,
         nextCheckInMinutes: this.auto.getNextCheckInMinutes(),
-        videosToday: todayJobs,
+        videosToday: jobsStartedToday,
         maxVideosPerDay: cfg.maxPerDay,
         autoPublishFacebook: cfg.autoPublishFacebook,
         autoPublishInstagram: cfg.autoPublishInstagram,
@@ -124,13 +145,31 @@ export class AiInfluencerAdminController {
         autoPublishPortal: cfg.autoPublishPortal,
       },
       stats: {
-        reelsToday: todayJobs,
-        reelsWeek: weekJobs,
-        inQueue: queueCount,
+        reelsToday: jobsStartedToday,
+        jobsStartedToday,
+        jobsCompletedToday,
+        reelsWeek: await this.prisma.aiInfluencerReelJob.count({
+          where: { createdAt: { gte: weekStart } },
+        }),
+        inQueue: activeCount,
         published: publishedCount,
-        failed: failedCount,
+        failed: failedToday,
+        failedAllTime: await this.prisma.aiInfluencerReelJob.count({ where: { status: 'FAILED' } }),
         costTodayCzk: costToday._sum.totalExternalCost ?? 0,
         costMonthCzk: costMonth._sum.totalExternalCost ?? 0,
+      },
+      debugCounts: {
+        jobsToday: jobsStartedToday,
+        activeJobs: activeCount,
+        completedVideosToday: jobsCompletedToday,
+        publishedJobsToday: await this.prisma.aiInfluencerReelJob.count({
+          where: {
+            status: { in: ['PUBLISHED', 'PARTIALLY_PUBLISHED'] },
+            updatedAt: { gte: dayStart },
+          },
+        }),
+        failedJobsToday: failedToday,
+        galleryVideos,
       },
       providers,
     };
@@ -178,6 +217,7 @@ export class AiInfluencerAdminController {
   }
 
   @Post('jobs/from-article/:articleId')
+  @HttpCode(HttpStatus.ACCEPTED)
   createFromArticle(
     @Param('articleId') articleId: string,
     @Body() body?: { force?: boolean },

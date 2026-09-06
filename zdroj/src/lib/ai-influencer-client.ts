@@ -182,12 +182,23 @@ export type AiInfluencerDashboard = {
   };
   stats: {
     reelsToday: number;
+    jobsStartedToday?: number;
+    jobsCompletedToday?: number;
     reelsWeek: number;
     inQueue: number;
     published: number;
     failed: number;
+    failedAllTime?: number;
     costTodayCzk: number;
     costMonthCzk: number;
+  };
+  debugCounts?: {
+    jobsToday: number;
+    activeJobs: number;
+    completedVideosToday: number;
+    publishedJobsToday: number;
+    failedJobsToday: number;
+    galleryVideos: number;
   };
   automation?: {
     enabled: boolean;
@@ -385,11 +396,25 @@ export function nestAiInfluencerActiveJobs(token: string) {
   return aiInfluencerFetch<AiInfluencerActiveJob[]>(token, '/jobs/active');
 }
 
+export type AiInfluencerCreateJobResponse = {
+  jobId: string;
+  status: string;
+  progress: number;
+  articleTitle: string;
+  generationMode: 'VIDEO_AGENT' | 'AVATAR';
+  sourceType: 'ARTICLE';
+  sourceId: string;
+};
+
 export function nestAiInfluencerCreateJob(token: string, articleId: string, force = false) {
-  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/from-article/${articleId}`, {
-    method: 'POST',
-    body: JSON.stringify({ force }),
-  });
+  return aiInfluencerFetchAccepted<AiInfluencerCreateJobResponse>(
+    token,
+    `/jobs/from-article/${articleId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    },
+  );
 }
 
 export function nestAiInfluencerForceStartJob(token: string, jobId: string) {

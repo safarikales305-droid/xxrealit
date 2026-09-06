@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import {
   resolveAiInfluencerJobSubtitle,
@@ -86,6 +86,10 @@ function stageLabel(stage: string | null | undefined) {
     BRANDING_RENDER: 'Branding',
   };
   return map[stage] ?? stage;
+}
+
+function resolveMasterUrl(job: AiInfluencerJobRow): string | null {
+  return job.finalMasterUrl ?? job.baseMasterUrl ?? job.videoUrl ?? null;
 }
 
 function elapsedSince(iso: string | undefined) {
@@ -186,6 +190,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [selectedVoiceId, setSelectedVoiceId] = useState('');
   const [selectedAvatarId, setSelectedAvatarId] = useState('');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createState, setCreateState] = useState<'idle' | 'submitting' | 'accepted' | 'error'>('idle');
+  const [toast, setToast] = useState<string | null>(null);
+  const [playVideoUrl, setPlayVideoUrl] = useState<string | null>(null);
+  const prevActiveCountRef = useRef(0);
 
   const loadCore = useCallback(() => {
     if (!apiAccessToken) return;
@@ -210,14 +219,43 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   useEffect(loadCore, [loadCore]);
 
   useEffect(() => {
-    if (!apiAccessToken || activeJobs.length === 0) return;
-    const id = window.setInterval(() => {
-      void nestAiInfluencerActiveJobs(apiAccessToken).then((active) => {
-        if (active) setActiveJobs(active);
+    if (!apiAccessToken) return;
+    if (tab !== 'production' && activeJobs.length === 0) return;
+
+    const poll = () => {
+      void Promise.all([
+        nestAiInfluencerActiveJobs(apiAccessToken),
+        nestAiInfluencerVideos(apiAccessToken),
+        nestAiInfluencerDashboard(apiAccessToken),
+        nestAiInfluencerJobs(apiAccessToken),
+      ]).then(([active, v, d, j]) => {
+        if (active) {
+          if (prevActiveCountRef.current > 0 && active.length < prevActiveCountRef.current) {
+            setToast('Video bylo vytvořeno.');
+          }
+          prevActiveCountRef.current = active.length;
+          setActiveJobs(active);
+        }
+        if (v) setVideos(v);
+        if (d) setDashboard(d);
+        if (j) setJobs(j);
       });
-    }, 3000);
+    };
+
+    poll();
+    const id = window.setInterval(poll, 2500);
     return () => window.clearInterval(id);
-  }, [apiAccessToken, activeJobs.length]);
+  }, [apiAccessToken, tab, activeJobs.length]);
+
+  useEffect(() => {
+    prevActiveCountRef.current = activeJobs.length;
+  }, [activeJobs.length]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
 
   useEffect(() => {
     if (!apiAccessToken || !detailJobId) return;
@@ -289,8 +327,52 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     });
   };
 
+  const handleCreateJob = async (articleId: string, force = false) => {
+    setCreateError(null);
+    setCreateState('submitting');
+    const result = await nestAiInfluencerCreateJob(apiAccessToken, articleId, force);
+    if (result.error || !result.data) {
+      setCreateState('error');
+      setCreateError(result.error ?? 'Vytvoření jobu selhalo.');
+      return;
+    }
+    const created = result.data;
+    const optimistic: AiInfluencerActiveJob = {
+      id: created.jobId,
+      status: created.status,
+      progressPercent: created.progress,
+      currentStep: 'Job vytvořen',
+      errorMessage: null,
+      failedStage: null,
+      skipReason: null,
+      facebookPublishStatus: null,
+      youtubePublishStatus: null,
+      articleTitle: created.articleTitle,
+      score: null,
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      generationMode: created.generationMode,
+      sourceType: 'article',
+    };
+    setActiveJobs((prev) => [optimistic, ...prev.filter((j) => j.id !== optimistic.id)]);
+    prevActiveCountRef.current += 1;
+    setCreateState('accepted');
+    window.setTimeout(() => {
+      setCreateOpen(false);
+      setCreateState('idle');
+      setCreateError(null);
+      setTab('production');
+      loadCore();
+    }, 700);
+  };
+
   return (
     <div className="space-y-4">
+      {toast ? (
+        <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-emerald-700 px-4 py-3 text-sm font-medium text-white shadow-lg">
+          {toast}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
           {TABS.map((t) => (
@@ -308,7 +390,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         </div>
         <button
           type="button"
-          onClick={() => setCreateOpen(true)}
+          onClick={() => {
+            setCreateError(null);
+            setCreateState('idle');
+            setCreateOpen(true);
+          }}
           className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
         >
           Vytvořit AI Reel
@@ -317,12 +403,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
       {tab === 'overview' ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             {[
-              ['Dnes vytvořeno', dashboard?.stats.reelsToday ?? 0],
+              ['Dnes spuštěno', dashboard?.stats.jobsStartedToday ?? dashboard?.stats.reelsToday ?? 0],
+              ['Dnes dokončeno', dashboard?.stats.jobsCompletedToday ?? 0],
               ['Ve výrobě', dashboard?.stats.inQueue ?? activeJobs.length],
               ['Publikováno', dashboard?.stats.published ?? 0],
-              ['Selhalo', dashboard?.stats.failed ?? failedJobs.length],
+              ['Selhalo dnes', dashboard?.stats.failed ?? failedJobs.length],
               ['Náklady dnes', `${(dashboard?.stats.costTodayCzk ?? 0).toFixed(2)} Kč`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-zinc-200 bg-white p-4">
@@ -450,7 +537,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">Aktuálně se vyrábí</h2>
             {activeJobs.length === 0 ? (
-              <p className="mt-3 text-sm text-zinc-500">Žádný aktivní job.</p>
+              <p className="mt-3 text-sm text-zinc-500">Aktuálně se nevyrábí žádné video.</p>
             ) : (
               <div className="mt-3 space-y-3">
                 {activeJobs.map((job) => (
@@ -526,9 +613,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       <td className="py-2">
                         <button
                           type="button"
-                          className="rounded bg-orange-600 px-2 py-1 text-xs font-medium text-white"
+                          className="rounded bg-orange-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                          disabled={busy === `create-${a.id}`}
                           onClick={() => {
-                            void nestAiInfluencerCreateJob(apiAccessToken, a.id).then(loadCore);
+                            setBusy(`create-${a.id}`);
+                            void handleCreateJob(
+                              a.id,
+                              (a.reelScore ?? 0) < (dashboard?.settings.minScore ?? 60),
+                            ).finally(() => setBusy(null));
                           }}
                         >
                           {(a.reelScore ?? 0) < (dashboard?.settings.minScore ?? 60) ? 'Vytvořit i tak' : 'Vytvořit Reel'}
@@ -572,8 +664,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             ))}
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredVideos.length === 0 ? (
+              <p className="col-span-full text-sm text-zinc-500">Zatím nebylo dokončeno žádné video.</p>
+            ) : null}
             {filteredVideos.map((job) => {
-              const master = job.finalMasterUrl ?? job.baseMasterUrl ?? job.videoUrl;
+              const master = resolveMasterUrl(job);
               return (
                 <div key={job.id} className="overflow-hidden rounded-xl border border-zinc-200">
                   <div className="aspect-[9/16] max-h-64 bg-zinc-900">
@@ -582,7 +677,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                         <track kind="captions" />
                       </video>
                     ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-zinc-400">Bez náhledu</div>
+                      <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-zinc-400">
+                        <span className="text-2xl">▶</span>
+                        <span>{resolveAiInfluencerJobTitle(job)}</span>
+                      </div>
                     )}
                   </div>
                   <div className="space-y-2 p-3">
@@ -596,9 +694,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {master ? (
-                        <Link href={master} target="_blank" className="rounded border border-zinc-300 px-2 py-1 text-xs">
+                        <button
+                          type="button"
+                          className="rounded border border-zinc-300 px-2 py-1 text-xs"
+                          onClick={() => setPlayVideoUrl(master)}
+                        >
                           Přehrát
-                        </Link>
+                        </button>
                       ) : null}
                       <button type="button" className="rounded border border-zinc-300 px-2 py-1 text-xs" onClick={() => setDetailJobId(job.id)}>
                         Detail
@@ -630,7 +732,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             ) : null}
           </div>
           {failedJobs.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500">Žádné chybné joby.</p>
+            <p className="mt-3 text-sm text-zinc-500">Žádné problémy.</p>
           ) : (
             <div className="mt-3 space-y-3">
               {failedJobs.map((job) => (
@@ -756,6 +858,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             </button>
             {showDiagnostics ? (
               <div className="mt-3 space-y-1 font-mono text-xs text-zinc-600">
+                <p>jobsToday: {dashboard?.debugCounts?.jobsToday ?? '—'}</p>
+                <p>activeJobs: {dashboard?.debugCounts?.activeJobs ?? '—'}</p>
+                <p>completedVideosToday: {dashboard?.debugCounts?.completedVideosToday ?? '—'}</p>
+                <p>publishedJobsToday: {dashboard?.debugCounts?.publishedJobsToday ?? '—'}</p>
+                <p>failedJobsToday: {dashboard?.debugCounts?.failedJobsToday ?? '—'}</p>
+                <p>galleryVideos: {dashboard?.debugCounts?.galleryVideos ?? videos.length}</p>
                 <p>AI provider: {providers?.workerRuntime?.aiProvider ?? '—'}</p>
                 <p>HeyGen Video Agent: {providers?.workerRuntime?.heygenVideoAgent ?? '—'}</p>
                 <p>ElevenLabs: {providers?.workerRuntime?.elevenLabsStatus ?? '—'}</p>
@@ -812,21 +920,22 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p className="text-sm text-zinc-600">
                 Režim: <strong>{modeLabel(productionMode)}</strong> · Délka: 35–50 s · Cíl: návštěvnost XXREALIT.CZ
               </p>
+              {createError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{createError}</p>
+              ) : null}
               <button
                 type="button"
-                disabled={!createArticleId || busy === 'create'}
+                disabled={!createArticleId || createState === 'submitting' || createState === 'accepted'}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                onClick={() => {
-                  setBusy('create');
-                  void nestAiInfluencerCreateJob(apiAccessToken, createArticleId).then(() => {
-                    setBusy(null);
-                    setCreateOpen(false);
-                    loadCore();
-                    setTab('production');
-                  });
-                }}
+                onClick={() => void handleCreateJob(createArticleId)}
               >
-                Vytvořit video
+                {createState === 'submitting'
+                  ? 'Zakládám job…'
+                  : createState === 'accepted'
+                    ? 'Vytvořeno ✓'
+                    : createState === 'error'
+                      ? 'Zkusit znovu'
+                      : 'Vytvořit video'}
               </button>
             </div>
           </div>
@@ -878,6 +987,21 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 </>
               ) : null}
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {playVideoUrl ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl bg-black p-2 shadow-xl">
+            <div className="mb-2 flex justify-end">
+              <button type="button" onClick={() => setPlayVideoUrl(null)} aria-label="Zavřít">
+                <X className="size-5 text-white" />
+              </button>
+            </div>
+            <video className="max-h-[80vh] w-full rounded-lg" src={playVideoUrl} controls autoPlay>
+              <track kind="captions" />
+            </video>
           </div>
         </div>
       ) : null}
