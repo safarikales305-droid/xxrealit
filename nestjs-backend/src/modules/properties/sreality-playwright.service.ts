@@ -7,7 +7,15 @@ import {
   extractSrealityBrokerFromHtml,
   mergeBrokerParts,
 } from './sreality-contact-extract.util';
-import { dedupeSrealityImageUrls } from './sreality-image.util';
+import { dedupeSrealityImageUrls, imageDedupeKey, buildSrealityImageFetchCandidates } from './sreality-image.util';
+import {
+  isSrealityCdnResponseUrl,
+  matchKeysForImageUrl,
+  SREALITY_BROWSER_MEDIA_TIMEOUTS,
+  validateSrealityImageBuffer,
+  type SrealityBrowserCapturedImage,
+  type SrealityImageCaptureMethod,
+} from './sreality-browser-media.util';
 
 export type SrealityPlaywrightEnrichmentResult = {
   imageUrls: string[];
@@ -18,6 +26,27 @@ export type SrealityPlaywrightEnrichmentResult = {
   galleryOpened: boolean;
   errorCode?: string;
   errorDetail?: string;
+  enrichmentStatus?: 'PASS' | 'PARTIAL' | 'TIMEOUT' | 'FAIL';
+};
+
+export type SrealityGalleryCaptureResult = {
+  browserRuntime: 'READY' | 'FAIL';
+  enrichmentStatus: 'PASS' | 'PARTIAL' | 'TIMEOUT' | 'FAIL' | 'NOT_REQUIRED';
+  captured: SrealityBrowserCapturedImage[];
+  broker: Partial<SrealityBrokerPrefill>;
+  html: string;
+  contactClickAttempted: boolean;
+  contactClickSucceeded: boolean;
+  galleryOpened: boolean;
+  imageUrlsFound: string[];
+  errorCode?: string;
+  errorDetail?: string;
+  stats: {
+    browserResponseSuccess: number;
+    elementCaptureSuccess: number;
+    browserContextSuccess: number;
+    failed: number;
+  };
 };
 
 export type SrealityPlaywrightRenderResult = {
@@ -93,15 +122,11 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
   /** Browser fallback: galerie, lazy images, veřejný kontakt po kliknutí. */
   async enrichImportData(
     url: string,
-    options?: { timeoutMs?: number },
+    _options?: { timeoutMs?: number },
   ): Promise<SrealityPlaywrightEnrichmentResult> {
-    const timeoutMs = Math.min(25_000, options?.timeoutMs ?? 20_000);
     try {
-      return await this.withTimeout(
-        this.enrichImportOnce(url),
-        timeoutMs,
-        `Playwright enrichment timeout po ${timeoutMs} ms`,
-      );
+      const result = await this.enrichImportOnce(url);
+      return { ...result, enrichmentStatus: 'PASS' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`SREALITY_BROWSER_FALLBACK_FAIL url=${url} err=${msg}`);
@@ -114,6 +139,65 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
         galleryOpened: false,
         errorCode: /timeout/i.test(msg) ? 'TIMEOUT' : 'PLAYWRIGHT_ERROR',
         errorDetail: msg,
+        enrichmentStatus: /timeout/i.test(msg) ? 'TIMEOUT' : 'FAIL',
+      };
+    }
+  }
+
+  /**
+   * Veřejně vykreslené fotografie z browser session — response.body() nebo element screenshot.
+   * Bez druhého server-side fetch na CDN URL, které vrací 401.
+   */
+  async captureGalleryImages(options: {
+    listingUrl: string;
+    targetUrls: string[];
+    enrichContact?: boolean;
+  }): Promise<SrealityGalleryCaptureResult> {
+    const targetUrls = dedupeSrealityImageUrls(options.targetUrls);
+    const enrichContact = options.enrichContact ?? false;
+    if (!targetUrls.length && !enrichContact) {
+      return {
+        browserRuntime: 'READY',
+        enrichmentStatus: 'NOT_REQUIRED',
+        captured: [],
+        broker: {},
+        html: '',
+        contactClickAttempted: false,
+        contactClickSucceeded: false,
+        galleryOpened: false,
+        imageUrlsFound: [],
+        stats: {
+          browserResponseSuccess: 0,
+          elementCaptureSuccess: 0,
+          browserContextSuccess: 0,
+          failed: 0,
+        },
+      };
+    }
+
+    try {
+      return await this.captureGalleryImagesOnce(options.listingUrl, targetUrls, enrichContact);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`SREALITY_BROWSER_MEDIA_CAPTURE_FAIL url=${options.listingUrl} err=${msg}`);
+      return {
+        browserRuntime: 'FAIL',
+        enrichmentStatus: /timeout/i.test(msg) ? 'TIMEOUT' : 'FAIL',
+        captured: [],
+        broker: {},
+        html: '',
+        contactClickAttempted: false,
+        contactClickSucceeded: false,
+        galleryOpened: false,
+        imageUrlsFound: [],
+        errorCode: /timeout/i.test(msg) ? 'TIMEOUT' : 'PLAYWRIGHT_ERROR',
+        errorDetail: msg,
+        stats: {
+          browserResponseSuccess: 0,
+          elementCaptureSuccess: 0,
+          browserContextSuccess: 0,
+          failed: targetUrls.length,
+        },
       };
     }
   }
@@ -325,6 +409,496 @@ export class SrealityPlaywrightService implements OnModuleDestroy {
     } finally {
       await context.close().catch(() => undefined);
     }
+  }
+
+  private async captureGalleryImagesOnce(
+    listingUrl: string,
+    targetUrls: string[],
+    enrichContact: boolean,
+  ): Promise<SrealityGalleryCaptureResult> {
+    this.logger.log(
+      `SREALITY_BROWSER_MEDIA_START url=${listingUrl} targets=${targetUrls.length} contact=${enrichContact}`,
+    );
+
+    const browser = await this.getSharedBrowser();
+    const storage = this.readStorageState();
+    const contextOptions: Record<string, unknown> = {
+      viewport: { width: 1440, height: 2400 },
+      locale: 'cs-CZ',
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      extraHTTPHeaders: { 'Accept-Language': 'cs-CZ,cs;q=0.9,en;q=0.8' },
+    };
+    if (storage && 'path' in storage) contextOptions.storageState = storage.path;
+
+    const context = await browser.newContext(contextOptions);
+    if (storage && 'cookies' in storage) {
+      await context.addCookies(
+        storage.cookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path ?? '/',
+        })),
+      );
+    }
+
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+
+    const pendingByKey = new Map<string, string>();
+    for (const url of targetUrls) {
+      for (const key of matchKeysForImageUrl(url)) {
+        if (!pendingByKey.has(key)) pendingByKey.set(key, url);
+      }
+    }
+
+    const capturedByKey = new Map<string, SrealityBrowserCapturedImage>();
+    const contentHashes = new Set<string>();
+    const networkJson: unknown[] = [];
+
+    const tryCaptureFromBuffer = async (
+      url: string,
+      buffer: Buffer,
+      contentType: string | null,
+      method: SrealityImageCaptureMethod,
+    ) => {
+      const validated = await validateSrealityImageBuffer(buffer, contentType);
+      if (!validated) return;
+      if (contentHashes.has(validated.contentHash)) return;
+
+      for (const key of matchKeysForImageUrl(url)) {
+        if (!pendingByKey.has(key) || capturedByKey.has(key)) continue;
+        const sourceUrl = pendingByKey.get(key)!;
+        capturedByKey.set(key, {
+          ...validated,
+          sourceUrl,
+          matchKey: key,
+          method,
+        });
+        contentHashes.add(validated.contentHash);
+      }
+    };
+
+    page.on('response', (response: PlaywrightResponse) => {
+      void (async () => {
+        const resUrl = response.url();
+        const status = response.status();
+        const ct = response.headers()['content-type'] ?? '';
+
+        if (/contact|phone|broker|makler|client|premise|seller/i.test(resUrl)) {
+          if (status >= 200 && status < 300 && ct.includes('json')) {
+            try {
+              networkJson.push(await response.json());
+            } catch {
+              /* ignore */
+            }
+          }
+          return;
+        }
+
+        if (!isSrealityCdnResponseUrl(resUrl)) return;
+        if (status !== 200 || !ct.startsWith('image/')) return;
+        try {
+          const body = await response.body();
+          await tryCaptureFromBuffer(resUrl, body, ct, 'BROWSER_RESPONSE');
+        } catch {
+          /* ignore */
+        }
+      })();
+    });
+
+    let contactClickAttempted = false;
+    let contactClickSucceeded = false;
+    let galleryOpened = false;
+    let html = '';
+    let imageUrlsFound: string[] = [];
+    let enrichmentStatus: SrealityGalleryCaptureResult['enrichmentStatus'] = 'PASS';
+
+    try {
+      await this.withTimeout(
+        (async () => {
+          await page
+            .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: 5_000 })
+            .catch(() => undefined);
+          await this.delay(page, 200);
+          await page.goto(listingUrl, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS });
+          await this.handleSeznamConsent(page, listingUrl, context);
+          await page
+            .waitForSelector('h1, [data-e2e="detail-heading"], main', { timeout: SELECTOR_TIMEOUT_MS })
+            .catch(() => undefined);
+          await page.evaluate(async () => {
+            const steps = 4;
+            for (let i = 1; i <= steps; i += 1) {
+              window.scrollTo(0, (document.body.scrollHeight * i) / steps);
+              await new Promise((r) => setTimeout(r, 350));
+            }
+          });
+        })(),
+        SREALITY_BROWSER_MEDIA_TIMEOUTS.PAGE_LOAD_MS,
+        `PAGE_LOAD timeout po ${SREALITY_BROWSER_MEDIA_TIMEOUTS.PAGE_LOAD_MS} ms`,
+      );
+
+      if (enrichContact) {
+        try {
+          await this.withTimeout(
+            this.runContactEnrichment(page),
+            SREALITY_BROWSER_MEDIA_TIMEOUTS.CONTACT_CLICK_MS,
+            `CONTACT_CLICK timeout po ${SREALITY_BROWSER_MEDIA_TIMEOUTS.CONTACT_CLICK_MS} ms`,
+          ).then((result) => {
+            contactClickAttempted = result.attempted;
+            contactClickSucceeded = result.succeeded;
+          });
+        } catch {
+          enrichmentStatus = 'PARTIAL';
+        }
+      }
+
+      try {
+        galleryOpened = await this.withTimeout(
+          this.openGalleryAndBrowse(page, pendingByKey, capturedByKey),
+          SREALITY_BROWSER_MEDIA_TIMEOUTS.GALLERY_OPEN_MS +
+            targetUrls.length * SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS,
+          `GALLERY_OPEN timeout`,
+        );
+      } catch {
+        enrichmentStatus = 'PARTIAL';
+      }
+
+      const extracted = await page.evaluate(() => {
+        const urls = new Set<string>();
+        const addUrl = (raw: string | null | undefined) => {
+          if (!raw) return;
+          const s = raw.trim();
+          if (!s || /logo|icon|sprite|1x1|avatar|profile/i.test(s)) return;
+          if (/sdn\.cz|sreality\.cz/i.test(s) || /^\/.*\.(jpe?g|webp|png)/i.test(s)) {
+            urls.add(s.startsWith('//') ? `https:${s}` : s);
+          }
+        };
+        for (const img of Array.from(document.querySelectorAll('img'))) {
+          addUrl(img.getAttribute('src'));
+          addUrl(img.getAttribute('data-src'));
+          addUrl(img.getAttribute('data-original'));
+          const srcset = img.getAttribute('srcset');
+          if (srcset) {
+            for (const part of srcset.split(',')) {
+              addUrl(part.trim().split(/\s+/)[0]);
+            }
+          }
+        }
+        return Array.from(urls);
+      });
+      imageUrlsFound = dedupeSrealityImageUrls(extracted);
+      html = await page.evaluate(() => document.documentElement.outerHTML);
+
+      const stillPending = [...pendingByKey.entries()].filter(([key]) => !capturedByKey.has(key));
+      for (const [key, sourceUrl] of stillPending) {
+        try {
+          await this.withTimeout(
+            (async () => {
+              const contextResult = await this.tryBrowserContextImage(context, sourceUrl, listingUrl);
+              if (contextResult) {
+                await tryCaptureFromBuffer(
+                  sourceUrl,
+                  contextResult.buffer,
+                  contextResult.contentType,
+                  'BROWSER_CONTEXT',
+                );
+                if (capturedByKey.has(key)) return;
+              }
+              const elementBuffer = await this.captureElementForUrl(page, sourceUrl);
+              if (elementBuffer) {
+                await tryCaptureFromBuffer(sourceUrl, elementBuffer, 'image/jpeg', 'ELEMENT_CAPTURE');
+              }
+            })(),
+            SREALITY_BROWSER_MEDIA_TIMEOUTS.ELEMENT_CAPTURE_MS,
+            `ELEMENT_CAPTURE timeout pro ${sourceUrl.slice(0, 80)}`,
+          );
+        } catch {
+          enrichmentStatus = 'PARTIAL';
+        }
+      }
+
+      const htmlBroker = extractSrealityBrokerFromHtml(html);
+      const networkBrokerParts = networkJson.map((payload) =>
+        extractSrealityBrokerFromRaw(
+          payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null,
+        ),
+      );
+      const broker = mergeBrokerParts([htmlBroker, ...networkBrokerParts]);
+
+      const captured = this.orderCapturedImages(targetUrls, capturedByKey, contentHashes);
+      const stats = {
+        browserResponseSuccess: captured.filter((x) => x.method === 'BROWSER_RESPONSE').length,
+        elementCaptureSuccess: captured.filter((x) => x.method === 'ELEMENT_CAPTURE').length,
+        browserContextSuccess: captured.filter((x) => x.method === 'BROWSER_CONTEXT').length,
+        failed: Math.max(0, targetUrls.length - captured.length),
+      };
+
+      if (stats.failed > 0 && captured.length > 0) enrichmentStatus = 'PARTIAL';
+      if (captured.length === 0 && targetUrls.length > 0) enrichmentStatus = 'FAIL';
+
+      this.logger.log(
+        `SREALITY_BROWSER_MEDIA_DONE captured=${captured.length}/${targetUrls.length} response=${stats.browserResponseSuccess} element=${stats.elementCaptureSuccess} context=${stats.browserContextSuccess}`,
+      );
+
+      return {
+        browserRuntime: 'READY',
+        enrichmentStatus,
+        captured,
+        broker,
+        html,
+        contactClickAttempted,
+        contactClickSucceeded,
+        galleryOpened,
+        imageUrlsFound,
+        stats,
+      };
+    } finally {
+      await page.close().catch(() => undefined);
+      await context.close().catch(() => undefined);
+    }
+  }
+
+  private orderCapturedImages(
+    targetUrls: string[],
+    capturedByKey: Map<string, SrealityBrowserCapturedImage>,
+    contentHashes: Set<string>,
+  ): SrealityBrowserCapturedImage[] {
+    const captured: SrealityBrowserCapturedImage[] = [];
+    const seenHashes = new Set<string>();
+    for (const url of targetUrls) {
+      let found: SrealityBrowserCapturedImage | undefined;
+      for (const key of matchKeysForImageUrl(url)) {
+        found = capturedByKey.get(key);
+        if (found) break;
+      }
+      if (!found || seenHashes.has(found.contentHash)) continue;
+      seenHashes.add(found.contentHash);
+      captured.push(found);
+    }
+    for (const item of capturedByKey.values()) {
+      if (seenHashes.has(item.contentHash)) continue;
+      seenHashes.add(item.contentHash);
+      captured.push(item);
+    }
+    return captured;
+  }
+
+  private async runContactEnrichment(page: PlaywrightPage): Promise<{
+    attempted: boolean;
+    succeeded: boolean;
+  }> {
+    const contactSelectors = [
+      'button:has-text("Zobrazit telefon")',
+      'button:has-text("Ukázat telefon")',
+      'button:has-text("Zobrazit kontakt")',
+      'button:has-text("Kontakt")',
+      '[data-e2e="show-phone"]',
+      '[data-e2e="contact-show"]',
+    ];
+    for (const sel of contactSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if ((await el.count()) > 0) {
+          await el.click({ timeout: 2500 }).catch(() => undefined);
+          await this.delay(page, 800);
+          return { attempted: true, succeeded: true };
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    let succeeded = false;
+    await page
+      .getByRole('button', { name: /zobrazit telefon|ukázat telefon|kontakt/i })
+      .first()
+      .click({ timeout: 1500 })
+      .then(() => {
+        succeeded = true;
+      })
+      .catch(() => undefined);
+    if (succeeded) await this.delay(page, 600);
+    return { attempted: succeeded, succeeded };
+  }
+
+  private async openGalleryAndBrowse(
+    page: PlaywrightPage,
+    pendingByKey: Map<string, string>,
+    capturedByKey: Map<string, SrealityBrowserCapturedImage>,
+  ): Promise<boolean> {
+    const galleryOpenSelectors = [
+      '[data-e2e="detail-gallery"] img',
+      '[data-e2e="detail-image"]',
+      '[data-e2e="detail-gallery"] button',
+      '.gallery img',
+      'picture img',
+      'main img[src*="sdn.cz"]',
+      'main img[src*="sreality"]',
+    ];
+
+    let galleryOpened = false;
+    for (const sel of galleryOpenSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if ((await el.count()) > 0) {
+          await el.click({ timeout: 2000 }).catch(() => undefined);
+          galleryOpened = true;
+          await this.waitForGalleryImageLoaded(page);
+          break;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const nextSelectors = [
+      '[data-e2e="gallery-next"]',
+      'button[aria-label*="Další"]',
+      'button[aria-label*="Next"]',
+      'button:has-text("Další")',
+    ];
+
+    const maxSteps = Math.max(20, pendingByKey.size + 5);
+    for (let step = 0; step < maxSteps; step += 1) {
+      if ([...pendingByKey.keys()].every((key) => capturedByKey.has(key))) break;
+
+      await this.waitForGalleryImageLoaded(page).catch(() => undefined);
+
+      let advanced = false;
+      for (const sel of nextSelectors) {
+        try {
+          const next = page.locator(sel).first();
+          if ((await next.count()) === 0) continue;
+          await next.click({ timeout: 1500 }).catch(() => undefined);
+          advanced = true;
+          await this.waitForGalleryImageLoaded(page).catch(() => undefined);
+          break;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!advanced) break;
+    }
+
+    return galleryOpened;
+  }
+
+  private async waitForGalleryImageLoaded(page: PlaywrightPage): Promise<void> {
+    await page
+      .waitForFunction(
+        () => {
+          const selectors = [
+            '[data-e2e="detail-gallery"] img',
+            '[role="dialog"] img',
+            '.gallery img',
+            'picture img',
+            'main img[src*="sdn.cz"]',
+          ];
+          for (const sel of selectors) {
+            for (const img of Array.from(document.querySelectorAll(sel))) {
+              const el = img as HTMLImageElement;
+              if (el.complete && el.naturalWidth > 0 && el.naturalHeight > 0) return true;
+            }
+          }
+          return false;
+        },
+        { timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS },
+      )
+      .catch(() => undefined);
+  }
+
+  private async tryBrowserContextImage(
+    context: PlaywrightContext,
+    sourceUrl: string,
+    referer: string,
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    for (const candidate of buildSrealityImageFetchCandidates(sourceUrl)) {
+      if (!isSrealityCdnResponseUrl(candidate)) continue;
+      try {
+        const res = await context.request.get(candidate, {
+          headers: { Referer: referer },
+          timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS,
+        });
+        if (res.status() !== 200) continue;
+        const ct = res.headers()['content-type'] ?? '';
+        if (!ct.startsWith('image/')) continue;
+        const buffer = await res.body();
+        const validated = await validateSrealityImageBuffer(buffer, ct);
+        if (validated) return { buffer, contentType: ct };
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
+  private async captureElementForUrl(page: PlaywrightPage, sourceUrl: string): Promise<Buffer | null> {
+    const matchKeys = new Set(matchKeysForImageUrl(sourceUrl));
+    const gallerySelectors = [
+      '[data-e2e="detail-gallery"] img',
+      '[role="dialog"] img',
+      '.gallery img',
+      'picture img',
+      'main img[src*="sdn.cz"]',
+      'main img[src*="sreality"]',
+    ];
+
+    for (const sel of gallerySelectors) {
+      const imgs = page.locator(sel);
+      const count = await imgs.count();
+      for (let i = 0; i < count; i += 1) {
+        const img = imgs.nth(i);
+        const attrs = await img.evaluate((el) => {
+          const node = el as HTMLImageElement;
+          const values = [
+            node.getAttribute('src'),
+            node.getAttribute('data-src'),
+            node.getAttribute('data-original'),
+            node.currentSrc,
+          ].filter(Boolean) as string[];
+          const srcset = node.getAttribute('srcset');
+          if (srcset) {
+            for (const part of srcset.split(',')) {
+              values.push(part.trim().split(/\s+/)[0] ?? '');
+            }
+          }
+          return {
+            values,
+            complete: node.complete,
+            naturalWidth: node.naturalWidth,
+            naturalHeight: node.naturalHeight,
+          };
+        });
+
+        const matches = attrs.values.some((value) => matchKeys.has(imageDedupeKey(value)));
+        if (!matches) continue;
+
+        if (!attrs.complete || attrs.naturalWidth <= 0 || attrs.naturalHeight <= 0) {
+          await page
+            .waitForFunction(
+              (index: number, selector: string) => {
+                const nodes = document.querySelectorAll(selector);
+                const node = nodes[index] as HTMLImageElement | undefined;
+                return Boolean(node?.complete && node.naturalWidth > 0 && node.naturalHeight > 0);
+              },
+              { timeout: SREALITY_BROWSER_MEDIA_TIMEOUTS.IMAGE_LOAD_MS },
+              i,
+              sel,
+            )
+            .catch(() => undefined);
+        }
+
+        const screenshot = await img.screenshot({ type: 'jpeg', quality: 92 });
+        const validated = await validateSrealityImageBuffer(screenshot, 'image/jpeg');
+        if (validated) return screenshot;
+      }
+    }
+
+    return null;
   }
 
   async renderPage(
@@ -757,7 +1331,14 @@ type PlaywrightContext = {
   addCookies: (cookies: PlaywrightCookie[]) => Promise<void>;
   close: () => Promise<void>;
   request: {
-    get: (url: string, opts: Record<string, unknown>) => Promise<{ text: () => Promise<string> }>;
+    get: (
+      url: string,
+      opts: Record<string, unknown>,
+    ) => Promise<{
+      status: () => number;
+      headers: () => Record<string, string>;
+      body: () => Promise<Buffer>;
+    }>;
   };
 };
 
@@ -766,6 +1347,16 @@ type PlaywrightResponse = {
   status: () => number;
   headers: () => Record<string, string>;
   json: () => Promise<unknown>;
+  body: () => Promise<Buffer>;
+};
+
+type PlaywrightLocator = {
+  count: () => Promise<number>;
+  click: (opts?: Record<string, unknown>) => Promise<void>;
+  first: () => PlaywrightLocator;
+  nth: (index: number) => PlaywrightLocator;
+  screenshot: (opts?: Record<string, unknown>) => Promise<Buffer>;
+  evaluate: <T>(fn: (el: Element) => T | Promise<T>) => Promise<T>;
 };
 
 type PlaywrightPage = {
@@ -778,11 +1369,14 @@ type PlaywrightPage = {
   waitForSelector: (sel: string, opts: Record<string, unknown>) => Promise<void>;
   waitForLoadState: (state: string, opts: Record<string, unknown>) => Promise<void>;
   waitForURL: (pattern: RegExp | string, opts: Record<string, unknown>) => Promise<void>;
+  waitForFunction: (
+    fn: (...args: unknown[]) => boolean | Promise<boolean>,
+    opts: Record<string, unknown>,
+    ...args: unknown[]
+  ) => Promise<void>;
   waitForTimeout?: (ms: number) => Promise<void>;
   evaluate: <T>(fn: () => T | Promise<T>) => Promise<T>;
-  locator: (sel: string) => {
-    first: () => { count: () => Promise<number>; click: (opts: Record<string, unknown>) => Promise<void> };
-  };
+  locator: (sel: string) => PlaywrightLocator;
   getByRole: (
     role: string,
     opts: { name: RegExp },

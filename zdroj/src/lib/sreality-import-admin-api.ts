@@ -44,6 +44,10 @@ export type SrealityImportPreviewResponse = {
     failed: number;
     maxImagesLimit?: number;
     message: string;
+    directHttpSuccess?: number;
+    browserResponseSuccess?: number;
+    browserContextSuccess?: number;
+    elementCaptureSuccess?: number;
   };
   aiText: {
     originalTitle: string | null;
@@ -72,17 +76,22 @@ export type SrealityImportPreviewResponse = {
     storageCount: number;
     browserFallback: string;
     browser?: string;
+    dynamicEnrichment?: string;
     browserError?: string;
     imageDownloadFailures?: Array<{
       index: number;
       host: string;
       hostValidation?: 'PASS' | 'FAIL';
       httpStatus: number | null;
+      directHttpStatus?: number | null;
       contentType: string | null;
       responseLength: number | null;
       redirectHost: string | null;
       error: string;
       urlSample: string;
+      captureMethod?: string;
+      browserResponse?: string;
+      elementCapture?: string;
     }>;
   };
 };

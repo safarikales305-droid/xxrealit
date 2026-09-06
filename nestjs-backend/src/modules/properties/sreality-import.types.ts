@@ -12,6 +12,12 @@ export type SrealityImportImageRow = {
   error?: string;
 };
 
+export type SrealityImageCaptureMethod =
+  | 'DIRECT_HTTP'
+  | 'BROWSER_RESPONSE'
+  | 'BROWSER_CONTEXT'
+  | 'ELEMENT_CAPTURE';
+
 export type SrealityImageDownloadFailureDiag = {
   index: number;
   host: string;
@@ -22,6 +28,10 @@ export type SrealityImageDownloadFailureDiag = {
   redirectHost: string | null;
   error: string;
   urlSample: string;
+  captureMethod?: SrealityImageCaptureMethod;
+  directHttpStatus?: number | null;
+  browserResponse?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
+  elementCapture?: 'PASS' | 'FAIL' | 'UNAVAILABLE';
 };
 
 export type SrealityImageImportStats = {
@@ -34,6 +44,11 @@ export type SrealityImageImportStats = {
   maxImagesLimit: number;
   message: string;
   imageDownloadFailures?: SrealityImageDownloadFailureDiag[];
+  directHttpSuccess?: number;
+  browserResponseSuccess?: number;
+  browserContextSuccess?: number;
+  elementCaptureSuccess?: number;
+  captureMethods?: Partial<Record<SrealityImageCaptureMethod, number>>;
 };
 
 export type SrealityImportDiagnosticStage =
@@ -61,6 +76,7 @@ export type SrealityImportDiagnostics = {
   storageCount: number;
   browserFallback: SrealityImportDiagnosticStage;
   browser: 'READY' | 'FAIL' | 'NOT_TESTED';
+  dynamicEnrichment?: SrealityImportDiagnosticStage;
   browserError?: string;
   imageDownloadFailures?: SrealityImageDownloadFailureDiag[];
 };

@@ -44,6 +44,11 @@ import {
   sanitizeUrlForDiagnostics,
   srealityImageFetchHeaders,
 } from './sreality-image.util';
+import {
+  extFromContentType,
+  shouldSuggestBrowserMediaFallback,
+  type SrealityImageCaptureMethod,
+} from './sreality-browser-media.util';
 import { mergeBrokerParts, extractSrealityBrokerFromHtml } from './sreality-contact-extract.util';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { SeoLocationService } from '../seo/seo-location.service';
@@ -161,63 +166,107 @@ export class SrealityImportService {
       browser: 'NOT_TESTED',
     };
 
-    const needsBrowser =
-      imageUrls.length === 0 ||
-      !broker.agentName ||
-      (!broker.phone && !broker.email);
+    const needsContactEnrichment =
+      !broker.agentName || (!broker.phone && !broker.email);
+    const needsGalleryDiscovery = imageUrls.length === 0;
 
-    if (needsBrowser) {
+    const browserHealth = await this.playwright.runBrowserHealthCheck();
+    diagnostics.browser = browserHealth.status;
+    if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
+
+    if (needsGalleryDiscovery) {
       diagnostics.dynamicPage = 'NOT_REQUIRED';
       const enrichment = await this.playwright.enrichImportData(sourceUrl.trim());
-      if (enrichment.errorCode) {
-        diagnostics.dynamicPage = 'FAIL';
-        diagnostics.browserFallback = 'FAIL';
-        diagnostics.browser = 'FAIL';
-        diagnostics.browserError = enrichment.errorDetail?.slice(0, 200);
-      } else {
-        diagnostics.dynamicPage = 'PASS';
-        diagnostics.browserFallback = 'PASS';
-        const browserHealth = await this.playwright.runBrowserHealthCheck();
-        diagnostics.browser = browserHealth.status;
-        if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
-        if (enrichment.imageUrls.length) {
-          imageUrls = dedupeSrealityImageUrls([...imageUrls, ...enrichment.imageUrls]);
-          diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
-          diagnostics.galleryCount = imageUrls.length;
-        }
-        if (enrichment.html) {
-          broker = mergeBrokerParts([
-            broker,
-            extractSrealityBrokerFromHtml(enrichment.html),
-            enrichment.broker,
-          ]);
-        } else if (enrichment.broker) {
-          broker = mergeBrokerParts([broker, enrichment.broker]);
-        }
-        diagnostics.contactClick = enrichment.contactClickAttempted
-          ? enrichment.contactClickSucceeded
-            ? 'PASS'
-            : 'FAIL'
-          : 'NOT_REQUIRED';
-        if (broker.agentName || broker.companyName) diagnostics.agent = 'PASS';
-        if (broker.phone) diagnostics.phone = 'PASS';
-        if (broker.email) diagnostics.email = 'PASS';
-        else if (broker.agentName && !broker.email) diagnostics.email = 'NOT_PUBLIC';
+      diagnostics.dynamicEnrichment =
+        enrichment.enrichmentStatus === 'PASS'
+          ? 'PASS'
+          : enrichment.enrichmentStatus === 'TIMEOUT'
+            ? 'PARTIAL'
+            : enrichment.errorCode
+              ? 'FAIL'
+              : 'PARTIAL';
+      diagnostics.browserFallback = enrichment.errorCode ? 'FAIL' : 'PASS';
+      if (enrichment.errorDetail) diagnostics.browserError = enrichment.errorDetail.slice(0, 200);
+      if (enrichment.imageUrls.length) {
+        imageUrls = dedupeSrealityImageUrls([...imageUrls, ...enrichment.imageUrls]);
+        diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
+        diagnostics.galleryCount = imageUrls.length;
       }
+      if (enrichment.html) {
+        broker = mergeBrokerParts([
+          broker,
+          extractSrealityBrokerFromHtml(enrichment.html),
+          enrichment.broker,
+        ]);
+      } else if (enrichment.broker) {
+        broker = mergeBrokerParts([broker, enrichment.broker]);
+      }
+      diagnostics.contactClick = enrichment.contactClickAttempted
+        ? enrichment.contactClickSucceeded
+          ? 'PASS'
+          : 'FAIL'
+        : 'NOT_REQUIRED';
+      if (broker.agentName || broker.companyName) diagnostics.agent = 'PASS';
+      if (broker.phone) diagnostics.phone = 'PASS';
+      if (broker.email) diagnostics.email = 'PASS';
+      else if (broker.agentName && !broker.email) diagnostics.email = 'NOT_PUBLIC';
+    } else if (needsContactEnrichment) {
+      diagnostics.dynamicPage = 'NOT_REQUIRED';
+      diagnostics.dynamicEnrichment = 'NOT_REQUIRED';
+      diagnostics.browserFallback = 'NOT_REQUIRED';
     } else {
-      const browserHealth = await this.playwright.runBrowserHealthCheck();
-      diagnostics.browser = browserHealth.status;
-      if (browserHealth.reason) diagnostics.browserError = browserHealth.reason;
+      diagnostics.dynamicPage = 'NOT_REQUIRED';
+      diagnostics.dynamicEnrichment = 'NOT_REQUIRED';
+      diagnostics.browserFallback = 'NOT_REQUIRED';
     }
 
     this.log.log(`SREALITY_IMAGES_FOUND count=${imageUrls.length}`);
 
     const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const { images, stats } = await this.mirrorImages(
+    const { images, stats, browserCapture } = await this.mirrorImages(
       imageUrls,
       sourceUrl.trim(),
       `sreality-draft-${draftId}`,
+      { enrichContact: needsContactEnrichment && !needsGalleryDiscovery },
     );
+
+    if (browserCapture) {
+      diagnostics.dynamicEnrichment =
+        browserCapture.enrichmentStatus === 'PASS'
+          ? 'PASS'
+          : browserCapture.enrichmentStatus === 'PARTIAL'
+            ? 'PARTIAL'
+            : browserCapture.enrichmentStatus === 'TIMEOUT'
+              ? 'PARTIAL'
+              : browserCapture.enrichmentStatus === 'NOT_REQUIRED'
+                ? 'NOT_REQUIRED'
+                : 'FAIL';
+      diagnostics.browserFallback =
+        browserCapture.captured.length > 0 || browserCapture.enrichmentStatus === 'PASS'
+          ? 'PASS'
+          : browserCapture.enrichmentStatus === 'PARTIAL'
+            ? 'PARTIAL'
+            : 'FAIL';
+      if (browserCapture.imageUrlsFound.length) {
+        imageUrls = dedupeSrealityImageUrls([...imageUrls, ...browserCapture.imageUrlsFound]);
+        diagnostics.gallery = imageUrls.length > 0 ? 'PASS' : 'FAIL';
+        diagnostics.galleryCount = imageUrls.length;
+      }
+      if (browserCapture.html || browserCapture.broker) {
+        broker = mergeBrokerParts([
+          broker,
+          browserCapture.html ? extractSrealityBrokerFromHtml(browserCapture.html) : {},
+          browserCapture.broker,
+        ]);
+      }
+      if (browserCapture.contactClickAttempted) {
+        diagnostics.contactClick = browserCapture.contactClickSucceeded ? 'PASS' : 'FAIL';
+      }
+      if (broker.agentName || broker.companyName) diagnostics.agent = 'PASS';
+      if (broker.phone) diagnostics.phone = 'PASS';
+      if (broker.email) diagnostics.email = 'PASS';
+      else if (broker.agentName && !broker.email) diagnostics.email = 'NOT_PUBLIC';
+    }
 
     diagnostics.imagesDownloadedCount = stats.downloaded;
     diagnostics.imagesFailedCount = stats.failed;
@@ -659,11 +708,24 @@ export class SrealityImportService {
     urls: string[],
     sourceListingUrl: string,
     storageKey: string,
-  ): Promise<{ images: SrealityImportImageRow[]; stats: SrealityImageImportStats }> {
+    options?: { enrichContact?: boolean },
+  ): Promise<{
+    images: SrealityImportImageRow[];
+    stats: SrealityImageImportStats;
+    browserCapture?: Awaited<ReturnType<SrealityPlaywrightService['captureGalleryImages']>>;
+  }> {
     const found = dedupeSrealityImageUrls(urls);
     const unique = found.slice(0, SREALITY_IMPORT_MAX_IMAGES);
     const images: SrealityImportImageRow[] = [];
     const imageDownloadFailures: SrealityImageDownloadFailureDiag[] = [];
+    const pendingBrowser: Array<{ index: number; sourceUrl: string; directHttpStatus: number | null }> =
+      [];
+    const captureMethods: Partial<Record<SrealityImageCaptureMethod, number>> = {
+      DIRECT_HTTP: 0,
+      BROWSER_RESPONSE: 0,
+      BROWSER_CONTEXT: 0,
+      ELEMENT_CAPTURE: 0,
+    };
     let downloaded = 0;
     let uploadAttempted = 0;
     let uploaded = 0;
@@ -697,6 +759,7 @@ export class SrealityImportService {
       }
 
       let stored: { storedUrl: string; watermarkedUrl: string | null } | null = null;
+      let directHttpStatus: number | null = null;
 
       const direct = await this.downloadImageDirect(
         sourceUrl,
@@ -704,25 +767,15 @@ export class SrealityImportService {
         storageKey,
         i,
         (diag) => {
+          directHttpStatus = diag.httpStatus;
           if (imageDownloadFailures.length < 3) imageDownloadFailures.push(diag);
         },
       );
       if (direct) {
         stored = direct;
-      } else {
-        const imported = await this.importImages.importExternalImageToPortal({
-          imageUrl: sourceUrl,
-          propertyId: storageKey,
-          sourcePortalKey: 'sreality',
-          index: i + 1,
-          referer: sourceListingUrl,
-        });
-        if (imported?.storedUrl) {
-          stored = {
-            storedUrl: imported.storedUrl,
-            watermarkedUrl: imported.watermarkedUrl ?? null,
-          };
-        }
+        captureMethods.DIRECT_HTTP = (captureMethods.DIRECT_HTTP ?? 0) + 1;
+      } else if (shouldSuggestBrowserMediaFallback(directHttpStatus)) {
+        pendingBrowser.push({ index: i, sourceUrl, directHttpStatus });
       }
 
       if (stored?.storedUrl) {
@@ -736,7 +789,7 @@ export class SrealityImportService {
           sortOrder: i,
           isMain: downloaded === 1,
         });
-      } else {
+      } else if (!shouldSuggestBrowserMediaFallback(directHttpStatus)) {
         this.log.warn(`mirror image failed ${sanitizeUrlForDiagnostics(sourceUrl)}`);
         images.push({
           sourceUrl,
@@ -746,6 +799,123 @@ export class SrealityImportService {
           isMain: false,
           error: 'Stažení selhalo',
         });
+      } else {
+        images.push({
+          sourceUrl,
+          storedUrl: null,
+          watermarkedUrl: null,
+          sortOrder: i,
+          isMain: false,
+          error: 'Čeká na browser capture',
+        });
+      }
+    }
+
+    let browserCapture: Awaited<ReturnType<SrealityPlaywrightService['captureGalleryImages']>> | undefined;
+    if (pendingBrowser.length > 0 || options?.enrichContact) {
+      this.log.log(
+        `SREALITY_BROWSER_MEDIA_PENDING count=${pendingBrowser.length} enrichContact=${Boolean(options?.enrichContact)}`,
+      );
+      browserCapture = await this.playwright.captureGalleryImages({
+        listingUrl: sourceListingUrl,
+        targetUrls: pendingBrowser.map((item) => item.sourceUrl),
+        enrichContact: options?.enrichContact ?? false,
+      });
+
+      const capturedBySource = new Map<string, NonNullable<typeof browserCapture>['captured'][number]>();
+      for (const captured of browserCapture.captured) {
+        capturedBySource.set(captured.sourceUrl, captured);
+      }
+
+      for (const pending of pendingBrowser) {
+        const captured = capturedBySource.get(pending.sourceUrl);
+        const rowIndex = images.findIndex(
+          (row) => row.sourceUrl === pending.sourceUrl && !row.storedUrl,
+        );
+        if (!captured) {
+          if (rowIndex >= 0) {
+            images[rowIndex] = {
+              ...images[rowIndex]!,
+              error: 'Browser capture selhal',
+            };
+          }
+          if (imageDownloadFailures.length < 5) {
+            imageDownloadFailures.push({
+              index: pending.index + 1,
+              host: (() => {
+                try {
+                  return new URL(pending.sourceUrl).hostname;
+                } catch {
+                  return '—';
+                }
+              })(),
+              hostValidation: 'PASS',
+              httpStatus: pending.directHttpStatus,
+              directHttpStatus: pending.directHttpStatus,
+              contentType: null,
+              responseLength: null,
+              redirectHost: null,
+              error: 'Browser capture selhal',
+              urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+              browserResponse: 'FAIL',
+              elementCapture: 'FAIL',
+            });
+          }
+          continue;
+        }
+
+        try {
+          const ext = extFromContentType(captured.contentType);
+          uploadAttempted += 1;
+          const uploadedMedia = await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+            captured.buffer,
+            `${storageKey}-${pending.index + 1}.${ext}`,
+          );
+          uploaded += 1;
+          downloaded += 1;
+          captureMethods[captured.method] = (captureMethods[captured.method] ?? 0) + 1;
+
+          const storedRow: SrealityImportImageRow = {
+            sourceUrl: pending.sourceUrl,
+            storedUrl: uploadedMedia.originalUrl,
+            watermarkedUrl: uploadedMedia.watermarkedUrl ?? null,
+            sortOrder: pending.index,
+            isMain: downloaded === 1,
+          };
+          if (rowIndex >= 0) images[rowIndex] = storedRow;
+          else images.push(storedRow);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (rowIndex >= 0) {
+            images[rowIndex] = {
+              ...images[rowIndex]!,
+              error: msg.slice(0, 120),
+            };
+          }
+          if (imageDownloadFailures.length < 5) {
+            imageDownloadFailures.push({
+              index: pending.index + 1,
+              host: (() => {
+                try {
+                  return new URL(pending.sourceUrl).hostname;
+                } catch {
+                  return '—';
+                }
+              })(),
+              hostValidation: 'PASS',
+              httpStatus: pending.directHttpStatus,
+              directHttpStatus: pending.directHttpStatus,
+              contentType: captured.contentType,
+              responseLength: captured.buffer.length,
+              redirectHost: null,
+              error: msg.slice(0, 160),
+              urlSample: sanitizeUrlForDiagnostics(pending.sourceUrl),
+              captureMethod: captured.method,
+              browserResponse: captured.method === 'BROWSER_RESPONSE' ? 'PASS' : 'UNAVAILABLE',
+              elementCapture: captured.method === 'ELEMENT_CAPTURE' ? 'PASS' : 'UNAVAILABLE',
+            });
+          }
+        }
       }
     }
 
@@ -768,13 +938,18 @@ export class SrealityImportService {
       uploadAttempted,
       maxImagesLimit: SREALITY_IMPORT_MAX_IMAGES,
       imageDownloadFailures: imageDownloadFailures.length ? imageDownloadFailures : undefined,
+      directHttpSuccess: captureMethods.DIRECT_HTTP ?? 0,
+      browserResponseSuccess: captureMethods.BROWSER_RESPONSE ?? 0,
+      browserContextSuccess: captureMethods.BROWSER_CONTEXT ?? 0,
+      elementCaptureSuccess: captureMethods.ELEMENT_CAPTURE ?? 0,
+      captureMethods,
       message:
         failed > 0
           ? `${limitNote}Staženo ${downloaded}/${unique.length} fotografií. ${failed} fotografií se nepodařilo stáhnout.`
           : `${limitNote}Staženo ${downloaded}/${unique.length} fotografií.`,
     };
 
-    return { images, stats };
+    return { images, stats, browserCapture };
   }
 
   private async downloadImageDirect(

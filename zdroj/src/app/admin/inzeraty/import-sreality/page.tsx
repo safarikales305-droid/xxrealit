@@ -269,14 +269,29 @@ export default function AdminSrealityImportPage() {
                     <div><dt className="font-semibold">Source parser</dt><dd>{diagLabel(preview.diagnostics.sourceParser)}</dd></div>
                     <div><dt className="font-semibold">Dynamic page</dt><dd>{diagLabel(preview.diagnostics.dynamicPage)}</dd></div>
                     <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND{preview.diagnostics.imagesSelectedCount ? ` · ${preview.diagnostics.imagesSelectedCount} SELECTED` : ''}</dd></div>
-                    <div><dt className="font-semibold">Images</dt><dd>{diagLabel(preview.diagnostics.imagesDownloaded)} · {preview.diagnostics.imagesDownloadedCount} DOWNLOADED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
+                    <div><dt className="font-semibold">Images</dt><dd>{diagLabel(preview.diagnostics.imagesDownloaded)} · {preview.diagnostics.imagesDownloadedCount} CAPTURED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
+                    {preview.imageImportStats.directHttpSuccess != null ? (
+                      <div className="sm:col-span-2">
+                        <dt className="font-semibold">Capture methods</dt>
+                        <dd>
+                          direct HTTP {preview.imageImportStats.directHttpSuccess ?? 0}
+                          {' · '}
+                          browser response {preview.imageImportStats.browserResponseSuccess ?? 0}
+                          {' · '}
+                          browser context {preview.imageImportStats.browserContextSuccess ?? 0}
+                          {' · '}
+                          element capture {preview.imageImportStats.elementCaptureSuccess ?? 0}
+                        </dd>
+                      </div>
+                    ) : null}
                     <div><dt className="font-semibold">Agent</dt><dd>{diagLabel(preview.diagnostics.agent)}</dd></div>
                     <div><dt className="font-semibold">Phone</dt><dd>{diagLabel(preview.diagnostics.phone)}</dd></div>
                     <div><dt className="font-semibold">Email</dt><dd>{diagLabel(preview.diagnostics.email)}</dd></div>
                     <div><dt className="font-semibold">Contact click</dt><dd>{diagLabel(preview.diagnostics.contactClick)}</dd></div>
                     <div><dt className="font-semibold">Storage</dt><dd>{diagLabel(preview.diagnostics.storage)} · {preview.diagnostics.storageCount} UPLOADED</dd></div>
                     <div><dt className="font-semibold">Browser fallback</dt><dd>{diagLabel(preview.diagnostics.browserFallback)}</dd></div>
-                    <div><dt className="font-semibold">Browser</dt><dd>{preview.diagnostics.browser ?? 'NOT TESTED'}{preview.diagnostics.browserError ? ` — ${preview.diagnostics.browserError}` : ''}</dd></div>
+                    <div><dt className="font-semibold">Dynamic enrichment</dt><dd>{diagLabel(preview.diagnostics.dynamicEnrichment ?? preview.diagnostics.dynamicPage)}</dd></div>
+                    <div><dt className="font-semibold">Browser runtime</dt><dd>{preview.diagnostics.browser ?? 'NOT TESTED'}{preview.diagnostics.browserError ? ` — ${preview.diagnostics.browserError}` : ''}</dd></div>
                   </dl>
                   {preview.diagnostics.imageDownloadFailures?.length ? (
                     <div className="mt-4 space-y-3 text-xs text-zinc-700">
@@ -285,6 +300,10 @@ export default function AdminSrealityImportPage() {
                           <p className="font-semibold">IMAGE #{f.index}</p>
                           <p>host: {f.host}</p>
                           {f.hostValidation ? <p>host validation: {f.hostValidation}</p> : null}
+                          {f.directHttpStatus != null ? <p>direct HTTP: {f.directHttpStatus}</p> : null}
+                          {f.captureMethod ? <p>capture method: {f.captureMethod}</p> : null}
+                          {f.browserResponse ? <p>browser response: {f.browserResponse}</p> : null}
+                          {f.elementCapture ? <p>element capture: {f.elementCapture}</p> : null}
                           <p>HTTP status: {f.httpStatus ?? '—'}</p>
                           <p>content-type: {f.contentType ?? '—'}</p>
                           <p>response length: {f.responseLength ?? '—'}</p>
