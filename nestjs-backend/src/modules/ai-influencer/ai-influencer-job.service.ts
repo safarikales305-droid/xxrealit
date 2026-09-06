@@ -46,10 +46,13 @@ import { computeProductionReadiness } from './ai-influencer-preflight.util';
 import { buildJobAdminDisplay, type JobDisplayInput } from './ai-influencer-job-display.util';
 import { buildGalleryVideoMeta } from './ai-influencer-video-gallery.util';
 import {
+  buildFixedVideoAgentTestScript,
   buildProductionTestStatus,
+  hashFixedTestScript,
   isProductionTestJob,
   resolveJobTargetDurationSec,
 } from './ai-influencer-production-test.util';
+import { getScriptProviderReadiness } from './ai-influencer-script-provider.util';
 import { getElevenLabsRuntimeConfig } from './ai-influencer-runtime-config.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
@@ -537,8 +540,15 @@ export class AiInfluencerJobService {
     });
   }
 
-  async createProductionTestJob(options?: { articleId?: string }) {
-    await this.assertProductionReadyForNewJob();
+  async createProductionTestJob(options?: {
+    articleId?: string;
+    mode?: 'full' | 'video_agent';
+  }) {
+    if (options?.mode === 'video_agent') {
+      return this.createVideoAgentPipelineTestJob();
+    }
+
+    await this.assertProductionReadyForNewJob({ requireScriptProvider: true });
     const profile = await this.registry.getDefaultProfile();
     const cfg = this.settings.getCached();
     const generationMode = resolveVideoGenerationMode(cfg);
@@ -563,6 +573,7 @@ export class AiInfluencerJobService {
 
     const initialRenderMeta = mergeJobRenderMeta(this.buildInitialJobRenderMeta(), {
       isProductionTest: true,
+      testKind: 'FULL',
       testDurationSec: 12,
     });
 
@@ -593,7 +604,117 @@ export class AiInfluencerJobService {
       progressLabel: 'Zakládám job',
       generationMode,
       articleTitle: decodeHtmlEntities(article.title),
+      testKind: 'FULL' as const,
     };
+  }
+
+  /** Core pipeline test s fixním scénářem — bez OpenAI, stejná orchestrace jako produkce. */
+  async createVideoAgentPipelineTestJob() {
+    await this.assertProductionReadyForNewJob({ requireScriptProvider: false });
+    const profile = await this.registry.getDefaultProfile();
+    const cfg = this.settings.getCached();
+    const generationMode = resolveVideoGenerationMode(cfg);
+    if (generationMode !== 'VIDEO_AGENT') {
+      throw new BadRequestException({
+        message: 'Test Video Agentu vyžaduje režim VIDEO_AGENT v nastavení.',
+        code: 'VIDEO_AGENT_MODE_REQUIRED',
+      });
+    }
+
+    const fixedScript = buildFixedVideoAgentTestScript();
+    const scriptHash = hashFixedTestScript(fixedScript);
+    const initialRenderMeta = mergeJobRenderMeta(this.buildInitialJobRenderMeta(), {
+      isProductionTest: true,
+      testKind: 'VIDEO_AGENT',
+      useFixedTestScript: true,
+      testDurationSec: 10,
+      videoGenerationMode: 'VIDEO_AGENT',
+      generationModeUsed: 'VIDEO_AGENT',
+    });
+
+    const job = await this.prisma.aiInfluencerReelJob.create({
+      data: {
+        profileId: profile.id,
+        status: AiInfluencerReelJobStatus.SCRIPT_READY,
+        sourceType: 'ARTICLE',
+        isTest: true,
+        forceOverride: true,
+        estimatedDurationSec: fixedScript.estimatedDuration,
+        progressPercent: 25,
+        currentStep: 'Fixní test scénář připraven',
+        scriptJson: fixedScript as object,
+        scenesJson: fixedScript.scenes as object,
+        spokenText: fixedScript.spokenText,
+        spokenTextTts: fixedScript.spokenText,
+        captionTitle: fixedScript.captionTitle,
+        captionDescription: fixedScript.captionDescription,
+        hashtags: fixedScript.hashtags.join(' '),
+        scriptHash,
+        facebookPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        instagramPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        youtubePublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        renderSettingsJson: initialRenderMeta as object,
+        timelineEvents: appendTimelineEvent(null, 'TEST_JOB_CREATED', 'VIDEO_AGENT_FIXED_SCRIPT') as object,
+      },
+    });
+
+    void this.bootstrapCreatedJob(job.id);
+    return {
+      jobId: job.id,
+      status: job.status,
+      progressPercent: 25,
+      progressLabel: 'Fixní test scénář',
+      generationMode,
+      articleTitle: 'Video Agent test',
+      testKind: 'VIDEO_AGENT' as const,
+    };
+  }
+
+  async getLastProductionTestVerification(): Promise<{
+    status: 'VERIFIED' | 'UNVERIFIED' | 'FAILED';
+    jobId: string | null;
+    verifiedAt: string | null;
+    testKind: 'FULL' | 'VIDEO_AGENT' | null;
+  }> {
+    const lastPass = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: {
+        isTest: true,
+        OR: [
+          { finalMasterUrl: { not: null } },
+          { baseMasterUrl: { not: null } },
+          { videoUrl: { not: null } },
+        ],
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.READY,
+            AiInfluencerReelJobStatus.PUBLISHED,
+            AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+          ],
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, updatedAt: true, renderSettingsJson: true },
+    });
+    if (lastPass) {
+      const meta = readJobRenderMeta(lastPass.renderSettingsJson);
+      return {
+        status: 'VERIFIED',
+        jobId: lastPass.id,
+        verifiedAt: lastPass.updatedAt.toISOString(),
+        testKind: meta.testKind === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'FULL',
+      };
+    }
+
+    const lastFail = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: { isTest: true, status: AiInfluencerReelJobStatus.FAILED },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (lastFail) {
+      return { status: 'FAILED', jobId: lastFail.id, verifiedAt: null, testKind: null };
+    }
+
+    return { status: 'UNVERIFIED', jobId: null, verifiedAt: null, testKind: null };
   }
 
   async getActiveProductionTestJob() {
@@ -920,9 +1041,10 @@ export class AiInfluencerJobService {
     }
 
     const aiStatus = await this.openAi.getStatus();
-    if (!aiStatus.connected) {
-      throw Object.assign(new Error('AI provider pro scénář je vypnutý v nastavení.'), {
-        code: 'SCRIPT_PROVIDER_DISABLED',
+    const scriptProvider = getScriptProviderReadiness(aiStatus);
+    if (!scriptProvider.ready) {
+      throw Object.assign(new Error(scriptProvider.message), {
+        code: scriptProvider.code ?? 'SCRIPT_PROVIDER_DISABLED',
       });
     }
 
@@ -2299,15 +2421,20 @@ export class AiInfluencerJobService {
     };
   }
 
-  private async assertProductionReadyForNewJob(): Promise<void> {
+  private async assertProductionReadyForNewJob(options?: { requireScriptProvider?: boolean }): Promise<void> {
     const cfg = await this.settings.getSettings();
     const profile = await this.registry.getDefaultProfile();
-    const aiStatus = await this.openAi.getStatus();
-    if (!aiStatus.connected) {
-      throw new BadRequestException({
-        message: 'AI script provider není připraven.',
-        code: 'SCRIPT_PROVIDER_DISABLED',
-      });
+    const requireScriptProvider = options?.requireScriptProvider ?? true;
+
+    if (requireScriptProvider) {
+      const aiStatus = await this.openAi.getStatus();
+      const scriptProvider = getScriptProviderReadiness(aiStatus);
+      if (!scriptProvider.ready) {
+        throw new BadRequestException({
+          message: scriptProvider.message,
+          code: scriptProvider.code ?? 'SCRIPT_PROVIDER_DISABLED',
+        });
+      }
     }
 
     const [elevenReadiness, heygenReadiness, videoAgentReadiness] = await Promise.all([

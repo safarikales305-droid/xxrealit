@@ -32,6 +32,7 @@ import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import { getScriptProviderReadiness } from './ai-influencer-script-provider.util';
 import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import { aggregateAiInfluencerDashboardStats } from './ai-influencer-dashboard-stats.util';
 import {
@@ -68,6 +69,7 @@ export class AiInfluencerAdminController {
     const cfg = await this.settings.getSettings();
     const stats = await aggregateAiInfluencerDashboardStats(this.prisma);
     const providers = await this.getProviderStatus();
+    const productionVerification = await this.jobs.getLastProductionTestVerification();
 
     return {
       settings: cfg,
@@ -104,6 +106,7 @@ export class AiInfluencerAdminController {
         galleryVideos: stats.galleryVideos,
       },
       providers,
+      productionVerification,
     };
   }
 
@@ -511,8 +514,11 @@ export class AiInfluencerAdminController {
 
   @Post('test/production')
   @HttpCode(HttpStatus.ACCEPTED)
-  async testProduction(@Body() body?: { articleId?: string }) {
-    return this.jobs.createProductionTestJob({ articleId: body?.articleId });
+  async testProduction(@Body() body?: { articleId?: string; mode?: 'full' | 'video_agent' }) {
+    return this.jobs.createProductionTestJob({
+      articleId: body?.articleId,
+      mode: body?.mode ?? 'full',
+    });
   }
 
   @Get('test/production/active')
@@ -619,6 +625,7 @@ export class AiInfluencerAdminController {
     const cfg = await this.settings.getSettings();
 
     const aiConnected = aiDiag.connected === true;
+    const scriptProvider = getScriptProviderReadiness(aiDiag);
     const elevenConnected = elevenHealth.status === 'CONNECTED';
     const elevenVoiceSelected = elevenReadiness.voiceSelected;
     const elevenTtsReady =
@@ -639,6 +646,7 @@ export class AiInfluencerAdminController {
 
     const productionReady = production.ready;
     const readyReasons = production.reasons;
+    const productionVerification = await this.jobs.getLastProductionTestVerification();
 
     const publishReasons: string[] = [];
     if (!fb.ok) publishReasons.push('Facebook není připojen');
@@ -662,6 +670,9 @@ export class AiInfluencerAdminController {
         reason: productionReady ? null : readyReasons[0] ?? 'Není připraveno',
         reasons: readyReasons,
         productionReady,
+        productionVerified: productionVerification.status === 'VERIFIED',
+        productionVerificationStatus: productionVerification.status,
+        productionVerifiedAt: productionVerification.verifiedAt,
         productionMode: production.mode,
         elevenRequired: production.elevenRequired,
         aiRequiredForNewScripts: production.aiRequiredForNewScripts,
@@ -671,8 +682,10 @@ export class AiInfluencerAdminController {
       ai: {
         configured: aiDiag.configured,
         connected: aiConnected,
-        ready: aiConnected,
-        disabled: !aiConnected,
+        ready: scriptProvider.ready,
+        scriptProvider: scriptProvider.label,
+        disabled: !scriptProvider.ready,
+        message: scriptProvider.message,
       },
       elevenLabs: {
         configured: elevenHealth.apiKeyConfigured,

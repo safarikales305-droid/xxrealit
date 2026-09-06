@@ -37,6 +37,10 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
       o.qualityMetrics && typeof o.qualityMetrics === 'object' ?
         (o.qualityMetrics as Record<string, unknown>)
       : undefined,
+    isProductionTest: o.isProductionTest === true,
+    testDurationSec: typeof o.testDurationSec === 'number' ? o.testDurationSec : undefined,
+    testKind: o.testKind === 'FULL' || o.testKind === 'VIDEO_AGENT' ? o.testKind : undefined,
+    useFixedTestScript: o.useFixedTestScript === true,
   };
 }
 

@@ -350,6 +350,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
   const productionMode = dashboard?.providers.videoEngine?.videoGenerationMode ?? 'VIDEO_AGENT';
   const productionReady = dashboard?.providers.ready?.productionReady ?? dashboard?.providers.ready?.ready;
+  const productionVerified =
+    dashboard?.productionVerification?.status === 'VERIFIED' ||
+    dashboard?.providers.ready?.productionVerified === true;
+  const productionVerificationStatus =
+    dashboard?.productionVerification?.status ??
+    dashboard?.providers.ready?.productionVerificationStatus ??
+    'UNVERIFIED';
   const providers = dashboard?.providers;
 
   const handleRetry = (jobId: string) => {
@@ -478,9 +485,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   Aktivní režim: <strong>{modeLabel(productionMode)}</strong>
                 </p>
                 <p className="text-sm text-zinc-600">
-                  Status výroby:{' '}
+                  Konfigurace:{' '}
                   <strong className={productionReady ? 'text-emerald-700' : 'text-amber-700'}>
-                    {productionReady ? 'READY' : 'DEGRADED'}
+                    {productionReady ? 'CONFIGURED' : 'DEGRADED'}
+                  </strong>
+                </p>
+                <p className="text-sm text-zinc-600">
+                  Výroba:{' '}
+                  <strong className={productionVerified ? 'text-emerald-700' : 'text-amber-700'}>
+                    {productionVerified ? 'VERIFIED' : productionVerificationStatus === 'FAILED' ? 'FAILED' : 'UNVERIFIED'}
                   </strong>
                 </p>
               </div>
@@ -497,7 +510,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               </span>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <HealthChip label="AI" ok={providers?.ai?.connected === true} detail="OpenAI pro scénáře a storyboard." />
+              <HealthChip
+                label="Script AI"
+                ok={providers?.ai?.ready === true}
+                detail={providers?.ai?.message ?? 'OpenAI pro scénáře a storyboard.'}
+              />
               <HealthChip
                 label="Video Agent"
                 ok={providers?.videoEngine?.heygenVideoAgent === 'READY'}
@@ -1055,21 +1072,67 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">Test výroby videa</h2>
-            <p className="mt-1 text-xs text-zinc-500">Spustí skutečný test job (10–15 s) bez publikace.</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Oba testy používají stejnou produkční orchestraci v DB jobu. Bez publikace.
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 className="rounded bg-orange-600 px-3 py-1.5 text-sm font-medium text-white"
                 onClick={() => setTestModalOpen(true)}
               >
-                Test výroby videa
+                Test kompletní výroby
               </button>
               <button
                 type="button"
                 className="rounded border border-zinc-300 px-3 py-1.5 text-sm"
-                onClick={() => void nestAiInfluencerTestVideoAgent(apiAccessToken)}
+                disabled={productionTestBusy}
+                onClick={() => {
+                  setProductionTestBusy(true);
+                  void nestAiInfluencerStartProductionTest(apiAccessToken, { mode: 'video_agent' }).then(
+                    (result) => {
+                      setProductionTestBusy(false);
+                      if (result.error || !result.data) {
+                        setToast(result.error ?? 'Test Video Agentu selhal.');
+                        return;
+                      }
+                      setProductionTest({
+                        jobId: result.data.jobId,
+                        status: result.data.status,
+                        progress: {
+                          progressPercent: result.data.progressPercent,
+                          progressLabel: result.data.progressLabel,
+                          stage: 'SCRIPT',
+                          outcome: 'RUNNING',
+                        },
+                        masterVideoUrl: null,
+                        gallery: {
+                          masterVideoUrl: null,
+                          videoCreatedAt: null,
+                          masterCreatedAt: null,
+                          finishedAt: null,
+                          sceneCount: 0,
+                          backgroundVariationCount: null,
+                          galleryStatus: 'READY',
+                          durationFormatted: null,
+                          createdDateLabel: null,
+                          createdTimeLabel: null,
+                          createdCombinedLabel: null,
+                        },
+                        qualityReport: {},
+                        resolution: null,
+                        isTest: true,
+                        testKind: 'VIDEO_AGENT',
+                        createdAt: new Date().toISOString(),
+                        failedStage: null,
+                        errorCode: null,
+                        errorMessage: null,
+                      });
+                    },
+                  );
+                }}
               >
-                Rychlý HeyGen test
+                {productionTestBusy ? 'Spouštím…' : 'Test Video Agentu'}
               </button>
             </div>
 
@@ -1080,7 +1143,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     ? 'TEST VIDEO: PASS'
                     : productionTest.progress.outcome === 'FAIL'
                       ? 'TEST VIDEO: FAIL'
-                      : 'TESTUJI VÝROBU VIDEA'}
+                      : 'TEST PROBÍHÁ'}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Typ: {productionTest.testKind === 'VIDEO_AGENT' ? 'Video Agent (fixní scénář)' : 'Kompletní pipeline'}
                 </p>
                 {productionTest.progress.outcome === 'RUNNING' || productionTest.progress.outcome === 'QUALITY_REVIEW' ? (
                   <>
@@ -1094,6 +1160,21 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       />
                     </div>
                   </>
+                ) : null}
+                {productionTest.progress.outcome === 'FAIL' ? (
+                  <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                    <p>
+                      Fáze: <strong>{productionTest.failedStage ?? productionTest.progress.stage}</strong>
+                    </p>
+                    {productionTest.errorCode ? (
+                      <p className="mt-1">
+                        Error code: <code>{productionTest.errorCode}</code>
+                      </p>
+                    ) : null}
+                    {productionTest.errorMessage ? (
+                      <p className="mt-1">{productionTest.errorMessage}</p>
+                    ) : null}
+                  </div>
                 ) : null}
                 {productionTest.masterVideoUrl ? (
                   <div className="mt-4">
@@ -1357,7 +1438,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-zinc-900">TEST AI VIDEO</h3>
+              <h3 className="text-lg font-semibold text-zinc-900">Test kompletní výroby</h3>
               <button type="button" onClick={() => setTestModalOpen(false)} aria-label="Zavřít">
                 <X className="size-5 text-zinc-500" />
               </button>
@@ -1378,17 +1459,24 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   ))}
                 </select>
               </div>
-              <p className="text-sm text-zinc-600">Délka: 10–15 s · Použije aktuální nastavení · Bez publikace</p>
+              <p className="text-sm text-zinc-600">
+                AI scénář → storyboard → média → Video Agent → storage · 10–15 s · bez publikace
+              </p>
+              {providers?.ai?.ready === false ? (
+                <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Nelze spustit test – script provider není READY: {providers.ai.message}
+                </p>
+              ) : null}
               <button
                 type="button"
-                disabled={productionTestBusy}
+                disabled={productionTestBusy || providers?.ai?.ready === false}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setProductionTestBusy(true);
-                  void nestAiInfluencerStartProductionTest(
-                    apiAccessToken,
-                    testArticleId || undefined,
-                  ).then((result) => {
+                  void nestAiInfluencerStartProductionTest(apiAccessToken, {
+                    mode: 'full',
+                    articleId: testArticleId || undefined,
+                  }).then((result) => {
                     setProductionTestBusy(false);
                     if (result.error || !result.data) {
                       setToast(result.error ?? 'Test selhal.');
@@ -1421,11 +1509,16 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       qualityReport: {},
                       resolution: null,
                       isTest: true,
+                      testKind: 'FULL',
+                      createdAt: new Date().toISOString(),
+                      failedStage: null,
+                      errorCode: null,
+                      errorMessage: null,
                     });
                   });
                 }}
               >
-                {productionTestBusy ? 'Spouštím…' : 'Spustit test'}
+                {productionTestBusy ? 'Spouštím…' : 'Spustit test kompletní výroby'}
               </button>
             </div>
           </div>

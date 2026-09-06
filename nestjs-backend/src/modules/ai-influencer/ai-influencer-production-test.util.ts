@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AiInfluencerReelJobStatus } from '@prisma/client';
 import { buildGalleryVideoMeta, type GalleryVideoMeta } from './ai-influencer-video-gallery.util';
 import { resolveMasterVideoUrl } from './ai-influencer-job-status.util';
@@ -21,7 +22,36 @@ export type ProductionTestStatus = {
   qualityReport: Record<string, string>;
   resolution: string | null;
   isTest: true;
+  testKind: 'FULL' | 'VIDEO_AGENT';
+  createdAt: string;
+  failedStage: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
 };
+
+export function buildFixedVideoAgentTestScript(): ReelScriptPayload {
+  return {
+    hook: 'Vítejte na XXREALIT.',
+    intro: 'Vítejte na XXREALIT.',
+    segments: [{ text: 'Toto je test dynamického AI videa.' }],
+    spokenText: 'Vítejte na XXREALIT. Toto je test dynamického AI videa.',
+    captionTitle: 'Video Agent test',
+    captionDescription: 'Interní test Video Agent pipeline.',
+    cta: 'Více najdete na XXREALIT.CZ',
+    estimatedDuration: 10,
+    hashtags: ['#xxrealit', '#test'],
+    contentFormat: 'REALITNI_MINUTA',
+    scenes: [
+      { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Vítejte na XXREALIT.' },
+      { type: 'BROLL_FULL', start: 3, duration: 4, text: 'Toto je test dynamického AI videa.' },
+      { type: 'CTA', start: 7, duration: 3, text: 'Více na XXREALIT.CZ' },
+    ],
+  };
+}
+
+export function hashFixedTestScript(script: ReelScriptPayload): string {
+  return createHash('sha256').update(JSON.stringify(script)).digest('hex');
+}
 
 const TEST_PROGRESS_STAGES: Array<{ min: number; label: string; stage: string }> = [
   { min: 5, label: 'Zakládám job', stage: 'QUEUED' },
@@ -43,7 +73,12 @@ export function mapProductionTestProgress(input: {
   hasMasterVideo: boolean;
 }): ProductionTestProgress {
   if (input.status === 'FAILED' && input.errorCode !== 'QUALITY_REVIEW_REQUIRED') {
-    return { progressPercent: input.progressPercent, progressLabel: input.currentStep ?? 'Test selhal', stage: 'FAILED', outcome: 'FAIL' };
+    return {
+      progressPercent: input.progressPercent,
+      progressLabel: input.currentStep ?? 'Test selhal',
+      stage: 'FAILED',
+      outcome: 'FAIL',
+    };
   }
 
   if (input.status === 'FAILED' && input.errorCode === 'QUALITY_REVIEW_REQUIRED' && input.hasMasterVideo) {
@@ -114,6 +149,8 @@ export function buildProductionTestStatus(job: {
   progressPercent: number;
   currentStep?: string | null;
   errorCode?: string | null;
+  errorMessage?: string | null;
+  failedStage?: string | null;
   finalMasterUrl?: string | null;
   baseMasterUrl?: string | null;
   videoUrl?: string | null;
@@ -159,6 +196,11 @@ export function buildProductionTestStatus(job: {
     }),
     resolution: masterVideoUrl ? '1080x1920' : null,
     isTest: true,
+    testKind: meta.testKind === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'FULL',
+    createdAt: new Date(job.createdAt).toISOString(),
+    failedStage: job.failedStage ?? null,
+    errorCode: job.errorCode ?? null,
+    errorMessage: job.errorMessage ?? null,
   };
 }
 

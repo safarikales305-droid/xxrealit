@@ -98,6 +98,8 @@ export type AiInfluencerJobRenderMeta = {
   qualityMetrics?: Record<string, unknown>;
   isProductionTest?: boolean;
   testDurationSec?: number;
+  testKind?: 'FULL' | 'VIDEO_AGENT';
+  useFixedTestScript?: boolean;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'

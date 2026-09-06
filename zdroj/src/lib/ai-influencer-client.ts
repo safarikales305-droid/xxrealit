@@ -222,8 +222,19 @@ export type AiInfluencerDashboard = {
     autoPublishPortal: boolean;
   };
   providers: {
-    ready?: AiInfluencerReadyStatus;
-    ai?: { configured: boolean; connected: boolean | null };
+    ready?: AiInfluencerReadyStatus & {
+      productionVerified?: boolean;
+      productionVerificationStatus?: 'VERIFIED' | 'UNVERIFIED' | 'FAILED';
+      productionVerifiedAt?: string | null;
+    };
+    ai?: {
+      configured: boolean;
+      connected: boolean | null;
+      ready?: boolean;
+      scriptProvider?: 'READY' | 'CONFIGURED' | 'NOT_READY';
+      disabled?: boolean;
+      message?: string;
+    };
     elevenLabs?: ElevenLabsProviderStatus;
     heygen?: HeyGenProviderStatus;
     did?: { configured: boolean; connected: boolean | null; lastError?: string | null };
@@ -262,6 +273,12 @@ export type AiInfluencerDashboard = {
       providerElevenLabsApiKey: 'CONFIGURED' | 'MISSING';
       providerHeygenApiKey: 'CONFIGURED' | 'MISSING';
     };
+  };
+  productionVerification?: {
+    status: 'VERIFIED' | 'UNVERIFIED' | 'FAILED';
+    jobId: string | null;
+    verifiedAt: string | null;
+    testKind: 'FULL' | 'VIDEO_AGENT' | null;
   };
 };
 
@@ -768,6 +785,7 @@ export type ProductionTestStartResponse = {
   progressLabel: string;
   generationMode: 'VIDEO_AGENT' | 'AVATAR';
   articleTitle: string;
+  testKind?: 'FULL' | 'VIDEO_AGENT';
 };
 
 export type ProductionTestStatus = {
@@ -784,12 +802,23 @@ export type ProductionTestStatus = {
   qualityReport: Record<string, string>;
   resolution: string | null;
   isTest: true;
+  testKind: 'FULL' | 'VIDEO_AGENT';
+  createdAt: string;
+  failedStage: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
 };
 
-export function nestAiInfluencerStartProductionTest(token: string, articleId?: string) {
+export function nestAiInfluencerStartProductionTest(
+  token: string,
+  options?: { articleId?: string; mode?: 'full' | 'video_agent' },
+) {
   return aiInfluencerFetchAccepted<ProductionTestStartResponse>(token, '/test/production', {
     method: 'POST',
-    body: JSON.stringify(articleId ? { articleId } : {}),
+    body: JSON.stringify({
+      ...(options?.articleId ? { articleId: options.articleId } : {}),
+      ...(options?.mode ? { mode: options.mode } : {}),
+    }),
   });
 }
 
