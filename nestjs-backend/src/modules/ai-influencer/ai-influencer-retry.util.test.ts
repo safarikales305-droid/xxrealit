@@ -24,6 +24,17 @@ describe('resolveFailedStage', () => {
       'VIDEO_AGENT',
     );
   });
+
+  it('OpenAI disabled at evaluation maps to SCRIPT, not RENDER', () => {
+    assert.equal(
+      resolveFailedStage('RENDER', 'OpenAI je vypnuto v nastavení.', 'AI_PROVIDER_DISABLED'),
+      'SCRIPT',
+    );
+    assert.equal(
+      resolveFailedStage('RENDER', 'Není dostupný aktivní AI provider.', null),
+      'SCRIPT',
+    );
+  });
 });
 
 describe('resumeJobStatus', () => {

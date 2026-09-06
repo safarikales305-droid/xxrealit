@@ -85,7 +85,9 @@ function stageLabel(stage: string | null | undefined) {
     VOICE: 'Hlas',
     AVATAR: 'Avatar',
     RENDER: 'Render',
+    POST_PROCESSING: 'Post-processing',
     POSTPROCESS: 'Post-processing',
+    DOWNLOAD: 'Stahování',
     STORAGE: 'Storage',
     PUBLISH: 'Publikace',
     BRANDING_RENDER: 'Branding',
@@ -1164,7 +1166,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 {productionTest.progress.outcome === 'FAIL' ? (
                   <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
                     <p>
-                      Fáze: <strong>{productionTest.failedStage ?? productionTest.progress.stage}</strong>
+                      Fáze: <strong>{stageLabel(productionTest.failedStage ?? productionTest.progress.stage)}</strong>
                     </p>
                     {productionTest.errorCode ? (
                       <p className="mt-1">

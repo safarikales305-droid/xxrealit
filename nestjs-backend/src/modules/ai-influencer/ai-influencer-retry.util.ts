@@ -18,7 +18,16 @@ export function resolveFailedStage(
   const msg = (errorMessage ?? '').toLowerCase();
   const code = (errorCode ?? '').toUpperCase();
 
-  if (code === 'SCRIPT_PROVIDER_DISABLED' || code === 'OPENAI_DISABLED') {
+  if (
+    code === 'SCRIPT_PROVIDER_DISABLED' ||
+    code === 'OPENAI_DISABLED' ||
+    code === 'AI_PROVIDER_DISABLED' ||
+    code === 'SCRIPT_GENERATION_FAILED'
+  ) {
+    return 'SCRIPT';
+  }
+
+  if (/openai je vypnuto|není dostupný aktivní ai provider|ai provider není/i.test(msg)) {
     return 'SCRIPT';
   }
 

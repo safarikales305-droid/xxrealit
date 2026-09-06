@@ -4,6 +4,7 @@ import { buildGalleryVideoMeta, type GalleryVideoMeta } from './ai-influencer-vi
 import { resolveMasterVideoUrl } from './ai-influencer-job-status.util';
 import { readJobRenderMeta } from './ai-influencer-video-agent.util';
 import { runQualityGate } from './ai-influencer-quality-gate.util';
+import { resolveFailedStage } from './ai-influencer-retry.util';
 import type { ReelScenePlan, ReelScriptPayload } from './ai-influencer.types';
 
 export type ProductionTestProgress = {
@@ -30,21 +31,24 @@ export type ProductionTestStatus = {
 };
 
 export function buildFixedVideoAgentTestScript(): ReelScriptPayload {
+  const spokenText =
+    'Dobrý den, toto je test video systému XXREALIT. Ověřujeme obraz, hlas a vertikální formát videa.';
   return {
-    hook: 'Vítejte na XXREALIT.',
-    intro: 'Vítejte na XXREALIT.',
-    segments: [{ text: 'Toto je test dynamického AI videa.' }],
-    spokenText: 'Vítejte na XXREALIT. Toto je test dynamického AI videa.',
+    hook: 'Dobrý den, toto je test video systému XXREALIT.',
+    intro: 'Dobrý den, toto je test video systému XXREALIT.',
+    segments: [{ text: 'Ověřujeme obraz, hlas a vertikální formát videa.' }],
+    spokenText,
     captionTitle: 'Video Agent test',
     captionDescription: 'Interní test Video Agent pipeline.',
     cta: 'Více najdete na XXREALIT.CZ',
-    estimatedDuration: 10,
+    estimatedDuration: 12,
     hashtags: ['#xxrealit', '#test'],
     contentFormat: 'REALITNI_MINUTA',
     scenes: [
-      { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Vítejte na XXREALIT.' },
-      { type: 'BROLL_FULL', start: 3, duration: 4, text: 'Toto je test dynamického AI videa.' },
-      { type: 'CTA', start: 7, duration: 3, text: 'Více na XXREALIT.CZ' },
+      { type: 'AVATAR_FULL', start: 0, duration: 3, text: 'Dobrý den, toto je test video systému XXREALIT.' },
+      { type: 'BROLL_FULL', start: 3, duration: 3, text: 'Ověřujeme obraz a pozadí.' },
+      { type: 'AVATAR_FULL', start: 6, duration: 3, text: 'Ověřujeme hlas a vertikální formát videa.' },
+      { type: 'CTA', start: 9, duration: 3, text: 'Více na XXREALIT.CZ' },
     ],
   };
 }
@@ -198,7 +202,10 @@ export function buildProductionTestStatus(job: {
     isTest: true,
     testKind: meta.testKind === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'FULL',
     createdAt: new Date(job.createdAt).toISOString(),
-    failedStage: job.failedStage ?? null,
+    failedStage:
+      resolveFailedStage(job.failedStage ?? null, job.errorMessage, job.errorCode) ??
+      job.failedStage ??
+      null,
     errorCode: job.errorCode ?? null,
     errorMessage: job.errorMessage ?? null,
   };

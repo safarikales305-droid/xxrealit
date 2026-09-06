@@ -53,6 +53,11 @@ import {
   resolveJobTargetDurationSec,
 } from './ai-influencer-production-test.util';
 import { getScriptProviderReadiness } from './ai-influencer-script-provider.util';
+import {
+  extractPipelineErrorCode,
+  pipelineError,
+  resolvePipelineFailedStage,
+} from './ai-influencer-pipeline-stage.util';
 import { getElevenLabsRuntimeConfig } from './ai-influencer-runtime-config.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
@@ -96,15 +101,7 @@ type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
 }>;
 
 function errorCode(err: unknown): string | null {
-  if (err instanceof FfmpegRenderError) {
-    if (err.code === 'WATERMARK_FAILED') return 'WATERMARK_FAILED';
-    if (err.stage === 'BRANDING_RENDER') return err.code === 'BRANDING_RENDER_ERROR' ? 'BRANDING_FAILED' : err.code;
-    return err.code;
-  }
-  if (err && typeof err === 'object' && 'code' in err) {
-    return String((err as { code: unknown }).code);
-  }
-  return null;
+  return extractPipelineErrorCode(err);
 }
 
 function failedStageLabel(
@@ -112,33 +109,12 @@ function failedStageLabel(
   err: unknown,
   message: string,
 ): string {
-  if (err instanceof FfmpegRenderError) {
-    return err.stage === 'BRANDING_RENDER' ? 'BRANDING_RENDER' : 'RENDER';
-  }
-  if (/elevenlabs|eleven.?labs/i.test(message)) return 'VOICE';
-  if (stage === AiInfluencerReelJobStatus.VOICE_READY) {
-    if (/heygen|avatar|HEYGEN/i.test(message)) return 'AVATAR';
-  }
-  if (stage === AiInfluencerReelJobStatus.VOICE_GENERATING) return 'VOICE';
-  if (stage === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
-    if (/video agent|VIDEO_AGENT/i.test(message)) return 'AVATAR';
-    return 'AVATAR';
-  }
-  if (stage === AiInfluencerReelJobStatus.RENDERING) {
-    if (/branding|watermark|logo|drawtext|filter/i.test(message)) return 'BRANDING_RENDER';
-    return 'RENDER';
-  }
-  if (
-    stage === AiInfluencerReelJobStatus.SCRIPT_GENERATING ||
-    stage === AiInfluencerReelJobStatus.CANDIDATE
-  ) {
-    if (/voice|tts|hlas/i.test(message)) return 'VOICE';
-    return 'SCRIPT';
-  }
-  if (stage === AiInfluencerReelJobStatus.PUBLISHING) return 'PUBLISH';
-  if (/heygen|avatar/i.test(message)) return 'AVATAR';
-  if (/voice|tts|hlas/i.test(message)) return 'VOICE';
-  return 'RENDER';
+  return resolvePipelineFailedStage({
+    jobStatus: stage,
+    error: err,
+    message,
+    errorCode: extractPipelineErrorCode(err),
+  });
 }
 
 @Injectable()
@@ -842,9 +818,12 @@ export class AiInfluencerJobService {
         case AiInfluencerReelJobStatus.SCRIPT_GENERATING:
           await this.runScriptGeneration(jobId);
           return;
-        case AiInfluencerReelJobStatus.SCRIPT_READY:
-          if (this.settings.getCached().approvalMode !== 'MANUAL') {
-            const cfg = this.settings.getCached();
+        case AiInfluencerReelJobStatus.SCRIPT_READY: {
+          const meta = readJobRenderMeta(job.renderSettingsJson);
+          const cfg = this.settings.getCached();
+          const autoAdvance =
+            cfg.approvalMode !== 'MANUAL' || job.isTest || meta.isProductionTest === true;
+          if (autoAdvance) {
             const mode = resolveVideoGenerationMode(cfg);
             if (mode === 'VIDEO_AGENT') {
               await this.prisma.aiInfluencerReelJob.update({
@@ -861,6 +840,7 @@ export class AiInfluencerJobService {
             }
           }
           return;
+        }
         case AiInfluencerReelJobStatus.RENDERING:
           await this.runRender(jobId);
           return;
@@ -1043,9 +1023,11 @@ export class AiInfluencerJobService {
     const aiStatus = await this.openAi.getStatus();
     const scriptProvider = getScriptProviderReadiness(aiStatus);
     if (!scriptProvider.ready) {
-      throw Object.assign(new Error(scriptProvider.message), {
-        code: scriptProvider.code ?? 'SCRIPT_PROVIDER_DISABLED',
-      });
+      throw pipelineError(
+        scriptProvider.message,
+        scriptProvider.code ?? 'AI_PROVIDER_DISABLED',
+        'SCRIPT',
+      );
     }
 
     if (!existing.forceOverride && (await this.isDuplicateTopic(existing))) {
@@ -2421,6 +2403,49 @@ export class AiInfluencerJobService {
     };
   }
 
+  async checkProductionPreflight(options?: { requireScriptProvider?: boolean }): Promise<{
+    ok: boolean;
+    scriptProviderReady: boolean;
+    videoAgentReady: boolean;
+    storageReady: boolean;
+    reasons: string[];
+  }> {
+    const reasons: string[] = [];
+    const requireScriptProvider = options?.requireScriptProvider ?? true;
+    let scriptProviderReady = true;
+
+    if (requireScriptProvider) {
+      const aiStatus = await this.openAi.getStatus();
+      const scriptProvider = getScriptProviderReadiness(aiStatus);
+      scriptProviderReady = scriptProvider.ready;
+      if (!scriptProviderReady) {
+        reasons.push(scriptProvider.message);
+      }
+    }
+
+    const [videoAgentReadiness, storageDiag] = await Promise.all([
+      this.videoAgent.getReadiness(),
+      Promise.resolve(this.cloudinary.getDiagnostics()),
+    ]);
+    const videoAgentReady = videoAgentReadiness.available;
+    const storageReady = storageDiag.configured;
+
+    if (!videoAgentReady) {
+      reasons.push(videoAgentReadiness.message ?? 'Video Agent není připraven.');
+    }
+    if (!storageReady) {
+      reasons.push('Cloudinary storage není nakonfigurován.');
+    }
+
+    return {
+      ok: reasons.length === 0,
+      scriptProviderReady,
+      videoAgentReady,
+      storageReady,
+      reasons,
+    };
+  }
+
   private async assertProductionReadyForNewJob(options?: { requireScriptProvider?: boolean }): Promise<void> {
     const cfg = await this.settings.getSettings();
     const profile = await this.registry.getDefaultProfile();
@@ -2432,7 +2457,7 @@ export class AiInfluencerJobService {
       if (!scriptProvider.ready) {
         throw new BadRequestException({
           message: scriptProvider.message,
-          code: scriptProvider.code ?? 'SCRIPT_PROVIDER_DISABLED',
+          code: scriptProvider.code ?? 'AI_PROVIDER_DISABLED',
         });
       }
     }

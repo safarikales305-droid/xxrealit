@@ -8,7 +8,7 @@ export type ScriptProviderStatusInput = {
 export type ScriptProviderReadiness = {
   ready: boolean;
   label: 'READY' | 'CONFIGURED' | 'NOT_READY';
-  code?: 'SCRIPT_PROVIDER_DISABLED';
+  code?: 'SCRIPT_PROVIDER_DISABLED' | 'AI_PROVIDER_DISABLED';
   message: string;
 };
 
@@ -20,24 +20,24 @@ export function getScriptProviderReadiness(
     return {
       ready: false,
       label: 'NOT_READY',
-      code: 'SCRIPT_PROVIDER_DISABLED',
-      message: 'OpenAI je vypnuto v nastavení.',
+      code: 'AI_PROVIDER_DISABLED',
+      message: 'Není dostupný aktivní AI provider.',
     };
   }
   if (!input.configured) {
     return {
       ready: false,
       label: 'NOT_READY',
-      code: 'SCRIPT_PROVIDER_DISABLED',
-      message: 'Chybí OpenAI API klíč.',
+      code: 'AI_PROVIDER_DISABLED',
+      message: 'AI provider není nakonfigurován (chybí API klíč).',
     };
   }
   if (input.connected === false) {
     return {
       ready: false,
       label: 'NOT_READY',
-      code: 'SCRIPT_PROVIDER_DISABLED',
-      message: input.lastError?.trim() || 'Poslední test OpenAI selhal.',
+      code: 'AI_PROVIDER_DISABLED',
+      message: input.lastError?.trim() || 'Poslední test AI providera selhal.',
     };
   }
   if (input.connected === true) {

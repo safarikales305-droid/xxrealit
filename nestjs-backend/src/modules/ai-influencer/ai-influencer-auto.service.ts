@@ -80,6 +80,14 @@ export class AiInfluencerAutoService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const preflight = await this.jobs.checkProductionPreflight({ requireScriptProvider: true });
+      if (!preflight.ok) {
+        this.log.debug(
+          `AUTOMATION_SKIPPED_PROVIDER_NOT_READY: ${preflight.reasons.join('; ')}`,
+        );
+        return;
+      }
+
       const inFlight = await this.prisma.aiInfluencerReelJob.count({
         where: {
           status: {
