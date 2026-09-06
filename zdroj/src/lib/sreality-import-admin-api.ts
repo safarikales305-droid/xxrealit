@@ -38,9 +38,11 @@ export type SrealityImportPreviewResponse = {
     error?: string;
   }>;
   imageImportStats: {
+    found?: number;
     requested: number;
     downloaded: number;
     failed: number;
+    maxImagesLimit?: number;
     message: string;
   };
   aiText: {
@@ -58,6 +60,7 @@ export type SrealityImportPreviewResponse = {
     dynamicPage: string;
     gallery: string;
     galleryCount: number;
+    imagesSelectedCount?: number;
     imagesDownloaded: string;
     imagesDownloadedCount: number;
     imagesFailedCount: number;
@@ -73,6 +76,7 @@ export type SrealityImportPreviewResponse = {
     imageDownloadFailures?: Array<{
       index: number;
       host: string;
+      hostValidation?: 'PASS' | 'FAIL';
       httpStatus: number | null;
       contentType: string | null;
       responseLength: number | null;

@@ -8,6 +8,7 @@ import { PropertyMediaCloudinaryService } from '../properties/property-media-clo
 import { ProfileImagesService } from '../upload/profile-images.service';
 import { isProfileRemoteStorageConfigured } from '../upload/profile-media-storage.service';
 import { normalizeStoredImageUrl } from './import-image-urls';
+import { isAllowedSrealityImageUrl } from '../properties/sreality-import-security.util';
 import { srealityImageFetchHeaders } from '../properties/sreality-image.util';
 
 const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
@@ -32,15 +33,14 @@ function hostnameOf(url: string): string | null {
 export function shouldMirrorRealityImportedImageUrl(url: string): boolean {
   const n = normalizeStoredImageUrl(url);
   if (!n) return false;
+  if (isAllowedSrealityImageUrl(n)) return true;
   const h = hostnameOf(n);
   if (!h) return false;
   return (
     h === 'reality.cz' ||
     h.endsWith('.reality.cz') ||
     h.endsWith('century21.cz') ||
-    h.includes('igluu.cz') ||
-    h === 'sreality.cz' ||
-    h.endsWith('.sreality.cz')
+    h.includes('igluu.cz')
   );
 }
 

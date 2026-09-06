@@ -32,7 +32,12 @@ import {
   hasSrealityBrokerData,
   type SrealityBrokerPrefill,
 } from './sreality-broker-extract.util';
-import { isAllowedSrealityImageUrl } from './sreality-import-security.util';
+import {
+  isAllowedSrealityImageRedirectUrl,
+  isAllowedSrealityImageUrl,
+  SREALITY_IMPORT_MAX_IMAGES,
+  validateSrealityMediaUrl,
+} from './sreality-import-security.util';
 import {
   buildSrealityImageFetchCandidates,
   dedupeSrealityImageUrls,
@@ -56,7 +61,6 @@ import type { SrealityPrefillResult } from './listings-prefill.service';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MIN_IMAGE_BYTES = 12 * 1024;
-const MAX_IMAGES = 30;
 
 @Injectable()
 export class SrealityImportService {
@@ -143,6 +147,7 @@ export class SrealityImportService {
       dynamicPage: 'NOT_REQUIRED',
       gallery: imageUrls.length > 0 ? 'PASS' : 'FAIL',
       galleryCount: imageUrls.length,
+      imagesSelectedCount: 0,
       imagesDownloaded: 'FAIL',
       imagesDownloadedCount: 0,
       imagesFailedCount: 0,
@@ -216,6 +221,7 @@ export class SrealityImportService {
 
     diagnostics.imagesDownloadedCount = stats.downloaded;
     diagnostics.imagesFailedCount = stats.failed;
+    diagnostics.imagesSelectedCount = stats.requested;
     diagnostics.imagesDownloaded =
       stats.downloaded === stats.requested && stats.requested > 0
         ? 'PASS'
@@ -654,7 +660,8 @@ export class SrealityImportService {
     sourceListingUrl: string,
     storageKey: string,
   ): Promise<{ images: SrealityImportImageRow[]; stats: SrealityImageImportStats }> {
-    const unique = dedupeSrealityImageUrls(urls).slice(0, MAX_IMAGES);
+    const found = dedupeSrealityImageUrls(urls);
+    const unique = found.slice(0, SREALITY_IMPORT_MAX_IMAGES);
     const images: SrealityImportImageRow[] = [];
     const imageDownloadFailures: SrealityImageDownloadFailureDiag[] = [];
     let downloaded = 0;
@@ -663,16 +670,18 @@ export class SrealityImportService {
 
     for (let i = 0; i < unique.length; i += 1) {
       const sourceUrl = unique[i]!;
-      if (!isAllowedSrealityImageUrl(sourceUrl)) {
+      const mediaValidation = validateSrealityMediaUrl(sourceUrl);
+      if (!mediaValidation.allowed) {
         if (imageDownloadFailures.length < 3) {
           imageDownloadFailures.push({
             index: i + 1,
-            host: '—',
+            host: mediaValidation.host ?? '—',
+            hostValidation: mediaValidation.hostValidation,
             httpStatus: null,
             contentType: null,
             responseLength: null,
             redirectHost: null,
-            error: 'Neplatný hostitel',
+            error: mediaValidation.reason ?? 'Neplatný hostitel',
             urlSample: sanitizeUrlForDiagnostics(sourceUrl),
           });
         }
@@ -682,7 +691,7 @@ export class SrealityImportService {
           watermarkedUrl: null,
           sortOrder: i,
           isMain: false,
-          error: 'Neplatný hostitel',
+          error: mediaValidation.reason ?? 'Neplatný hostitel',
         });
         continue;
       }
@@ -746,17 +755,23 @@ export class SrealityImportService {
     }
 
     const failed = unique.length - downloaded;
+    const limitNote =
+      found.length > unique.length
+        ? `${found.length} fotografií nalezeno, ${unique.length} vybráno k importu (limit ${SREALITY_IMPORT_MAX_IMAGES}). `
+        : '';
     const stats: SrealityImageImportStats = {
+      found: found.length,
       requested: unique.length,
       downloaded,
       failed,
       uploaded,
       uploadAttempted,
+      maxImagesLimit: SREALITY_IMPORT_MAX_IMAGES,
       imageDownloadFailures: imageDownloadFailures.length ? imageDownloadFailures : undefined,
       message:
         failed > 0
-          ? `Staženo ${downloaded}/${unique.length} fotografií. ${failed} fotografií se nepodařilo stáhnout.`
-          : `Staženo ${downloaded}/${unique.length} fotografií.`,
+          ? `${limitNote}Staženo ${downloaded}/${unique.length} fotografií. ${failed} fotografií se nepodařilo stáhnout.`
+          : `${limitNote}Staženo ${downloaded}/${unique.length} fotografií.`,
     };
 
     return { images, stats };
@@ -794,17 +809,37 @@ export class SrealityImportService {
               }
             })()
           : null;
+        const finalUrl = res.request?.res?.responseUrl
+          ? String(res.request.res.responseUrl)
+          : candidate;
+        const candidateHost = (() => {
+          try {
+            return new URL(candidate).hostname;
+          } catch {
+            return '—';
+          }
+        })();
+
+        if (!isAllowedSrealityImageRedirectUrl(finalUrl)) {
+          lastDiag = {
+            index: index + 1,
+            host: candidateHost,
+            hostValidation: 'PASS',
+            httpStatus: res.status,
+            contentType: ct || null,
+            responseLength: buf.length || null,
+            redirectHost,
+            error: 'Redirect na nepovolený hostitel',
+            urlSample: sanitizeUrlForDiagnostics(candidate),
+          };
+          continue;
+        }
 
         if (res.status < 200 || res.status >= 300) {
           lastDiag = {
             index: index + 1,
-            host: (() => {
-              try {
-                return new URL(candidate).hostname;
-              } catch {
-                return '—';
-              }
-            })(),
+            host: candidateHost,
+            hostValidation: 'PASS',
             httpStatus: res.status,
             contentType: ct || null,
             responseLength: buf.length || null,
@@ -817,7 +852,8 @@ export class SrealityImportService {
         if (!ct.startsWith('image/')) {
           lastDiag = {
             index: index + 1,
-            host: new URL(candidate).hostname,
+            host: candidateHost,
+            hostValidation: 'PASS',
             httpStatus: res.status,
             contentType: ct || null,
             responseLength: buf.length || null,
@@ -830,7 +866,8 @@ export class SrealityImportService {
         if (buf.length < MIN_IMAGE_BYTES || buf.length > MAX_IMAGE_BYTES) {
           lastDiag = {
             index: index + 1,
-            host: new URL(candidate).hostname,
+            host: candidateHost,
+            hostValidation: 'PASS',
             httpStatus: res.status,
             contentType: ct,
             responseLength: buf.length,
@@ -845,7 +882,8 @@ export class SrealityImportService {
         if (!meta?.width || !meta?.height) {
           lastDiag = {
             index: index + 1,
-            host: new URL(candidate).hostname,
+            host: candidateHost,
+            hostValidation: 'PASS',
             httpStatus: res.status,
             contentType: ct,
             responseLength: buf.length,
@@ -876,6 +914,7 @@ export class SrealityImportService {
               return '—';
             }
           })(),
+          hostValidation: validateSrealityMediaUrl(candidate).hostValidation,
           httpStatus: null,
           contentType: null,
           responseLength: null,

@@ -268,7 +268,7 @@ export default function AdminSrealityImportPage() {
                   <dl className="mt-3 grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
                     <div><dt className="font-semibold">Source parser</dt><dd>{diagLabel(preview.diagnostics.sourceParser)}</dd></div>
                     <div><dt className="font-semibold">Dynamic page</dt><dd>{diagLabel(preview.diagnostics.dynamicPage)}</dd></div>
-                    <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND</dd></div>
+                    <div><dt className="font-semibold">Gallery</dt><dd>{diagLabel(preview.diagnostics.gallery)} · {preview.diagnostics.galleryCount} FOUND{preview.diagnostics.imagesSelectedCount ? ` · ${preview.diagnostics.imagesSelectedCount} SELECTED` : ''}</dd></div>
                     <div><dt className="font-semibold">Images</dt><dd>{diagLabel(preview.diagnostics.imagesDownloaded)} · {preview.diagnostics.imagesDownloadedCount} DOWNLOADED · {preview.diagnostics.imagesFailedCount} failed</dd></div>
                     <div><dt className="font-semibold">Agent</dt><dd>{diagLabel(preview.diagnostics.agent)}</dd></div>
                     <div><dt className="font-semibold">Phone</dt><dd>{diagLabel(preview.diagnostics.phone)}</dd></div>
@@ -284,6 +284,7 @@ export default function AdminSrealityImportPage() {
                         <div key={f.index} className="rounded border border-red-100 bg-red-50 p-2">
                           <p className="font-semibold">IMAGE #{f.index}</p>
                           <p>host: {f.host}</p>
+                          {f.hostValidation ? <p>host validation: {f.hostValidation}</p> : null}
                           <p>HTTP status: {f.httpStatus ?? '—'}</p>
                           <p>content-type: {f.contentType ?? '—'}</p>
                           <p>response length: {f.responseLength ?? '—'}</p>
