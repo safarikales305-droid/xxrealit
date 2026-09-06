@@ -27,8 +27,14 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     usedVideoAgentFallback: o.usedVideoAgentFallback === true,
     videoAgentMaster: o.videoAgentMaster === true,
     fallbackNotice: typeof o.fallbackNotice === 'string' ? o.fallbackNotice : undefined,
-    videoAgentSubmittedAt:
-      typeof o.videoAgentSubmittedAt === 'string' ? o.videoAgentSubmittedAt : undefined,
+    pronunciationRulesApplied:
+      Array.isArray(o.pronunciationRulesApplied) ?
+        (o.pronunciationRulesApplied as string[])
+      : undefined,
+    qualityMetrics:
+      o.qualityMetrics && typeof o.qualityMetrics === 'object' ?
+        (o.qualityMetrics as Record<string, unknown>)
+      : undefined,
   };
 }
 
@@ -82,4 +88,30 @@ export function videoAgentTimedOut(submittedAtIso: string | undefined, timeoutMs
 export function isVideoAgentErrorCode(code: string | null | undefined): boolean {
   if (!code) return false;
   return code.startsWith('HEYGEN_VIDEO_AGENT_');
+}
+
+export type JobGenerationArtifacts = {
+  voiceStorageUrl?: string | null;
+  avatarExternalJobId?: string | null;
+  baseMasterUrl?: string | null;
+};
+
+/** Odvodí generation mode u legacy jobů bez explicitního generationModeUsed. */
+export function inferJobGenerationMode(
+  meta: AiInfluencerJobRenderMeta,
+  settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
+  artifacts: JobGenerationArtifacts = {},
+): AiInfluencerVideoGenerationMode {
+  if (meta.usedVideoAgentFallback) return 'AVATAR';
+  if (meta.generationModeUsed === 'AVATAR' || meta.generationModeUsed === 'VIDEO_AGENT') {
+    return meta.generationModeUsed;
+  }
+  if (meta.videoGenerationMode === 'AVATAR' || meta.videoGenerationMode === 'VIDEO_AGENT') {
+    return meta.videoGenerationMode;
+  }
+  if (meta.videoAgentMaster || isVideoAgentExternalJobId(artifacts.avatarExternalJobId)) {
+    return 'VIDEO_AGENT';
+  }
+  if (artifacts.voiceStorageUrl && !meta.videoAgentMaster) return 'AVATAR';
+  return resolveVideoGenerationMode(settings);
 }

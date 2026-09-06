@@ -63,15 +63,15 @@ function avatarFrequencyInstruction(freq: BuildVideoAgentPromptInput['avatarFreq
 function styleInstruction(style: BuildVideoAgentPromptInput['videoStyle']): string {
   switch (style) {
     case 'real_estate_news':
-      return 'Style: Czech real-estate news moderator — credible, energetic, short sentences, news pacing.';
+      return 'Style: Czech real-estate news — credible social presenter, NOT corporate trainer or robotic newsreader. Short spoken sentences, natural pauses, direct eye contact.';
     case 'property_showcase':
-      return 'Style: property showcase reel — highlight photos, room transitions, lifestyle B-roll, confident presenter.';
+      return 'Style: property showcase Reel — highlight listing photos with jump cuts, room transitions, lifestyle B-roll, confident presenter between scenes.';
     case 'educational':
-      return 'Style: educational explainer — clear facts, calm confidence, helpful tone.';
+      return 'Style: educational explainer — clear facts, calm confidence, conversational Czech, not a lecture.';
     case 'dynamic_influencer':
-      return 'Style: social media real-estate influencer — conversational, natural gestures, subtle emotion, eye contact.';
+      return 'Style: modern TikTok/Reels real-estate influencer — energetic but credible, conversational, natural gestures, subtle emotion, jump-cut pacing.';
     default:
-      return 'Style: auto — choose the best real-estate social presenter tone for the content.';
+      return 'Style: natural social media real-estate presenter — confident, conversational, energetic but credible, short sentences, NOT corporate training video.';
   }
 }
 
@@ -110,8 +110,11 @@ export function buildHeyGenVideoAgentPrompt(input: BuildVideoAgentPromptInput): 
     input.settings.mentionBrandInScript ? `Mention brand "${brand}" naturally at least once.` : '',
     input.settings.useSubtitles ? 'Add readable Czech subtitles (1–2 lines, safe zones, do not cover face).' : '',
     input.settings.useLogo ? `Include subtle ${brand} branding/watermark.` : '',
-    'Presenter: confident, natural gestures, conversational delivery, social media presenter (not corporate training).',
-    'Alternate presenter scenes with property/news visuals. Use short dynamic scenes.',
+    'Presenter: natural social media presenter, modern real-estate influencer, confident, conversational, energetic but credible.',
+    'Delivery: short spoken Czech sentences (5–15 words), natural pauses, natural gestures, direct eye contact — NOT reading an article.',
+    'Editing: modern Reels/Shorts cut — mostly hard CUTs, occasional short crossfade; jump cuts on avatar between sentences; scene length 2–6s (hook 1.5–3s, CTA 3–5s).',
+    'Never keep the same avatar size, position, framing, or background for more than one short scene. Alternate full/medium/close, left/right, PIP, avatar-over-visual.',
+    'Vary backgrounds: interiors, city, office, listing photos, article images, thematic B-roll — NOT one static backdrop for the whole video.',
     'Scene plan:',
     ...sceneLines,
     mediaNote,

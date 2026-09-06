@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  inferJobGenerationMode,
   isVideoAgentExternalJobId,
   parseVideoAgentSessionId,
   resolveVideoGenerationMode,
@@ -18,5 +19,14 @@ describe('ai-influencer-video-agent.util', () => {
     const external = toVideoAgentExternalJobId(session);
     assert.ok(isVideoAgentExternalJobId(external));
     assert.equal(parseVideoAgentSessionId(external), session);
+  });
+
+  it('infers VIDEO_AGENT from external job id for legacy jobs', () => {
+    assert.equal(
+      inferJobGenerationMode({}, DEFAULT_AI_INFLUENCER_SETTINGS, {
+        avatarExternalJobId: 'va:legacy',
+      }),
+      'VIDEO_AGENT',
+    );
   });
 });

@@ -43,6 +43,7 @@ import {
   nestAiInfluencerTestYoutubeUpload,
   nestAiInfluencerYoutubeDisconnect,
   nestAiInfluencerTestVoice,
+  nestAiInfluencerTestPronunciation,
   nestAiInfluencerUpdateProfile,
   type AiInfluencerActiveJob,
   type AiInfluencerArticleRow,
@@ -733,6 +734,32 @@ export default function AiInfluencerPage() {
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
           >
             Otestovat hlas
+          </button>
+          <button
+            type="button"
+            disabled={!apiAccessToken || busy === 'pronunciation'}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setBusy('pronunciation');
+              setVoiceError(null);
+              void nestAiInfluencerTestPronunciation(
+                apiAccessToken,
+                'Více informací najdete na XXREALIT.CZ.',
+                selectedVoiceId || elevenLabs?.voiceId || undefined,
+              ).then((r) => {
+                if (r.error) {
+                  setVoiceError(r.error);
+                  setVoicePreview(null);
+                } else if (r.data?.previewUrl) {
+                  setVoicePreview(r.data.previewUrl);
+                  setVoiceError(null);
+                }
+                setBusy(null);
+              });
+            }}
+            className="rounded-lg border border-orange-300 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-50 disabled:opacity-50"
+          >
+            Test výslovnosti značky
           </button>
           <button
             type="button"

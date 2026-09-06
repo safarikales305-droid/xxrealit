@@ -377,6 +377,19 @@ export function nestAiInfluencerTestVoice(token: string, text?: string, voiceId?
   });
 }
 
+export function nestAiInfluencerTestPronunciation(token: string, text?: string, voiceId?: string) {
+  return aiInfluencerFetchWithError<{
+    ok: boolean;
+    displayText: string;
+    speechText: string;
+    previewUrl: string;
+    pronunciationRulesApplied: string[];
+  }>(token, '/test/pronunciation', {
+    method: 'POST',
+    body: JSON.stringify({ text, voiceId }),
+  });
+}
+
 async function aiInfluencerFetchWithError<T>(
   token: string,
   path: string,

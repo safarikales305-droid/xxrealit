@@ -90,6 +90,8 @@ export type AiInfluencerJobRenderMeta = {
   videoAgentMaster?: boolean;
   fallbackNotice?: string;
   videoAgentSubmittedAt?: string;
+  pronunciationRulesApplied?: string[];
+  qualityMetrics?: Record<string, unknown>;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'

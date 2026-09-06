@@ -28,13 +28,15 @@ import {
   type ProgressMeta,
 } from './ai-influencer-progress.util';
 import { resumeJobStatus, resolveFailedStage } from './ai-influencer-retry.util';
+import { OpenAiService } from '../openai/openai.service';
 import {
-  applyBrandTtsSubstitution,
   decodeHtmlEntities,
   ensureBrandMention,
   normalizeArticleTitle,
   titleSimilarity,
 } from './ai-influencer-text.util';
+import { prepareSpeechTextForProvider } from './ai-influencer-pronunciation.util';
+import { runQualityGate } from './ai-influencer-quality-gate.util';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
 import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
@@ -51,6 +53,7 @@ import {
   collectStoryboardMediaUrls,
 } from './heygen-video-agent-prompt.util';
 import {
+  inferJobGenerationMode,
   isActiveVideoAgentJob,
   isVideoAgentExternalJobId,
   mergeJobRenderMeta,
@@ -140,6 +143,7 @@ export class AiInfluencerJobService {
     private readonly heygen: HeyGenAvatarProvider,
     private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
+    private readonly openAi: OpenAiService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -405,6 +409,16 @@ export class AiInfluencerJobService {
         voiceStorageUrl: job.voiceStorageUrl,
         avatarStorageUrl: job.avatarStorageUrl,
         avatarExternalJobId: job.avatarExternalJobId,
+        baseMasterUrl: job.baseMasterUrl,
+        generationMode: inferJobGenerationMode(
+          readJobRenderMeta(job.renderSettingsJson),
+          this.settings.getCached(),
+          {
+            voiceStorageUrl: job.voiceStorageUrl,
+            avatarExternalJobId: job.avatarExternalJobId,
+            baseMasterUrl: job.baseMasterUrl,
+          },
+        ),
       },
       job.errorMessage,
       job.errorCode,
@@ -650,7 +664,17 @@ export class AiInfluencerJobService {
           data: { status: AiInfluencerReelJobStatus.SCRIPT_READY },
         });
       }
+      if (this.settings.getCached().approvalMode !== 'MANUAL') {
+        await this.advanceJob(jobId);
+      }
       return;
+    }
+
+    const aiStatus = await this.openAi.getStatus();
+    if (!aiStatus.connected) {
+      throw Object.assign(new Error('AI provider pro scénář je vypnutý v nastavení.'), {
+        code: 'SCRIPT_PROVIDER_DISABLED',
+      });
     }
 
     if (!existing.forceOverride && (await this.isDuplicateTopic(existing))) {
@@ -743,7 +767,8 @@ export class AiInfluencerJobService {
 
     const spokenWithBrand = ensureBrandMention(script.spokenText, cfg);
     script.spokenText = spokenWithBrand;
-    const spokenTextTts = applyBrandTtsSubstitution(spokenWithBrand, cfg);
+    const ttsPrepared = prepareSpeechTextForProvider(spokenWithBrand, 'ELEVENLABS', cfg);
+    const spokenTextTts = ttsPrepared.speechText;
 
     const storyboard = validateAndNormalizeStoryboard(script, cfg.targetDurationSec);
     script.scenes = storyboard.scenes;
@@ -759,7 +784,9 @@ export class AiInfluencerJobService {
     const renderMeta = mergeJobRenderMeta(job.renderSettingsJson, {
       videoGenerationMode: generationMode,
       generationModeUsed: generationMode,
+      pronunciationRulesApplied: ttsPrepared.rulesApplied,
     });
+    this.log.log(`Job ${jobId} script ready generationMode=${generationMode}`);
     const nextStatus =
       cfg.approvalMode === 'FULL_AUTO'
         ? generationMode === 'VIDEO_AGENT'
@@ -1623,17 +1650,38 @@ export class AiInfluencerJobService {
     this.cloudinary.assertConfigured();
 
     const job = await this.getJob(jobId);
+    const cfg = this.settings.getCached();
     const agentMeta = readJobRenderMeta(job.renderSettingsJson);
-    if (agentMeta.videoAgentMaster && job.baseMasterUrl?.trim()) {
+    const generationMode = inferJobGenerationMode(agentMeta, cfg, {
+      voiceStorageUrl: job.voiceStorageUrl,
+      avatarExternalJobId: job.avatarExternalJobId,
+      baseMasterUrl: job.baseMasterUrl,
+    });
+    this.log.log(`Job ${jobId} runRender generationMode=${generationMode}`);
+
+    const videoAgentMasterReady =
+      job.baseMasterUrl?.trim() &&
+      (agentMeta.videoAgentMaster ||
+        isActiveVideoAgentJob(agentMeta) ||
+        generationMode === 'VIDEO_AGENT');
+
+    if (videoAgentMasterReady) {
       await this.runVideoAgentPostProcess(jobId);
       return;
     }
 
-    if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
-      throw new Error('Chybí avatar nebo voice pro render.');
+    if (generationMode === 'VIDEO_AGENT') {
+      throw Object.assign(new Error('Video Agent master video chybí pro render.'), {
+        code: 'RENDER_INPUT_MISSING',
+      });
     }
 
-    const cfg = this.settings.getCached();
+    if (!job.avatarStorageUrl || !job.voiceStorageUrl) {
+      throw Object.assign(new Error('Chybí avatar nebo voice pro render (AVATAR fallback).'), {
+        code: 'RENDER_INPUT_MISSING',
+      });
+    }
+
     const renderSettings = this.buildRenderSettingsForJob(job, cfg);
     const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? [];
     const logoPath = cfg.logoEnabled ? resolveShortsLogoPath() : null;
@@ -1820,6 +1868,53 @@ export class AiInfluencerJobService {
     baseMasterUrl: string,
     result: { layoutUsed: string; validationWarnings: string[] },
   ): Promise<void> {
+    const cfg = this.settings.getCached();
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    const generationMode = inferJobGenerationMode(meta, cfg, {
+      voiceStorageUrl: job.voiceStorageUrl,
+      avatarExternalJobId: job.avatarExternalJobId,
+      baseMasterUrl: job.baseMasterUrl,
+    });
+    const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? [];
+    const pronunciationRules = meta.pronunciationRulesApplied ?? [];
+
+    const quality = runQualityGate({
+      scenes,
+      durationSec: job.estimatedDurationSec ?? cfg.targetDurationSec,
+      generationMode,
+      pronunciationRulesApplied: pronunciationRules,
+      spokenTextSample: job.spokenText,
+    });
+
+    const qualityMeta = mergeJobRenderMeta(job.renderSettingsJson, {
+      qualityMetrics: quality.metrics,
+      generationModeUsed: generationMode,
+    });
+
+    if (!quality.pass) {
+      const progress = progressForStatus(AiInfluencerReelJobStatus.FAILED);
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: job.id },
+        data: {
+          status: AiInfluencerReelJobStatus.FAILED,
+          failedStage: 'QUALITY',
+          errorCode: 'QUALITY_REVIEW_REQUIRED',
+          errorMessage: quality.failures.join('; '),
+          videoUrl: masterUrl,
+          finalMasterUrl: masterUrl,
+          baseMasterUrl,
+          renderSettingsJson: qualityMeta as object,
+          validationPassed: false,
+          validationErrors: quality.failures,
+          progressPercent: progress.percent,
+          currentStep: 'Quality gate — vyžaduje kontrolu',
+          timelineEvents: appendTimelineEvent(job.timelineEvents, 'QUALITY_GATE_FAILED'),
+        },
+      });
+      this.log.warn(`Job ${job.id} quality gate failed: ${quality.failures.join('; ')}`);
+      return;
+    }
+
     const timeline = appendTimelineEvent(
       appendTimelineEvent(job.timelineEvents, 'MASTER_COMPLETED', `layout=${result.layoutUsed}`),
       'VALIDATION_PASSED',
@@ -1834,7 +1929,7 @@ export class AiInfluencerJobService {
         finalMasterUrl: masterUrl,
         baseMasterUrl,
         renderPreset: renderSettings.preset,
-        renderSettingsJson: renderSettings as object,
+        renderSettingsJson: qualityMeta as object,
         validationPassed: true,
         validationErrors: result.validationWarnings.length ? result.validationWarnings : undefined,
         thumbnailUrl: job.thumbnailUrl ?? job.article?.ogImageUrl ?? job.property?.mainImage ?? job.property?.thumbnailUrl,

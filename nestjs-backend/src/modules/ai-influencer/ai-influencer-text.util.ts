@@ -38,15 +38,7 @@ export function titleSimilarity(a: string, b: string): number {
   return inter / Math.max(wa.size, wb.size);
 }
 
-export function applyBrandTtsSubstitution(
-  text: string,
-  settings: Pick<AiInfluencerAutomationSettings, 'brandDisplayName' | 'brandTtsPronunciation'>,
-): string {
-  const brand = settings.brandDisplayName || 'XXREALIT';
-  const pronunciation = settings.brandTtsPronunciation || 'iks iks realit';
-  const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(escaped, 'gi'), pronunciation);
-}
+export { applyBrandTtsSubstitution } from './ai-influencer-pronunciation.util';
 
 export function ensureBrandMention(
   spokenText: string,

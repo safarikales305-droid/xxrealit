@@ -38,6 +38,69 @@ export function isVisualSceneType(type: AiInfluencerSceneLayout): boolean {
   return VISUAL_SCENE_TYPES.includes(type);
 }
 
+export function minimumSceneCountForDuration(durationSec: number): number {
+  if (durationSec < 25) return Math.max(3, Math.ceil(durationSec / 5));
+  if (durationSec <= 35) return 5;
+  if (durationSec <= 50) return 7;
+  return 8;
+}
+
+function alternateSceneType(prev: AiInfluencerSceneLayout, index: number): AiInfluencerSceneLayout {
+  const pool: AiInfluencerSceneLayout[] = ['AVATAR_LEFT', 'AVATAR_RIGHT', 'IMAGE_FULL', 'BROLL_FULL', 'AVATAR_CIRCLE'];
+  const pick = pool[index % pool.length];
+  if (pick === prev) return pick === 'IMAGE_FULL' ? 'BROLL_FULL' : 'IMAGE_FULL';
+  return pick;
+}
+
+function fixConsecutiveSameTypes(scenes: ReelScenePlan[]): ReelScenePlan[] {
+  const out = scenes.map((s) => ({ ...s }));
+  let run = 1;
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].type === out[i - 1].type) {
+      run += 1;
+      if (run > 2) {
+        out[i].type = alternateSceneType(out[i - 1].type, i);
+        run = 1;
+      }
+    } else {
+      run = 1;
+    }
+  }
+  return out;
+}
+
+function expandSparseStoryboard(
+  scenes: ReelScenePlan[],
+  targetDurationSec: number,
+  script: Pick<ReelScriptPayload, 'hook' | 'cta' | 'spokenText'>,
+): ReelScenePlan[] {
+  const minCount = minimumSceneCountForDuration(targetDurationSec);
+  if (scenes.length >= minCount) return scenes;
+
+  const expanded = [...scenes];
+  const insertTypes: AiInfluencerSceneLayout[] = [
+    'BROLL_FULL',
+    'IMAGE_FULL',
+    'AVATAR_LEFT',
+    'AVATAR_RIGHT',
+    'STAT_CARD',
+  ];
+  let i = 0;
+  while (expanded.length < minCount) {
+    const at = Math.min(expanded.length - 1, Math.max(1, Math.floor(expanded.length / 2)));
+    const segDur = Math.min(5, Math.max(2, Math.round(targetDurationSec / minCount)));
+    expanded.splice(at, 0, {
+      start: 0,
+      duration: segDur,
+      type: insertTypes[i % insertTypes.length],
+      mediaQuery: i % 2 === 0 ? 'article cover' : 'property photo',
+      text: script.spokenText.slice(i * 40, i * 40 + 80) || script.hook,
+    });
+    i += 1;
+  }
+  return expanded;
+}
+
 export function normalizeSceneType(value: unknown): AiInfluencerSceneLayout {
   const v = String(value ?? 'AVATAR_FULL').trim().toUpperCase();
   if (v === 'AVATAR' || v === 'AVATAR_SCENE') return 'AVATAR_FULL';
@@ -159,15 +222,42 @@ export function validateAndNormalizeStoryboard(
     }
   }
 
-  const avatarScenes = normalized.filter((s) => isAvatarSceneType(s.type)).length;
-  if (avatarScenes === normalized.length) {
+  let expanded = expandSparseStoryboard(normalized, targetDurationSec, script);
+  if (expanded.length !== normalized.length) {
+    issues.push({
+      code: 'STORYBOARD_EXPANDED',
+      message: `Storyboard rozšířen na ${expanded.length} scén (min ${minimumSceneCountForDuration(targetDurationSec)}).`,
+    });
+  }
+  expanded = fixConsecutiveSameTypes(expanded);
+
+  let offset = 0;
+  for (const s of expanded) {
+    s.duration = Math.min(6, Math.max(s.type === 'CTA' ? 3 : 1.5, s.duration));
+    if (expanded[0] === s && isAvatarSceneType(s.type)) {
+      s.duration = Math.min(3, Math.max(1.5, s.duration));
+    }
+    s.start = Math.round(offset * 10) / 10;
+    offset += s.duration;
+  }
+
+  const avatarScenes = expanded.filter((s) => isAvatarSceneType(s.type)).length;
+  if (avatarScenes === expanded.length) {
     issues.push({
       code: 'STORYBOARD_MONOTONE',
       message: 'Storyboard obsahuje pouze avatar — doporučeno střídání vizuálů.',
     });
   }
 
-  return { ok: issues.every((i) => i.code !== 'STORYBOARD_INVALID'), scenes: normalized, issues };
+  const minScenes = minimumSceneCountForDuration(targetDurationSec);
+  if (expanded.length < minScenes) {
+    issues.push({
+      code: 'STORYBOARD_TOO_SHORT',
+      message: `Po normalizaci pouze ${expanded.length} scén (min ${minScenes}).`,
+    });
+  }
+
+  return { ok: issues.every((i) => i.code !== 'STORYBOARD_INVALID'), scenes: expanded, issues };
 }
 
 export function buildFallbackStoryboard(

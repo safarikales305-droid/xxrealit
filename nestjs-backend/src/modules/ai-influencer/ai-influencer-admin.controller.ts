@@ -29,6 +29,11 @@ import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
+import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import {
+  BRAND_PRONUNCIATION_TEST_SENTENCE,
+  prepareSpeechTextForProvider,
+} from './ai-influencer-pronunciation.util';
 import { storyboardPreviewRows } from './ai-influencer-storyboard.util';
 import type { ReelScenePlan } from './ai-influencer.types';
 
@@ -386,6 +391,7 @@ export class AiInfluencerAdminController {
 
   @Post('test/voice')
   async testVoice(@Body() body: { text?: string; voiceId?: string }) {
+    const settings = await this.settings.getSettings();
     const text =
       body.text?.trim() ||
       'Dobrý den, jsem virtuální redaktorka XXREALIT. Přináším vám novinky ze světa realit a bydlení.';
@@ -397,8 +403,9 @@ export class AiInfluencerAdminController {
       throw new BadRequestException('ElevenLabs je připojen. Nejprve vyberte hlas.');
     }
 
+    const prepared = prepareSpeechTextForProvider(text, 'ELEVENLABS', settings);
     const result = await this.elevenLabs.generateSpeech({
-      text,
+      text: prepared.speechText,
       voiceId,
       language: profile.language,
       speed: profile.voiceSpeed ?? undefined,
@@ -415,6 +422,41 @@ export class AiInfluencerAdminController {
       previewUrl: upload.url,
       durationSec: result.durationSec,
       costEstimatedCzk: result.costEstimatedCzk,
+      pronunciationRulesApplied: prepared.rulesApplied,
+    };
+  }
+
+  @Post('test/pronunciation')
+  async testPronunciation(@Body() body: { text?: string; voiceId?: string }) {
+    const settings = await this.settings.getSettings();
+    const profile = await this.registry.getDefaultProfile();
+    await this.elevenLabs.assertReadyForGeneration(body.voiceId || profile.voiceId);
+    const voiceId = body.voiceId || profile.voiceId || this.elevenLabs.resolveVoiceId(null);
+    if (!voiceId) {
+      throw new BadRequestException('ElevenLabs je připojen. Nejprve vyberte hlas.');
+    }
+    const displayText = body.text?.trim() || BRAND_PRONUNCIATION_TEST_SENTENCE;
+    const prepared = prepareSpeechTextForProvider(displayText, 'ELEVENLABS', settings);
+    const result = await this.elevenLabs.generateSpeech({
+      text: prepared.speechText,
+      voiceId,
+      language: profile.language,
+      speed: profile.voiceSpeed ?? undefined,
+      stability: profile.voiceStability ?? undefined,
+      style: profile.voiceStyle ?? undefined,
+    });
+    const upload = await this.cloudinary.uploadShortsMusicBuffer(
+      result.audioBuffer,
+      'ai-influencer-pronunciation-test.mp3',
+      result.mimeType,
+    );
+    return {
+      ok: true,
+      displayText,
+      speechText: prepared.speechText,
+      previewUrl: upload.url,
+      durationSec: result.durationSec,
+      pronunciationRulesApplied: prepared.rulesApplied,
     };
   }
 
@@ -555,6 +597,7 @@ export class AiInfluencerAdminController {
     ]);
     const heygenHealth = await this.heygen.getHealth(profile.avatarId);
     const storageDiag = this.cloudinary.getDiagnostics();
+    const cfg = await this.settings.getSettings();
 
     const aiConnected = aiDiag.connected === true;
     const elevenConnected = elevenHealth.status === 'CONNECTED';
@@ -565,23 +608,18 @@ export class AiInfluencerAdminController {
     const heygenConnected = heygenReadiness.status === 'CONNECTED' && heygenReadiness.apiKeyPresence === 'CONFIGURED';
     const heygenAvatarSelected = heygenReadiness.avatarSelected;
 
-    const productionReady =
-      aiConnected &&
-      elevenReadiness.ready &&
-      elevenTtsReady &&
-      heygenGenerationReady &&
-      storageDiag.configured;
+    const production = computeProductionReadiness({
+      settings: cfg,
+      storageConfigured: storageDiag.configured,
+      heygenReady: heygenGenerationReady,
+      videoAgentAvailable: videoAgentReadiness.available,
+      elevenReady: elevenReadiness.ready,
+      elevenTtsReady:
+        elevenHealth.ttsPermission === 'PASS' || elevenConnected || elevenReadiness.ready,
+    });
 
-    const readyReasons: string[] = [];
-    if (!aiConnected) readyReasons.push('AI provider není připojen');
-    if (!elevenReadiness.ready) readyReasons.push(elevenReadiness.message ?? 'ElevenLabs není připraven');
-    else if (!elevenTtsReady) readyReasons.push('ElevenLabs TTS není dostupné');
-    if (!heygenGenerationReady) {
-      readyReasons.push(heygenReadiness.message ?? 'HeyGen není připraven');
-    }
-    if (!storageDiag.configured) {
-      readyReasons.push(storageDiag.message ?? 'Chybí Cloudinary storage');
-    }
+    const productionReady = production.ready;
+    const readyReasons = production.reasons;
 
     const publishReasons: string[] = [];
     if (!fb.ok) publishReasons.push('Facebook není připojen');
@@ -590,7 +628,6 @@ export class AiInfluencerAdminController {
 
     const igTest = this.publish.formatInstagramTestResult(ig);
     const igPublishReady = igTest.status === 'READY';
-    const cfg = await this.settings.getSettings();
     const testOutcome = this.videoAgentTest.getLastTestOutcome();
     const videoAgentUiStatus = this.resolveVideoAgentUiStatus(videoAgentReadiness, testOutcome);
 
@@ -600,12 +637,17 @@ export class AiInfluencerAdminController {
         reason: productionReady ? null : readyReasons[0] ?? 'Není připraveno',
         reasons: readyReasons,
         productionReady,
+        productionMode: production.mode,
+        elevenRequired: production.elevenRequired,
+        aiRequiredForNewScripts: production.aiRequiredForNewScripts,
         publishReady: fb.ok && igPublishReady && yt.autoPublishReady,
         publishReasons,
       },
       ai: {
         configured: aiDiag.configured,
-        connected: aiDiag.connected,
+        connected: aiConnected,
+        ready: aiConnected,
+        disabled: !aiConnected,
       },
       elevenLabs: {
         configured: elevenHealth.apiKeyConfigured,

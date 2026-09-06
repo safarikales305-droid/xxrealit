@@ -11,12 +11,28 @@ describe('resolveFailedStage', () => {
     );
   });
 
-  it('ELEVENLABS error code maps to VOICE', () => {
-    assert.equal(resolveFailedStage('RENDER', 'selhalo', 'ELEVENLABS_NOT_CONFIGURED'), 'VOICE');
+  it('VIDEO_AGENT error code maps to VIDEO_AGENT stage', () => {
+    assert.equal(
+      resolveFailedStage('AVATAR', 'Video Agent selhal', 'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED'),
+      'VIDEO_AGENT',
+    );
   });
 });
 
 describe('resumeJobStatus', () => {
+  it('VIDEO_AGENT retry resumes at AVATAR_GENERATING when external id exists', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'VIDEO_AGENT',
+      {
+        avatarExternalJobId: 'va:session-1',
+        generationMode: 'VIDEO_AGENT',
+      },
+      'Video Agent processing failed',
+      'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED',
+    );
+    assert.equal(next, AiInfluencerReelJobStatus.AVATAR_GENERATING);
+  });
   it('retry od avataru bez externího jobu pokračuje od VOICE_READY', () => {
     const next = resumeJobStatus(AiInfluencerReelJobStatus.FAILED, 'AVATAR', {
       spokenText: 'text',
