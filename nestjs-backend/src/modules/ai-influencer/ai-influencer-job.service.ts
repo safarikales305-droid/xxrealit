@@ -66,6 +66,7 @@ import {
   resolvePipelineFailedStage,
 } from './ai-influencer-pipeline-stage.util';
 import { getElevenLabsRuntimeConfig } from './ai-influencer-runtime-config.util';
+import { HeyGenRuntimeConfigService } from './heygen-runtime-config.service';
 import { maskProviderJobId } from './heygen-video-agent-poll.util';
 import type { HeyGenVideoAgentPollResult } from './providers/heygen-video-agent.provider';
 import { resolveShortsLogoPath } from '../properties/shorts-overlay-assets';
@@ -149,6 +150,7 @@ export class AiInfluencerJobService {
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly openAi: OpenAiService,
     private readonly aiProvider: AiProviderService,
+    private readonly heygenConfig: HeyGenRuntimeConfigService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -478,19 +480,33 @@ export class AiInfluencerJobService {
     });
     const nextStatus =
       mode === 'VIDEO_AGENT'
-        ? AiInfluencerReelJobStatus.AVATAR_GENERATING
+        ? AiInfluencerReelJobStatus.SCRIPT_READY
         : AiInfluencerReelJobStatus.VOICE_GENERATING;
-    await this.prisma.aiInfluencerReelJob.update({
-      where: { id: jobId },
-      data: {
-        status: nextStatus,
-        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-          videoGenerationMode: mode,
-          generationModeUsed: mode,
-          voiceEngine: mode === 'VIDEO_AGENT' ? 'HEYGEN' : 'ELEVENLABS',
-        }) as object,
-      },
-    });
+    if (mode !== 'VIDEO_AGENT') {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          status: nextStatus,
+          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+            videoGenerationMode: mode,
+            generationModeUsed: mode,
+            voiceEngine: 'ELEVENLABS',
+          }) as object,
+        },
+      });
+    } else {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+            videoGenerationMode: mode,
+            generationModeUsed: mode,
+            voiceEngine: 'HEYGEN',
+            providerJobType: 'VIDEO_AGENT',
+          }) as object,
+        },
+      });
+    }
     await this.advanceJobChain(jobId, 6);
     return this.getJob(jobId);
   }
@@ -639,6 +655,10 @@ export class AiInfluencerJobService {
       isProductionTest: true,
       testKind: 'FULL',
       testDurationSec: 12,
+      videoGenerationMode: generationMode,
+      generationModeUsed: generationMode,
+      voiceEngine: generationMode === 'VIDEO_AGENT' ? 'HEYGEN' : 'ELEVENLABS',
+      providerJobType: generationMode === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'AVATAR',
     });
 
     const job = await this.prisma.aiInfluencerReelJob.create({
@@ -1638,7 +1658,17 @@ export class AiInfluencerJobService {
     return getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
   }
 
-  private async maybeRunVideoAgentFallback(jobId: string, reason: string): Promise<boolean> {
+  private async maybeRunVideoAgentFallback(
+    jobId: string,
+    reason: string,
+    errorCode?: string | null,
+  ): Promise<boolean> {
+    if (
+      errorCode === 'HEYGEN_NOT_CONFIGURED' ||
+      /heygen_api_key|heygen api.*není nakonfigurován/i.test(reason)
+    ) {
+      return false;
+    }
     const cfg = this.settings.getCached();
     if (!cfg.allowVideoAgentFallback || !this.canUseElevenLabsFallback()) {
       return false;
@@ -1702,16 +1732,25 @@ export class AiInfluencerJobService {
 
     const readiness = await this.videoAgent.getReadiness();
     if (!readiness.available) {
-      if (await this.maybeRunVideoAgentFallback(jobId, readiness.message ?? 'HeyGen Video Agent není dostupný.')) {
+      if (
+        await this.maybeRunVideoAgentFallback(
+          jobId,
+          readiness.message ?? 'HeyGen Video Agent není dostupný.',
+          readiness.apiKeyPresence === 'MISSING' ? 'HEYGEN_NOT_CONFIGURED' : 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
+        )
+      ) {
         return;
       }
       throw Object.assign(new Error(readiness.message ?? 'HeyGen Video Agent není dostupný.'), {
-        code: 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
+        code:
+          readiness.apiKeyPresence === 'MISSING'
+            ? 'HEYGEN_NOT_CONFIGURED'
+            : 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
         pipelineStage: 'VIDEO_AGENT',
       });
     }
 
-    await this.heygen.assertReadyForGeneration(job.profile.avatarId);
+    this.heygenConfig.assertApiKeyConfigured('VIDEO_AGENT');
     const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);
     const script = job.scriptJson as ReelScriptPayload | null;
     if (!script?.spokenText) throw Object.assign(new Error('Chybí scénář pro Video Agent.'), { code: 'STORYBOARD_INVALID' });

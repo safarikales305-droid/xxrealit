@@ -29,16 +29,13 @@ export function getRendererRuntimeReadiness(): {
 export function resolveVideoAgentCanonicalReady(input: {
   videoAgentAvailable: boolean;
   heygenApiKeyPresence: EnvPresence;
-  heygenGenerationReady: boolean;
+  heygenGenerationReady?: boolean;
 }): { ready: boolean; message: string | null } {
   if (input.heygenApiKeyPresence === 'MISSING') {
     return { ready: false, message: 'HEYGEN_API_KEY není nakonfigurován.' };
   }
   if (!input.videoAgentAvailable) {
     return { ready: false, message: 'HeyGen Video Agent není dostupný.' };
-  }
-  if (!input.heygenGenerationReady) {
-    return { ready: false, message: 'HeyGen avatar není připraven pro Video Agent.' };
   }
   return { ready: true, message: null };
 }
@@ -69,10 +66,19 @@ export function buildProviderRuntimeDiagnostics(input: {
   });
   const videoAgent = resolveVideoAgentCanonicalReady({
     videoAgentAvailable: input.videoAgentAvailable,
-    heygenApiKeyPresence: input.heygenApiKeyPresence,
+    heygenApiKeyPresence: heygenRuntime.apiKeyPresence,
     heygenGenerationReady: input.heygenGenerationReady,
   });
-
+  const heygenConfig = {
+    apiProcess: heygenRuntime.apiKeyPresence,
+    workerProcess: worker.heygenApiKey,
+    providerService: heygenRuntime.apiKeyPresence,
+    videoAgentService: heygenRuntime.apiKeyPresence,
+    avatarFallbackService: heygenRuntime.apiKeyPresence,
+    generationMode: input.generationMode,
+    currentProvider: 'HEYGEN' as const,
+    avatarFallbackUsed: input.generationMode === 'AVATAR' ? 'CONFIGURED' : 'NOT_USED',
+  };
   return {
     openAi: {
       status: input.openAiUsable ? 'READY' : input.openAiConfigured ? 'NOT_READY' : 'MISSING',
@@ -104,6 +110,7 @@ export function buildProviderRuntimeDiagnostics(input: {
       apiKey: heygenRuntime.apiKeyPresence,
       workerApiKey: worker.heygenApiKey,
     },
+    heygenConfig,
     renderer: {
       status: renderer.ready ? 'READY' : 'NOT_READY',
       ffmpeg: renderer.configured ? 'CONFIGURED' : 'MISSING',

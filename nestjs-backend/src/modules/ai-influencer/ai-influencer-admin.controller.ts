@@ -800,6 +800,7 @@ export class AiInfluencerAdminController {
         detailMessage: heygenReadiness.message ?? heygenHealth.detailMessage ?? null,
         videoAgentStatus: videoAgentUiStatus,
         videoAgentMessage: videoAgentReadiness.message,
+        config: providerDiagnostics.heygenConfig,
       },
       videoEngine: {
         mode: cfg.videoGenerationMode === 'AVATAR' ? 'Jednoduchý avatar' : 'Dynamické AI video',

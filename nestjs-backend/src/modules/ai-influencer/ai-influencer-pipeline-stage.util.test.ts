@@ -52,4 +52,13 @@ describe('resolvePipelineFailedStage', () => {
     );
     assert.match(msg, /OPENAI_API_KEY/i);
   });
+
+  it('maps HEYGEN_NOT_CONFIGURED during Video Agent to VIDEO_AGENT stage', () => {
+    const stage = resolvePipelineFailedStage({
+      jobStatus: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+      message: 'HEYGEN_API_KEY není nakonfigurován.',
+      errorCode: 'HEYGEN_NOT_CONFIGURED',
+    });
+    assert.equal(stage, 'VIDEO_AGENT');
+  });
 });

@@ -45,7 +45,11 @@ export function resolveFailedStage(
     return 'VIDEO_AGENT';
   }
 
-  if (code === 'HEYGEN_AVATAR_JOB_ID_MISSING' || (/heygen|avatar provider|avatar není/i.test(msg) && !/video agent/i.test(msg)) || (code.startsWith('HEYGEN_') && !code.startsWith('HEYGEN_VIDEO_AGENT_'))) {
+  if (code === 'HEYGEN_NOT_CONFIGURED') {
+    return 'VIDEO_AGENT';
+  }
+
+  if (code === 'HEYGEN_AVATAR_JOB_ID_MISSING' || (/heygen|avatar provider|avatar není/i.test(msg) && !/video agent/i.test(msg)) || (code.startsWith('HEYGEN_') && !code.startsWith('HEYGEN_VIDEO_AGENT_') && code !== 'HEYGEN_NOT_CONFIGURED')) {
     return 'AVATAR';
   }
 

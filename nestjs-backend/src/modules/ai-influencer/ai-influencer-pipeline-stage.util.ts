@@ -126,6 +126,11 @@ export function resolvePipelineFailedStage(input: {
     return 'VIDEO_AGENT';
   }
 
+  if (code === 'HEYGEN_NOT_CONFIGURED') {
+    if (input.jobStatus === AiInfluencerReelJobStatus.VOICE_READY) return 'AVATAR';
+    return 'VIDEO_AGENT';
+  }
+
   if (
     code.startsWith('ELEVENLABS_') ||
     /elevenlabs|eleven.?labs/i.test(msg) ||
@@ -134,7 +139,7 @@ export function resolvePipelineFailedStage(input: {
     return 'VOICE';
   }
 
-  if (/heygen|avatar provider|avatar není/i.test(msg) || code.startsWith('HEYGEN_')) {
+  if (/heygen|avatar provider|avatar není/i.test(msg) || (code.startsWith('HEYGEN_') && !code.startsWith('HEYGEN_VIDEO_AGENT_') && code !== 'HEYGEN_NOT_CONFIGURED')) {
     return 'AVATAR';
   }
 

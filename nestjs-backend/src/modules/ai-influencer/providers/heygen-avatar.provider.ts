@@ -1,11 +1,8 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DEFAULT_AVATAR_COST_PER_SEC_CZK } from '../ai-influencer.constants';
-import {
-  getHeyGenRuntimeConfig,
-  readRuntimeEnvWithAliases,
-} from '../ai-influencer-runtime-config.util';
+import { pipelineError } from '../ai-influencer-pipeline-stage.util';
+import { HeyGenRuntimeConfigService } from '../heygen-runtime-config.service';
 import type {
   AvatarGenerateInput,
   AvatarGenerateStartResult,
@@ -75,10 +72,10 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   readonly providerId = 'heygen';
   private readonly log = new Logger(HeyGenAvatarProvider.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly heygenConfig: HeyGenRuntimeConfigService) {}
 
   onModuleInit() {
-    const runtime = getHeyGenRuntimeConfig();
+    const runtime = this.heygenConfig.getConfig();
     const avatarSelected = this.isAvatarSelected();
     this.log.log(`[AI Influencer] HEYGEN_API_KEY: ${runtime.apiKeyPresence}`);
     this.log.log(
@@ -87,15 +84,15 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   }
 
   private get apiKey(): string | undefined {
-    return getHeyGenRuntimeConfig().apiKey;
+    return this.heygenConfig.getApiKey();
   }
 
   private get defaultAvatarId(): string | undefined {
-    return getHeyGenRuntimeConfig().avatarId;
+    return this.heygenConfig.getConfig().avatarId;
   }
 
   isApiKeyConfigured(): boolean {
-    return getHeyGenRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    return this.heygenConfig.isApiKeyConfigured();
   }
 
   isAvatarSelected(profileAvatarId?: string | null): boolean {
@@ -183,17 +180,16 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   }
 
   async assertReadyForGeneration(profileAvatarId?: string | null): Promise<void> {
+    this.heygenConfig.assertApiKeyConfigured('AVATAR');
     const readiness = await this.getGenerationReadiness(profileAvatarId);
     if (readiness.ready) return;
     const code =
-      readiness.apiKeyPresence === 'MISSING'
-        ? 'HEYGEN_NOT_CONFIGURED'
-        : readiness.status === 'INVALID_API_KEY'
-          ? 'HEYGEN_AUTH_FAILED'
-          : !readiness.avatarSelected
-            ? 'HEYGEN_AVATAR_NOT_SELECTED'
-            : 'HEYGEN_NOT_READY';
-    throw Object.assign(new Error(readiness.message ?? 'HeyGen není připraven.'), { code });
+      readiness.status === 'INVALID_API_KEY'
+        ? 'HEYGEN_AUTH_FAILED'
+        : !readiness.avatarSelected
+          ? 'HEYGEN_AVATAR_NOT_SELECTED'
+          : 'HEYGEN_NOT_READY';
+    throw pipelineError(readiness.message ?? 'HeyGen není připraven.', code, 'AVATAR');
   }
 
   async testConnection(): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
@@ -292,13 +288,15 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   }
 
   async startGeneration(input: AvatarGenerateInput): Promise<AvatarGenerateStartResult> {
-    const apiKey = this.apiKey;
+    this.heygenConfig.assertApiKeyConfigured('AVATAR');
+    const apiKey = this.apiKey!;
     const avatarId = input.avatarId || this.resolveAvatarId(null);
-    if (!apiKey) {
-      throw new Error('HEYGEN_API_KEY není nakonfigurován.');
-    }
     if (!avatarId) {
-      throw new Error('HeyGen je připojen, ale není vybrán avatar.');
+      throw pipelineError(
+        'HeyGen je připojen, ale není vybrán avatar.',
+        'HEYGEN_AVATAR_NOT_SELECTED',
+        'AVATAR',
+      );
     }
 
     const width = input.width ?? 1080;
@@ -372,8 +370,8 @@ export class HeyGenAvatarProvider implements AvatarProvider, OnModuleInit {
   }
 
   async pollGeneration(externalJobId: string): Promise<AvatarPollResult> {
-    const apiKey = this.apiKey;
-    if (!apiKey) throw new Error('HEYGEN_API_KEY není nakonfigurován.');
+    this.heygenConfig.assertApiKeyConfigured('AVATAR');
+    const apiKey = this.apiKey!;
 
     const res = await fetch(
       `https://api.heygen.com/v1/video_status.get?video_id=${encodeURIComponent(externalJobId)}`,

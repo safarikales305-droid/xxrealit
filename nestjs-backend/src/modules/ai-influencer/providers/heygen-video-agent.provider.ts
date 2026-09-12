@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { getHeyGenRuntimeConfig } from '../ai-influencer-runtime-config.util';
+import { HeyGenRuntimeConfigService } from '../heygen-runtime-config.service';
+import { pipelineError } from '../ai-influencer-pipeline-stage.util';
 import type { VideoAgentMediaFile } from '../heygen-video-agent-prompt.util';
 import {
   mapHeyGenHttpErrorCode,
@@ -50,12 +51,14 @@ export class HeyGenVideoAgentProvider {
   readonly providerId = 'heygen-video-agent';
   private readonly log = new Logger(HeyGenVideoAgentProvider.name);
 
+  constructor(private readonly heygenConfig: HeyGenRuntimeConfigService) {}
+
   private get apiKey(): string | undefined {
-    return getHeyGenRuntimeConfig().apiKey;
+    return this.heygenConfig.getApiKey();
   }
 
   async getReadiness(): Promise<HeyGenVideoAgentReadiness> {
-    const runtime = getHeyGenRuntimeConfig();
+    const runtime = this.heygenConfig.getConfig();
     if (runtime.apiKeyPresence === 'MISSING') {
       return {
         available: false,
@@ -102,13 +105,8 @@ export class HeyGenVideoAgentProvider {
     input: HeyGenVideoAgentStartInput,
     options?: { timeoutMs?: number },
   ): Promise<HeyGenVideoAgentStartResult> {
-    const apiKey = this.apiKey;
-    if (!apiKey) {
-      throw Object.assign(new Error('HEYGEN_API_KEY není nakonfigurován.'), {
-        code: 'HEYGEN_NOT_CONFIGURED',
-        pipelineStage: 'VIDEO_AGENT',
-      });
-    }
+    this.heygenConfig.assertApiKeyConfigured('VIDEO_AGENT');
+    const apiKey = this.apiKey!;
 
     const payload: Record<string, unknown> = {
       prompt: input.prompt,
