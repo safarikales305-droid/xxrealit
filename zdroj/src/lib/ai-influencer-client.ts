@@ -283,6 +283,12 @@ export type AiInfluencerDashboard = {
       fallback: 'READY' | 'NOT READY';
       selectedAvatarId?: string | null;
     };
+    activePipeline?: {
+      mode: 'VIDEO_AGENT' | 'AVATAR';
+      voiceEngine: string;
+      elevenLabsRequired: boolean;
+      steps: string[];
+    };
     workerRuntime?: {
       service: string;
       railwayServiceHint: string;
@@ -452,6 +458,8 @@ export type AiInfluencerJobRow = {
   isTest?: boolean;
   renderedAt?: string | null;
   postId?: string | null;
+  providerJobIdMasked?: string | null;
+  canReconcileHeyGen?: boolean;
 };
 
 export type ShortsMusicOption = {
@@ -517,6 +525,28 @@ export function nestAiInfluencerApproveScript(token: string, jobId: string) {
 
 export function nestAiInfluencerRetryJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
+export type HeyGenReconcileResult = {
+  ok: boolean;
+  outcome:
+    | 'RECOVERED'
+    | 'RUNNING'
+    | 'ALREADY_ARCHIVED'
+    | 'NO_PROVIDER_JOB'
+    | 'PROVIDER_FAILED'
+    | 'PROVIDER_RUNNING';
+  providerJobId: string | null;
+  providerStatus?: string;
+  masterVideoUrl?: string | null;
+  message?: string;
+  errorCode?: string;
+};
+
+export function nestAiInfluencerReconcileHeyGen(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<HeyGenReconcileResult>(token, `/jobs/${jobId}/reconcile-heygen`, {
+    method: 'POST',
+  });
 }
 
 export function nestAiInfluencerAcceptUnbranded(token: string, jobId: string) {

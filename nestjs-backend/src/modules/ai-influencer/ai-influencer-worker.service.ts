@@ -23,6 +23,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   private readonly log = new Logger(AiInfluencerWorkerService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private tickCount = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -139,6 +140,16 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
         } catch (err) {
           this.log.warn(
             `AI influencer job ${row.id} tick failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+
+      this.tickCount += 1;
+      if (this.tickCount % 4 === 0) {
+        const reconcile = await this.jobs.reconcilePendingHeyGenJobs(5);
+        if (reconcile.recovered > 0) {
+          this.log.log(
+            `[AI Influencer] HeyGen reconcile recovered ${reconcile.recovered}/${reconcile.scanned} jobs`,
           );
         }
       }

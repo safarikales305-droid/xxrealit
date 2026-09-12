@@ -5,6 +5,12 @@ import {
   mapHeyGenHttpErrorCode,
   parseHeyGenVideoAgentSubmitResponse,
 } from '../heygen-video-agent-response.util';
+import {
+  extractHeyGenSessionStatus,
+  extractHeyGenVideoId,
+  extractHeyGenVideoUrl,
+  normalizeHeyGenSessionStatus,
+} from '../heygen-video-agent-poll.util';
 
 export type HeyGenVideoAgentStartInput = {
   prompt: string;
@@ -181,70 +187,53 @@ export class HeyGenVideoAgentProvider {
       };
     }
 
-    const json = JSON.parse(parsed.rawBody || '{}') as {
-      data?: {
-        status?: string;
-        video_id?: string | null;
-        video_url?: string | null;
-        output_url?: string | null;
-        url?: string | null;
-        failure_code?: string;
-        failure_message?: string;
-      };
-      status?: string;
-      video_id?: string | null;
-      video_url?: string | null;
-      output_url?: string | null;
-      url?: string | null;
-      failure_code?: string;
-      failure_message?: string;
-    };
-    const data = json.data ?? json;
-    const sessionStatus = String(data.status ?? '').toLowerCase();
-    const videoId = data.video_id?.trim() || null;
-    const sessionVideoUrl =
-      data.video_url?.trim() || data.output_url?.trim() || data.url?.trim() || null;
+    const json = JSON.parse(parsed.rawBody || '{}') as Record<string, unknown>;
+    const sessionStatusRaw = extractHeyGenSessionStatus(json);
+    const sessionStatus = normalizeHeyGenSessionStatus(sessionStatusRaw);
+    const videoId = extractHeyGenVideoId(json);
+    const sessionVideoUrl = extractHeyGenVideoUrl(json);
 
-    if (sessionStatus === 'failed' || sessionStatus === 'error') {
+    if (sessionStatus === 'failed') {
+      const data =
+        json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : json;
       return {
         status: 'FAILED',
-        sessionStatus,
+        sessionStatus: sessionStatusRaw,
         videoId,
         errorCode: 'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED',
-        errorMessage: data.failure_message || data.failure_code || 'Video Agent session failed',
+        errorMessage:
+          (typeof data.failure_message === 'string' ? data.failure_message : null) ||
+          (typeof data.failure_code === 'string' ? data.failure_code : null) ||
+          'Video Agent session failed',
       };
     }
 
-    if (
-      sessionStatus === 'completed' ||
-      sessionStatus === 'complete' ||
-      sessionStatus === 'success'
-    ) {
+    if (sessionStatus === 'completed') {
       if (sessionVideoUrl) {
         return {
           status: 'READY',
-          sessionStatus,
+          sessionStatus: sessionStatusRaw,
           videoId,
           videoUrl: sessionVideoUrl,
         };
       }
     }
 
-    if (sessionStatus === 'completed' || sessionStatus === 'generating' || videoId) {
+    if (sessionStatus === 'completed' || sessionStatus === 'processing' || videoId) {
       if (!videoId) {
-        return { status: 'PROCESSING', sessionStatus, videoId: null };
+        return { status: 'PROCESSING', sessionStatus: sessionStatusRaw, videoId: null };
       }
       const video = await this.pollVideo(videoId);
-      if (video.status === 'READY') return { ...video, sessionStatus, videoId };
-      if (video.status === 'FAILED') return { ...video, sessionStatus, videoId };
-      return { status: 'GENERATING', sessionStatus, videoId };
+      if (video.status === 'READY') return { ...video, sessionStatus: sessionStatusRaw, videoId };
+      if (video.status === 'FAILED') return { ...video, sessionStatus: sessionStatusRaw, videoId };
+      return { status: 'GENERATING', sessionStatus: sessionStatusRaw, videoId };
     }
 
-    if (sessionStatus === 'queued' || sessionStatus === 'pending') {
-      return { status: 'QUEUED', sessionStatus, videoId };
+    if (sessionStatus === 'queued') {
+      return { status: 'QUEUED', sessionStatus: sessionStatusRaw, videoId };
     }
 
-    return { status: 'PROCESSING', sessionStatus, videoId };
+    return { status: 'PROCESSING', sessionStatus: sessionStatusRaw, videoId };
   }
 
   async pollVideo(videoId: string): Promise<HeyGenVideoAgentPollResult> {
@@ -257,20 +246,12 @@ export class HeyGenVideoAgentProvider {
       };
     }
 
-    const json = JSON.parse(parsed.rawBody || '{}') as {
-      data?: {
-        status?: string;
-        video_url?: string;
-        duration?: number;
-        failure_code?: string;
-        failure_message?: string;
-      };
-    };
-    const data = json.data ?? {};
-    const status = String(data.status ?? '').toLowerCase();
+    const json = JSON.parse(parsed.rawBody || '{}') as Record<string, unknown>;
+    const statusRaw = extractHeyGenSessionStatus(json);
+    const status = normalizeHeyGenSessionStatus(statusRaw);
 
-    if (status === 'completed' || status === 'complete' || status === 'success') {
-      const videoUrl = data.video_url?.trim();
+    if (status === 'completed') {
+      const videoUrl = extractHeyGenVideoUrl(json);
       if (!videoUrl) {
         return {
           status: 'FAILED',
@@ -278,6 +259,8 @@ export class HeyGenVideoAgentProvider {
           errorMessage: 'Video Agent completed without video_url',
         };
       }
+      const data =
+        json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : json;
       return {
         status: 'READY',
         videoId,
@@ -286,16 +269,21 @@ export class HeyGenVideoAgentProvider {
       };
     }
 
-    if (status === 'failed' || status === 'error') {
+    if (status === 'failed') {
+      const data =
+        json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : json;
       return {
         status: 'FAILED',
         videoId,
         errorCode: 'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED',
-        errorMessage: data.failure_message || data.failure_code || 'Video render failed',
+        errorMessage:
+          (typeof data.failure_message === 'string' ? data.failure_message : null) ||
+          (typeof data.failure_code === 'string' ? data.failure_code : null) ||
+          'Video render failed',
       };
     }
 
-    if (status === 'pending' || status === 'waiting' || status === 'queued') {
+    if (status === 'queued') {
       return { status: 'QUEUED', videoId };
     }
 

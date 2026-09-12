@@ -205,6 +205,16 @@ export class AiInfluencerAdminController {
     return this.jobs.retryJob(id);
   }
 
+  @Post('jobs/:id/reconcile-heygen')
+  reconcileHeyGenJob(@Param('id') id: string) {
+    return this.jobs.reconcileHeyGenJob(id);
+  }
+
+  @Get('jobs/:id/heygen-diagnostics')
+  heygenJobDiagnostics(@Param('id') id: string) {
+    return this.jobs.getHeyGenJobDiagnostics(id);
+  }
+
   @Post('jobs/:id/accept-unbranded')
   acceptUnbranded(@Param('id') id: string) {
     return this.jobs.acceptUnbrandedMaster(id);
@@ -802,6 +812,20 @@ export class AiInfluencerAdminController {
         heygenVideoAgentMessage: videoAgentReadiness.message,
         fallback: heygenGenerationReady ? 'READY' : 'NOT READY',
         selectedAvatarId: heygenHealth.avatarId,
+      },
+      activePipeline: {
+        mode: production.mode,
+        voiceEngine:
+          production.mode === 'VIDEO_AGENT' && !production.elevenRequired
+            ? 'HeyGen built-in'
+            : production.elevenRequired
+              ? 'ElevenLabs'
+              : 'HeyGen built-in',
+        elevenLabsRequired: production.elevenRequired,
+        steps:
+          production.mode === 'VIDEO_AGENT'
+            ? ['OpenAI', 'HeyGen Video Agent', 'Download', 'Renderer', 'Storage', 'Galerie', 'Publikace']
+            : ['OpenAI', 'ElevenLabs', 'Avatar', 'Renderer', 'Storage', 'Galerie', 'Publikace'],
       },
       renderer: {
         configured: rendererReadiness.configured,

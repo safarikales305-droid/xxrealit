@@ -93,6 +93,14 @@ export function mapProductionTestProgress(input: {
   testKind?: 'FULL' | 'VIDEO_AGENT';
 }): ProductionTestProgress {
   if (input.status === 'FAILED' && input.errorCode !== 'QUALITY_REVIEW_REQUIRED') {
+    if (input.hasMasterVideo) {
+      return {
+        progressPercent: 100,
+        progressLabel: 'Video uloženo',
+        stage: 'DONE',
+        outcome: 'PASS',
+      };
+    }
     return {
       progressPercent: input.progressPercent,
       progressLabel: input.currentStep ?? 'Test selhal',

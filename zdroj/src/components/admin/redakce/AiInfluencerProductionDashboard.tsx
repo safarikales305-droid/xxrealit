@@ -28,6 +28,7 @@ import {
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerReconcileHeyGen,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestFacebook,
   nestAiInfluencerTestInstagram,
@@ -482,6 +483,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     });
   };
 
+  const handleReconcileHeyGen = (jobId: string) => {
+    setBusy(`reconcile-${jobId}`);
+    void nestAiInfluencerReconcileHeyGen(apiAccessToken, jobId).then((result) => {
+      setBusy(null);
+      if (result.error || !result.data) {
+        setToast(result.error ?? 'Synchronizace HeyGen selhala.');
+        return;
+      }
+      setToast(result.data.message ?? `HeyGen sync: ${result.data.outcome}`);
+      void loadCore();
+    });
+  };
+
   const handleDelete = (jobId: string, historyOnly = false) => {
     if (!window.confirm(historyOnly ? 'Odstranit pouze z historie?' : 'Odstranit tento neúspěšný pokus?')) return;
     setBusy(`delete-${jobId}`);
@@ -646,13 +660,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <HealthChip
                 label="Voice"
                 ok={
-                  productionMode === 'VIDEO_AGENT' ||
+                  !providers?.activePipeline?.elevenLabsRequired ||
                   providers?.elevenLabs?.ttsReady === true ||
                   providers?.elevenLabs?.status === 'CONNECTED'
                 }
                 detail={
-                  productionMode === 'VIDEO_AGENT'
-                    ? 'ElevenLabs není vyžadován pro Video Agent režim.'
+                  !providers?.activePipeline?.elevenLabsRequired
+                    ? `Voice: ${providers?.activePipeline?.voiceEngine ?? 'HeyGen built-in'}`
                     : providers?.elevenLabs?.detailMessage ?? 'ElevenLabs TTS pro avatar pipeline.'
                 }
               />
@@ -1020,7 +1034,20 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       {job.errorMessage && job.errorKind === 'LEGACY_STALE' ? <p>{job.errorMessage}</p> : null}
                     </details>
                   ) : null}
+                  {job.providerJobIdMasked ? (
+                    <p className="mt-1 text-xs text-zinc-600">HeyGen job: {job.providerJobIdMasked}</p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {job.canReconcileHeyGen ? (
+                      <button
+                        type="button"
+                        disabled={busy === `reconcile-${job.id}`}
+                        className="rounded bg-emerald-700 px-3 py-1 text-xs font-medium text-white"
+                        onClick={() => handleReconcileHeyGen(job.id)}
+                      >
+                        {busy === `reconcile-${job.id}` ? 'Synchronizuji…' : 'Dovést video z HeyGen'}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={busy === `retry-${job.id}`}
@@ -1069,6 +1096,23 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <p className="mt-2 text-xs text-zinc-500">
               Režim: {modeLabel(productionMode)} · Max/den: {dashboard?.settings.maxPerDay ?? 5}
             </p>
+            {providers?.activePipeline ? (
+              <div className="mt-4 rounded-lg border border-zinc-100 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold text-zinc-800">Aktivní pipeline</p>
+                <p className="mt-1 text-xs text-zinc-600">
+                  Voice: {providers.activePipeline.voiceEngine}
+                  {providers.activePipeline.elevenLabsRequired ? '' : ' · ElevenLabs optional'}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1 text-[11px] text-zinc-700">
+                  {providers.activePipeline.steps.map((step, index) => (
+                    <span key={step} className="inline-flex items-center gap-1">
+                      {index > 0 ? <span className="text-zinc-400">↓</span> : null}
+                      <span className="rounded bg-white px-2 py-0.5 shadow-sm">{step}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
