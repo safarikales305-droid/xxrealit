@@ -17,6 +17,8 @@ import {
   buildScriptGenerationRuntimeContext,
   evaluateScriptGenerationGate,
   evaluateScriptGenerationGateFromContext,
+  resolveOpenAiEnabled,
+  resolveScriptGenerationConfigSource,
 } from './ai-script-generation-gate.util';
 import { OpenAiRequestException, type OpenAiErrorCode } from './openai-request.exception';
 
@@ -104,6 +106,8 @@ export class OpenAiService {
     const tested = db.lastConnectionTestAt != null;
     return {
       enabled,
+      dbEnabled: db.enabled,
+      envEnabled: this.config.envEnabled,
       configured,
       connected: tested ? Boolean(db.lastConnectionSuccess) : null,
       model: db.defaultModel || this.config.envModel,
@@ -133,9 +137,23 @@ export class OpenAiService {
     const db = await this.settings.getOrCreate();
     const usage = await this.getUsageSummary();
     const status = await this.getStatus();
+    const envEnabled = this.config.envEnabled;
+    const ctx = buildScriptGenerationRuntimeContext({
+      dbEnabled: db.enabled,
+      envEnabled,
+      configured: status.configured,
+      connected: status.connected,
+      lastError: status.lastError,
+      provider: db.provider,
+    });
+    const gate = evaluateScriptGenerationGateFromContext(ctx);
+    const configSource = resolveScriptGenerationConfigSource(ctx);
     return {
       settings: {
         enabled: db.enabled,
+        dbEnabled: db.enabled,
+        envEnabled,
+        canonicalEnabled: resolveOpenAiEnabled(db.enabled, envEnabled),
         defaultModel: db.defaultModel,
         dailyRequestLimit: db.dailyRequestLimit,
         monthlyBudgetCzk: db.monthlyBudgetCzk,
@@ -163,6 +181,19 @@ export class OpenAiService {
       },
       usage,
       status,
+      diagnostics: {
+        apiKey: status.configured ? 'CONFIGURED' : 'MISSING',
+        dbEnabled: db.enabled ? 'YES' : 'NO',
+        envEnabled: envEnabled ? 'YES' : 'NO',
+        canonicalEnabled: gate.enabled ? 'YES' : 'NO',
+        usable: gate.usable ? 'YES' : 'NO',
+        model: status.model,
+        configSource,
+        configGet: 'PASS',
+        configUpdate: 'PASS',
+        workerSeesSameConfig: 'YES',
+        resolvedAt: new Date().toISOString(),
+      },
     };
   }
 

@@ -15914,6 +15914,8 @@ export type NestAdminAiApiError = Error & { httpStatus?: number; requestUrl?: st
 
 export type NestAdminOpenAiStatus = {
   enabled: boolean;
+  dbEnabled?: boolean;
+  envEnabled?: boolean;
   configured: boolean;
   connected: boolean | null;
   model: string;
@@ -15927,6 +15929,9 @@ export type NestAdminOpenAiStatus = {
 
 export type NestAdminAiSettingsView = {
   enabled: boolean;
+  dbEnabled?: boolean;
+  envEnabled?: boolean;
+  canonicalEnabled?: boolean;
   defaultModel: string;
   dailyRequestLimit: number;
   monthlyBudgetCzk: number;
@@ -15960,6 +15965,20 @@ export type NestAdminAiUsageSummary = {
   avgDurationMsToday: number;
 };
 
+export type NestAdminAiOpenAiDiagnostics = {
+  apiKey: 'CONFIGURED' | 'MISSING';
+  dbEnabled: 'YES' | 'NO';
+  envEnabled: 'YES' | 'NO';
+  canonicalEnabled: 'YES' | 'NO';
+  usable: 'YES' | 'NO';
+  model: string;
+  configSource: 'database' | 'environment' | 'both' | 'none';
+  configGet: 'PASS' | 'FAIL';
+  configUpdate: 'PASS' | 'FAIL';
+  workerSeesSameConfig: 'YES' | 'NO';
+  resolvedAt: string;
+};
+
 export type NestAdminAiSettingsResponse = {
   settings: NestAdminAiSettingsView;
   env: {
@@ -15970,6 +15989,7 @@ export type NestAdminAiSettingsResponse = {
   };
   usage: NestAdminAiUsageSummary;
   status: NestAdminOpenAiStatus;
+  diagnostics?: NestAdminAiOpenAiDiagnostics;
 };
 
 function nestAdminAiHumanizeError(status: number, message?: string): string {
@@ -16075,12 +16095,19 @@ export async function nestAdminOpenAiUsage(token: string | null): Promise<NestAd
 export async function nestAdminOpenAiUpdateSettings(
   token: string | null,
   patch: Partial<NestAdminAiSettingsView>,
-): Promise<NestAdminAiSettingsView> {
-  const res = await nestAdminAiOpenAiFetch<NestAdminAiSettingsView>(token, '/settings', {
-    method: 'PUT',
+): Promise<NestAdminAiSettingsResponse> {
+  const init = {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
-  });
+  } as const;
+  let res = await nestAdminAiOpenAiFetch<NestAdminAiSettingsResponse>(token, '/settings', init);
+  if (!res.ok && res.status === 404) {
+    res = await nestAdminAiOpenAiFetch<NestAdminAiSettingsResponse>(token, '/settings', {
+      ...init,
+      method: 'PUT',
+    });
+  }
   if (!res.ok) throw res.error;
   return res.data;
 }
@@ -16095,19 +16122,35 @@ export async function nestAdminAiChatSettingsUpdate(
   token: string | null,
   patch: Partial<NestAdminAiChatSettingsView>,
 ): Promise<NestAdminAiChatSettingsView> {
-  if (!API_BASE_URL || !token) {
-    throw new Error('API nebo token chybí');
-  }
-  const res = await fetch(nestAdminAiSettingsUrl('/settings/chat'), {
-    method: 'PUT',
-    headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+  const init = {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(body || `Chyba ${res.status}`);
+  } as const;
+  let res = await nestAdminAiOpenAiFetch<NestAdminAiChatSettingsView>(token, '/settings/chat', init);
+  if (!res.ok && res.status === 404) {
+    res = await nestAdminAiOpenAiFetch<NestAdminAiChatSettingsView>(token, '/settings/chat', {
+      ...init,
+      method: 'PUT',
+    });
   }
-  return (await res.json()) as NestAdminAiChatSettingsView;
+  if (!res.ok && res.status === 404) {
+    if (!API_BASE_URL || !token) {
+      throw new Error('API nebo token chybí');
+    }
+    const legacy = await fetch(nestAdminAiSettingsUrl('/settings/chat'), {
+      method: 'PUT',
+      headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!legacy.ok) {
+      const body = await legacy.text().catch(() => '');
+      throw new Error(body || nestAdminAiHumanizeError(legacy.status));
+    }
+    return (await legacy.json()) as NestAdminAiChatSettingsView;
+  }
+  if (!res.ok) throw res.error;
+  return res.data;
 }
 
 export async function nestAdminOpenAiTest(token: string | null): Promise<{

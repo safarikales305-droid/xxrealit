@@ -36,9 +36,17 @@ export class OpenAiAdminController {
 
   @Patch('settings')
   @Put('settings')
-  updateSettings(@Body() body: UpdateAiSettingsDto) {
+  async updateSettings(@Body() body: UpdateAiSettingsDto) {
     this.log.log('PUT/PATCH /admin/ai/openai/settings');
-    return this.settings.update(body);
+    await this.settings.update(body);
+    return this.openai.getSettingsView();
+  }
+
+  @Patch('settings/chat')
+  @Put('settings/chat')
+  updateChatSettings(@Body() body: UpdateAiChatSettingsDto) {
+    this.log.log('PUT/PATCH /admin/ai/openai/settings/chat');
+    return this.settings.updateChatSettings(body);
   }
 
   @Post('test')

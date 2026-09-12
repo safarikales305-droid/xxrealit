@@ -52,4 +52,25 @@ describe('script generation gate alignment (preflight = worker)', () => {
     assert.equal(gate.usable, true);
     assert.equal(gate.enabled, true);
   });
+
+  it('persisted enabled=true keeps canonical gate enabled without env fallback', () => {
+    const before = buildScriptGenerationRuntimeContext({
+      dbEnabled: false,
+      envEnabled: false,
+      configured: true,
+      connected: true,
+    });
+    assert.equal(evaluateScriptGenerationGateFromContext(before).enabled, false);
+
+    const after = buildScriptGenerationRuntimeContext({
+      dbEnabled: true,
+      envEnabled: false,
+      configured: true,
+      connected: true,
+    });
+    const gate = evaluateScriptGenerationGateFromContext(after);
+    assert.equal(gate.enabled, true);
+    assert.equal(gate.usable, true);
+    assert.equal(gate.ready, true);
+  });
 });
