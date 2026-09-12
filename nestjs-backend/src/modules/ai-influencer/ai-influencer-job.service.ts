@@ -86,6 +86,8 @@ import {
 } from './heygen-video-agent-prompt.util';
 import {
   inferJobGenerationMode,
+  isAvatarFallbackAllowed,
+  getJobSnapshotGenerationMode,
   isActiveVideoAgentJob,
   isVideoAgentExternalJobId,
   mergeJobRenderMeta,
@@ -196,8 +198,9 @@ export class AiInfluencerJobService {
     });
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    const heygenConfigured = this.heygenConfig.isApiKeyConfigured();
     return active.map((j) => {
-      const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured });
+      const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured, heygenConfigured });
       const meta = readJobRenderMeta(j.renderSettingsJson);
       const testLabel =
         j.isTest && meta.testKind === 'VIDEO_AGENT'
@@ -659,6 +662,7 @@ export class AiInfluencerJobService {
       generationModeUsed: generationMode,
       voiceEngine: generationMode === 'VIDEO_AGENT' ? 'HEYGEN' : 'ELEVENLABS',
       providerJobType: generationMode === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'AVATAR',
+      allowAvatarFallback: false,
     });
 
     const job = await this.prisma.aiInfluencerReelJob.create({
@@ -715,6 +719,7 @@ export class AiInfluencerJobService {
       testDurationSec: 10,
       videoGenerationMode: 'VIDEO_AGENT',
       generationModeUsed: 'VIDEO_AGENT',
+      allowAvatarFallback: false,
     });
 
     const job = await this.prisma.aiInfluencerReelJob.create({
@@ -1049,27 +1054,10 @@ export class AiInfluencerJobService {
         avatarExternalJobId: job.avatarExternalJobId,
         providerJobId: resolveJobProviderJobId(jobMeta, job.avatarExternalJobId),
         baseMasterUrl: job.baseMasterUrl,
-        generationMode: inferJobGenerationMode(
-          jobMeta,
-          this.settings.getCached(),
-          {
-            voiceStorageUrl: job.voiceStorageUrl,
-            avatarExternalJobId: job.avatarExternalJobId,
-            baseMasterUrl: job.baseMasterUrl,
-          },
-        ),
+        generationMode: getJobSnapshotGenerationMode(jobMeta, this.settings.getCached()),
       },
       job.errorMessage,
       job.errorCode,
-    );
-    const mode = inferJobGenerationMode(
-      readJobRenderMeta(job.renderSettingsJson),
-      this.settings.getCached(),
-      {
-        voiceStorageUrl: job.voiceStorageUrl,
-        avatarExternalJobId: job.avatarExternalJobId,
-        baseMasterUrl: job.baseMasterUrl,
-      },
     );
     const progress = progressForStatus(resumeStatus);
     await this.prisma.aiInfluencerReelJob.update({
@@ -1084,10 +1072,6 @@ export class AiInfluencerJobService {
         lastAttemptAt: new Date(),
         progressPercent: progress.percent,
         currentStep: progress.step,
-        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-          videoGenerationMode: mode,
-          generationModeUsed: mode,
-        }) as object,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY', resumeStatus),
       },
     });
@@ -1444,13 +1428,18 @@ export class AiInfluencerJobService {
     } else {
       scenes = script.scenes;
     }
-    const generationMode = resolveVideoGenerationMode(cfg);
+    const existingMeta = readJobRenderMeta(job.renderSettingsJson);
+    const generationMode = getJobSnapshotGenerationMode(existingMeta, cfg);
     const renderMeta = mergeJobRenderMeta(job.renderSettingsJson, {
-      videoGenerationMode: generationMode,
-      generationModeUsed: generationMode,
       pronunciationRulesApplied: ttsPrepared.rulesApplied,
+      ...(existingMeta.generationModeUsed
+        ? {}
+        : {
+            videoGenerationMode: generationMode,
+            generationModeUsed: generationMode,
+          }),
     });
-    this.log.log(`Job ${jobId} script ready generationMode=${generationMode}`);
+    this.log.log(`Job ${jobId} script ready generationMode=${generationMode} (snapshot)`);
     const autoContinue = cfg.approvalMode === 'FULL_AUTO';
     const nextStatus = autoContinue
       ? generationMode === 'VIDEO_AGENT'
@@ -1669,8 +1658,10 @@ export class AiInfluencerJobService {
     ) {
       return false;
     }
+    const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
     const cfg = this.settings.getCached();
-    if (!cfg.allowVideoAgentFallback || !this.canUseElevenLabsFallback()) {
+    if (!isAvatarFallbackAllowed(meta, cfg) || !this.canUseElevenLabsFallback()) {
       return false;
     }
     await this.runVideoAgentFallback(jobId, reason);
@@ -1679,8 +1670,9 @@ export class AiInfluencerJobService {
 
   private async runVideoAgentFallback(jobId: string, reason: string): Promise<void> {
     const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
     const cfg = this.settings.getCached();
-    if (!cfg.allowVideoAgentFallback) {
+    if (!isAvatarFallbackAllowed(meta, cfg)) {
       throw Object.assign(new Error(reason), { code: 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE', pipelineStage: 'VIDEO_AGENT' });
     }
     if (!this.canUseElevenLabsFallback()) {
@@ -1698,7 +1690,6 @@ export class AiInfluencerJobService {
         status: AiInfluencerReelJobStatus.VOICE_GENERATING,
         renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
           usedVideoAgentFallback: true,
-          generationModeUsed: 'AVATAR',
           fallbackNotice: 'Video Agent nebyl dostupný – použito standardní AI video.',
         }) as object,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_FALLBACK', reason),
@@ -1751,6 +1742,9 @@ export class AiInfluencerJobService {
     }
 
     this.heygenConfig.assertApiKeyConfigured('VIDEO_AGENT');
+    this.log.log(
+      `[AI-REEL][HEYGEN] jobId=${jobId} generationMode=${getJobSnapshotGenerationMode(meta, cfg)} apiKeyPresent=${this.heygenConfig.isApiKeyConfigured()} providerConfigured=${readiness.available} provider=HEYGEN workerRuntime=true`,
+    );
     const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);
     const script = job.scriptJson as ReelScriptPayload | null;
     if (!script?.spokenText) throw Object.assign(new Error('Chybí scénář pro Video Agent.'), { code: 'STORYBOARD_INVALID' });
@@ -1804,11 +1798,13 @@ export class AiInfluencerJobService {
       });
       const code = errorCode(err);
       if (cfg.allowVideoAgentFallback && this.canUseElevenLabsFallback() && (code?.startsWith('HEYGEN_VIDEO_AGENT_') ?? false)) {
-        await this.runVideoAgentFallback(
+        if (await this.maybeRunVideoAgentFallback(
           jobId,
           err instanceof Error ? err.message : 'Video Agent submit selhal.',
-        );
-        return;
+          code,
+        )) {
+          return;
+        }
       }
       throw err;
     }
@@ -2961,6 +2957,7 @@ export class AiInfluencerJobService {
       generationModeUsed: mode,
       voiceEngine,
       providerJobType: mode === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'AVATAR',
+      allowAvatarFallback: cfg.allowVideoAgentFallback,
       videoStyle: cfg.videoStyle,
       targetDurationSec: cfg.targetDurationSec,
       avatarFrequency: cfg.avatarFrequency,
@@ -2972,7 +2969,10 @@ export class AiInfluencerJobService {
     cfg: ReturnType<AiInfluencerSettingsService['getCached']>,
     workerElevenConfigured: boolean,
   ) {
-    const display = buildJobAdminDisplay(job, cfg, { workerElevenConfigured });
+    const display = buildJobAdminDisplay(job, cfg, {
+      workerElevenConfigured,
+      heygenConfigured: this.heygenConfig.isApiKeyConfigured(),
+    });
     const meta = readJobRenderMeta(job.renderSettingsJson);
     const providerSessionId =
       meta.heygenVideoAgentSessionId ?? parseVideoAgentSessionId(job.avatarExternalJobId);

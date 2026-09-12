@@ -1,6 +1,7 @@
 import type { AiInfluencerReelJobStatus } from '@prisma/client';
 import { resolveFailedStage } from './ai-influencer-retry.util';
 import {
+  getJobSnapshotGenerationMode,
   inferJobGenerationMode,
   readJobRenderMeta,
   resolveVideoGenerationMode,
@@ -37,13 +38,27 @@ export type JobDisplayInput = {
   currentStep?: string | null;
 };
 
-/** Alias pro inferJobGenerationMode — kompatibilní resolver legacy jobů. */
+/** Alias pro getJobSnapshotGenerationMode — zobrazení v adminu. */
 export function resolveGenerationMode(
   meta: ReturnType<typeof readJobRenderMeta>,
   settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
-  artifacts: JobGenerationArtifacts = {},
+  _artifacts: JobGenerationArtifacts = {},
 ): AiInfluencerVideoGenerationMode {
-  return inferJobGenerationMode(meta, settings, artifacts);
+  return getJobSnapshotGenerationMode(meta, settings);
+}
+
+function isStaleHeyGenError(
+  message: string | null | undefined,
+  code: string | null | undefined,
+  mode: AiInfluencerVideoGenerationMode,
+  heygenConfigured: boolean,
+): boolean {
+  const c = (code ?? '').toUpperCase();
+  if (mode !== 'VIDEO_AGENT' || !heygenConfigured) return false;
+  return (
+    c === 'HEYGEN_NOT_CONFIGURED' ||
+    /heygen_api_key.*není nakonfigurován|heygen api není nakonfigurováno/i.test(message ?? '')
+  );
 }
 
 function isStaleElevenLabsError(
@@ -142,24 +157,26 @@ function stepIndex(status: AiInfluencerReelJobStatus, mode: AiInfluencerVideoGen
 export function buildJobAdminDisplay(
   job: JobDisplayInput,
   settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
-  options?: { workerElevenConfigured?: boolean },
+  options?: { workerElevenConfigured?: boolean; heygenConfigured?: boolean },
 ): JobAdminDisplay {
   const meta = readJobRenderMeta(job.renderSettingsJson);
-  const artifacts: JobGenerationArtifacts = {
-    voiceStorageUrl: job.voiceStorageUrl,
-    avatarExternalJobId: job.avatarExternalJobId,
-    baseMasterUrl: job.baseMasterUrl,
-  };
-  const generationMode = resolveGenerationMode(meta, settings, artifacts);
+  const generationMode = getJobSnapshotGenerationMode(meta, settings);
   const failedStageResolved =
     resolveFailedStage(job.failedStage ?? null, job.errorMessage, job.errorCode) ?? job.failedStage ?? null;
 
-  const stale = isStaleElevenLabsError(
+  const staleEleven = isStaleElevenLabsError(
     job.errorMessage,
     job.errorCode,
     generationMode,
     options?.workerElevenConfigured ?? false,
   );
+  const staleHeygen = isStaleHeyGenError(
+    job.errorMessage,
+    job.errorCode,
+    generationMode,
+    options?.heygenConfigured ?? false,
+  );
+  const stale = staleEleven || staleHeygen;
 
   let errorKind: JobErrorKind = 'NONE';
   if (job.status === 'FAILED' && (job.errorMessage || job.errorCode)) {
@@ -168,7 +185,9 @@ export function buildJobAdminDisplay(
 
   const displayErrorMessage =
     errorKind === 'LEGACY_STALE'
-      ? 'Zastaralá chyba z dřívějšího avatar pipeline — ElevenLabs není pro Video Agent režim potřeba.'
+      ? staleHeygen
+        ? 'Historická chyba — aktuální HeyGen konfigurace je READY. Zkuste job znovu.'
+        : 'Zastaralá chyba z dřívějšího avatar pipeline — ElevenLabs není pro Video Agent režim potřeba.'
       : job.errorMessage ?? null;
 
   const displayErrorCode = errorKind === 'LEGACY_STALE' ? 'LEGACY_STALE_ERROR' : job.errorCode ?? null;

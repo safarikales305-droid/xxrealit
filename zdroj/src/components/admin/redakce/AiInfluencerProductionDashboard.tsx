@@ -309,7 +309,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [testArticleId, setTestArticleId] = useState('');
   const [productionTest, setProductionTest] = useState<ProductionTestStatus | null>(null);
   const [productionTestBusy, setProductionTestBusy] = useState(false);
-  const prevActiveCountRef = useRef(0);
+  const prevActiveIdsRef = useRef<string[]>([]);
 
   const loadCore = useCallback(() => {
     if (!apiAccessToken) return;
@@ -363,6 +363,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         if (res?.job) {
           setProductionTest(res.job);
           if (res.job.progress.outcome === 'PASS') {
+            setToast('Testovací video bylo vytvořeno.');
             void nestAiInfluencerVideos(apiAccessToken, 60, true).then((v) => {
               if (v) setVideos(v);
             });
@@ -389,10 +390,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         nestAiInfluencerJobs(apiAccessToken),
       ]).then(([active, v, d, j]) => {
         if (active) {
-          if (prevActiveCountRef.current > 0 && active.length < prevActiveCountRef.current) {
-            setToast('Video bylo vytvořeno.');
+          const prevIds = prevActiveIdsRef.current;
+          const nextIds = active.map((job) => job.id);
+          const removedIds = prevIds.filter((id) => !nextIds.includes(id));
+          if (removedIds.length > 0 && j) {
+            const completed = removedIds.some((id) => {
+              const row = j.find((job) => job.id === id);
+              return row && ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(row.status);
+            });
+            if (completed) {
+              setToast('Video bylo vytvořeno.');
+            }
           }
-          prevActiveCountRef.current = active.length;
+          prevActiveIdsRef.current = nextIds;
           setActiveJobs(active);
         }
         if (v) setVideos(v);
@@ -404,11 +414,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     poll();
     const id = window.setInterval(poll, 2500);
     return () => window.clearInterval(id);
-  }, [apiAccessToken, tab, activeJobs.length]);
+  }, [apiAccessToken, tab, showTestVideos]);
 
   useEffect(() => {
-    prevActiveCountRef.current = activeJobs.length;
-  }, [activeJobs.length]);
+    prevActiveIdsRef.current = activeJobs.map((job) => job.id);
+  }, [activeJobs]);
 
   useEffect(() => {
     if (!toast) return;
@@ -542,7 +552,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       sourceType: 'article',
     };
     setActiveJobs((prev) => [optimistic, ...prev.filter((j) => j.id !== optimistic.id)]);
-    prevActiveCountRef.current += 1;
+    prevActiveIdsRef.current = [optimistic.id, ...prevActiveIdsRef.current.filter((id) => id !== optimistic.id)];
     setCreateState('accepted');
     window.setTimeout(() => {
       setCreateOpen(false);
@@ -1813,6 +1823,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       return;
                     }
                     setTestModalOpen(false);
+                    setToast('Výroba testovacího videa byla spuštěna.');
                     setProductionTest({
                       jobId: result.data.jobId,
                       status: result.data.status,

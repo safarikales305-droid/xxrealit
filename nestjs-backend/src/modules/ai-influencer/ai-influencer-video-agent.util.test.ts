@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getJobSnapshotGenerationMode,
   inferJobGenerationMode,
+  isAvatarFallbackAllowed,
   isVideoAgentExternalJobId,
   parseVideoAgentSessionId,
   resolveJobProviderJobId,
@@ -48,5 +50,30 @@ describe('ai-influencer-video-agent.util', () => {
     );
     assert.ok(providerJobId);
     assert.equal(inferJobGenerationMode({ generationModeUsed: 'VIDEO_AGENT' }, DEFAULT_AI_INFLUENCER_SETTINGS), 'VIDEO_AGENT');
+  });
+
+  it('getJobSnapshotGenerationMode stays VIDEO_AGENT even with voice artifact', () => {
+    assert.equal(
+      getJobSnapshotGenerationMode({ generationModeUsed: 'VIDEO_AGENT' }, DEFAULT_AI_INFLUENCER_SETTINGS),
+      'VIDEO_AGENT',
+    );
+  });
+
+  it('isAvatarFallbackAllowed respects explicit false on test jobs', () => {
+    assert.equal(
+      isAvatarFallbackAllowed({ generationModeUsed: 'VIDEO_AGENT', allowAvatarFallback: false }, DEFAULT_AI_INFLUENCER_SETTINGS),
+      false,
+    );
+  });
+
+  it('inferJobGenerationMode keeps VIDEO_AGENT snapshot when voiceStorageUrl exists', () => {
+    assert.equal(
+      inferJobGenerationMode(
+        { generationModeUsed: 'VIDEO_AGENT' },
+        DEFAULT_AI_INFLUENCER_SETTINGS,
+        { voiceStorageUrl: 'https://cdn/voice.mp3' },
+      ),
+      'VIDEO_AGENT',
+    );
   });
 });

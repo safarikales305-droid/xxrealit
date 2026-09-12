@@ -52,6 +52,8 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     providerOutputUrl: typeof o.providerOutputUrl === 'string' ? o.providerOutputUrl : undefined,
     videoArchived: o.videoArchived === true,
     archiveCompletedAt: typeof o.archiveCompletedAt === 'string' ? o.archiveCompletedAt : undefined,
+    allowAvatarFallback:
+      typeof o.allowAvatarFallback === 'boolean' ? o.allowAvatarFallback : undefined,
     pipelineStage: typeof o.pipelineStage === 'string' ? o.pipelineStage : undefined,
     lastHeartbeatAt: typeof o.lastHeartbeatAt === 'string' ? o.lastHeartbeatAt : undefined,
     videoStyle:
@@ -83,6 +85,29 @@ export function resolveVideoGenerationMode(
   settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
 ): AiInfluencerVideoGenerationMode {
   return settings.videoGenerationMode === 'AVATAR' ? 'AVATAR' : 'VIDEO_AGENT';
+}
+
+/** Immutable režim uložený ve snapshotu jobu — nesmí se odvozovat z artefaktů. */
+export function getJobSnapshotGenerationMode(
+  meta: AiInfluencerJobRenderMeta,
+  settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
+): AiInfluencerVideoGenerationMode {
+  if (meta.generationModeUsed === 'VIDEO_AGENT' || meta.generationModeUsed === 'AVATAR') {
+    return meta.generationModeUsed;
+  }
+  if (meta.videoGenerationMode === 'VIDEO_AGENT' || meta.videoGenerationMode === 'AVATAR') {
+    return meta.videoGenerationMode;
+  }
+  return resolveVideoGenerationMode(settings);
+}
+
+export function isAvatarFallbackAllowed(
+  meta: AiInfluencerJobRenderMeta,
+  settings: Pick<AiInfluencerAutomationSettings, 'allowVideoAgentFallback'>,
+): boolean {
+  if (meta.allowAvatarFallback === false) return false;
+  if (meta.allowAvatarFallback === true) return true;
+  return settings.allowVideoAgentFallback === true;
 }
 
 export function isVideoAgentExternalJobId(externalJobId: string | null | undefined): boolean {
@@ -117,24 +142,23 @@ export function videoAgentTimedOut(submittedAtIso: string | undefined, timeoutMs
   return Date.now() - started > timeoutMs;
 }
 
-/** Odvodí generation mode u legacy jobů bez explicitního generationModeUsed. */
+/** Odvodí aktivní pipeline pro worker — respektuje snapshot a explicitní fallback. */
 export function inferJobGenerationMode(
   meta: AiInfluencerJobRenderMeta,
-  settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode'>,
+  settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode' | 'allowVideoAgentFallback'>,
   artifacts: JobGenerationArtifacts = {},
 ): AiInfluencerVideoGenerationMode {
-  if (meta.usedVideoAgentFallback) return 'AVATAR';
-  if (meta.generationModeUsed === 'AVATAR' || meta.generationModeUsed === 'VIDEO_AGENT') {
-    return meta.generationModeUsed;
+  const snapshot = getJobSnapshotGenerationMode(meta, settings);
+  if (snapshot === 'VIDEO_AGENT' && !meta.usedVideoAgentFallback) {
+    return 'VIDEO_AGENT';
   }
-  if (meta.videoGenerationMode === 'AVATAR' || meta.videoGenerationMode === 'VIDEO_AGENT') {
-    return meta.videoGenerationMode;
+  if (meta.usedVideoAgentFallback && isAvatarFallbackAllowed(meta, settings)) {
+    return 'AVATAR';
   }
   if (meta.videoAgentMaster || isVideoAgentExternalJobId(artifacts.avatarExternalJobId)) {
     return 'VIDEO_AGENT';
   }
-  if (artifacts.voiceStorageUrl && !meta.videoAgentMaster) return 'AVATAR';
-  return resolveVideoGenerationMode(settings);
+  return snapshot;
 }
 
 export type JobGenerationArtifacts = {

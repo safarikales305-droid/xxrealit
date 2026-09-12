@@ -112,6 +112,7 @@ export type AiInfluencerJobRenderMeta = {
   archiveCompletedAt?: string;
   pipelineStage?: string;
   lastHeartbeatAt?: string;
+  allowAvatarFallback?: boolean;
   videoStyle?: AiInfluencerVideoStyle;
   targetDurationSec?: number;
   avatarFrequency?: AiInfluencerAvatarFrequency;
@@ -300,7 +301,7 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   mentionBrandInScript: true,
   videoGoal: 'auto',
   videoGenerationMode: 'VIDEO_AGENT',
-  allowVideoAgentFallback: true,
+  allowVideoAgentFallback: false,
   videoStyle: 'auto',
   avatarFrequency: 'medium',
   avatarFraming: 'fullscreen',
