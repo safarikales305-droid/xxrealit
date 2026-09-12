@@ -17,6 +17,31 @@ export type PipelineFailedStage =
   | 'AVATAR'
   | 'QUALITY';
 
+export function extractPipelineErrorMessage(err: unknown, fallback = ''): string {
+  if (err instanceof HttpException) {
+    const response = err.getResponse();
+    if (typeof response === 'string' && response.trim()) return response;
+    if (typeof response === 'object' && response && 'message' in response) {
+      const raw = (response as { message?: string | string[] }).message;
+      if (Array.isArray(raw)) return raw.join(', ');
+      if (typeof raw === 'string' && raw.trim()) return raw;
+    }
+  }
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = String((err as { message: unknown }).message ?? '').trim();
+    if (
+      msg &&
+      msg !== 'Bad Request Exception' &&
+      msg !== 'Forbidden Exception' &&
+      msg !== 'Internal Server Error'
+    ) {
+      return msg;
+    }
+  }
+  if (err instanceof Error && err.message.trim()) return err.message;
+  return fallback || String(err ?? 'Unknown error');
+}
+
 export function extractPipelineErrorCode(err: unknown, fallback?: string | null): string | null {
   if (err instanceof FfmpegRenderError) return err.code;
   if (err && typeof err === 'object' && 'code' in err && (err as { code: unknown }).code) {
@@ -28,9 +53,21 @@ export function extractPipelineErrorCode(err: unknown, fallback?: string | null)
       return String((response as { code: unknown }).code);
     }
   }
-  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
-  if (/openai je vypnuto|openai není|api klíč není nastaven|ai limit byl dosažen|tato ai funkce není povolena/i.test(msg)) {
+  const msg = extractPipelineErrorMessage(err).toLowerCase();
+  if (/openai_api_key|openai není nakonfigurován|api klíč není nastaven/i.test(msg)) {
+    return 'OPENAI_NOT_CONFIGURED';
+  }
+  if (/openai je vypnuto|ai limit byl dosažen|tato ai funkce není povolena/i.test(msg)) {
     return 'AI_PROVIDER_DISABLED';
+  }
+  if (/heygen_api_key|heygen api/i.test(msg) && /není nakonfigurován|missing|nastaven/i.test(msg)) {
+    return 'HEYGEN_NOT_CONFIGURED';
+  }
+  if (/elevenlabs|xi_api_key/i.test(msg) && /není nakonfigurován|missing|nastaven/i.test(msg)) {
+    return 'ELEVENLABS_NOT_CONFIGURED';
+  }
+  if (/cloudinary|storage|chybí cloudinary/i.test(msg)) {
+    return 'STORAGE_FAILED';
   }
   return fallback ?? null;
 }
@@ -59,6 +96,7 @@ export function resolvePipelineFailedStage(input: {
   if (
     code === 'SCRIPT_PROVIDER_DISABLED' ||
     code === 'OPENAI_DISABLED' ||
+    code === 'OPENAI_NOT_CONFIGURED' ||
     code === 'AI_PROVIDER_DISABLED' ||
     code === 'SCRIPT_GENERATION_FAILED'
   ) {
@@ -66,7 +104,7 @@ export function resolvePipelineFailedStage(input: {
   }
 
   if (
-    /openai je vypnuto|openai není|api klíč není nastaven|ai limit byl dosažen|tato ai funkce není povolena|není dostupný aktivní ai provider|script provider|ai generování scénáře není povoleno/i.test(
+    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|není dostupný aktivní ai provider|ai provider není|script provider|ai generování scénáře/i.test(
       msg,
     )
   ) {

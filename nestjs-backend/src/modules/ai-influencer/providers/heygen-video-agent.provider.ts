@@ -99,7 +99,8 @@ export class HeyGenVideoAgentProvider {
     const apiKey = this.apiKey;
     if (!apiKey) {
       throw Object.assign(new Error('HEYGEN_API_KEY není nakonfigurován.'), {
-        code: 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
+        code: 'HEYGEN_NOT_CONFIGURED',
+        pipelineStage: 'VIDEO_AGENT',
       });
     }
 

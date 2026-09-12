@@ -43,6 +43,10 @@ import {
 import { prepareSpeechTextForProvider } from './ai-influencer-pronunciation.util';
 import { runQualityGate } from './ai-influencer-quality-gate.util';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import {
+  getRendererRuntimeReadiness,
+  resolveVideoAgentCanonicalReady,
+} from './ai-influencer-provider-readiness.util';
 import { buildJobAdminDisplay, type JobDisplayInput } from './ai-influencer-job-display.util';
 import { buildGalleryVideoMeta } from './ai-influencer-video-gallery.util';
 import {
@@ -55,6 +59,7 @@ import {
 import { AiProviderService } from '../openai/ai-provider.service';
 import {
   extractPipelineErrorCode,
+  extractPipelineErrorMessage,
   pipelineError,
   resolvePipelineFailedStage,
 } from './ai-influencer-pipeline-stage.util';
@@ -890,7 +895,7 @@ export class AiInfluencerJobService {
           return;
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = extractPipelineErrorMessage(err);
       const current = await this.prisma.aiInfluencerReelJob.findUnique({
         where: { id: jobId },
         select: { status: true },
@@ -2586,6 +2591,7 @@ export class AiInfluencerJobService {
     ok: boolean;
     scriptProviderReady: boolean;
     videoAgentReady: boolean;
+    rendererReady: boolean;
     storageReady: boolean;
     reasons: string[];
   }> {
@@ -2601,24 +2607,52 @@ export class AiInfluencerJobService {
       }
     }
 
-    const [videoAgentReadiness, storageDiag] = await Promise.all([
+    const cfg = this.settings.getCached();
+    const profile = await this.registry.getDefaultProfile();
+    const [videoAgentReadiness, heygenReadiness, storageDiag] = await Promise.all([
       this.videoAgent.getReadiness(),
+      this.heygen.getGenerationReadiness(profile.avatarId),
       Promise.resolve(this.cloudinary.getDiagnostics()),
     ]);
-    const videoAgentReady = videoAgentReadiness.available;
+    const videoAgentCanonical = resolveVideoAgentCanonicalReady({
+      videoAgentAvailable: videoAgentReadiness.available,
+      heygenApiKeyPresence: heygenReadiness.apiKeyPresence,
+      heygenGenerationReady: heygenReadiness.ready,
+    });
+    const rendererReadiness = getRendererRuntimeReadiness();
+    const videoAgentReady = videoAgentCanonical.ready;
+    const rendererReady = rendererReadiness.ready;
     const storageReady = storageDiag.configured;
 
     if (!videoAgentReady) {
-      reasons.push(videoAgentReadiness.message ?? 'Video Agent není připraven.');
+      reasons.push(videoAgentCanonical.message ?? 'Video Agent není připraven.');
+    }
+    if (!rendererReady) {
+      reasons.push(rendererReadiness.message ?? 'Renderer není připraven.');
     }
     if (!storageReady) {
       reasons.push('Cloudinary storage není nakonfigurován.');
+    }
+
+    const production = computeProductionReadiness({
+      settings: cfg,
+      storageConfigured: storageDiag.configured,
+      heygenReady: heygenReadiness.ready,
+      videoAgentAvailable: videoAgentReadiness.available,
+      elevenReady: true,
+      elevenTtsReady: true,
+    });
+    if (!production.ready) {
+      for (const reason of production.reasons) {
+        if (!reasons.includes(reason)) reasons.push(reason);
+      }
     }
 
     return {
       ok: reasons.length === 0,
       scriptProviderReady,
       videoAgentReady,
+      rendererReady,
       storageReady,
       reasons,
     };
@@ -2656,13 +2690,24 @@ export class AiInfluencerJobService {
       elevenReady: elevenReadiness.ready,
       elevenTtsReady: elevenReadiness.ready,
     });
+    const videoAgentCanonical = resolveVideoAgentCanonicalReady({
+      videoAgentAvailable: videoAgentReadiness.available,
+      heygenApiKeyPresence: heygenReadiness.apiKeyPresence,
+      heygenGenerationReady: heygenReadiness.ready,
+    });
+    const rendererReadiness = getRendererRuntimeReadiness();
+    const blockers = [
+      ...production.reasons,
+      ...(videoAgentCanonical.ready ? [] : [videoAgentCanonical.message ?? 'Video Agent není připraven']),
+      ...(rendererReadiness.ready ? [] : [rendererReadiness.message ?? 'Renderer není připraven']),
+    ];
 
-    if (production.ready) return;
+    if (blockers.length === 0) return;
 
     throw new BadRequestException({
-      message: production.reasons.join('; '),
+      message: blockers.join('; '),
       code: 'AI_INFLUENCER_NOT_READY',
-      reasons: production.reasons,
+      reasons: blockers,
       mode: production.mode,
       elevenRequired: production.elevenRequired,
     });

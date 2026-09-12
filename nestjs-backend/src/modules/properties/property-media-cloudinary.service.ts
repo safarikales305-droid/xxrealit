@@ -5,6 +5,7 @@ import {
   cloudinaryMissingMessage,
   getCloudinaryRuntimeConfig,
 } from '../ai-influencer/ai-influencer-runtime-config.util';
+import { pipelineError } from '../ai-influencer/ai-influencer-pipeline-stage.util';
 import { ListingPhotoWatermarkService } from './listing-photo-watermark.service';
 
 function uploadPropertyVideoBuffer(file: Express.Multer.File): Promise<string> {
@@ -98,7 +99,11 @@ export class PropertyMediaCloudinaryService {
 
   assertConfigured(): void {
     if (this.isConfigured()) return;
-    throw new Error(cloudinaryMissingMessage(getCloudinaryRuntimeConfig()));
+    throw pipelineError(
+      cloudinaryMissingMessage(getCloudinaryRuntimeConfig()),
+      'STORAGE_FAILED',
+      'STORAGE',
+    );
   }
 
   async uploadImage(file: Express.Multer.File): Promise<string> {

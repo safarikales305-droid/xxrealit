@@ -25,6 +25,13 @@ describe('resolveFailedStage', () => {
     );
   });
 
+  it('OpenAI missing key at evaluation maps to SCRIPT, not RENDER', () => {
+    assert.equal(
+      resolveFailedStage('RENDER', 'OPENAI_API_KEY není nakonfigurován.', 'OPENAI_NOT_CONFIGURED'),
+      'SCRIPT',
+    );
+  });
+
   it('OpenAI disabled at evaluation maps to SCRIPT, not RENDER', () => {
     assert.equal(
       resolveFailedStage('RENDER', 'OpenAI je vypnuto v nastavení.', 'AI_PROVIDER_DISABLED'),

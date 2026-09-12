@@ -101,6 +101,51 @@ function aiScriptCanonicalReady(ai?: AiPreflightAi | null): boolean {
   return ai?.configured === true && ai?.enabled === true && ai?.usable === true;
 }
 
+function videoAgentCanonicalReady(providers?: AiInfluencerDashboard['providers'] | null): boolean {
+  return providers?.videoEngine?.heygenVideoAgent === 'READY';
+}
+
+function videoAgentPreflightChip(providers?: AiInfluencerDashboard['providers'] | null): {
+  ok: boolean;
+  chip: string;
+  detail: string;
+  tone: 'ready' | 'configured' | 'disabled' | 'blocked';
+} {
+  const ready = videoAgentCanonicalReady(providers);
+  const message =
+    providers?.videoEngine?.heygenVideoAgentMessage ??
+    providers?.renderer?.message ??
+    'Video Agent není připraven.';
+  return {
+    ok: ready,
+    chip: ready ? 'READY' : 'BLOCKED',
+    detail: ready ? 'Připraveno' : message,
+    tone: ready ? 'ready' : 'blocked',
+  };
+}
+
+function productionPreflightReady(providers?: AiInfluencerDashboard['providers'] | null): boolean {
+  return (
+    aiScriptCanonicalReady(providers?.ai) &&
+    videoAgentCanonicalReady(providers) &&
+    providers?.renderer?.connected === true &&
+    providers?.storage?.configured === true
+  );
+}
+
+function pipelineErrorLabel(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const map: Record<string, string> = {
+    OPENAI_NOT_CONFIGURED: 'OpenAI API není nakonfigurováno.',
+    AI_PROVIDER_DISABLED: 'OpenAI je vypnuto v nastavení.',
+    HEYGEN_NOT_CONFIGURED: 'HeyGen API není nakonfigurováno.',
+    ELEVENLABS_NOT_CONFIGURED: 'ElevenLabs API není nakonfigurováno.',
+    STORAGE_FAILED: 'Cloudinary storage není nakonfigurováno.',
+    RENDER_INPUT_MISSING: 'Chybí vstup pro render pipeline.',
+  };
+  return map[code] ?? null;
+}
+
 function aiScriptDisabled(ai?: AiPreflightAi | null): boolean {
   return ai?.configured === true && ai?.enabled === false;
 }
@@ -586,8 +631,17 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               />
               <HealthChip
                 label="Video Agent"
-                ok={providers?.videoEngine?.heygenVideoAgent === 'READY'}
-                detail={providers?.videoEngine?.heygenVideoAgentMessage ?? undefined}
+                ok={videoAgentCanonicalReady(providers)}
+                detail={
+                  providers?.videoEngine?.heygenVideoAgentMessage ??
+                  providers?.renderer?.message ??
+                  undefined
+                }
+              />
+              <HealthChip
+                label="Renderer"
+                ok={providers?.renderer?.connected === true}
+                detail={providers?.renderer?.message ?? 'ffmpeg pro finální render.'}
               />
               <HealthChip
                 label="Voice"
@@ -1174,13 +1228,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 [
                   ['AI provider', aiPreflightChip(providers?.ai)],
                   ['Scénář', aiPreflightChip(providers?.ai)],
+                  ['Video Agent', videoAgentPreflightChip(providers)],
                   [
-                    'Video Agent',
+                    'Renderer',
                     {
-                      ok: providers?.videoEngine?.heygenVideoAgent === 'READY',
-                      chip: providers?.videoEngine?.heygenVideoAgent === 'READY' ? 'READY' : 'BLOCKED',
-                      detail: providers?.videoEngine?.heygenVideoAgentMessage ?? '',
-                      tone: providers?.videoEngine?.heygenVideoAgent === 'READY' ? 'ready' : 'blocked',
+                      ok: providers?.renderer?.connected === true,
+                      chip: providers?.renderer?.connected ? 'READY' : 'BLOCKED',
+                      detail: providers?.renderer?.message ?? 'ffmpeg pro finální render.',
+                      tone: providers?.renderer?.connected ? 'ready' : 'blocked',
                     },
                   ],
                   [
@@ -1218,11 +1273,26 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 </div>
               ))}
             </div>
-            {!aiScriptCanonicalReady(providers?.ai) ? (
+            {!productionPreflightReady(providers) ? (
               <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-medium">Kompletní výrobu nelze spustit.</p>
-                <p className="mt-1">AI generování scénáře není připraveno.</p>
-                <p className="mt-1 text-xs">Důvod: {providers?.ai?.message}</p>
+                {!aiScriptCanonicalReady(providers?.ai) ? (
+                  <>
+                    <p className="mt-1">AI generování scénáře není připraveno.</p>
+                    <p className="mt-1 text-xs">Důvod: {providers?.ai?.message}</p>
+                  </>
+                ) : null}
+                {!videoAgentCanonicalReady(providers) ? (
+                  <p className="mt-1 text-xs">
+                    Video Agent: {providers?.videoEngine?.heygenVideoAgentMessage ?? 'není připraven'}
+                  </p>
+                ) : null}
+                {providers?.renderer?.connected !== true ? (
+                  <p className="mt-1 text-xs">Renderer: {providers?.renderer?.message ?? 'není připraven'}</p>
+                ) : null}
+                {providers?.storage?.configured !== true ? (
+                  <p className="mt-1 text-xs">Storage: {providers?.storage?.message ?? 'není nakonfigurováno'}</p>
+                ) : null}
                 <a href="/admin/marketing/ai-centrum" className="mt-2 inline-block text-xs font-semibold text-orange-700 underline">
                   Otevřít nastavení AI
                 </a>
@@ -1322,6 +1392,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     {productionTest.errorCode ? (
                       <p className="mt-1">
                         Error code: <code>{productionTest.errorCode}</code>
+                        {pipelineErrorLabel(productionTest.errorCode) ? (
+                          <span> — {pipelineErrorLabel(productionTest.errorCode)}</span>
+                        ) : null}
                       </p>
                     ) : null}
                     {productionTest.errorMessage ? (
@@ -1471,6 +1544,33 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     <p>Worker runtime: {providers.ai.scriptDiagnostics.workerRuntime}</p>
                     <p>Config source: {providers.ai.scriptDiagnostics.configSource}</p>
                     <p>Last resolved: {providers.ai.scriptDiagnostics.lastResolved ?? '—'}</p>
+                  </>
+                ) : null}
+                {providers?.workerRuntime?.providerDiagnostics ? (
+                  <>
+                    <p className="pt-2 font-semibold text-zinc-800">PROVIDER RUNTIME</p>
+                    <p>OpenAI: {providers.workerRuntime.providerDiagnostics.openAi.status}</p>
+                    <p>ElevenLabs: {providers.workerRuntime.providerDiagnostics.elevenLabs.status}</p>
+                    <p>HeyGen API: {providers.workerRuntime.providerDiagnostics.heyGenApi.status}</p>
+                    <p>
+                      HeyGen Video Agent: {providers.workerRuntime.providerDiagnostics.heyGenVideoAgent.status}
+                    </p>
+                    <p>Renderer: {providers.workerRuntime.providerDiagnostics.renderer.status}</p>
+                    <p>Storage: {providers.workerRuntime.providerDiagnostics.storage.status}</p>
+                    <p>
+                      API HEYGEN_API_KEY: {providers.workerRuntime.providerDiagnostics.apiWorker.heygenApiKey}
+                    </p>
+                    <p>
+                      Worker HEYGEN_API_KEY:{' '}
+                      {providers.workerRuntime.providerDiagnostics.heyGenVideoAgent.workerApiKey}
+                    </p>
+                    <p>
+                      API ELEVENLABS_API_KEY:{' '}
+                      {providers.workerRuntime.providerDiagnostics.apiWorker.elevenLabsApiKey}
+                    </p>
+                    <p>
+                      Worker ELEVENLABS_API_KEY: {providers.workerRuntime.providerDiagnostics.elevenLabs.apiKey}
+                    </p>
                   </>
                 ) : null}
                 <p>HeyGen Video Agent: {providers?.workerRuntime?.heygenVideoAgent ?? '—'}</p>
@@ -1655,7 +1755,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ) : null}
               <button
                 type="button"
-                disabled={productionTestBusy || !aiScriptCanonicalReady(providers?.ai)}
+                disabled={productionTestBusy || !productionPreflightReady(providers)}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setProductionTestBusy(true);

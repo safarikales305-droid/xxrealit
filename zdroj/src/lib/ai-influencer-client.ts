@@ -267,7 +267,7 @@ export type AiInfluencerDashboard = {
     facebook?: FacebookProviderStatus;
     instagram?: InstagramProviderStatus;
     youtube?: YoutubeProviderStatus;
-    renderer?: { configured: boolean; connected: boolean | null; preset?: string };
+    renderer?: { configured: boolean; connected: boolean | null; preset?: string; message?: string | null };
     storage?: StorageProviderStatus;
     cloudinary?: StorageProviderStatus;
     shorts?: ShortsProviderStatus;
@@ -291,13 +291,23 @@ export type AiInfluencerDashboard = {
       elevenLabsApiKey: 'CONFIGURED' | 'MISSING';
       heygenApiKey: 'CONFIGURED' | 'MISSING';
       storage: 'READY' | 'NOT READY';
-      aiProvider: 'READY' | 'NOT READY';
+      aiProvider: 'READY' | 'NOT READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED' | 'BLOCKED';
       heygenVideoAgent: 'READY' | 'NOT AVAILABLE' | 'AUTH ERROR';
       elevenLabsRequired: boolean;
       elevenLabsStatus: 'READY' | 'MISSING' | 'NOT_REQUIRED';
       avatarFallback: 'READY' | 'NOT READY';
       providerElevenLabsApiKey: 'CONFIGURED' | 'MISSING';
       providerHeygenApiKey: 'CONFIGURED' | 'MISSING';
+      providerDiagnostics?: {
+        openAi: { status: string; configured: string; enabled: string; model: string };
+        elevenLabs: { status: string; apiKey: string };
+        heyGenApi: { status: string; apiKey: string };
+        heyGenVideoAgent: { status: string; apiKey: string; workerApiKey: string };
+        renderer: { status: string; ffmpeg: string };
+        storage: { status: string; apiKey: string; source: string };
+        apiWorker: { heygenApiKey: string; elevenLabsApiKey: string; storage: string };
+        workerRuntime: Record<string, unknown>;
+      };
     };
   };
   productionVerification?: {

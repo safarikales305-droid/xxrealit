@@ -21,13 +21,18 @@ export function resolveFailedStage(
   if (
     code === 'SCRIPT_PROVIDER_DISABLED' ||
     code === 'OPENAI_DISABLED' ||
+    code === 'OPENAI_NOT_CONFIGURED' ||
     code === 'AI_PROVIDER_DISABLED' ||
     code === 'SCRIPT_GENERATION_FAILED'
   ) {
     return 'SCRIPT';
   }
 
-  if (/openai je vypnuto|není dostupný aktivní ai provider|ai provider není/i.test(msg)) {
+  if (
+    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|není dostupný aktivní ai provider|ai provider není/i.test(
+      msg,
+    )
+  ) {
     return 'SCRIPT';
   }
 
@@ -73,6 +78,15 @@ export function resolveFailedStage(
 
   if (failedStage === 'RENDER' && /elevenlabs|api key není nakonfigurován|vyberte hlas/i.test(msg)) {
     return 'VOICE';
+  }
+
+  if (
+    failedStage === 'RENDER' &&
+    (/openai_api_key|openai není nakonfigurován|api klíč není nastaven|openai je vypnuto/i.test(msg) ||
+      code === 'OPENAI_NOT_CONFIGURED' ||
+      code === 'AI_PROVIDER_DISABLED')
+  ) {
+    return 'SCRIPT';
   }
 
   return failedStage;

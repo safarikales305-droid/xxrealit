@@ -33,6 +33,11 @@ import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
+import {
+  buildProviderRuntimeDiagnostics,
+  getRendererRuntimeReadiness,
+  resolveVideoAgentCanonicalReady,
+} from './ai-influencer-provider-readiness.util';
 import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import { aggregateAiInfluencerDashboardStats } from './ai-influencer-dashboard-stats.util';
 import {
@@ -647,8 +652,33 @@ export class AiInfluencerAdminController {
         elevenHealth.ttsPermission === 'PASS' || elevenConnected || elevenReadiness.ready,
     });
 
-    const productionReady = production.ready;
-    const readyReasons = production.reasons;
+    const videoAgentCanonical = resolveVideoAgentCanonicalReady({
+      videoAgentAvailable: videoAgentReadiness.available,
+      heygenApiKeyPresence: heygenReadiness.apiKeyPresence,
+      heygenGenerationReady: heygenGenerationReady,
+    });
+    const rendererReadiness = getRendererRuntimeReadiness();
+    const providerDiagnostics = buildProviderRuntimeDiagnostics({
+      openAiConfigured: activeAi.configured,
+      openAiEnabled: activeAi.enabled,
+      openAiUsable: activeAi.usable,
+      openAiModel: activeAi.model,
+      videoAgentAvailable: videoAgentReadiness.available,
+      heygenApiKeyPresence: heygenReadiness.apiKeyPresence,
+      heygenGenerationReady: heygenGenerationReady,
+      elevenRequired: production.elevenRequired,
+      elevenApiKeyPresence: elevenReadiness.apiKeyPresence,
+      elevenReady: elevenReadiness.ready,
+      storage: storageDiag,
+      generationMode: production.mode,
+      elevenRequiredForMode: production.elevenRequired,
+    });
+    const productionReady = production.ready && videoAgentCanonical.ready && rendererReadiness.ready;
+    const readyReasons = [
+      ...production.reasons,
+      ...(videoAgentCanonical.ready ? [] : [videoAgentCanonical.message ?? 'Video Agent není připraven']),
+      ...(rendererReadiness.ready ? [] : [rendererReadiness.message ?? 'Renderer není připraven']),
+    ];
     const productionVerification = await this.jobs.getLastProductionTestVerification();
 
     const publishReasons: string[] = [];
@@ -659,7 +689,9 @@ export class AiInfluencerAdminController {
     const igTest = this.publish.formatInstagramTestResult(ig);
     const igPublishReady = igTest.status === 'READY';
     const testOutcome = this.videoAgentTest.getLastTestOutcome();
-    const videoAgentUiStatus = this.resolveVideoAgentUiStatus(videoAgentReadiness, testOutcome);
+    const videoAgentUiStatus = videoAgentCanonical.ready
+      ? 'READY'
+      : this.resolveVideoAgentUiStatus(videoAgentReadiness, testOutcome);
 
     const workerRuntime = buildWorkerRuntimeDiagnostics({
       generationMode: production.mode,
@@ -772,9 +804,10 @@ export class AiInfluencerAdminController {
         selectedAvatarId: heygenHealth.avatarId,
       },
       renderer: {
-        configured: true,
-        connected: true,
+        configured: rendererReadiness.configured,
+        connected: rendererReadiness.ready,
         preset: profile.renderPreset ?? DEFAULT_RENDER_SETTINGS.preset,
+        message: rendererReadiness.message,
       },
       storage: {
         configured: storageDiag.configured,
@@ -843,6 +876,7 @@ export class AiInfluencerAdminController {
         aiProviderUsable: scriptProvider.usable ? 'YES' : 'NO',
         aiProviderConfigSource: activeAi.configSource,
         workerSeesSameConfig: workerSeesSameScriptConfig ? 'YES' : 'NO',
+        providerDiagnostics,
         aiScriptProvider: {
           provider: activeAi.provider,
           apiKey: activeAi.configured ? 'CONFIGURED' : 'MISSING',

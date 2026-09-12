@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AiInfluencerReelJobStatus } from '@prisma/client';
 import { ForbiddenException } from '@nestjs/common';
-import { resolvePipelineFailedStage, extractPipelineErrorCode } from './ai-influencer-pipeline-stage.util';
+import { resolvePipelineFailedStage, extractPipelineErrorCode, extractPipelineErrorMessage } from './ai-influencer-pipeline-stage.util';
 
 describe('resolvePipelineFailedStage', () => {
   it('maps OpenAI disabled during evaluation to SCRIPT, not RENDER', () => {
@@ -35,5 +35,21 @@ describe('resolvePipelineFailedStage', () => {
   it('extracts AI_PROVIDER_DISABLED from ForbiddenException message', () => {
     const code = extractPipelineErrorCode(new ForbiddenException('OpenAI je vypnuto v nastavení.'));
     assert.equal(code, 'AI_PROVIDER_DISABLED');
+  });
+
+  it('maps OpenAI missing key from RENDERING status to SCRIPT', () => {
+    const stage = resolvePipelineFailedStage({
+      jobStatus: AiInfluencerReelJobStatus.RENDERING,
+      message: 'OPENAI_API_KEY není nakonfigurován.',
+      errorCode: 'OPENAI_NOT_CONFIGURED',
+    });
+    assert.equal(stage, 'SCRIPT');
+  });
+
+  it('extractPipelineErrorMessage reads HttpException body', () => {
+    const msg = extractPipelineErrorMessage(
+      new ForbiddenException('OPENAI_API_KEY není nakonfigurován.'),
+    );
+    assert.match(msg, /OPENAI_API_KEY/i);
   });
 });

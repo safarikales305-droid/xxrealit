@@ -308,7 +308,10 @@ export class OpenAiService {
     const db = await this.settings.getOrCreate();
     const client = this.getClient();
     if (!client) {
-      throw new BadRequestException('API klíč není nastavený.');
+      throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
+        code: 'OPENAI_NOT_CONFIGURED',
+        pipelineStage: 'SCRIPT',
+      });
     }
 
     const model = db.defaultModel || this.config.envModel;
@@ -431,6 +434,12 @@ export class OpenAiService {
           pipelineStage: 'SCRIPT',
         });
       }
+      if (!this.config.isApiKeyConfigured() || !this.getClient()) {
+        throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
+          code: 'OPENAI_NOT_CONFIGURED',
+          pipelineStage: 'SCRIPT',
+        });
+      }
     } else {
       const gate = evaluateScriptGenerationGate({
         enabled: db.enabled || this.config.envEnabled,
@@ -440,10 +449,22 @@ export class OpenAiService {
       });
 
       if (!gate.configured) {
-        throw new BadRequestException(gate.reason);
+        throw Object.assign(new BadRequestException(gate.reason), {
+          code: 'OPENAI_NOT_CONFIGURED',
+          pipelineStage: 'SCRIPT',
+        });
       }
       if (!gate.enabled) {
-        throw new ForbiddenException(gate.reason);
+        throw Object.assign(new ForbiddenException(gate.reason), {
+          code: 'AI_PROVIDER_DISABLED',
+          pipelineStage: 'SCRIPT',
+        });
+      }
+      if (!this.getClient()) {
+        throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
+          code: 'OPENAI_NOT_CONFIGURED',
+          pipelineStage: 'SCRIPT',
+        });
       }
     }
 
