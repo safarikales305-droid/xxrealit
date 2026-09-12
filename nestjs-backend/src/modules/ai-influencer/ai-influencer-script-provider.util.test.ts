@@ -6,7 +6,8 @@ describe('getScriptProviderReadiness', () => {
   it('fails when OpenAI is disabled and not configured', () => {
     const r = getScriptProviderReadiness({ enabled: false, configured: false, connected: null });
     assert.equal(r.ready, false);
-    assert.equal(r.code, 'AI_PROVIDER_DISABLED');
+    assert.equal(r.allowed, false);
+    assert.equal(r.code, 'AI_PROVIDER_NOT_CONFIGURED');
   });
 
   it('fails when API key exists but provider is disabled', () => {
@@ -17,7 +18,8 @@ describe('getScriptProviderReadiness', () => {
 
   it('allows script generation when enabled and configured even without prior connection test', () => {
     const r = getScriptProviderReadiness({ enabled: true, configured: true, connected: null });
-    assert.equal(r.ready, true);
+    assert.equal(r.ready, false);
+    assert.equal(r.allowed, true);
     assert.equal(r.label, 'CONFIGURED');
   });
 

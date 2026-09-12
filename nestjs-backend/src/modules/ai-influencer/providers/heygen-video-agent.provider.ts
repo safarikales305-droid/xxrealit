@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { getHeyGenRuntimeConfig } from '../ai-influencer-runtime-config.util';
 import type { VideoAgentMediaFile } from '../heygen-video-agent-prompt.util';
+import {
+  mapHeyGenHttpErrorCode,
+  parseHeyGenVideoAgentSubmitResponse,
+} from '../heygen-video-agent-response.util';
 
 export type HeyGenVideoAgentStartInput = {
   prompt: string;
@@ -14,6 +18,8 @@ export type HeyGenVideoAgentStartResult = {
   sessionId: string;
   videoId: string | null;
   mode: 'VIDEO_AGENT';
+  providerStatus?: string | null;
+  responseShape?: string;
 };
 
 export type HeyGenVideoAgentPollResult = {
@@ -99,15 +105,19 @@ export class HeyGenVideoAgentProvider {
 
     const payload: Record<string, unknown> = {
       prompt: input.prompt,
+      mode: 'generate',
       orientation: 'portrait',
     };
-    // generate mode auto-proceeds; auto_proceed is only valid for chat follow-ups.
     if (input.avatarId?.trim()) payload.avatar_id = input.avatarId.trim();
     if (input.voiceId?.trim()) payload.voice_id = input.voiceId.trim();
     if (input.callbackUrl?.trim()) payload.callback_url = input.callbackUrl.trim();
     if (input.files?.length) {
       payload.files = input.files.slice(0, 20).map((f) => ({ type: 'url', url: f.url }));
     }
+
+    this.log.log(
+      `[AI-VIDEO][heygen] HEYGEN_SUBMIT POST /v3/video-agents mode=generate orientation=portrait files=${input.files?.length ?? 0}`,
+    );
 
     const parsed = await this.request('POST', '/v3/video-agents', {
       headers: { 'Content-Type': 'application/json' },
@@ -116,28 +126,48 @@ export class HeyGenVideoAgentProvider {
     });
 
     if (!parsed.ok) {
-      const code = this.mapSubmitErrorCode(parsed.httpStatus, parsed.errorCode);
+      const code = mapHeyGenHttpErrorCode(parsed.httpStatus, parsed.errorCode);
       throw Object.assign(
-        new Error(parsed.message || `HeyGen Video Agent submit failed (HTTP ${parsed.httpStatus}).`),
-        { code, httpStatus: parsed.httpStatus, providerCode: parsed.errorCode },
+        new Error(
+          parsed.httpStatus
+            ? `HeyGen Video Agent HTTP ${parsed.httpStatus}: ${parsed.message ?? 'submit failed'}`
+            : parsed.message ?? 'HeyGen Video Agent submit failed.',
+        ),
+        {
+          code,
+          httpStatus: parsed.httpStatus || undefined,
+          providerCode: parsed.errorCode ?? undefined,
+          providerMessage: parsed.message ?? undefined,
+          sanitizedResponsePreview: parsed.rawBody ? parsed.rawBody.slice(0, 300) : undefined,
+          pipelineStage: 'VIDEO_AGENT',
+        },
       );
     }
 
-    const json = JSON.parse(parsed.rawBody || '{}') as {
-      data?: { session_id?: string; video_id?: string | null };
-      session_id?: string;
-      video_id?: string | null;
-    };
-    const sessionId = json.data?.session_id ?? json.session_id;
-    if (!sessionId?.trim()) {
-      throw Object.assign(new Error('HeyGen Video Agent nevrátil session_id.'), {
-        code: 'HEYGEN_VIDEO_AGENT_SUBMIT_FAILED',
+    const submit = parseHeyGenVideoAgentSubmitResponse(parsed.rawBody);
+    if (!submit.ok) {
+      this.log.warn(
+        `[AI-VIDEO][heygen] HEYGEN_SUBMIT shape=${submit.responseShape} preview=${submit.sanitizedPreview}`,
+      );
+      throw Object.assign(new Error(submit.message), {
+        code: submit.code,
+        httpStatus: parsed.httpStatus,
+        sanitizedResponsePreview: submit.sanitizedPreview,
+        responseShape: submit.responseShape,
+        pipelineStage: 'VIDEO_AGENT',
       });
     }
 
-    const videoId = json.data?.video_id ?? json.video_id ?? null;
-    this.log.log(`HeyGen Video Agent session started sessionId=${sessionId} videoId=${videoId ?? 'pending'}`);
-    return { sessionId: sessionId.trim(), videoId: videoId?.trim() || null, mode: 'VIDEO_AGENT' };
+    this.log.log(
+      `[AI-VIDEO][heygen] HEYGEN_ACCEPTED sessionId=${submit.sessionId.slice(0, 8)}… shape=${submit.responseShape} status=${submit.status ?? 'unknown'}`,
+    );
+    return {
+      sessionId: submit.sessionId,
+      videoId: submit.videoId,
+      mode: 'VIDEO_AGENT',
+      providerStatus: submit.status,
+      responseShape: submit.responseShape,
+    };
   }
 
   async pollSession(sessionId: string): Promise<HeyGenVideoAgentPollResult> {

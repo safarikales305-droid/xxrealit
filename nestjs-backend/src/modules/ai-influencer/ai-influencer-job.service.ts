@@ -52,7 +52,6 @@ import {
   isProductionTestJob,
   resolveJobTargetDurationSec,
 } from './ai-influencer-production-test.util';
-import { getScriptProviderReadinessFromActiveProvider } from './ai-influencer-script-provider.util';
 import { AiProviderService } from '../openai/ai-provider.service';
 import {
   extractPipelineErrorCode,
@@ -839,10 +838,6 @@ export class AiInfluencerJobService {
           if (autoAdvance) {
             const mode = resolveVideoGenerationMode(cfg);
             if (mode === 'VIDEO_AGENT') {
-              await this.prisma.aiInfluencerReelJob.update({
-                where: { id: jobId },
-                data: { status: AiInfluencerReelJobStatus.AVATAR_GENERATING },
-              });
               await this.runVideoAgentStart(jobId);
             } else {
               await this.prisma.aiInfluencerReelJob.update({
@@ -1033,15 +1028,7 @@ export class AiInfluencerJobService {
       return;
     }
 
-    const aiStatus = await this.aiProvider.getActiveAiProvider();
-    const scriptProvider = getScriptProviderReadinessFromActiveProvider(aiStatus);
-    if (!scriptProvider.ready) {
-      throw pipelineError(
-        scriptProvider.message,
-        scriptProvider.code ?? 'AI_PROVIDER_DISABLED',
-        'SCRIPT',
-      );
-    }
+    await this.aiProvider.assertScriptGenerationReady();
 
     if (!existing.forceOverride && (await this.isDuplicateTopic(existing))) {
       const progress = progressForStatus(AiInfluencerReelJobStatus.SKIPPED_DUPLICATE);
@@ -1156,13 +1143,17 @@ export class AiInfluencerJobService {
       pronunciationRulesApplied: ttsPrepared.rulesApplied,
     });
     this.log.log(`Job ${jobId} script ready generationMode=${generationMode}`);
-    const nextStatus =
-      cfg.approvalMode === 'FULL_AUTO'
-        ? generationMode === 'VIDEO_AGENT'
-          ? AiInfluencerReelJobStatus.AVATAR_GENERATING
-          : AiInfluencerReelJobStatus.VOICE_GENERATING
-        : AiInfluencerReelJobStatus.SCRIPT_READY;
-    const progress = progressForStatus(nextStatus);
+    const autoContinue = cfg.approvalMode === 'FULL_AUTO';
+    const nextStatus = autoContinue
+      ? generationMode === 'VIDEO_AGENT'
+        ? AiInfluencerReelJobStatus.SCRIPT_READY
+        : AiInfluencerReelJobStatus.VOICE_GENERATING
+      : AiInfluencerReelJobStatus.SCRIPT_READY;
+    const progress = progressForStatus(
+      autoContinue && generationMode === 'VIDEO_AGENT'
+        ? AiInfluencerReelJobStatus.SCRIPT_READY
+        : nextStatus,
+    );
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -1191,7 +1182,7 @@ export class AiInfluencerJobService {
 
     if (nextStatus === AiInfluencerReelJobStatus.VOICE_GENERATING) {
       await this.runVoiceGeneration(jobId);
-    } else if (nextStatus === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+    } else if (autoContinue && generationMode === 'VIDEO_AGENT') {
       await this.runVideoAgentStart(jobId);
     }
   }
@@ -1274,10 +1265,6 @@ export class AiInfluencerJobService {
       baseMasterUrl: job.baseMasterUrl,
     });
     if (mode === 'VIDEO_AGENT' && !meta.usedVideoAgentFallback) {
-      await this.prisma.aiInfluencerReelJob.update({
-        where: { id: jobId },
-        data: { status: AiInfluencerReelJobStatus.AVATAR_GENERATING },
-      });
       await this.runVideoAgentStart(jobId);
       return;
     }
@@ -1386,6 +1373,7 @@ export class AiInfluencerJobService {
   private async runVideoAgentStart(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
     const cfg = this.settings.getCached();
+    const meta = readJobRenderMeta(job.renderSettingsJson);
 
     if (job.avatarStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
@@ -1398,6 +1386,9 @@ export class AiInfluencerJobService {
     }
 
     if (job.avatarExternalJobId && job.status === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+      return;
+    }
+    if (meta.videoAgentSubmitInFlight && !meta.heygenVideoAgentSessionId) {
       return;
     }
 
@@ -1431,6 +1422,18 @@ export class AiInfluencerJobService {
       mediaFiles,
     });
 
+    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT`);
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: 35,
+        currentStep: 'Odesílám do HeyGen',
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          videoAgentSubmitInFlight: true,
+        }) as object,
+      },
+    });
+
     let started;
     try {
       started = await this.videoAgent.startGeneration({
@@ -1439,6 +1442,14 @@ export class AiInfluencerJobService {
         files: mediaFiles,
       });
     } catch (err) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+            videoAgentSubmitInFlight: false,
+          }) as object,
+        },
+      });
       const code = errorCode(err);
       if (cfg.allowVideoAgentFallback && (code?.startsWith('HEYGEN_VIDEO_AGENT_') ?? false)) {
         await this.runVideoAgentFallback(
@@ -1450,6 +1461,9 @@ export class AiInfluencerJobService {
       throw err;
     }
 
+    this.log.log(
+      `[AI-VIDEO][${jobId}] HEYGEN_ACCEPTED session=${started.sessionId.slice(0, 8)}… status=${started.providerStatus ?? 'unknown'}`,
+    );
     const submittedAt = new Date().toISOString();
     const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING);
     await this.prisma.aiInfluencerReelJob.update({
@@ -1469,6 +1483,7 @@ export class AiInfluencerJobService {
           heygenVideoAgentSessionId: started.sessionId,
           heygenVideoAgentVideoId: started.videoId ?? undefined,
           videoAgentSubmittedAt: submittedAt,
+          videoAgentSubmitInFlight: false,
         }) as object,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_SUBMITTED', started.sessionId),
       },
@@ -1494,7 +1509,17 @@ export class AiInfluencerJobService {
       meta.heygenVideoAgentSessionId ??
       parseVideoAgentSessionId(job.avatarExternalJobId) ??
       null;
-    if (!sessionId) throw Object.assign(new Error('Chybí Video Agent session ID.'), { code: 'HEYGEN_VIDEO_AGENT_SUBMIT_FAILED' });
+    if (!sessionId) {
+      if (job.status === AiInfluencerReelJobStatus.AVATAR_GENERATING && !job.avatarExternalJobId) {
+        this.log.warn(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT missing session — retrying submit`);
+        await this.runVideoAgentStart(jobId);
+        return;
+      }
+      throw Object.assign(new Error('HeyGen odpověděl bez session_id po submitu.'), {
+        code: 'HEYGEN_VIDEO_AGENT_SESSION_ID_MISSING',
+        pipelineStage: 'VIDEO_AGENT',
+      });
+    }
 
     if (videoAgentTimedOut(meta.videoAgentSubmittedAt)) {
       if (cfg.allowVideoAgentFallback) {
@@ -2428,11 +2453,10 @@ export class AiInfluencerJobService {
     let scriptProviderReady = true;
 
     if (requireScriptProvider) {
-      const active = await this.aiProvider.getActiveAiProvider();
-      const scriptProvider = getScriptProviderReadinessFromActiveProvider(active);
-      scriptProviderReady = scriptProvider.ready;
+      const resolved = await this.aiProvider.resolveAiProviderForScriptGeneration();
+      scriptProviderReady = resolved.allowed;
       if (!scriptProviderReady) {
-        reasons.push(scriptProvider.message);
+        reasons.push(resolved.message);
       }
     }
 
@@ -2465,13 +2489,14 @@ export class AiInfluencerJobService {
     const requireScriptProvider = options?.requireScriptProvider ?? true;
 
     if (requireScriptProvider) {
-      const active = await this.aiProvider.getActiveAiProvider();
-      const scriptProvider = getScriptProviderReadinessFromActiveProvider(active);
-      if (!scriptProvider.ready) {
+      try {
+        await this.aiProvider.assertScriptGenerationReady();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         throw new BadRequestException({
-          message: scriptProvider.message,
-          code: scriptProvider.code ?? 'AI_PROVIDER_DISABLED',
-          settingsPath: scriptProvider.settingsPath,
+          message,
+          code: errorCode(err) ?? 'AI_PROVIDER_DISABLED',
+          settingsPath: '/admin/marketing/ai-centrum',
         });
       }
     }

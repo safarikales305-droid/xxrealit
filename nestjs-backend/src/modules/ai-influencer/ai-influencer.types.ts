@@ -94,6 +94,7 @@ export type AiInfluencerJobRenderMeta = {
   videoAgentMaster?: boolean;
   fallbackNotice?: string;
   videoAgentSubmittedAt?: string;
+  videoAgentSubmitInFlight?: boolean;
   pronunciationRulesApplied?: string[];
   qualityMetrics?: Record<string, unknown>;
   isProductionTest?: boolean;

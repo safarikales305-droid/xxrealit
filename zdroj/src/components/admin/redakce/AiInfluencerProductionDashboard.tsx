@@ -529,7 +529,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <div className="mt-4 flex flex-wrap gap-2">
               <HealthChip
                 label="Script AI"
-                ok={providers?.ai?.ready === true}
+                ok={providers?.ai?.scriptProvider === 'READY' || providers?.ai?.scriptGenerationEnabled === true}
                 detail={providers?.ai?.message ?? 'OpenAI pro scénáře a storyboard.'}
               />
               <HealthChip
@@ -1108,21 +1108,42 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {[
-                ['AI provider', providers?.ai?.ready === true, providers?.ai?.message],
-                ['Scénář', providers?.ai?.scriptGenerationEnabled === true, providers?.ai?.ready === false ? providers?.ai?.message : 'Připraveno'],
+                [
+                  'AI provider',
+                  providers?.ai?.scriptProvider === 'READY',
+                  providers?.ai?.scriptProvider === 'CONFIGURED'
+                    ? '⚠ CONFIGURED — spusťte test připojení v AI centru'
+                    : providers?.ai?.message,
+                ],
+                [
+                  'Scénář',
+                  providers?.ai?.scriptGenerationEnabled === true,
+                  providers?.ai?.scriptGenerationEnabled === false ? providers?.ai?.message : 'Připraveno',
+                ],
                 ['Video Agent', providers?.videoEngine?.heygenVideoAgent === 'READY', providers?.videoEngine?.heygenVideoAgentMessage],
                 ['Storage', providers?.storage?.configured === true, providers?.storage?.message],
               ].map(([label, ok, detail]) => (
                 <div
                   key={String(label)}
-                  className={`rounded border px-3 py-2 text-xs ${ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}
+                  className={`rounded border px-3 py-2 text-xs ${
+                    ok
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                      : String(label) === 'AI provider' && providers?.ai?.scriptProvider === 'CONFIGURED'
+                        ? 'border-amber-200 bg-amber-50 text-amber-900'
+                        : 'border-amber-200 bg-amber-50 text-amber-900'
+                  }`}
                 >
-                  <span className="font-medium">{label}</span> {ok ? '✓ READY' : '✕ FAIL'}
+                  <span className="font-medium">{label}</span>{' '}
+                  {ok
+                    ? '✓ READY'
+                    : String(label) === 'AI provider' && providers?.ai?.scriptProvider === 'CONFIGURED'
+                      ? '⚠ CONFIGURED'
+                      : '✕ BLOCKED'}
                   {!ok && detail ? <p className="mt-1 text-[11px] opacity-90">{String(detail)}</p> : null}
                 </div>
               ))}
             </div>
-            {providers?.ai?.ready === false ? (
+            {providers?.ai?.scriptGenerationEnabled === false ? (
               <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-medium">Kompletní výrobu nelze spustit.</p>
                 <p className="mt-1">AI generování scénáře není připraveno.</p>
@@ -1519,7 +1540,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p className="text-sm text-zinc-600">
                 AI scénář → storyboard → média → Video Agent → storage · 10–15 s · bez publikace
               </p>
-              {providers?.ai?.ready === false ? (
+              {providers?.ai?.scriptGenerationEnabled === false ? (
                 <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-medium">Kompletní výrobu nelze spustit.</p>
                   <p className="mt-1">AI generování scénáře není připraveno: {providers.ai.message}</p>
@@ -1530,7 +1551,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ) : null}
               <button
                 type="button"
-                disabled={productionTestBusy || providers?.ai?.ready === false}
+                disabled={productionTestBusy || providers?.ai?.scriptGenerationEnabled === false}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setProductionTestBusy(true);

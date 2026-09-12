@@ -235,8 +235,9 @@ export type AiInfluencerDashboard = {
       envEnabled?: boolean;
       connected: boolean | null;
       ready?: boolean;
-      scriptProvider?: 'READY' | 'CONFIGURED' | 'NOT_READY';
+      scriptProvider?: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
       scriptGenerationEnabled?: boolean;
+      scriptAllowed?: boolean;
       disabled?: boolean;
       message?: string;
       model?: string;
