@@ -33,7 +33,6 @@ import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
 import { computeProductionReadiness } from './ai-influencer-preflight.util';
-import { getScriptProviderReadinessFromActiveProvider } from './ai-influencer-script-provider.util';
 import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
 import { aggregateAiInfluencerDashboardStats } from './ai-influencer-dashboard-stats.util';
 import {
@@ -606,8 +605,9 @@ export class AiInfluencerAdminController {
 
   private async getProviderStatus() {
     const profile = await this.registry.getDefaultProfile();
-    const [activeAi, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
-      this.aiProvider.getActiveAiProvider(),
+    const [activeAi, workerScriptProvider, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
+      this.aiProvider.resolveScriptProvider(),
+      this.aiProvider.resolveScriptProvider(),
       this.elevenLabs.getHealth(profile.voiceId),
       this.elevenLabs.getGenerationReadiness(profile.voiceId),
       this.heygen.getGenerationReadiness(profile.avatarId),
@@ -622,7 +622,13 @@ export class AiInfluencerAdminController {
     const cfg = await this.settings.getSettings();
 
     const aiConnected = activeAi.connected === true;
-    const scriptProvider = getScriptProviderReadinessFromActiveProvider(activeAi);
+    const scriptProvider = activeAi;
+    const workerSeesSameScriptConfig =
+      activeAi.usable === workerScriptProvider.usable &&
+      activeAi.enabled === workerScriptProvider.enabled &&
+      activeAi.configured === workerScriptProvider.configured &&
+      activeAi.dbEnabled === workerScriptProvider.dbEnabled &&
+      activeAi.envEnabled === workerScriptProvider.envEnabled;
     const elevenConnected = elevenHealth.status === 'CONNECTED';
     const elevenVoiceSelected = elevenReadiness.voiceSelected;
     const elevenTtsReady =
@@ -683,14 +689,17 @@ export class AiInfluencerAdminController {
         dbEnabled: activeAi.dbEnabled,
         envEnabled: activeAi.envEnabled,
         connected: aiConnected,
-        ready: scriptProvider.label === 'READY',
+        ready: scriptProvider.ready,
+        usable: scriptProvider.usable,
         scriptProvider: scriptProvider.label,
-        scriptGenerationEnabled: scriptProvider.allowed,
-        scriptAllowed: scriptProvider.allowed,
-        disabled: !scriptProvider.allowed,
-        message: scriptProvider.message,
+        scriptGenerationEnabled: scriptProvider.usable,
+        scriptAllowed: scriptProvider.usable,
+        disabled: !scriptProvider.usable,
+        message: scriptProvider.reason,
         model: activeAi.model,
         source: activeAi.source,
+        configSource: activeAi.configSource,
+        workerSeesSameConfig: workerSeesSameScriptConfig,
         settingsPath: activeAi.settingsPath,
       },
       elevenLabs: {
@@ -814,7 +823,12 @@ export class AiInfluencerAdminController {
       },
       workerRuntime: {
         ...workerRuntime,
-        aiProvider: aiConnected ? 'READY' : 'NOT READY',
+        aiProvider: scriptProvider.usable ? scriptProvider.label : 'BLOCKED',
+        aiProviderConfigured: scriptProvider.configured ? 'YES' : 'NO',
+        aiProviderEnabled: scriptProvider.enabled ? 'YES' : 'NO',
+        aiProviderUsable: scriptProvider.usable ? 'YES' : 'NO',
+        aiProviderConfigSource: activeAi.configSource,
+        workerSeesSameConfig: workerSeesSameScriptConfig ? 'YES' : 'NO',
         heygenVideoAgent: videoAgentUiStatus,
         elevenLabsRequired: production.elevenRequired,
         elevenLabsStatus: workerRuntime.elevenRequired

@@ -13,6 +13,7 @@ import { EMPTY_AI_USAGE } from './openai-settings.defaults';
 import { OpenAiConfigService } from './openai-config.service';
 import { redactSecrets } from './openai-mask.util';
 import { OpenAiSettingsService } from './openai-settings.service';
+import { evaluateScriptGenerationGate } from './ai-script-generation-gate.util';
 import { OpenAiRequestException, type OpenAiErrorCode } from './openai-request.exception';
 
 export type AiFeature =
@@ -370,11 +371,18 @@ export class OpenAiService {
     options?: { adminTest?: boolean; salesOperation?: boolean },
   ) {
     const db = await this.settings.getOrCreate();
-    if (!db.enabled && !this.config.envEnabled) {
-      throw new ForbiddenException('OpenAI je vypnuto v nastavení.');
+    const gate = evaluateScriptGenerationGate({
+      enabled: db.enabled || this.config.envEnabled,
+      configured: this.config.isApiKeyConfigured(),
+      connected: null,
+      provider: db.provider,
+    });
+
+    if (!gate.configured) {
+      throw new BadRequestException(gate.reason);
     }
-    if (!this.config.isApiKeyConfigured()) {
-      throw new BadRequestException('API klíč není nastavený.');
+    if (!gate.enabled) {
+      throw new ForbiddenException(gate.reason);
     }
 
     const featureEnabled: Record<AiFeature, boolean> = {

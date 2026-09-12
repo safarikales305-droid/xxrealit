@@ -10,6 +10,8 @@ export type ScriptGenerationGateInput = {
 export type ScriptGenerationGateResult = {
   allowed: boolean;
   ready: boolean;
+  usable: boolean;
+  reason: string;
   label: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
   code?: 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED';
   message: string;
@@ -23,58 +25,73 @@ export function evaluateScriptGenerationGate(
   const provider = input.provider ?? 'OpenAI';
 
   if (!input.configured) {
+    const message = `${provider} není nakonfigurován (chybí API klíč).`;
     return {
       allowed: false,
       ready: false,
+      usable: false,
+      reason: message,
       label: 'NOT_READY',
       code: 'AI_PROVIDER_NOT_CONFIGURED',
       enabled: input.enabled,
       configured: false,
-      message: `${provider} není nakonfigurován (chybí API klíč).`,
+      message,
     };
   }
 
   if (!input.enabled) {
+    const message = 'OpenAI je vypnuto v nastavení.';
     return {
       allowed: false,
       ready: false,
+      usable: false,
+      reason: message,
       label: 'DISABLED',
       code: 'AI_PROVIDER_DISABLED',
       enabled: false,
       configured: true,
-      message: 'OpenAI je vypnuto v nastavení.',
+      message,
     };
   }
 
   if (input.connected === false) {
+    const message = input.lastError?.trim() || `Poslední test ${provider} selhal.`;
     return {
       allowed: false,
       ready: false,
+      usable: false,
+      reason: message,
       label: 'NOT_READY',
       code: 'AI_PROVIDER_DISABLED',
       enabled: true,
       configured: true,
-      message: input.lastError?.trim() || `Poslední test ${provider} selhal.`,
+      message,
     };
   }
 
   if (input.connected === true) {
+    const message = 'AI generování scénáře je připraveno.';
     return {
       allowed: true,
       ready: true,
+      usable: true,
+      reason: message,
       label: 'READY',
       enabled: true,
       configured: true,
-      message: 'AI generování scénáře je připraveno.',
+      message,
     };
   }
 
+  const message = `${provider} je nakonfigurován (test připojení nebyl spuštěn).`;
   return {
     allowed: true,
     ready: false,
+    usable: true,
+    reason: message,
     label: 'CONFIGURED',
     enabled: true,
     configured: true,
-    message: `${provider} je nakonfigurován (test připojení nebyl spuštěn).`,
+    message,
   };
 }

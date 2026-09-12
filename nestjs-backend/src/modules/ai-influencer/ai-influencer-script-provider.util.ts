@@ -7,6 +7,8 @@ import {
 export type ScriptProviderReadiness = {
   ready: boolean;
   allowed: boolean;
+  usable: boolean;
+  reason: string;
   label: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
   code?: 'SCRIPT_PROVIDER_DISABLED' | 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED';
   message: string;
@@ -21,6 +23,8 @@ export function getScriptProviderReadiness(
   return {
     ready: gate.ready,
     allowed: gate.allowed,
+    usable: gate.usable,
+    reason: gate.reason,
     label: gate.label,
     code: gate.code,
     message: gate.message,
@@ -41,6 +45,8 @@ export function getScriptProviderReadinessFromActiveProvider(
   return {
     ready: gate.ready,
     allowed: gate.allowed,
+    usable: gate.usable,
+    reason: gate.reason,
     label: gate.label,
     code: gate.code,
     message: gate.message,

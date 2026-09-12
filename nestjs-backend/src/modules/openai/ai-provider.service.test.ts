@@ -14,7 +14,7 @@ describe('getScriptProviderReadiness aligned with OpenAiService.assertCanRun', (
   it('passes when enabled and configured without prior connection test', () => {
     const r = getScriptProviderReadiness({ enabled: true, configured: true, connected: null });
     assert.equal(r.ready, false);
-    assert.equal(r.allowed, true);
+    assert.equal(r.usable, true);
     assert.equal(r.label, 'CONFIGURED');
   });
 });

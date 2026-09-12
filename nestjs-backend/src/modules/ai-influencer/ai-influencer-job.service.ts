@@ -954,6 +954,9 @@ export class AiInfluencerJobService {
       });
       return;
     }
+
+    await this.aiProvider.assertScriptGenerationReady();
+
     await this.setProgress(jobId, AiInfluencerReelJobStatus.EVALUATING, undefined, 'EVALUATION_STARTED');
     if (job.candidateId && !job.forceOverride) {
       if (job.status !== AiInfluencerReelJobStatus.CANDIDATE) {
@@ -2591,10 +2594,10 @@ export class AiInfluencerJobService {
     let scriptProviderReady = true;
 
     if (requireScriptProvider) {
-      const resolved = await this.aiProvider.resolveAiProviderForScriptGeneration();
-      scriptProviderReady = resolved.allowed;
+      const resolved = await this.aiProvider.resolveScriptProvider();
+      scriptProviderReady = resolved.usable;
       if (!scriptProviderReady) {
-        reasons.push(resolved.message);
+        reasons.push(resolved.reason);
       }
     }
 

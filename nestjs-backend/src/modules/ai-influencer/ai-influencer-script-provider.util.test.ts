@@ -19,7 +19,7 @@ describe('getScriptProviderReadiness', () => {
   it('allows script generation when enabled and configured even without prior connection test', () => {
     const r = getScriptProviderReadiness({ enabled: true, configured: true, connected: null });
     assert.equal(r.ready, false);
-    assert.equal(r.allowed, true);
+    assert.equal(r.usable, true);
     assert.equal(r.label, 'CONFIGURED');
   });
 

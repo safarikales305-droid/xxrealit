@@ -540,7 +540,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <div className="mt-4 flex flex-wrap gap-2">
               <HealthChip
                 label="Script AI"
-                ok={providers?.ai?.scriptProvider === 'READY' || providers?.ai?.scriptGenerationEnabled === true}
+                ok={providers?.ai?.usable === true}
                 detail={providers?.ai?.message ?? 'OpenAI pro scénáře a storyboard.'}
               />
               <HealthChip
@@ -1132,19 +1132,23 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               {[
                 [
                   'AI provider',
-                  providers?.ai?.scriptProvider === 'READY',
-                  providers?.ai?.scriptProvider === 'CONFIGURED'
-                    ? '⚠ CONFIGURED — spusťte test připojení v AI centru'
-                    : providers?.ai?.message,
+                  providers?.ai?.usable === true,
+                  providers?.ai?.scriptProvider === 'READY'
+                    ? 'Připraveno'
+                    : providers?.ai?.scriptProvider === 'CONFIGURED'
+                      ? '⚠ CONFIGURED — test připojení nebyl spuštěn'
+                      : providers?.ai?.message,
+                  providers?.ai?.scriptProvider,
                 ],
                 [
                   'Scénář',
-                  providers?.ai?.scriptGenerationEnabled === true,
-                  providers?.ai?.scriptGenerationEnabled === false ? providers?.ai?.message : 'Připraveno',
+                  providers?.ai?.usable === true,
+                  providers?.ai?.usable === false ? providers?.ai?.message : 'Připraveno',
+                  providers?.ai?.usable === true ? 'READY' : 'BLOCKED',
                 ],
-                ['Video Agent', providers?.videoEngine?.heygenVideoAgent === 'READY', providers?.videoEngine?.heygenVideoAgentMessage],
-                ['Storage', providers?.storage?.configured === true, providers?.storage?.message],
-              ].map(([label, ok, detail]) => (
+                ['Video Agent', providers?.videoEngine?.heygenVideoAgent === 'READY', providers?.videoEngine?.heygenVideoAgentMessage, null],
+                ['Storage', providers?.storage?.configured === true, providers?.storage?.message, null],
+              ].map(([label, ok, detail, chipLabel]) => (
                 <div
                   key={String(label)}
                   className={`rounded border px-3 py-2 text-xs ${
@@ -1157,7 +1161,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 >
                   <span className="font-medium">{label}</span>{' '}
                   {ok
-                    ? '✓ READY'
+                    ? `✓ ${String(chipLabel ?? 'READY')}`
                     : String(label) === 'AI provider' && providers?.ai?.scriptProvider === 'CONFIGURED'
                       ? '⚠ CONFIGURED'
                       : '✕ BLOCKED'}
@@ -1165,7 +1169,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 </div>
               ))}
             </div>
-            {providers?.ai?.scriptGenerationEnabled === false ? (
+            {providers?.ai?.usable === false ? (
               <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-medium">Kompletní výrobu nelze spustit.</p>
                 <p className="mt-1">AI generování scénáře není připraveno.</p>
@@ -1396,7 +1400,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 <p>publishedJobsToday: {dashboard?.debugCounts?.publishedJobsToday ?? '—'}</p>
                 <p>failedJobsToday: {dashboard?.debugCounts?.failedJobsToday ?? '—'}</p>
                 <p>galleryVideos: {dashboard?.debugCounts?.galleryVideos ?? videos.length}</p>
-                <p>AI provider: {providers?.workerRuntime?.aiProvider ?? '—'}</p>
+                <p>AI provider: {providers?.ai?.provider ?? '—'}</p>
+                <p>Configured: {providers?.ai?.configured ? 'YES' : 'NO'}</p>
+                <p>Enabled: {providers?.ai?.enabled ? 'YES' : 'NO'} (db={providers?.ai?.dbEnabled ? 'YES' : 'NO'}, env={providers?.ai?.envEnabled ? 'YES' : 'NO'})</p>
+                <p>Usable: {providers?.ai?.usable ? 'YES' : 'NO'}</p>
+                <p>Config source: {providers?.ai?.configSource ?? providers?.ai?.source ?? '—'}</p>
+                <p>Worker sees same config: {providers?.ai?.workerSeesSameConfig ? 'YES' : 'NO'}</p>
+                <p>Script label: {providers?.ai?.scriptProvider ?? '—'}</p>
+                <p>Reason: {providers?.ai?.message ?? '—'}</p>
                 <p>HeyGen Video Agent: {providers?.workerRuntime?.heygenVideoAgent ?? '—'}</p>
                 <p>ElevenLabs: {providers?.workerRuntime?.elevenLabsStatus ?? '—'}</p>
                 <p>WORKER HEYGEN_API_KEY: {providers?.workerRuntime?.heygenApiKey ?? '—'}</p>
@@ -1568,7 +1579,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p className="text-sm text-zinc-600">
                 AI scénář → storyboard → média → Video Agent → storage · 10–15 s · bez publikace
               </p>
-              {providers?.ai?.scriptGenerationEnabled === false ? (
+              {providers?.ai?.usable === false ? (
                 <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-medium">Kompletní výrobu nelze spustit.</p>
                   <p className="mt-1">AI generování scénáře není připraveno: {providers.ai.message}</p>
@@ -1579,7 +1590,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ) : null}
               <button
                 type="button"
-                disabled={productionTestBusy || providers?.ai?.scriptGenerationEnabled === false}
+                disabled={productionTestBusy || providers?.ai?.usable === false}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setProductionTestBusy(true);

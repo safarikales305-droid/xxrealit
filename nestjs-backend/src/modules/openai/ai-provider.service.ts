@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { AiProvider } from '@prisma/client';
-import { evaluateScriptGenerationGate, type ScriptGenerationGateResult } from './ai-script-generation-gate.util';
+import {
+  evaluateScriptGenerationGate,
+  type ScriptGenerationGateResult,
+} from './ai-script-generation-gate.util';
 import { OpenAiConfigService } from './openai-config.service';
 import { OpenAiSettingsService } from './openai-settings.service';
 import { OpenAiService } from './openai.service';
@@ -19,7 +22,10 @@ export type ActiveAiProvider = {
   settingsPath: '/admin/marketing/ai-centrum';
 };
 
-export type ResolvedScriptGenerationProvider = ActiveAiProvider & ScriptGenerationGateResult;
+export type ResolvedScriptGenerationProvider = ActiveAiProvider &
+  ScriptGenerationGateResult & {
+    configSource: ActiveAiProvider['source'];
+  };
 
 @Injectable()
 export class AiProviderService {
@@ -30,6 +36,28 @@ export class AiProviderService {
   ) {}
 
   async getActiveAiProvider(): Promise<ActiveAiProvider> {
+    const resolved = await this.resolveScriptProvider();
+    return {
+      provider: resolved.provider,
+      configured: resolved.configured,
+      enabled: resolved.enabled,
+      dbEnabled: resolved.dbEnabled,
+      envEnabled: resolved.envEnabled,
+      model: resolved.model,
+      connected: resolved.connected,
+      lastError: resolved.lastError,
+      source: resolved.source,
+      scriptGenerationEnabled: resolved.usable,
+      settingsPath: resolved.settingsPath,
+    };
+  }
+
+  /** Canonical resolver — preflight, worker, test, produkce, retry. */
+  async resolveScriptProvider(): Promise<ResolvedScriptGenerationProvider> {
+    return this.resolveAiProviderForScriptGeneration();
+  }
+
+  async resolveAiProviderForScriptGeneration(): Promise<ResolvedScriptGenerationProvider> {
     const [status, db] = await Promise.all([this.openAi.getStatus(), this.settings.getOrCreate()]);
     const envEnabled = this.config.envEnabled;
     const dbEnabled = db.enabled;
@@ -59,28 +87,17 @@ export class AiProviderService {
       connected: status.connected,
       lastError: status.lastError,
       source,
-      scriptGenerationEnabled: gate.allowed,
+      scriptGenerationEnabled: gate.usable,
       settingsPath: '/admin/marketing/ai-centrum',
+      configSource: source,
+      ...gate,
     };
   }
 
-  /** Canonical resolver — preflight, worker, test i produkční script generation. */
-  async resolveAiProviderForScriptGeneration(): Promise<ResolvedScriptGenerationProvider> {
-    const active = await this.getActiveAiProvider();
-    const gate = evaluateScriptGenerationGate({
-      enabled: active.enabled,
-      configured: active.configured,
-      connected: active.connected,
-      lastError: active.lastError,
-      provider: active.provider,
-    });
-    return { ...active, ...gate };
-  }
-
   async assertScriptGenerationReady(): Promise<ResolvedScriptGenerationProvider> {
-    const resolved = await this.resolveAiProviderForScriptGeneration();
-    if (!resolved.allowed) {
-      throw Object.assign(new Error(resolved.message), {
+    const resolved = await this.resolveScriptProvider();
+    if (!resolved.usable) {
+      throw Object.assign(new Error(resolved.reason), {
         code: resolved.code ?? 'AI_PROVIDER_DISABLED',
         pipelineStage: 'SCRIPT',
       });

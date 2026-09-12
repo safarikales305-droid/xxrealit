@@ -238,6 +238,9 @@ export type AiInfluencerDashboard = {
       scriptProvider?: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
       scriptGenerationEnabled?: boolean;
       scriptAllowed?: boolean;
+      usable?: boolean;
+      configSource?: 'database' | 'environment' | 'both' | 'none';
+      workerSeesSameConfig?: boolean;
       disabled?: boolean;
       message?: string;
       model?: string;

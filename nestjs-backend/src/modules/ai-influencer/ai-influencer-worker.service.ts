@@ -49,7 +49,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     const eleven = getElevenLabsRuntimeConfig();
     const heygen = getHeyGenRuntimeConfig();
     const storage = getCloudinaryRuntimeConfig();
-    const activeAi = await this.aiProvider.getActiveAiProvider();
+    const activeAi = await this.aiProvider.resolveScriptProvider();
     const profile = await this.registry.getDefaultProfile();
     const elevenHealth = await this.elevenLabs.getHealth(profile.voiceId);
     const elevenReadiness = await this.elevenLabs.getGenerationReadiness(profile.voiceId);
@@ -72,7 +72,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     this.log.log(`[AI Influencer] PROVIDER ELEVENLABS_API_KEY: ${elevenReadiness.apiKeyPresence}`);
     this.log.log(`[AI Influencer] PROVIDER HEYGEN_API_KEY: ${heygenReadiness.apiKeyPresence}`);
     this.log.log(
-      `[AI Influencer] AI_PROVIDER: ${activeAi.scriptGenerationEnabled ? 'READY' : 'NOT READY'} (${activeAi.provider}, enabled=${activeAi.enabled}, configured=${activeAi.configured})`,
+      `[AI Influencer] AI_PROVIDER: ${activeAi.usable ? 'READY' : 'NOT READY'} (${activeAi.provider}, enabled=${activeAi.enabled}, configured=${activeAi.configured}, db=${activeAi.dbEnabled}, env=${activeAi.envEnabled}, source=${activeAi.configSource}, label=${activeAi.label})`,
     );
     this.log.log(`[AI Influencer] ELEVENLABS_VOICE_ID: ${eleven.voiceIdPresence}`);
     this.log.log(
