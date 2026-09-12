@@ -144,7 +144,7 @@ function pipelineErrorLabel(code: string | null | undefined): string | null {
     AI_PROVIDER_NOT_CONFIGURED: 'AI provider není nakonfigurován.',
     AI_PROVIDER_DISABLED: 'OpenAI je vypnuto v nastavení.',
     HEYGEN_NOT_CONFIGURED: 'HeyGen API není nakonfigurováno.',
-    ELEVENLABS_NOT_CONFIGURED: 'ElevenLabs API není nakonfigurováno.',
+    ELEVENLABS_NOT_CONFIGURED: 'ElevenLabs není dostupný v generation workeru.',
     STORAGE_FAILED: 'Cloudinary storage není nakonfigurováno.',
     RENDER_INPUT_MISSING: 'Chybí vstup pro render pipeline.',
   };
@@ -1677,6 +1677,17 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     <p>Canonical usable: {providers.ai.scriptDiagnostics.canonicalUsable}</p>
                     <p>Config source: {providers.ai.scriptDiagnostics.configSource}</p>
                     <p>Last resolved: {providers.ai.scriptDiagnostics.lastResolved ?? '—'}</p>
+                  </>
+                ) : null}
+                {providers?.elevenLabs?.runtime ? (
+                  <>
+                    <p className="pt-2 font-semibold text-zinc-800">ELEVENLABS RUNTIME</p>
+                    <p>API process: {providers.elevenLabs.runtime.apiProcess}</p>
+                    <p>Worker process: {providers.elevenLabs.runtime.workerProcess}</p>
+                    <p>Voice service: {providers.elevenLabs.runtime.voiceService}</p>
+                    <p>Voice ID: {providers.elevenLabs.runtime.voiceId}</p>
+                    <p>Voices read: {providers.elevenLabs.runtime.voicesRead}</p>
+                    <p>Required for production: {providers.elevenLabs.requiredForProduction ? 'YES' : 'NO'}</p>
                   </>
                 ) : null}
                 {providers?.workerRuntime?.providerDiagnostics ? (

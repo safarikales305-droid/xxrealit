@@ -1,5 +1,6 @@
 import type { AiInfluencerAutomationSettings, AiInfluencerVideoGenerationMode } from './ai-influencer.types';
 import { resolveVideoGenerationMode } from './ai-influencer-video-agent.util';
+import { isElevenLabsRequiredForProduction } from './voice-engine.util';
 
 export type ProductionReadinessInput = {
   settings: Pick<AiInfluencerAutomationSettings, 'videoGenerationMode' | 'allowVideoAgentFallback'>;
@@ -29,8 +30,7 @@ export function computeProductionReadiness(
     reasons.push('Chybí Cloudinary storage');
   }
 
-  const elevenRequired =
-    mode === 'AVATAR' || (mode === 'VIDEO_AGENT' && input.settings.allowVideoAgentFallback);
+  const elevenRequired = isElevenLabsRequiredForProduction(input.settings);
 
   if (mode === 'VIDEO_AGENT') {
     if (!input.heygenReady) {

@@ -135,4 +135,52 @@ export function cloudinaryMissingMessage(cfg: CloudinaryRuntimeConfig): string {
   return 'Cloudinary není nakonfigurován.';
 }
 
+export function resolveElevenLabsRuntimeDiagnostics(input: {
+  profileVoiceId?: string | null;
+  elevenRequired: boolean;
+  voicesPermission?: 'PASS' | 'FAIL' | 'PERMISSION_REQUIRED' | 'NOT_CHECKED';
+  ttsPermission?: 'PASS' | 'FAIL' | 'NOT_CHECKED';
+}): {
+  configured: boolean;
+  apiKeyPresent: boolean;
+  voiceIdPresent: boolean;
+  usable: boolean;
+  providerReady: boolean;
+  apiProcess: EnvPresence | 'NOT_REQUIRED';
+  workerProcess: EnvPresence | 'NOT_REQUIRED';
+  voiceService: 'READY' | 'BLOCKED' | 'NOT_REQUIRED';
+  voiceId: 'PRESENT' | 'MISSING';
+  voicesRead: 'OPTIONAL / AVAILABLE' | 'OPTIONAL / MISSING' | 'NOT_REQUIRED';
+} {
+  const runtime = getElevenLabsRuntimeConfig();
+  const voiceId = input.profileVoiceId?.trim() || runtime.voiceId;
+  const apiKeyPresent = runtime.apiKeyPresence === 'CONFIGURED';
+  const voiceIdPresent = Boolean(voiceId);
+  const ttsReady = input.ttsPermission === 'PASS' || (apiKeyPresent && voiceIdPresent);
+  const usable = apiKeyPresent && voiceIdPresent && ttsReady;
+  const providerReady = input.elevenRequired ? usable : true;
+
+  const voicesRead =
+    !input.elevenRequired
+      ? 'NOT_REQUIRED'
+      : input.voicesPermission === 'PASS'
+        ? 'OPTIONAL / AVAILABLE'
+        : 'OPTIONAL / MISSING';
+
+  const notRequired = !input.elevenRequired;
+
+  return {
+    configured: apiKeyPresent,
+    apiKeyPresent,
+    voiceIdPresent,
+    usable,
+    providerReady,
+    apiProcess: notRequired ? 'NOT_REQUIRED' : runtime.apiKeyPresence,
+    workerProcess: notRequired ? 'NOT_REQUIRED' : runtime.apiKeyPresence,
+    voiceService: notRequired ? 'NOT_REQUIRED' : usable ? 'READY' : 'BLOCKED',
+    voiceId: voiceIdPresent ? 'PRESENT' : 'MISSING',
+    voicesRead,
+  };
+}
+
 export { readRuntimeEnv, readRuntimeEnvWithAliases };

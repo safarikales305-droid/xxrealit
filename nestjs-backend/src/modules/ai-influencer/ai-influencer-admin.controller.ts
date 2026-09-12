@@ -38,7 +38,8 @@ import {
   getRendererRuntimeReadiness,
   resolveVideoAgentCanonicalReady,
 } from './ai-influencer-provider-readiness.util';
-import { buildWorkerRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
+import { buildWorkerRuntimeDiagnostics, resolveElevenLabsRuntimeDiagnostics } from './ai-influencer-runtime-config.util';
+import { buildActivePipelineSteps, resolveVoiceEngine } from './voice-engine.util';
 import { aggregateAiInfluencerDashboardStats } from './ai-influencer-dashboard-stats.util';
 import {
   BRAND_PRONUNCIATION_TEST_SENTENCE,
@@ -741,6 +742,16 @@ export class AiInfluencerAdminController {
       elevenRequired: production.elevenRequired,
       storageConfigured: storageDiag.configured,
     });
+    const pipelineVoiceEngine = resolveVoiceEngine(
+      { generationModeUsed: production.mode, videoGenerationMode: production.mode },
+      cfg,
+    );
+    const elevenRuntimeDiag = resolveElevenLabsRuntimeDiagnostics({
+      profileVoiceId: profile.voiceId,
+      elevenRequired: production.elevenRequired,
+      voicesPermission: elevenHealth.voicesPermission,
+      ttsPermission: elevenHealth.ttsPermission,
+    });
 
     return {
       ready: {
@@ -818,6 +829,8 @@ export class AiInfluencerAdminController {
         httpStatus: elevenHealth.httpStatus ?? null,
         detailStatus: elevenHealth.detailStatus ?? null,
         detailMessage: elevenHealth.detailMessage ?? null,
+        requiredForProduction: production.elevenRequired,
+        runtime: elevenRuntimeDiag,
       },
       heygen: {
         configured: heygenReadiness.apiKeyPresence === 'CONFIGURED',
@@ -853,16 +866,17 @@ export class AiInfluencerAdminController {
       activePipeline: {
         mode: production.mode,
         voiceEngine:
-          production.mode === 'VIDEO_AGENT' && !production.elevenRequired
-            ? 'HeyGen built-in'
-            : production.elevenRequired
-              ? 'ElevenLabs'
-              : 'HeyGen built-in',
+          pipelineVoiceEngine === 'HEYGEN' ? 'HeyGen built-in' : 'ElevenLabs',
         elevenLabsRequired: production.elevenRequired,
-        steps:
-          production.mode === 'VIDEO_AGENT'
-            ? ['OpenAI', 'HeyGen Video Agent', 'Download', 'Renderer', 'Storage', 'Galerie', 'Publikace']
-            : ['OpenAI', 'ElevenLabs', 'Avatar', 'Renderer', 'Storage', 'Galerie', 'Publikace'],
+        voiceRequired:
+          pipelineVoiceEngine === 'ELEVENLABS' ||
+          production.elevenRequired ||
+          production.mode === 'AVATAR',
+        steps: buildActivePipelineSteps({
+          mode: production.mode,
+          voiceEngine: pipelineVoiceEngine,
+          elevenRequired: production.elevenRequired,
+        }),
       },
       renderer: {
         configured: rendererReadiness.configured,

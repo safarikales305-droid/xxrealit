@@ -101,6 +101,11 @@ import {
   videoAgentPollRatio,
   videoAgentTimedOut,
 } from './ai-influencer-video-agent.util';
+import {
+  isElevenLabsRequiredForJob,
+  resolveVoiceEngine,
+  shouldSkipVoicePhaseForVideoAgent,
+} from './voice-engine.util';
 import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
 import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
@@ -483,35 +488,26 @@ export class AiInfluencerJobService {
       avatarExternalJobId: job.avatarExternalJobId,
       baseMasterUrl: job.baseMasterUrl,
     });
-    const nextStatus =
-      mode === 'VIDEO_AGENT'
-        ? AiInfluencerReelJobStatus.SCRIPT_READY
-        : AiInfluencerReelJobStatus.VOICE_GENERATING;
-    if (mode !== 'VIDEO_AGENT') {
-      await this.prisma.aiInfluencerReelJob.update({
-        where: { id: jobId },
-        data: {
-          status: nextStatus,
-          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-            videoGenerationMode: mode,
-            generationModeUsed: mode,
-            voiceEngine: 'ELEVENLABS',
-          }) as object,
-        },
-      });
-    } else {
-      await this.prisma.aiInfluencerReelJob.update({
-        where: { id: jobId },
-        data: {
-          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-            videoGenerationMode: mode,
-            generationModeUsed: mode,
-            voiceEngine: 'HEYGEN',
-            providerJobType: 'VIDEO_AGENT',
-          }) as object,
-        },
-      });
-    }
+    const voiceEngine = resolveVoiceEngine(meta, cfg);
+    const skipVoice = shouldSkipVoicePhaseForVideoAgent(
+      { ...meta, generationModeUsed: mode, voiceEngine },
+      cfg,
+    );
+    const nextStatus = skipVoice
+      ? AiInfluencerReelJobStatus.SCRIPT_READY
+      : AiInfluencerReelJobStatus.VOICE_GENERATING;
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: nextStatus,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          videoGenerationMode: mode,
+          generationModeUsed: mode,
+          voiceEngine: skipVoice ? 'HEYGEN' : 'ELEVENLABS',
+          providerJobType: mode === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'AVATAR',
+        }) as object,
+      },
+    });
     await this.advanceJobChain(jobId, 6);
     return this.getJob(jobId);
   }
@@ -1143,17 +1139,17 @@ export class AiInfluencerJobService {
           const autoAdvance =
             cfg.approvalMode !== 'MANUAL' || job.isTest || meta.isProductionTest === true;
           if (autoAdvance) {
-            const mode = inferJobGenerationMode(meta, cfg, {
-              voiceStorageUrl: job.voiceStorageUrl,
-              avatarExternalJobId: job.avatarExternalJobId,
-              baseMasterUrl: job.baseMasterUrl,
-            });
-            if (mode === 'VIDEO_AGENT') {
+            if (shouldSkipVoicePhaseForVideoAgent(meta, cfg)) {
               await this.runVideoAgentStart(jobId);
             } else {
               await this.prisma.aiInfluencerReelJob.update({
                 where: { id: jobId },
-                data: { status: AiInfluencerReelJobStatus.VOICE_GENERATING },
+                data: {
+                  status: AiInfluencerReelJobStatus.VOICE_GENERATING,
+                  renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+                    voiceEngine: resolveVoiceEngine(meta, cfg),
+                  }) as object,
+                },
               });
               await this.runVoiceGeneration(jobId);
             }
@@ -1458,24 +1454,27 @@ export class AiInfluencerJobService {
     }
     const existingMeta = readJobRenderMeta(job.renderSettingsJson);
     const generationMode = getJobSnapshotGenerationMode(existingMeta, cfg);
+    const voiceEngine = resolveVoiceEngine(existingMeta, cfg);
     const renderMeta = mergeJobRenderMeta(job.renderSettingsJson, {
       pronunciationRulesApplied: ttsPrepared.rulesApplied,
-      ...(existingMeta.generationModeUsed
-        ? {}
-        : {
-            videoGenerationMode: generationMode,
-            generationModeUsed: generationMode,
-          }),
+      videoGenerationMode: generationMode,
+      generationModeUsed: generationMode,
+      voiceEngine,
+      providerJobType: generationMode === 'VIDEO_AGENT' ? 'VIDEO_AGENT' : 'AVATAR',
     });
-    this.log.log(`Job ${jobId} script ready generationMode=${generationMode} (snapshot)`);
-    const autoContinue = cfg.approvalMode === 'FULL_AUTO';
+    const snapshotMeta = readJobRenderMeta(renderMeta);
+    this.log.log(
+      `Job ${jobId} script ready generationMode=${generationMode} voiceEngine=${voiceEngine} (snapshot)`,
+    );
+    const autoContinue =
+      cfg.approvalMode !== 'MANUAL' || job.isTest || existingMeta.isProductionTest === true;
     const nextStatus = autoContinue
-      ? generationMode === 'VIDEO_AGENT'
+      ? shouldSkipVoicePhaseForVideoAgent(snapshotMeta, cfg)
         ? AiInfluencerReelJobStatus.SCRIPT_READY
         : AiInfluencerReelJobStatus.VOICE_GENERATING
       : AiInfluencerReelJobStatus.SCRIPT_READY;
     const progress = progressForStatus(
-      autoContinue && generationMode === 'VIDEO_AGENT'
+      autoContinue && shouldSkipVoicePhaseForVideoAgent(snapshotMeta, cfg)
         ? AiInfluencerReelJobStatus.SCRIPT_READY
         : nextStatus,
     );
@@ -1507,7 +1506,7 @@ export class AiInfluencerJobService {
 
     if (nextStatus === AiInfluencerReelJobStatus.VOICE_GENERATING) {
       await this.runVoiceGeneration(jobId);
-    } else if (autoContinue && generationMode === 'VIDEO_AGENT') {
+    } else if (autoContinue && shouldSkipVoicePhaseForVideoAgent(snapshotMeta, cfg)) {
       await this.runVideoAgentStart(jobId);
     }
   }
@@ -1584,14 +1583,17 @@ export class AiInfluencerJobService {
     const job = await this.getJob(jobId);
     const cfg = this.settings.getCached();
     const meta = readJobRenderMeta(job.renderSettingsJson);
-    const mode = inferJobGenerationMode(meta, cfg, {
-      voiceStorageUrl: job.voiceStorageUrl,
-      avatarExternalJobId: job.avatarExternalJobId,
-      baseMasterUrl: job.baseMasterUrl,
-    });
-    if (mode === 'VIDEO_AGENT' && !meta.usedVideoAgentFallback) {
+
+    if (shouldSkipVoicePhaseForVideoAgent(meta, cfg)) {
       await this.runVideoAgentStart(jobId);
       return;
+    }
+
+    if (!isElevenLabsRequiredForJob(meta, cfg)) {
+      throw Object.assign(new Error('Voice fáze byla spuštěna, ale ElevenLabs není vyžadován.'), {
+        code: 'VOICE_ENGINE_MISMATCH',
+        pipelineStage: 'VOICE',
+      });
     }
 
     await this.setProgress(jobId, AiInfluencerReelJobStatus.VOICE_GENERATING, undefined, 'VOICE_STARTED');

@@ -42,6 +42,14 @@ export type ElevenLabsProviderStatus = {
   httpStatus?: number | null;
   detailStatus?: string | null;
   detailMessage?: string | null;
+  requiredForProduction?: boolean;
+  runtime?: {
+    apiProcess: 'CONFIGURED' | 'MISSING' | 'NOT_REQUIRED';
+    workerProcess: 'CONFIGURED' | 'MISSING' | 'NOT_REQUIRED';
+    voiceService: 'READY' | 'BLOCKED' | 'NOT_REQUIRED';
+    voiceId: 'PRESENT' | 'MISSING';
+    voicesRead: 'OPTIONAL / AVAILABLE' | 'OPTIONAL / MISSING' | 'NOT_REQUIRED';
+  };
 };
 
 export type HeyGenProviderStatus = {
@@ -290,6 +298,7 @@ export type AiInfluencerDashboard = {
       mode: 'VIDEO_AGENT' | 'AVATAR';
       voiceEngine: string;
       elevenLabsRequired: boolean;
+      voiceRequired?: boolean;
       steps: string[];
     };
     workerRuntime?: {

@@ -111,7 +111,7 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
         ready: false,
         apiKeyPresence: 'MISSING',
         voiceSelected: Boolean(voiceId),
-        message: 'ElevenLabs API key není nakonfigurován (ELEVENLABS_API_KEY).',
+        message: 'ElevenLabs není dostupný v generation workeru.',
       };
     }
     if (!voiceId) {
@@ -139,7 +139,10 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
         : !readiness.voiceSelected
           ? 'ELEVENLABS_VOICE_NOT_SELECTED'
           : 'ELEVENLABS_NOT_READY';
-    throw Object.assign(new Error(readiness.message ?? 'ElevenLabs není připraven.'), { code });
+    throw Object.assign(new Error(readiness.message ?? 'ElevenLabs není dostupný v generation workeru.'), {
+      code,
+      pipelineStage: 'VOICE',
+    });
   }
 
   async getHealth(profileVoiceId?: string | null): Promise<ElevenLabsHealthResult> {
@@ -272,8 +275,9 @@ export class ElevenLabsVoiceProvider implements VoiceProvider, OnModuleInit {
     const apiKey = this.apiKey;
     const voiceId = input.voiceId || this.defaultVoiceId;
     if (!apiKey) {
-      throw Object.assign(new Error('ElevenLabs API key není nastaven (ELEVENLABS_API_KEY).'), {
+      throw Object.assign(new Error('ElevenLabs není dostupný v generation workeru.'), {
         code: 'ELEVENLABS_NOT_CONFIGURED',
+        pipelineStage: 'VOICE',
       });
     }
     if (!voiceId) {
