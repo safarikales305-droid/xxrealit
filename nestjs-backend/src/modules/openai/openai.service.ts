@@ -13,7 +13,11 @@ import { EMPTY_AI_USAGE } from './openai-settings.defaults';
 import { OpenAiConfigService } from './openai-config.service';
 import { redactSecrets } from './openai-mask.util';
 import { OpenAiSettingsService } from './openai-settings.service';
-import { evaluateScriptGenerationGate } from './ai-script-generation-gate.util';
+import {
+  buildScriptGenerationRuntimeContext,
+  evaluateScriptGenerationGate,
+  evaluateScriptGenerationGateFromContext,
+} from './ai-script-generation-gate.util';
 import { OpenAiRequestException, type OpenAiErrorCode } from './openai-request.exception';
 
 export type AiFeature =
@@ -371,18 +375,45 @@ export class OpenAiService {
     options?: { adminTest?: boolean; salesOperation?: boolean },
   ) {
     const db = await this.settings.getOrCreate();
-    const gate = evaluateScriptGenerationGate({
-      enabled: db.enabled || this.config.envEnabled,
-      configured: this.config.isApiKeyConfigured(),
-      connected: null,
-      provider: db.provider,
-    });
+    const isInfluencerScriptFeature =
+      feature === 'ai_influencer_score' || feature === 'ai_influencer_script';
 
-    if (!gate.configured) {
-      throw new BadRequestException(gate.reason);
-    }
-    if (!gate.enabled) {
-      throw new ForbiddenException(gate.reason);
+    if (isInfluencerScriptFeature && options?.adminTest) {
+      const status = await this.getStatus();
+      const gate = evaluateScriptGenerationGateFromContext(
+        buildScriptGenerationRuntimeContext({
+          dbEnabled: db.enabled,
+          envEnabled: this.config.envEnabled,
+          configured: status.configured,
+          connected: status.connected,
+          lastError: status.lastError,
+          provider: db.provider,
+        }),
+      );
+      if (!gate.usable) {
+        const err =
+          gate.code === 'AI_PROVIDER_NOT_CONFIGURED'
+            ? new BadRequestException(gate.reason)
+            : new ForbiddenException(gate.reason);
+        throw Object.assign(err, {
+          code: gate.code ?? 'AI_PROVIDER_DISABLED',
+          pipelineStage: 'SCRIPT',
+        });
+      }
+    } else {
+      const gate = evaluateScriptGenerationGate({
+        enabled: db.enabled || this.config.envEnabled,
+        configured: this.config.isApiKeyConfigured(),
+        connected: null,
+        provider: db.provider,
+      });
+
+      if (!gate.configured) {
+        throw new BadRequestException(gate.reason);
+      }
+      if (!gate.enabled) {
+        throw new ForbiddenException(gate.reason);
+      }
     }
 
     const featureEnabled: Record<AiFeature, boolean> = {

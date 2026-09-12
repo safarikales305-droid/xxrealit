@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { AiProvider } from '@prisma/client';
 import {
-  evaluateScriptGenerationGate,
+  buildScriptGenerationRuntimeContext,
+  evaluateScriptGenerationGateFromContext,
   type ScriptGenerationGateResult,
+  resolveScriptGenerationConfigSource,
 } from './ai-script-generation-gate.util';
 import { OpenAiConfigService } from './openai-config.service';
 import { OpenAiSettingsService } from './openai-settings.service';
@@ -25,6 +27,7 @@ export type ActiveAiProvider = {
 export type ResolvedScriptGenerationProvider = ActiveAiProvider &
   ScriptGenerationGateResult & {
     configSource: ActiveAiProvider['source'];
+    resolvedAt: string;
   };
 
 @Injectable()
@@ -61,21 +64,16 @@ export class AiProviderService {
     const [status, db] = await Promise.all([this.openAi.getStatus(), this.settings.getOrCreate()]);
     const envEnabled = this.config.envEnabled;
     const dbEnabled = db.enabled;
-    const enabled = dbEnabled || envEnabled;
-    const configured = status.configured;
-
-    let source: ActiveAiProvider['source'] = 'none';
-    if (dbEnabled && envEnabled) source = 'both';
-    else if (dbEnabled) source = 'database';
-    else if (envEnabled) source = 'environment';
-
-    const gate = evaluateScriptGenerationGate({
-      enabled,
-      configured,
+    const ctx = buildScriptGenerationRuntimeContext({
+      dbEnabled,
+      envEnabled,
+      configured: status.configured,
       connected: status.connected,
       lastError: status.lastError,
       provider: db.provider,
     });
+    const source = resolveScriptGenerationConfigSource(ctx);
+    const gate = evaluateScriptGenerationGateFromContext(ctx);
 
     return {
       provider: db.provider,
@@ -88,6 +86,7 @@ export class AiProviderService {
       scriptGenerationEnabled: gate.usable,
       settingsPath: '/admin/marketing/ai-centrum',
       configSource: source,
+      resolvedAt: new Date().toISOString(),
       ...gate,
     };
   }

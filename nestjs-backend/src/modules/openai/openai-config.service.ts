@@ -16,7 +16,9 @@ export class OpenAiConfigService {
   }
 
   get envEnabled(): boolean {
-    return this.config.get<string>('OPENAI_ENABLED') === 'true';
+    const raw = this.config.get<string>('OPENAI_ENABLED')?.trim().toLowerCase();
+    if (!raw) return false;
+    return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
   }
 
   get envDailyLimit(): number {

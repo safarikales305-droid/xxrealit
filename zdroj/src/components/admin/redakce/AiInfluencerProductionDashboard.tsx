@@ -95,6 +95,47 @@ function stageLabel(stage: string | null | undefined) {
   return map[stage] ?? stage;
 }
 
+type AiPreflightAi = NonNullable<AiInfluencerDashboard['providers']['ai']>;
+
+function aiScriptCanonicalReady(ai?: AiPreflightAi | null): boolean {
+  return ai?.configured === true && ai?.enabled === true && ai?.usable === true;
+}
+
+function aiScriptDisabled(ai?: AiPreflightAi | null): boolean {
+  return ai?.configured === true && ai?.enabled === false;
+}
+
+function aiPreflightChip(ai?: AiPreflightAi | null): {
+  ok: boolean;
+  chip: string;
+  detail: string;
+  tone: 'ready' | 'configured' | 'disabled' | 'blocked';
+} {
+  if (aiScriptDisabled(ai)) {
+    return {
+      ok: false,
+      chip: 'VYPNUTO',
+      detail: ai?.message ?? 'OpenAI je vypnuto v nastavení.',
+      tone: 'disabled',
+    };
+  }
+  if (aiScriptCanonicalReady(ai)) {
+    const label = ai?.scriptProvider ?? 'READY';
+    return {
+      ok: true,
+      chip: label,
+      detail: label === 'READY' ? 'Připraveno' : '⚠ CONFIGURED — test připojení nebyl spuštěn',
+      tone: label === 'READY' ? 'ready' : 'configured',
+    };
+  }
+  return {
+    ok: false,
+    chip: 'BLOCKED',
+    detail: ai?.message ?? 'AI provider není připraven.',
+    tone: 'blocked',
+  };
+}
+
 function galleryStatusLabel(status?: string) {
   if (status === 'PUBLISHED') return 'PUBLISHED';
   if (status === 'PARTIAL') return 'PARTIAL';
@@ -540,7 +581,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <div className="mt-4 flex flex-wrap gap-2">
               <HealthChip
                 label="Script AI"
-                ok={providers?.ai?.usable === true}
+                ok={aiScriptCanonicalReady(providers?.ai)}
                 detail={providers?.ai?.message ?? 'OpenAI pro scénáře a storyboard.'}
               />
               <HealthChip
@@ -1129,51 +1170,59 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               Oba testy používají stejnou produkční orchestraci v DB jobu. Bez publikace.
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {[
+              {(
                 [
-                  'AI provider',
-                  providers?.ai?.usable === true,
-                  providers?.ai?.scriptProvider === 'READY'
-                    ? 'Připraveno'
-                    : providers?.ai?.scriptProvider === 'CONFIGURED'
-                      ? '⚠ CONFIGURED — test připojení nebyl spuštěn'
-                      : providers?.ai?.message,
-                  providers?.ai?.scriptProvider,
-                ],
-                [
-                  'Scénář',
-                  providers?.ai?.usable === true,
-                  providers?.ai?.usable === false ? providers?.ai?.message : 'Připraveno',
-                  providers?.ai?.usable === true ? 'READY' : 'BLOCKED',
-                ],
-                ['Video Agent', providers?.videoEngine?.heygenVideoAgent === 'READY', providers?.videoEngine?.heygenVideoAgentMessage, null],
-                ['Storage', providers?.storage?.configured === true, providers?.storage?.message, null],
-              ].map(([label, ok, detail, chipLabel]) => (
+                  ['AI provider', aiPreflightChip(providers?.ai)],
+                  ['Scénář', aiPreflightChip(providers?.ai)],
+                  [
+                    'Video Agent',
+                    {
+                      ok: providers?.videoEngine?.heygenVideoAgent === 'READY',
+                      chip: providers?.videoEngine?.heygenVideoAgent === 'READY' ? 'READY' : 'BLOCKED',
+                      detail: providers?.videoEngine?.heygenVideoAgentMessage ?? '',
+                      tone: providers?.videoEngine?.heygenVideoAgent === 'READY' ? 'ready' : 'blocked',
+                    },
+                  ],
+                  [
+                    'Storage',
+                    {
+                      ok: providers?.storage?.configured === true,
+                      chip: providers?.storage?.configured ? 'READY' : 'BLOCKED',
+                      detail: providers?.storage?.message ?? '',
+                      tone: providers?.storage?.configured ? 'ready' : 'blocked',
+                    },
+                  ],
+                ] as const
+              ).map(([label, chip]) => (
                 <div
                   key={String(label)}
                   className={`rounded border px-3 py-2 text-xs ${
-                    ok
+                    chip.ok
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                      : String(label) === 'AI provider' && providers?.ai?.scriptProvider === 'CONFIGURED'
+                      : chip.tone === 'configured'
                         ? 'border-amber-200 bg-amber-50 text-amber-900'
-                        : 'border-amber-200 bg-amber-50 text-amber-900'
+                        : chip.tone === 'disabled'
+                          ? 'border-amber-200 bg-amber-50 text-amber-900'
+                          : 'border-amber-200 bg-amber-50 text-amber-900'
                   }`}
                 >
                   <span className="font-medium">{label}</span>{' '}
-                  {ok
-                    ? `✓ ${String(chipLabel ?? 'READY')}`
-                    : String(label) === 'AI provider' && providers?.ai?.scriptProvider === 'CONFIGURED'
-                      ? '⚠ CONFIGURED'
-                      : '✕ BLOCKED'}
-                  {!ok && detail ? <p className="mt-1 text-[11px] opacity-90">{String(detail)}</p> : null}
+                  {chip.ok
+                    ? `✓ ${chip.chip}`
+                    : chip.tone === 'disabled'
+                      ? '⚠ VYPNUTO'
+                      : chip.tone === 'configured'
+                        ? '⚠ CONFIGURED'
+                        : '✕ BLOCKED'}
+                  {!chip.ok && chip.detail ? <p className="mt-1 text-[11px] opacity-90">{chip.detail}</p> : null}
                 </div>
               ))}
             </div>
-            {providers?.ai?.usable === false ? (
+            {!aiScriptCanonicalReady(providers?.ai) ? (
               <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-medium">Kompletní výrobu nelze spustit.</p>
                 <p className="mt-1">AI generování scénáře není připraveno.</p>
-                <p className="mt-1 text-xs">Důvod: {providers.ai.message}</p>
+                <p className="mt-1 text-xs">Důvod: {providers?.ai?.message}</p>
                 <a href="/admin/marketing/ai-centrum" className="mt-2 inline-block text-xs font-semibold text-orange-700 underline">
                   Otevřít nastavení AI
                 </a>
@@ -1408,6 +1457,22 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 <p>Worker sees same config: {providers?.ai?.workerSeesSameConfig ? 'YES' : 'NO'}</p>
                 <p>Script label: {providers?.ai?.scriptProvider ?? '—'}</p>
                 <p>Reason: {providers?.ai?.message ?? '—'}</p>
+                {providers?.ai?.scriptDiagnostics ? (
+                  <>
+                    <p className="pt-2 font-semibold text-zinc-800">AI SCRIPT PROVIDER</p>
+                    <p>Provider: {providers.ai.scriptDiagnostics.provider}</p>
+                    <p>API key: {providers.ai.scriptDiagnostics.apiKey}</p>
+                    <p>DB enabled: {providers.ai.scriptDiagnostics.dbEnabled}</p>
+                    <p>Env enabled: {providers.ai.scriptDiagnostics.envEnabled}</p>
+                    <p>Canonical enabled: {providers.ai.scriptDiagnostics.canonicalEnabled}</p>
+                    <p>Canonical configured: {providers.ai.scriptDiagnostics.canonicalConfigured}</p>
+                    <p>Canonical usable: {providers.ai.scriptDiagnostics.canonicalUsable}</p>
+                    <p>API runtime: {providers.ai.scriptDiagnostics.apiRuntime}</p>
+                    <p>Worker runtime: {providers.ai.scriptDiagnostics.workerRuntime}</p>
+                    <p>Config source: {providers.ai.scriptDiagnostics.configSource}</p>
+                    <p>Last resolved: {providers.ai.scriptDiagnostics.lastResolved ?? '—'}</p>
+                  </>
+                ) : null}
                 <p>HeyGen Video Agent: {providers?.workerRuntime?.heygenVideoAgent ?? '—'}</p>
                 <p>ElevenLabs: {providers?.workerRuntime?.elevenLabsStatus ?? '—'}</p>
                 <p>WORKER HEYGEN_API_KEY: {providers?.workerRuntime?.heygenApiKey ?? '—'}</p>
@@ -1579,10 +1644,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p className="text-sm text-zinc-600">
                 AI scénář → storyboard → média → Video Agent → storage · 10–15 s · bez publikace
               </p>
-              {providers?.ai?.usable === false ? (
+              {!aiScriptCanonicalReady(providers?.ai) ? (
                 <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-medium">Kompletní výrobu nelze spustit.</p>
-                  <p className="mt-1">AI generování scénáře není připraveno: {providers.ai.message}</p>
+                  <p className="mt-1">AI generování scénáře není připraveno: {providers?.ai?.message}</p>
                   <a href="/admin/marketing/ai-centrum" className="mt-2 inline-block text-xs font-semibold text-orange-700 underline">
                     Otevřít nastavení AI
                   </a>
@@ -1590,7 +1655,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ) : null}
               <button
                 type="button"
-                disabled={productionTestBusy || providers?.ai?.usable === false}
+                disabled={productionTestBusy || !aiScriptCanonicalReady(providers?.ai)}
                 className="w-full rounded-lg bg-orange-600 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setProductionTestBusy(true);

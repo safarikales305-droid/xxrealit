@@ -7,6 +7,59 @@ export type ScriptGenerationGateInput = {
   provider?: string;
 };
 
+/** Runtime snapshot — jediný vstup pro preflight, worker, assertCanRun i job start. */
+export type ScriptGenerationRuntimeContext = {
+  dbEnabled: boolean;
+  envEnabled: boolean;
+  configured: boolean;
+  connected: boolean | null;
+  lastError: string | null;
+  provider: string;
+};
+
+export function resolveOpenAiEnabled(dbEnabled: boolean, envEnabled: boolean): boolean {
+  return dbEnabled || envEnabled;
+}
+
+export function buildScriptGenerationRuntimeContext(input: {
+  dbEnabled: boolean;
+  envEnabled: boolean;
+  configured: boolean;
+  connected: boolean | null;
+  lastError?: string | null;
+  provider?: string;
+}): ScriptGenerationRuntimeContext {
+  return {
+    dbEnabled: input.dbEnabled,
+    envEnabled: input.envEnabled,
+    configured: input.configured,
+    connected: input.connected,
+    lastError: input.lastError ?? null,
+    provider: input.provider ?? 'OpenAI',
+  };
+}
+
+export function resolveScriptGenerationConfigSource(
+  ctx: Pick<ScriptGenerationRuntimeContext, 'dbEnabled' | 'envEnabled'>,
+): 'database' | 'environment' | 'both' | 'none' {
+  if (ctx.dbEnabled && ctx.envEnabled) return 'both';
+  if (ctx.dbEnabled) return 'database';
+  if (ctx.envEnabled) return 'environment';
+  return 'none';
+}
+
+export function evaluateScriptGenerationGateFromContext(
+  ctx: ScriptGenerationRuntimeContext,
+): ScriptGenerationGateResult {
+  return evaluateScriptGenerationGate({
+    enabled: resolveOpenAiEnabled(ctx.dbEnabled, ctx.envEnabled),
+    configured: ctx.configured,
+    connected: ctx.connected,
+    lastError: ctx.lastError,
+    provider: ctx.provider,
+  });
+}
+
 export type ScriptGenerationGateResult = {
   allowed: boolean;
   ready: boolean;

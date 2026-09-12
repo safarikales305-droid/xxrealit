@@ -241,6 +241,20 @@ export type AiInfluencerDashboard = {
       usable?: boolean;
       configSource?: 'database' | 'environment' | 'both' | 'none';
       workerSeesSameConfig?: boolean;
+      resolvedAt?: string;
+      scriptDiagnostics?: {
+        provider: string;
+        apiKey: 'CONFIGURED' | 'MISSING';
+        dbEnabled: 'YES' | 'NO';
+        envEnabled: 'YES' | 'NO';
+        canonicalEnabled: 'YES' | 'NO';
+        canonicalConfigured: 'YES' | 'NO';
+        canonicalUsable: 'YES' | 'NO';
+        apiRuntime: 'READY' | 'BLOCKED';
+        workerRuntime: 'READY' | 'BLOCKED';
+        configSource: 'database' | 'environment' | 'both' | 'none';
+        lastResolved?: string;
+      };
       disabled?: boolean;
       message?: string;
       model?: string;
