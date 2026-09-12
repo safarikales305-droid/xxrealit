@@ -54,8 +54,13 @@ export function extractPipelineErrorCode(err: unknown, fallback?: string | null)
     }
   }
   const msg = extractPipelineErrorMessage(err).toLowerCase();
+  if (
+    /openai api key není dostupný v generation workeru|není dostupný v generation workeru/i.test(msg)
+  ) {
+    return 'OPENAI_API_KEY_MISSING';
+  }
   if (/openai_api_key|openai není nakonfigurován|api klíč není nastaven/i.test(msg)) {
-    return 'OPENAI_NOT_CONFIGURED';
+    return 'OPENAI_API_KEY_MISSING';
   }
   if (/openai je vypnuto|ai limit byl dosažen|tato ai funkce není povolena/i.test(msg)) {
     return 'AI_PROVIDER_DISABLED';
@@ -97,6 +102,8 @@ export function resolvePipelineFailedStage(input: {
     code === 'SCRIPT_PROVIDER_DISABLED' ||
     code === 'OPENAI_DISABLED' ||
     code === 'OPENAI_NOT_CONFIGURED' ||
+    code === 'OPENAI_API_KEY_MISSING' ||
+    code === 'AI_PROVIDER_NOT_CONFIGURED' ||
     code === 'AI_PROVIDER_DISABLED' ||
     code === 'SCRIPT_GENERATION_FAILED'
   ) {
@@ -104,7 +111,7 @@ export function resolvePipelineFailedStage(input: {
   }
 
   if (
-    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|není dostupný aktivní ai provider|ai provider není|script provider|ai generování scénáře/i.test(
+    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|openai api key není dostupný|není dostupný v generation workeru|není dostupný aktivní ai provider|ai provider není|script provider|ai generování scénáře/i.test(
       msg,
     )
   ) {

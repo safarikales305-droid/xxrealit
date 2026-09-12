@@ -3,6 +3,8 @@ import { HttpException } from '@nestjs/common';
 export type OpenAiErrorCode =
   | 'OPENAI_DISABLED'
   | 'OPENAI_NOT_CONFIGURED'
+  | 'OPENAI_API_KEY_MISSING'
+  | 'AI_PROVIDER_DISABLED'
   | 'OPENAI_INVALID_KEY'
   | 'OPENAI_PERMISSION_DENIED'
   | 'OPENAI_QUOTA_EXCEEDED'

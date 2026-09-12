@@ -37,6 +37,21 @@ describe('resolvePipelineFailedStage', () => {
     assert.equal(code, 'AI_PROVIDER_DISABLED');
   });
 
+  it('maps OPENAI_API_KEY_MISSING code to SCRIPT', () => {
+    const stage = resolvePipelineFailedStage({
+      jobStatus: AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+      message: 'OpenAI API key není dostupný v generation workeru.',
+      errorCode: 'OPENAI_API_KEY_MISSING',
+    });
+    assert.equal(stage, 'SCRIPT');
+    const code = extractPipelineErrorCode(
+      Object.assign(new Error('OpenAI API key není dostupný v generation workeru.'), {
+        code: 'OPENAI_API_KEY_MISSING',
+      }),
+    );
+    assert.equal(code, 'OPENAI_API_KEY_MISSING');
+  });
+
   it('maps OpenAI missing key from RENDERING status to SCRIPT', () => {
     const stage = resolvePipelineFailedStage({
       jobStatus: AiInfluencerReelJobStatus.RENDERING,

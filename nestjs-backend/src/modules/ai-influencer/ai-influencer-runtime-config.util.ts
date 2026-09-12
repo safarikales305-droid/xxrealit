@@ -3,6 +3,11 @@
  * Nikdy nelogovat hodnoty — pouze CONFIGURED / MISSING.
  */
 
+import {
+  readRuntimeEnv,
+  readRuntimeEnvWithAliases,
+} from '../../lib/runtime-env.util';
+import { getOpenAiRuntimeConfig } from '../openai/openai-runtime-config.util';
 import type { AiInfluencerVideoGenerationMode } from './ai-influencer.types';
 
 export type EnvPresence = 'CONFIGURED' | 'MISSING';
@@ -28,26 +33,6 @@ export type ElevenLabsRuntimeConfig = {
   apiKeyPresence: EnvPresence;
   voiceIdPresence: EnvPresence;
 };
-
-export function readRuntimeEnv(name: string): string | undefined {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const trimmed = raw.trim().replace(/^["']|["']$/g, '');
-  return trimmed || undefined;
-}
-
-export function readRuntimeEnvWithAliases(
-  primary: string,
-  aliases: string[] = [],
-): string | undefined {
-  const direct = readRuntimeEnv(primary);
-  if (direct) return direct;
-  for (const alias of aliases) {
-    const v = readRuntimeEnv(alias);
-    if (v) return v;
-  }
-  return undefined;
-}
 
 export function getHeyGenRuntimeConfig(): HeyGenRuntimeConfig {
   const apiKey = readRuntimeEnvWithAliases('HEYGEN_API_KEY', ['HEYGEN_KEY', 'HEYGEN_API_TOKEN']);
@@ -106,6 +91,7 @@ export function getCloudinaryRuntimeConfig(): CloudinaryRuntimeConfig {
 export type WorkerRuntimeDiagnostics = {
   service: string;
   railwayServiceHint: string;
+  openAiApiKey: EnvPresence;
   elevenLabsApiKey: EnvPresence;
   heygenApiKey: EnvPresence;
   storage: 'READY' | 'NOT READY';
@@ -119,11 +105,13 @@ export function buildWorkerRuntimeDiagnostics(input: {
   elevenRequired: boolean;
   storageConfigured: boolean;
 }): WorkerRuntimeDiagnostics {
+  const openAi = getOpenAiRuntimeConfig();
   const eleven = getElevenLabsRuntimeConfig();
   const heygen = getHeyGenRuntimeConfig();
   return {
     service: 'AiInfluencerWorkerService (in-process NestJS worker tick)',
     railwayServiceHint: 'nestjs-backend — stejný Railway service jako admin API',
+    openAiApiKey: openAi.apiKeyPresence,
     elevenLabsApiKey: eleven.apiKeyPresence,
     heygenApiKey: heygen.apiKeyPresence,
     storage: input.storageConfigured ? 'READY' : 'NOT READY',
@@ -146,3 +134,5 @@ export function cloudinaryMissingMessage(cfg: CloudinaryRuntimeConfig): string {
   }
   return 'Cloudinary není nakonfigurován.';
 }
+
+export { readRuntimeEnv, readRuntimeEnvWithAliases };

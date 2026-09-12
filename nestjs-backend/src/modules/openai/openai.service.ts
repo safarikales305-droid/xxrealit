@@ -86,6 +86,42 @@ export class OpenAiService {
     return this.client;
   }
 
+  isScriptClientReady(): boolean {
+    return this.config.isApiKeyConfigured() && Boolean(this.getClient());
+  }
+
+  private async evaluateInfluencerScriptGate(db: Awaited<ReturnType<OpenAiSettingsService['getOrCreate']>>) {
+    const status = await this.getStatus();
+    return evaluateScriptGenerationGateFromContext(
+      buildScriptGenerationRuntimeContext({
+        dbEnabled: db.enabled,
+        envEnabled: this.config.envEnabled,
+        configured: status.configured,
+        connected: status.connected,
+        lastError: status.lastError,
+        provider: db.provider,
+      }),
+    );
+  }
+
+  private throwInfluencerScriptGateError(
+    gate: ReturnType<typeof evaluateScriptGenerationGateFromContext>,
+  ): never {
+    const code =
+      !gate.configured || !this.isScriptClientReady()
+        ? 'OPENAI_API_KEY_MISSING'
+        : gate.code ?? 'AI_PROVIDER_DISABLED';
+    const message =
+      code === 'OPENAI_API_KEY_MISSING'
+        ? 'OpenAI API key není dostupný v generation workeru.'
+        : gate.message;
+    const ErrClass = code === 'AI_PROVIDER_DISABLED' ? ForbiddenException : BadRequestException;
+    throw Object.assign(new ErrClass(message), {
+      code,
+      pipelineStage: 'SCRIPT',
+    });
+  }
+
   async getEngineDiagnostics() {
     const db = await this.settings.getOrCreate();
     const apiKey = this.config.apiKey;
@@ -308,8 +344,8 @@ export class OpenAiService {
     const db = await this.settings.getOrCreate();
     const client = this.getClient();
     if (!client) {
-      throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
-        code: 'OPENAI_NOT_CONFIGURED',
+      throw Object.assign(new BadRequestException('OpenAI API key není dostupný v generation workeru.'), {
+        code: 'OPENAI_API_KEY_MISSING',
         pipelineStage: 'SCRIPT',
       });
     }
@@ -412,33 +448,10 @@ export class OpenAiService {
     const isInfluencerScriptFeature =
       feature === 'ai_influencer_score' || feature === 'ai_influencer_script';
 
-    if (isInfluencerScriptFeature && options?.adminTest) {
-      const status = await this.getStatus();
-      const gate = evaluateScriptGenerationGateFromContext(
-        buildScriptGenerationRuntimeContext({
-          dbEnabled: db.enabled,
-          envEnabled: this.config.envEnabled,
-          configured: status.configured,
-          connected: status.connected,
-          lastError: status.lastError,
-          provider: db.provider,
-        }),
-      );
-      if (!gate.usable) {
-        const err =
-          gate.code === 'AI_PROVIDER_NOT_CONFIGURED'
-            ? new BadRequestException(gate.reason)
-            : new ForbiddenException(gate.reason);
-        throw Object.assign(err, {
-          code: gate.code ?? 'AI_PROVIDER_DISABLED',
-          pipelineStage: 'SCRIPT',
-        });
-      }
-      if (!this.config.isApiKeyConfigured() || !this.getClient()) {
-        throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
-          code: 'OPENAI_NOT_CONFIGURED',
-          pipelineStage: 'SCRIPT',
-        });
+    if (isInfluencerScriptFeature) {
+      const gate = await this.evaluateInfluencerScriptGate(db);
+      if (!gate.usable || !this.isScriptClientReady()) {
+        this.throwInfluencerScriptGateError(gate);
       }
     } else {
       const gate = evaluateScriptGenerationGate({
@@ -449,20 +462,20 @@ export class OpenAiService {
       });
 
       if (!gate.configured) {
-        throw Object.assign(new BadRequestException(gate.reason), {
-          code: 'OPENAI_NOT_CONFIGURED',
+        throw Object.assign(new BadRequestException(gate.message), {
+          code: 'OPENAI_API_KEY_MISSING',
           pipelineStage: 'SCRIPT',
         });
       }
       if (!gate.enabled) {
-        throw Object.assign(new ForbiddenException(gate.reason), {
+        throw Object.assign(new ForbiddenException(gate.message), {
           code: 'AI_PROVIDER_DISABLED',
           pipelineStage: 'SCRIPT',
         });
       }
       if (!this.getClient()) {
-        throw Object.assign(new BadRequestException('OPENAI_API_KEY není nakonfigurován.'), {
-          code: 'OPENAI_NOT_CONFIGURED',
+        throw Object.assign(new BadRequestException('OpenAI API key není dostupný v generation workeru.'), {
+          code: 'OPENAI_API_KEY_MISSING',
           pipelineStage: 'SCRIPT',
         });
       }
@@ -482,11 +495,11 @@ export class OpenAiService {
       ai_sales: db.chatEnabled,
       editorial_news: db.seoEnabled,
       editorial_reel_hook: db.seoEnabled,
-      ai_influencer_score: db.seoEnabled,
-      ai_influencer_script: db.seoEnabled,
+      ai_influencer_score: true,
+      ai_influencer_script: true,
       sreality_import_text_rewrite: db.listingDescriptionEnabled,
     };
-    if (!options?.adminTest && !featureEnabled[feature]) {
+    if (!options?.adminTest && !isInfluencerScriptFeature && !featureEnabled[feature]) {
       if (
         options?.salesOperation &&
         feature === 'ai_sales' &&
@@ -622,7 +635,7 @@ export class OpenAiService {
 
   resolveAdminErrorCode(err: unknown): OpenAiErrorCode {
     if (err instanceof OpenAiRequestException) return err.openAiCode;
-    if (!this.config.isApiKeyConfigured()) return 'OPENAI_NOT_CONFIGURED';
+    if (!this.config.isApiKeyConfigured()) return 'OPENAI_API_KEY_MISSING';
     const code = this.errorCode(err);
     if (code === 'invalid_key') return 'OPENAI_INVALID_KEY';
     if (code === 'permission_denied') return 'OPENAI_PERMISSION_DENIED';
@@ -639,7 +652,8 @@ export class OpenAiService {
   resolveAdminErrorMessage(code: OpenAiErrorCode | string, err: unknown): string {
     switch (code) {
       case 'OPENAI_NOT_CONFIGURED':
-        return 'OPENAI_API_KEY není nastaven.';
+      case 'OPENAI_API_KEY_MISSING':
+        return 'OpenAI API key není dostupný v generation workeru.';
       case 'OPENAI_INVALID_KEY':
         return 'OpenAI API klíč není platný.';
       case 'OPENAI_PERMISSION_DENIED':
@@ -679,6 +693,7 @@ export class OpenAiService {
   httpStatusForCode(code: OpenAiErrorCode | string): number {
     switch (code) {
       case 'OPENAI_NOT_CONFIGURED':
+      case 'OPENAI_API_KEY_MISSING':
       case 'OPENAI_INVALID_KEY':
       case 'OPENAI_INVALID_REQUEST':
         return 400;

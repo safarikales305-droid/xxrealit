@@ -250,6 +250,9 @@ export type AiInfluencerDashboard = {
         canonicalEnabled: 'YES' | 'NO';
         canonicalConfigured: 'YES' | 'NO';
         canonicalUsable: 'YES' | 'NO';
+        clientReady?: 'YES' | 'NO';
+        scriptService?: 'READY' | 'BLOCKED';
+        model?: string;
         apiRuntime: 'READY' | 'BLOCKED';
         workerRuntime: 'READY' | 'BLOCKED';
         configSource: 'database' | 'environment' | 'both' | 'none';
@@ -888,6 +891,20 @@ export function nestAiInfluencerStartProductionTest(
       ...(options?.mode ? { mode: options.mode } : {}),
     }),
   });
+}
+
+export type ScriptProviderTestResult = {
+  ok: boolean;
+  provider: string;
+  label: string;
+  model: string;
+  clientReady: boolean;
+  configSource: string;
+  sample: string;
+};
+
+export function nestAiInfluencerTestScript(token: string) {
+  return aiInfluencerFetchAccepted<ScriptProviderTestResult>(token, '/test/script', { method: 'POST' });
 }
 
 export function nestAiInfluencerProductionTestActive(token: string) {

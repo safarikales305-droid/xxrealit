@@ -23,6 +23,8 @@ export function resolveFailedStage(
     code === 'SCRIPT_PROVIDER_DISABLED' ||
     code === 'OPENAI_DISABLED' ||
     code === 'OPENAI_NOT_CONFIGURED' ||
+    code === 'OPENAI_API_KEY_MISSING' ||
+    code === 'AI_PROVIDER_NOT_CONFIGURED' ||
     code === 'AI_PROVIDER_DISABLED' ||
     code === 'SCRIPT_GENERATION_FAILED'
   ) {
@@ -30,7 +32,7 @@ export function resolveFailedStage(
   }
 
   if (
-    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|není dostupný aktivní ai provider|ai provider není/i.test(
+    /openai je vypnuto|openai_api_key|openai není nakonfigurován|api klíč není nastaven|openai api key není dostupný|není dostupný v generation workeru|není dostupný aktivní ai provider|ai provider není/i.test(
       msg,
     )
   ) {
@@ -95,8 +97,9 @@ export function resolveFailedStage(
 
   if (
     failedStage === 'RENDER' &&
-    (/openai_api_key|openai není nakonfigurován|api klíč není nastaven|openai je vypnuto/i.test(msg) ||
+    (/openai_api_key|openai není nakonfigurován|api klíč není nastaven|openai api key není dostupný|openai je vypnuto/i.test(msg) ||
       code === 'OPENAI_NOT_CONFIGURED' ||
+      code === 'OPENAI_API_KEY_MISSING' ||
       code === 'AI_PROVIDER_DISABLED')
   ) {
     return 'SCRIPT';

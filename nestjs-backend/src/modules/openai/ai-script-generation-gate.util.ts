@@ -66,7 +66,7 @@ export type ScriptGenerationGateResult = {
   usable: boolean;
   reason: string;
   label: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
-  code?: 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED';
+  code?: 'OPENAI_API_KEY_MISSING' | 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED';
   message: string;
   enabled: boolean;
   configured: boolean;
@@ -78,14 +78,14 @@ export function evaluateScriptGenerationGate(
   const provider = input.provider ?? 'OpenAI';
 
   if (!input.configured) {
-    const message = `${provider} není nakonfigurován (chybí API klíč).`;
+    const message = 'OpenAI API key není dostupný v generation workeru.';
     return {
       allowed: false,
       ready: false,
       usable: false,
       reason: message,
       label: 'NOT_READY',
-      code: 'AI_PROVIDER_NOT_CONFIGURED',
+      code: 'OPENAI_API_KEY_MISSING',
       enabled: input.enabled,
       configured: false,
       message,
@@ -108,7 +108,9 @@ export function evaluateScriptGenerationGate(
   }
 
   if (input.connected === false) {
-    const message = input.lastError?.trim() || `Poslední test ${provider} selhal.`;
+    const message =
+      input.lastError?.trim() ||
+      `Poslední test ${provider} selhal — OpenAI není dostupné v generation workeru.`;
     return {
       allowed: false,
       ready: false,

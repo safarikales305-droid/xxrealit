@@ -28,6 +28,7 @@ export type ResolvedScriptGenerationProvider = ActiveAiProvider &
   ScriptGenerationGateResult & {
     configSource: ActiveAiProvider['source'];
     resolvedAt: string;
+    clientReady: boolean;
   };
 
 @Injectable()
@@ -64,6 +65,7 @@ export class AiProviderService {
     const [status, db] = await Promise.all([this.openAi.getStatus(), this.settings.getOrCreate()]);
     const envEnabled = this.config.envEnabled;
     const dbEnabled = db.enabled;
+    const clientReady = this.openAi.isScriptClientReady();
     const ctx = buildScriptGenerationRuntimeContext({
       dbEnabled,
       envEnabled,
@@ -74,6 +76,21 @@ export class AiProviderService {
     });
     const source = resolveScriptGenerationConfigSource(ctx);
     const gate = evaluateScriptGenerationGateFromContext(ctx);
+    const usable = gate.usable && clientReady;
+    const resolvedGate = usable
+      ? gate
+      : !clientReady && gate.configured
+        ? {
+            ...gate,
+            usable: false,
+            allowed: false,
+            ready: false,
+            label: 'NOT_READY' as const,
+            code: 'OPENAI_API_KEY_MISSING' as const,
+            message: 'OpenAI API key není dostupný v generation workeru.',
+            reason: 'OpenAI API key není dostupný v generation workeru.',
+          }
+        : gate;
 
     return {
       provider: db.provider,
@@ -83,18 +100,20 @@ export class AiProviderService {
       connected: status.connected,
       lastError: status.lastError,
       source,
-      scriptGenerationEnabled: gate.usable,
+      scriptGenerationEnabled: usable,
       settingsPath: '/admin/marketing/ai-centrum',
       configSource: source,
       resolvedAt: new Date().toISOString(),
-      ...gate,
+      clientReady,
+      ...resolvedGate,
+      usable,
     };
   }
 
   async assertScriptGenerationReady(): Promise<ResolvedScriptGenerationProvider> {
     const resolved = await this.resolveScriptProvider();
     if (!resolved.usable) {
-      throw Object.assign(new Error(resolved.reason), {
+      throw Object.assign(new Error(resolved.message), {
         code: resolved.code ?? 'AI_PROVIDER_DISABLED',
         pipelineStage: 'SCRIPT',
       });

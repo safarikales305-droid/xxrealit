@@ -7,7 +7,7 @@ describe('getScriptProviderReadiness', () => {
     const r = getScriptProviderReadiness({ enabled: false, configured: false, connected: null });
     assert.equal(r.ready, false);
     assert.equal(r.allowed, false);
-    assert.equal(r.code, 'AI_PROVIDER_NOT_CONFIGURED');
+    assert.equal(r.code, 'OPENAI_API_KEY_MISSING');
   });
 
   it('fails when API key exists but provider is disabled', () => {

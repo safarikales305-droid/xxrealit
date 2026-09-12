@@ -1,47 +1,50 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { maskApiKey } from './openai-mask.util';
+import { getOpenAiRuntimeConfig, type OpenAiRuntimeConfig } from './openai-runtime-config.util';
 
 @Injectable()
 export class OpenAiConfigService {
-  constructor(private readonly config: ConfigService) {}
+  private get runtime(): OpenAiRuntimeConfig {
+    return getOpenAiRuntimeConfig();
+  }
 
   get apiKey(): string | null {
-    const key = this.config.get<string>('OPENAI_API_KEY');
-    return key?.trim() || null;
+    return this.runtime.apiKey ?? null;
   }
 
   get envModel(): string {
-    return this.config.get<string>('OPENAI_MODEL')?.trim() || 'gpt-4.1-mini';
+    return this.runtime.envModel;
   }
 
   get envEnabled(): boolean {
-    const raw = this.config.get<string>('OPENAI_ENABLED')?.trim().toLowerCase();
-    if (!raw) return false;
-    return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+    return this.runtime.envEnabled;
   }
 
   get envDailyLimit(): number {
-    return Number.parseInt(this.config.get<string>('OPENAI_DAILY_REQUEST_LIMIT') ?? '100', 10);
+    return this.runtime.envDailyLimit;
   }
 
   get envMonthlyBudgetCzk(): number {
-    return Number.parseInt(this.config.get<string>('OPENAI_MONTHLY_BUDGET_CZK') ?? '1000', 10);
+    return this.runtime.envMonthlyBudgetCzk;
   }
 
   get envTimeoutMs(): number {
-    return Number.parseInt(this.config.get<string>('OPENAI_TIMEOUT_MS') ?? '60000', 10);
+    return this.runtime.envTimeoutMs;
   }
 
   get envMaxRetries(): number {
-    return Number.parseInt(this.config.get<string>('OPENAI_MAX_RETRIES') ?? '2', 10);
+    return this.runtime.envMaxRetries;
   }
 
   isApiKeyConfigured(): boolean {
-    return Boolean(this.apiKey);
+    return this.runtime.apiKeyPresence === 'CONFIGURED';
   }
 
   getMaskedApiKey(): string | null {
     return maskApiKey(this.apiKey);
+  }
+
+  getRuntimeSnapshot(): OpenAiRuntimeConfig {
+    return getOpenAiRuntimeConfig();
   }
 }

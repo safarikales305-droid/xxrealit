@@ -40,6 +40,7 @@ describe('ai-influencer-provider-readiness', () => {
 
   it('preflight and worker share the same HeyGen runtime config source', () => {
     process.env.HEYGEN_API_KEY = 'shared-key';
+    process.env.OPENAI_API_KEY = 'shared-openai-key';
     const runtime = getHeyGenRuntimeConfig();
     const worker = buildWorkerRuntimeDiagnostics({
       generationMode: 'VIDEO_AGENT',
@@ -48,5 +49,6 @@ describe('ai-influencer-provider-readiness', () => {
     });
     assert.equal(runtime.apiKeyPresence, 'CONFIGURED');
     assert.equal(worker.heygenApiKey, 'CONFIGURED');
+    assert.equal(worker.openAiApiKey, 'CONFIGURED');
   });
 });

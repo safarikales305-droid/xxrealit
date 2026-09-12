@@ -40,7 +40,8 @@ describe('evaluateScriptGenerationGate', () => {
     assert.equal(gate.usable, false);
     assert.equal(gate.label, 'NOT_READY');
     assert.equal(gate.configured, false);
-    assert.match(gate.reason, /není nakonfigurován/i);
+    assert.equal(gate.code, 'OPENAI_API_KEY_MISSING');
+    assert.match(gate.reason, /generation workeru/i);
   });
 
   it('marks verified connection as READY', () => {

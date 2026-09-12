@@ -25,6 +25,7 @@ import {
   nestAiInfluencerProductionTestActive,
   nestAiInfluencerProductionTestStatus,
   nestAiInfluencerStartProductionTest,
+  nestAiInfluencerTestScript,
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
@@ -47,6 +48,7 @@ import {
   type AiInfluencerJobRow,
   type AiInfluencerPipelineStep,
   type ProductionTestStatus,
+  type ScriptProviderTestResult,
 } from '@/lib/ai-influencer-client';
 import { nestYoutubeOAuthConnectUrl } from '@/lib/editorial-center-client';
 
@@ -137,7 +139,9 @@ function productionPreflightReady(providers?: AiInfluencerDashboard['providers']
 function pipelineErrorLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   const map: Record<string, string> = {
-    OPENAI_NOT_CONFIGURED: 'OpenAI API není nakonfigurováno.',
+    OPENAI_API_KEY_MISSING: 'OpenAI API key není dostupný v generation workeru.',
+    OPENAI_NOT_CONFIGURED: 'OpenAI API key není dostupný v generation workeru.',
+    AI_PROVIDER_NOT_CONFIGURED: 'AI provider není nakonfigurován.',
     AI_PROVIDER_DISABLED: 'OpenAI je vypnuto v nastavení.',
     HEYGEN_NOT_CONFIGURED: 'HeyGen API není nakonfigurováno.',
     ELEVENLABS_NOT_CONFIGURED: 'ElevenLabs API není nakonfigurováno.',
@@ -309,6 +313,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [testArticleId, setTestArticleId] = useState('');
   const [productionTest, setProductionTest] = useState<ProductionTestStatus | null>(null);
   const [productionTestBusy, setProductionTestBusy] = useState(false);
+  const [scriptTestBusy, setScriptTestBusy] = useState(false);
+  const [scriptTestResult, setScriptTestResult] = useState<
+    (ScriptProviderTestResult & { ok: true }) | { ok: false; message: string; code?: string } | null
+  >(null);
   const prevActiveIdsRef = useRef<string[]>([]);
 
   const loadCore = useCallback(() => {
@@ -394,12 +402,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
           const nextIds = active.map((job) => job.id);
           const removedIds = prevIds.filter((id) => !nextIds.includes(id));
           if (removedIds.length > 0 && j) {
-            const completed = removedIds.some((id) => {
-              const row = j.find((job) => job.id === id);
-              return row && ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(row.status);
-            });
-            if (completed) {
-              setToast('Video bylo vytvořeno.');
+            const completedRows = removedIds
+              .map((id) => j.find((job) => job.id === id))
+              .filter(
+                (row): row is AiInfluencerJobRow =>
+                  Boolean(row) && ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(row!.status),
+              );
+            if (completedRows.length > 0) {
+              const allTest = completedRows.every((row) => row.isTest);
+              setToast(allTest ? 'Testovací video bylo vytvořeno.' : 'Video bylo vytvořeno.');
             }
           }
           prevActiveIdsRef.current = nextIds;
@@ -1355,6 +1366,29 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm"
+                disabled={scriptTestBusy || !aiScriptCanonicalReady(providers?.ai)}
+                onClick={() => {
+                  setScriptTestBusy(true);
+                  setScriptTestResult(null);
+                  void nestAiInfluencerTestScript(apiAccessToken).then((result) => {
+                    setScriptTestBusy(false);
+                    if (result.error || !result.data) {
+                      setScriptTestResult({
+                        ok: false,
+                        message: result.error ?? 'Test scénáře selhal.',
+                        code: result.errorCode ?? undefined,
+                      });
+                      return;
+                    }
+                    setScriptTestResult({ ...result.data, ok: true });
+                  });
+                }}
+              >
+                {scriptTestBusy ? 'Testuji scénář…' : 'Test scénáře'}
+              </button>
+              <button
+                type="button"
                 className="rounded bg-orange-600 px-3 py-1.5 text-sm font-medium text-white"
                 onClick={() => setTestModalOpen(true)}
               >
@@ -1412,6 +1446,48 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 {productionTestBusy ? 'Spouštím…' : 'Test Video Agentu'}
               </button>
             </div>
+
+            {scriptTestResult ? (
+              <div
+                className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+                  scriptTestResult.ok
+                    ? 'border-green-200 bg-green-50 text-green-900'
+                    : 'border-red-200 bg-red-50 text-red-900'
+                }`}
+              >
+                <p className="font-semibold">{scriptTestResult.ok ? 'TEST SCÉNÁŘE: PASS' : 'TEST SCÉNÁŘE: FAIL'}</p>
+                {scriptTestResult.ok ? (
+                  <>
+                    <p className="mt-1 text-xs">
+                      Provider: {scriptTestResult.provider} · Model: {scriptTestResult.model} ·{' '}
+                      {scriptTestResult.label}
+                    </p>
+                    <p className="mt-1 truncate text-xs opacity-80">{scriptTestResult.sample}</p>
+                  </>
+                ) : (
+                  <>
+                    {scriptTestResult.code ? (
+                      <p className="mt-1 text-xs">
+                        Error code: <code>{scriptTestResult.code}</code>
+                        {pipelineErrorLabel(scriptTestResult.code) ? (
+                          <span> — {pipelineErrorLabel(scriptTestResult.code)}</span>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs">{scriptTestResult.message}</p>
+                    {providers?.ai?.scriptDiagnostics &&
+                    providers.ai.scriptDiagnostics.canonicalUsable === 'YES' ? (
+                      <p className="mt-2 text-xs">
+                        Preflight READY, ale script service FAIL — config mismatch (API:{' '}
+                        {providers.ai.scriptDiagnostics.apiRuntime}, worker:{' '}
+                        {providers.ai.scriptDiagnostics.workerRuntime}, script service:{' '}
+                        {providers.ai.scriptDiagnostics.scriptService ?? '—'}).
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {productionTest ? (
               <div className="mt-4 rounded-lg border border-zinc-100 bg-zinc-50 p-4">
@@ -1586,16 +1662,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 <p>Reason: {providers?.ai?.message ?? '—'}</p>
                 {providers?.ai?.scriptDiagnostics ? (
                   <>
-                    <p className="pt-2 font-semibold text-zinc-800">AI SCRIPT PROVIDER</p>
+                    <p className="pt-2 font-semibold text-zinc-800">SCRIPT PROVIDER</p>
                     <p>Provider: {providers.ai.scriptDiagnostics.provider}</p>
+                    <p>API process: {providers.ai.scriptDiagnostics.apiRuntime}</p>
+                    <p>Worker process: {providers.ai.scriptDiagnostics.workerRuntime}</p>
+                    <p>Script service: {providers.ai.scriptDiagnostics.scriptService ?? '—'}</p>
+                    <p>Enabled: {providers.ai.scriptDiagnostics.canonicalEnabled}</p>
+                    <p>Model: {providers.ai.scriptDiagnostics.model ?? providers?.ai?.model ?? '—'}</p>
                     <p>API key: {providers.ai.scriptDiagnostics.apiKey}</p>
+                    <p>Client ready: {providers.ai.scriptDiagnostics.clientReady ?? '—'}</p>
                     <p>DB enabled: {providers.ai.scriptDiagnostics.dbEnabled}</p>
                     <p>Env enabled: {providers.ai.scriptDiagnostics.envEnabled}</p>
-                    <p>Canonical enabled: {providers.ai.scriptDiagnostics.canonicalEnabled}</p>
                     <p>Canonical configured: {providers.ai.scriptDiagnostics.canonicalConfigured}</p>
                     <p>Canonical usable: {providers.ai.scriptDiagnostics.canonicalUsable}</p>
-                    <p>API runtime: {providers.ai.scriptDiagnostics.apiRuntime}</p>
-                    <p>Worker runtime: {providers.ai.scriptDiagnostics.workerRuntime}</p>
                     <p>Config source: {providers.ai.scriptDiagnostics.configSource}</p>
                     <p>Last resolved: {providers.ai.scriptDiagnostics.lastResolved ?? '—'}</p>
                   </>

@@ -10,7 +10,7 @@ export type ScriptProviderReadiness = {
   usable: boolean;
   reason: string;
   label: 'READY' | 'CONFIGURED' | 'NOT_READY' | 'DISABLED';
-  code?: 'SCRIPT_PROVIDER_DISABLED' | 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED';
+  code?: 'SCRIPT_PROVIDER_DISABLED' | 'AI_PROVIDER_DISABLED' | 'AI_PROVIDER_NOT_CONFIGURED' | 'OPENAI_API_KEY_MISSING';
   message: string;
   provider?: string;
   settingsPath?: string;

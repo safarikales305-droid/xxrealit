@@ -531,6 +531,39 @@ export class AiInfluencerAdminController {
     });
   }
 
+  @Post('test/script')
+  async testScriptProvider() {
+    try {
+      const provider = await this.aiProvider.assertScriptGenerationReady();
+      const result = await this.openAi.complete({
+        feature: 'ai_influencer_script',
+        systemPrompt:
+          'Jsi editor XXREALIT. Vrať pouze validní JSON s krátkým testovacím scénářem pro Reel.',
+        userPrompt:
+          'Vrať JSON: {"hook":"Test XXREALIT","spokenText":"Toto je test generování scénáře.","estimatedDuration":8,"scenes":[{"type":"AVATAR_FULL","start":0,"duration":8,"text":"Toto je test generování scénáře."}]}',
+        maxOutputTokens: 300,
+        jsonMode: true,
+        adminTest: true,
+      });
+      return {
+        ok: true,
+        provider: provider.provider,
+        label: provider.label,
+        model: provider.model,
+        clientReady: provider.clientReady,
+        configSource: provider.configSource,
+        sample: result.text.slice(0, 240),
+      };
+    } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code)
+          : 'SCRIPT_PROVIDER_TEST_FAILED';
+      const message = err instanceof Error ? err.message : 'Test scénáře selhal.';
+      throw new BadRequestException({ message, code });
+    }
+  }
+
   @Get('test/production/active')
   async getActiveProductionTest() {
     const job = await this.jobs.getActiveProductionTestJob();
@@ -752,9 +785,12 @@ export class AiInfluencerAdminController {
           canonicalEnabled: activeAi.enabled ? 'YES' : 'NO',
           canonicalConfigured: activeAi.configured ? 'YES' : 'NO',
           canonicalUsable: activeAi.usable ? 'YES' : 'NO',
+          clientReady: activeAi.clientReady ? 'YES' : 'NO',
           apiRuntime: activeAi.usable ? 'READY' : 'BLOCKED',
           workerRuntime: workerScriptProvider.usable ? 'READY' : 'BLOCKED',
+          scriptService: activeAi.usable && activeAi.clientReady ? 'READY' : 'BLOCKED',
           configSource: activeAi.configSource,
+          model: activeAi.model,
           lastResolved: activeAi.resolvedAt,
         },
       },
