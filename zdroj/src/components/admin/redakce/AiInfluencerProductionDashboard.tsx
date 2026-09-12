@@ -207,7 +207,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [detailJob, setDetailJob] = useState<AiInfluencerJobRow | null>(null);
   const [candidateFilter, setCandidateFilter] = useState<'all' | 'suitable' | 'unused' | 'used'>('suitable');
-  const [videoFilter, setVideoFilter] = useState<'all' | 'published' | 'ready' | 'failed' | 'video_agent' | 'avatar'>('all');
+  const [showTestVideos, setShowTestVideos] = useState(true);
+  const [videoFilter, setVideoFilter] = useState<
+    'all' | 'production' | 'test' | 'published' | 'ready' | 'failed' | 'video_agent' | 'avatar'
+  >('all');
   const [selectedVoiceId, setSelectedVoiceId] = useState('');
   const [selectedAvatarId, setSelectedAvatarId] = useState('');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -215,7 +218,6 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [createState, setCreateState] = useState<'idle' | 'submitting' | 'accepted' | 'error'>('idle');
   const [toast, setToast] = useState<string | null>(null);
   const [playVideoUrl, setPlayVideoUrl] = useState<string | null>(null);
-  const [showTestVideos, setShowTestVideos] = useState(false);
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [testArticleId, setTestArticleId] = useState('');
   const [productionTest, setProductionTest] = useState<ProductionTestStatus | null>(null);
@@ -271,7 +273,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     }
     const poll = () => {
       void nestAiInfluencerProductionTestStatus(apiAccessToken, productionTest.jobId).then((res) => {
-        if (res?.job) setProductionTest(res.job);
+        if (res?.job) {
+          setProductionTest(res.job);
+          if (res.job.progress.outcome === 'PASS') {
+            void nestAiInfluencerVideos(apiAccessToken, 60, true).then((v) => {
+              if (v) setVideos(v);
+            });
+          }
+        }
       });
     };
     poll();
@@ -352,6 +361,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const filteredVideos = useMemo(() => {
     return videos.filter((v) => {
       if (!showTestVideos && v.isTest) return false;
+      if (videoFilter === 'test') return v.isTest === true;
+      if (videoFilter === 'production') return !v.isTest;
       if (videoFilter === 'published') {
         return v.gallery?.galleryStatus === 'PUBLISHED' || v.gallery?.galleryStatus === 'PARTIAL';
       }
@@ -752,7 +763,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       {tab === 'videos' ? (
         <section className="rounded-xl border border-zinc-200 bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
-            {(['all', 'published', 'ready', 'failed', 'video_agent', 'avatar'] as const).map((f) => (
+            {(['all', 'production', 'test', 'published', 'ready', 'failed', 'video_agent', 'avatar'] as const).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -761,15 +772,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               >
                 {f === 'all'
                   ? 'Všechna'
-                  : f === 'published'
-                    ? 'Publikovaná'
-                    : f === 'ready'
-                      ? 'Čekající'
-                      : f === 'failed'
-                        ? 'Quality review'
-                        : f === 'video_agent'
-                          ? 'Video Agent'
-                          : 'Avatar fallback'}
+                  : f === 'production'
+                    ? 'Produkční'
+                    : f === 'test'
+                      ? 'Testovací'
+                      : f === 'published'
+                        ? 'Publikovaná'
+                        : f === 'ready'
+                          ? 'Čekající'
+                          : f === 'failed'
+                            ? 'Quality review'
+                            : f === 'video_agent'
+                              ? 'Video Agent'
+                              : 'Avatar fallback'}
               </button>
             ))}
             <button
@@ -802,7 +817,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     )}
                   </div>
                   <div className="space-y-2 p-3">
-                    <p className="line-clamp-2 text-sm font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="line-clamp-2 text-sm font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                      {job.isTest ? (
+                        <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+                          Test
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-zinc-600">
                       <span>Vytvořeno:</span>
                       <span>{gallery?.createdCombinedLabel ?? '—'}</span>
@@ -1267,6 +1289,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     <div className="mt-3 grid gap-1 text-xs text-zinc-600 sm:grid-cols-2">
                       <p>Délka: {productionTest.gallery.durationFormatted ?? '—'}</p>
                       <p>Rozlišení: {productionTest.resolution ?? '1080x1920'}</p>
+                      <p>Storage: {productionTest.masterVideoUrl ? 'PASS' : 'FAIL'}</p>
+                      <p>Galerie: {productionTest.masterVideoUrl ? 'PASS' : 'FAIL'}</p>
                       <p>Scény: {productionTest.gallery.sceneCount}</p>
                       <p>Background variation: {productionTest.gallery.backgroundVariationCount ?? '—'}</p>
                     </div>
@@ -1286,9 +1310,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       <button
                         type="button"
                         className="rounded border border-zinc-300 px-2 py-1 text-xs"
-                        onClick={() => setDetailJobId(productionTest.jobId)}
+                        onClick={() => {
+                          setTab('videos');
+                          setVideoFilter(productionTest.isTest ? 'test' : 'all');
+                          setShowTestVideos(true);
+                        }}
                       >
-                        Otevřít detail
+                        Otevřít v galerii
                       </button>
                       <button type="button" className="rounded border border-zinc-300 px-2 py-1 text-xs" onClick={() => setTestModalOpen(true)}>
                         Spustit test znovu

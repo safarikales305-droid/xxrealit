@@ -42,6 +42,9 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     testDurationSec: typeof o.testDurationSec === 'number' ? o.testDurationSec : undefined,
     testKind: o.testKind === 'FULL' || o.testKind === 'VIDEO_AGENT' ? o.testKind : undefined,
     useFixedTestScript: o.useFixedTestScript === true,
+    providerOutputUrl: typeof o.providerOutputUrl === 'string' ? o.providerOutputUrl : undefined,
+    videoArchived: o.videoArchived === true,
+    archiveCompletedAt: typeof o.archiveCompletedAt === 'string' ? o.archiveCompletedAt : undefined,
   };
 }
 

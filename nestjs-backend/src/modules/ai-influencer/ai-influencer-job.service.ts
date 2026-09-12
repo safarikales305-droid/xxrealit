@@ -496,8 +496,9 @@ export class AiInfluencerJobService {
   async listVideos(limit = 60, options?: { includeTest?: boolean }) {
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    const includeTest = options?.includeTest ?? true;
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
-      where: galleryVideoWhere({ includeTest: options?.includeTest }),
+      where: galleryVideoWhere({ includeTest }),
       orderBy: [{ renderedAt: 'desc' }, { updatedAt: 'desc' }],
       take: limit,
       include: {
@@ -706,21 +707,34 @@ export class AiInfluencerJobService {
   }
 
   async getActiveProductionTestJob() {
-    const job = await this.prisma.aiInfluencerReelJob.findFirst({
+    const running = await this.prisma.aiInfluencerReelJob.findFirst({
       where: {
         isTest: true,
         status: {
-          notIn: [
-            AiInfluencerReelJobStatus.CANCELLED,
-            AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
-            AiInfluencerReelJobStatus.SKIPPED_QUALITY,
+          in: [
+            AiInfluencerReelJobStatus.EVALUATING,
+            AiInfluencerReelJobStatus.CANDIDATE,
+            AiInfluencerReelJobStatus.SCRIPT_GENERATING,
+            AiInfluencerReelJobStatus.SCRIPT_READY,
+            AiInfluencerReelJobStatus.VOICE_GENERATING,
+            AiInfluencerReelJobStatus.VOICE_READY,
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_READY,
+            AiInfluencerReelJobStatus.RENDERING,
+            AiInfluencerReelJobStatus.PUBLISHING,
           ],
         },
       },
       orderBy: { createdAt: 'desc' },
     });
-    if (!job) return null;
-    return buildProductionTestStatus(job);
+    if (running) return buildProductionTestStatus(running);
+
+    const latest = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: { isTest: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!latest) return null;
+    return buildProductionTestStatus(latest);
   }
 
   async getProductionTestStatus(jobId: string) {
@@ -1502,6 +1516,13 @@ export class AiInfluencerJobService {
           data: { status: AiInfluencerReelJobStatus.AVATAR_READY },
         });
       }
+      if (
+        job.status !== AiInfluencerReelJobStatus.READY &&
+        !job.finalMasterUrl?.trim() &&
+        !job.videoUrl?.trim()
+      ) {
+        await this.advanceJob(jobId);
+      }
       return;
     }
 
@@ -1555,6 +1576,9 @@ export class AiInfluencerJobService {
       });
     }
 
+    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_COMPLETE providerUrl=present`);
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.DOWNLOAD, 'DOWNLOAD');
+
     let buffer: Buffer;
     try {
       buffer = await this.videoAgent.downloadResult(poll.videoUrl);
@@ -1563,11 +1587,20 @@ export class AiInfluencerJobService {
         code: 'HEYGEN_VIDEO_AGENT_DOWNLOAD_FAILED',
       });
     }
+    if (!buffer.length) {
+      throw Object.assign(new Error('Stažené video je prázdné.'), {
+        code: 'HEYGEN_VIDEO_AGENT_DOWNLOAD_FAILED',
+      });
+    }
+
+    this.log.log(`[AI-VIDEO][${jobId}] DOWNLOAD bytes=${buffer.length}`);
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.UPLOAD, 'STORAGE');
 
     const videoUrl = await this.cloudinary.uploadVideoBuffer(
       buffer,
       `ai-influencer-video-agent-${jobId}.mp4`,
     );
+    this.log.log(`[AI-VIDEO][${jobId}] STORAGE archived permanent url`);
 
     const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_READY);
     await this.prisma.aiInfluencerReelJob.update({
@@ -1582,10 +1615,16 @@ export class AiInfluencerJobService {
         renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
           heygenVideoAgentVideoId: poll.videoId ?? meta.heygenVideoAgentVideoId,
           videoAgentMaster: true,
+          providerOutputUrl: poll.videoUrl,
         }) as object,
-        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_READY'),
+        timelineEvents: appendTimelineEvent(
+          appendTimelineEvent(job.timelineEvents, 'HEYGEN_COMPLETE'),
+          'VIDEO_AGENT_READY',
+        ),
       },
     });
+
+    await this.advanceJob(jobId);
   }
 
   private async runVideoAgentPostProcess(jobId: string): Promise<void> {
@@ -1647,8 +1686,104 @@ export class AiInfluencerJobService {
       });
     } catch (err) {
       await this.render.cleanup(tmpRoot);
+      const failedJob = await this.getJob(jobId);
+      if (failedJob.baseMasterUrl?.trim()) {
+        this.log.warn(
+          `[AI-VIDEO][${jobId}] POSTPROCESS failed — archiving base master (${err instanceof Error ? err.message : String(err)})`,
+        );
+        await this.archiveVideoFromBaseMaster(failedJob, {
+          warning: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
       throw err;
     }
+  }
+
+  /** Uloží permanentní master z již staženého HeyGen videa — i když postprocess selže. */
+  private async archiveVideoFromBaseMaster(
+    job: AiInfluencerJobWithRelations,
+    options?: { warning?: string },
+  ): Promise<void> {
+    const masterUrl = job.baseMasterUrl?.trim() || job.avatarStorageUrl?.trim();
+    if (!masterUrl) return;
+    if (job.finalMasterUrl?.trim() || job.videoUrl?.trim()) {
+      if (job.status !== AiInfluencerReelJobStatus.READY) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: job.id },
+          data: { status: AiInfluencerReelJobStatus.READY, renderedAt: job.renderedAt ?? new Date() },
+        });
+      }
+      return;
+    }
+
+    const cfg = this.settings.getCached();
+    const renderSettings = this.buildRenderSettingsForJob(job, cfg);
+    await this.markRenderReady(job, renderSettings, masterUrl, masterUrl, {
+      layoutUsed: 'VIDEO_AGENT',
+      validationWarnings: options?.warning ? [options.warning] : [],
+    });
+  }
+
+  /** Quick Video Agent test → persistentní galerie záznam. */
+  async persistQuickVideoAgentTestArchive(input: {
+    storedUrl: string;
+    durationSec?: number | null;
+    sessionId?: string | null;
+    videoId?: string | null;
+  }): Promise<{ jobId: string }> {
+    const profile = await this.registry.getDefaultProfile();
+    const fixedScript = buildFixedVideoAgentTestScript();
+    const scriptHash = hashFixedTestScript(fixedScript);
+    const cfg = this.settings.getCached();
+    const generationMode = resolveVideoGenerationMode(cfg);
+    const initialRenderMeta = mergeJobRenderMeta(this.buildInitialJobRenderMeta(), {
+      isProductionTest: true,
+      testKind: 'VIDEO_AGENT',
+      useFixedTestScript: true,
+      testDurationSec: 10,
+      videoGenerationMode: 'VIDEO_AGENT',
+      generationModeUsed: 'VIDEO_AGENT',
+      heygenVideoAgentSessionId: input.sessionId ?? undefined,
+      heygenVideoAgentVideoId: input.videoId ?? undefined,
+      videoAgentMaster: true,
+      videoArchived: true,
+      archiveCompletedAt: new Date().toISOString(),
+    });
+
+    const job = await this.prisma.aiInfluencerReelJob.create({
+      data: {
+        profileId: profile.id,
+        status: AiInfluencerReelJobStatus.READY,
+        sourceType: 'ARTICLE',
+        isTest: true,
+        forceOverride: true,
+        estimatedDurationSec: input.durationSec ?? fixedScript.estimatedDuration,
+        progressPercent: 100,
+        currentStep: 'Test video archivováno',
+        scriptJson: fixedScript as object,
+        scenesJson: fixedScript.scenes as object,
+        spokenText: fixedScript.spokenText,
+        spokenTextTts: fixedScript.spokenText,
+        captionTitle: fixedScript.captionTitle,
+        captionDescription: fixedScript.captionDescription,
+        hashtags: fixedScript.hashtags.join(' '),
+        scriptHash,
+        avatarStorageUrl: input.storedUrl,
+        baseMasterUrl: input.storedUrl,
+        videoUrl: input.storedUrl,
+        finalMasterUrl: input.storedUrl,
+        renderedAt: new Date(),
+        facebookPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        instagramPublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        youtubePublishStatus: ReelPlatformPublishStatus.SKIPPED,
+        renderSettingsJson: initialRenderMeta as object,
+        timelineEvents: appendTimelineEvent(null, 'TEST_VIDEO_ARCHIVED', generationMode) as object,
+      },
+    });
+
+    this.log.log(`[AI-VIDEO][${job.id}] ARCHIVE quick test video persisted`);
+    return { jobId: job.id };
   }
 
   private async runAvatarStart(jobId: string): Promise<void> {
@@ -2300,11 +2435,14 @@ export class AiInfluencerJobService {
       generationMode,
       pronunciationRulesApplied: pronunciationRules,
       spokenTextSample: job.spokenText,
+      skipForTest: job.isTest || isProductionTestJob(job.renderSettingsJson),
     });
 
     const qualityMeta = mergeJobRenderMeta(job.renderSettingsJson, {
       qualityMetrics: quality.metrics,
       generationModeUsed: generationMode,
+      videoArchived: true,
+      archiveCompletedAt: new Date().toISOString(),
     });
 
     if (!quality.pass) {

@@ -783,7 +783,7 @@ export function nestAiInfluencerGetJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}`);
 }
 
-export function nestAiInfluencerVideos(token: string, limit = 60, includeTest = false) {
+export function nestAiInfluencerVideos(token: string, limit = 60, includeTest = true) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (includeTest) qs.set('includeTest', '1');
   return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/videos?${qs.toString()}`);

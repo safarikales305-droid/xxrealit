@@ -184,17 +184,25 @@ export class HeyGenVideoAgentProvider {
       data?: {
         status?: string;
         video_id?: string | null;
+        video_url?: string | null;
+        output_url?: string | null;
+        url?: string | null;
         failure_code?: string;
         failure_message?: string;
       };
       status?: string;
       video_id?: string | null;
+      video_url?: string | null;
+      output_url?: string | null;
+      url?: string | null;
       failure_code?: string;
       failure_message?: string;
     };
     const data = json.data ?? json;
     const sessionStatus = String(data.status ?? '').toLowerCase();
     const videoId = data.video_id?.trim() || null;
+    const sessionVideoUrl =
+      data.video_url?.trim() || data.output_url?.trim() || data.url?.trim() || null;
 
     if (sessionStatus === 'failed' || sessionStatus === 'error') {
       return {
@@ -204,6 +212,21 @@ export class HeyGenVideoAgentProvider {
         errorCode: 'HEYGEN_VIDEO_AGENT_PROCESSING_FAILED',
         errorMessage: data.failure_message || data.failure_code || 'Video Agent session failed',
       };
+    }
+
+    if (
+      sessionStatus === 'completed' ||
+      sessionStatus === 'complete' ||
+      sessionStatus === 'success'
+    ) {
+      if (sessionVideoUrl) {
+        return {
+          status: 'READY',
+          sessionStatus,
+          videoId,
+          videoUrl: sessionVideoUrl,
+        };
+      }
     }
 
     if (sessionStatus === 'completed' || sessionStatus === 'generating' || videoId) {

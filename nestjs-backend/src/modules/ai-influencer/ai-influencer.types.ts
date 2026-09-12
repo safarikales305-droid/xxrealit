@@ -101,6 +101,9 @@ export type AiInfluencerJobRenderMeta = {
   testDurationSec?: number;
   testKind?: 'FULL' | 'VIDEO_AGENT';
   useFixedTestScript?: boolean;
+  providerOutputUrl?: string;
+  videoArchived?: boolean;
+  archiveCompletedAt?: string;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'

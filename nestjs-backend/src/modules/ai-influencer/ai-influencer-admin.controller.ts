@@ -496,13 +496,7 @@ export class AiInfluencerAdminController {
   @HttpCode(HttpStatus.ACCEPTED)
   async testVideoAgent() {
     try {
-      const job = await this.videoAgentTest.createTestJob();
-      return {
-        jobId: job.id,
-        status: job.status,
-        progressPercent: job.progressPercent,
-        progressLabel: job.progressLabel,
-      };
+      return await this.jobs.createVideoAgentPipelineTestJob();
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       const code =
@@ -540,14 +534,15 @@ export class AiInfluencerAdminController {
   }
 
   @Get('test/video-agent/active')
-  getActiveVideoAgentTest() {
-    const job = this.videoAgentTest.getActiveJob();
-    return { job };
+  async getActiveVideoAgentTest() {
+    const job = await this.jobs.getActiveProductionTestJob();
+    if (job?.testKind === 'VIDEO_AGENT') return { job };
+    return { job: null };
   }
 
   @Get('test/video-agent/:jobId/status')
-  getVideoAgentTestStatus(@Param('jobId') jobId: string) {
-    return { job: this.videoAgentTest.getJob(jobId) };
+  async getVideoAgentTestStatus(@Param('jobId') jobId: string) {
+    return { job: await this.jobs.getProductionTestStatus(jobId) };
   }
 
   @Post('test/fallback')

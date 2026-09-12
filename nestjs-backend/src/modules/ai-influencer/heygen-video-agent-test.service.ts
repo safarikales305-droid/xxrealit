@@ -13,6 +13,7 @@ import { AiInfluencerRenderService } from './ai-influencer-render.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DEFAULT_RENDER_SETTINGS } from './ai-influencer-render.types';
 import { buildHeyGenVideoAgentTestPrompt } from './heygen-video-agent-prompt.util';
+import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 
@@ -78,6 +79,7 @@ export class HeyGenVideoAgentTestService implements OnModuleInit, OnModuleDestro
     private readonly videoAgent: HeyGenVideoAgentProvider,
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly render: AiInfluencerRenderService,
+    private readonly jobs: AiInfluencerJobService,
   ) {}
 
   async onModuleInit() {
@@ -393,6 +395,21 @@ export class HeyGenVideoAgentTestService implements OnModuleInit, OnModuleDestro
     this.store.lastOutcome = 'PASS';
     this.store.lastErrorCode = null;
     await this.persistStore();
+
+    try {
+      const archived = await this.jobs.persistQuickVideoAgentTestArchive({
+        storedUrl,
+        durationSec: probe.durationSec,
+        sessionId: job.sessionId ?? null,
+        videoId: job.videoId ?? null,
+      });
+      await this.patchJob(jobId, { previewUrl: storedUrl, providerJobIdMasked: maskProviderId(archived.jobId) });
+    } catch (archiveErr) {
+      this.log.warn(
+        `VIDEO_AGENT_TEST archive persist failed jobId=${jobId}: ${archiveErr instanceof Error ? archiveErr.message : archiveErr}`,
+      );
+    }
+
     this.log.log(`VIDEO_AGENT_TEST_DONE jobId=${jobId}`);
 
     this.localFiles.delete(jobId);

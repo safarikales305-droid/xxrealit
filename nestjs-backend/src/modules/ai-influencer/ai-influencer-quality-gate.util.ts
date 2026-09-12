@@ -47,7 +47,29 @@ export function runQualityGate(input: {
   generationMode: 'VIDEO_AGENT' | 'AVATAR';
   pronunciationRulesApplied?: string[];
   spokenTextSample?: string | null;
+  skipForTest?: boolean;
 }): QualityGateResult {
+  if (input.skipForTest) {
+    const scenes = input.scenes ?? [];
+    return {
+      pass: true,
+      code: 'PASS',
+      failures: [],
+      metrics: {
+        sceneCount: scenes.length,
+        avatarSceneCount: scenes.filter((s) => isAvatarSceneType(s.type)).length,
+        brollSceneCount: scenes.filter((s) => s.type === 'BROLL_FULL').length,
+        imageSceneCount: scenes.filter((s) => s.type === 'IMAGE_FULL').length,
+        avgSceneDuration: scenes.length
+          ? scenes.reduce((sum, s) => sum + s.duration, 0) / scenes.length
+          : input.durationSec,
+        backgroundVariationCount: new Set(scenes.map(sceneBackgroundKey)).size,
+        pronunciationRulesApplied: input.pronunciationRulesApplied ?? [],
+        maxConsecutiveSameType: maxConsecutiveSameType(scenes),
+      },
+    };
+  }
+
   const scenes = input.scenes ?? [];
   const durationSec = Math.max(15, input.durationSec || 35);
   const minScenes = minimumSceneCountForDuration(durationSec);
