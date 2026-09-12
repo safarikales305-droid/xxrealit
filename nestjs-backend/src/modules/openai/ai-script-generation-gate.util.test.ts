@@ -25,6 +25,18 @@ describe('evaluateScriptGenerationGate', () => {
     assert.equal(gate.label, 'CONFIGURED');
   });
 
+  it('blocks when API key is missing', () => {
+    const gate = evaluateScriptGenerationGate({
+      enabled: true,
+      configured: false,
+      connected: null,
+    });
+    assert.equal(gate.usable, false);
+    assert.equal(gate.label, 'NOT_READY');
+    assert.equal(gate.configured, false);
+    assert.match(gate.reason, /není nakonfigurován/i);
+  });
+
   it('marks verified connection as READY', () => {
     const gate = evaluateScriptGenerationGate({
       enabled: true,

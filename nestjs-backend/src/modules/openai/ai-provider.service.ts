@@ -79,8 +79,6 @@ export class AiProviderService {
 
     return {
       provider: db.provider,
-      configured,
-      enabled,
       dbEnabled,
       envEnabled,
       model: status.model,
