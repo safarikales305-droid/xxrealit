@@ -107,7 +107,7 @@ describe('resumeJobStatus', () => {
     assert.equal(next, AiInfluencerReelJobStatus.VOICE_GENERATING);
   });
 
-  it('legacy ElevenLabs failure on VIDEO_AGENT job resumes at AVATAR_GENERATING', () => {
+  it('legacy ElevenLabs failure on VIDEO_AGENT job resumes at SCRIPT_READY', () => {
     const next = resumeJobStatus(
       AiInfluencerReelJobStatus.FAILED,
       'VOICE',
@@ -115,7 +115,36 @@ describe('resumeJobStatus', () => {
       'ElevenLabs API key není nakonfigurován.',
       'ELEVENLABS_NOT_CONFIGURED',
     );
+    assert.equal(next, AiInfluencerReelJobStatus.SCRIPT_READY);
+  });
+
+  it('VIDEO_AGENT with providerJobId and no avatarExternalJobId resumes at AVATAR_GENERATING', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'VIDEO_AGENT',
+      {
+        generationMode: 'VIDEO_AGENT',
+        providerJobId: 'session-abc',
+        spokenText: 'text',
+      },
+      'HeyGen processing',
+      'HEYGEN_VIDEO_AGENT_PROCESSING',
+    );
     assert.equal(next, AiInfluencerReelJobStatus.AVATAR_GENERATING);
+  });
+
+  it('legacy mis-routed missing avatar id maps to VIDEO_AGENT stage', () => {
+    assert.equal(
+      resolveFailedStage('SCRIPT', 'Chybí externí avatar job ID.', null),
+      'VIDEO_AGENT',
+    );
+  });
+
+  it('HEYGEN_AVATAR_JOB_ID_MISSING maps to AVATAR stage', () => {
+    assert.equal(
+      resolveFailedStage('AVATAR', 'Chybí externí avatar job ID.', 'HEYGEN_AVATAR_JOB_ID_MISSING'),
+      'AVATAR',
+    );
   });
 
   it('retry od brandingu pokračuje od AVATAR_READY', () => {

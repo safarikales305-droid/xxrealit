@@ -5,6 +5,7 @@ export type RetryJobArtifacts = {
   voiceStorageUrl?: string | null;
   avatarStorageUrl?: string | null;
   avatarExternalJobId?: string | null;
+  providerJobId?: string | null;
   baseMasterUrl?: string | null;
   generationMode?: 'VIDEO_AGENT' | 'AVATAR' | null;
 };
@@ -41,6 +42,14 @@ export function resolveFailedStage(
     code === 'VIDEO_AGENT_FAILED' ||
     /video agent/i.test(msg)
   ) {
+    return 'VIDEO_AGENT';
+  }
+
+  if (code === 'HEYGEN_AVATAR_JOB_ID_MISSING' || (/heygen|avatar provider|avatar není/i.test(msg) && !/video agent/i.test(msg)) || (code.startsWith('HEYGEN_') && !code.startsWith('HEYGEN_VIDEO_AGENT_'))) {
+    return 'AVATAR';
+  }
+
+  if (/chybí externí avatar job id/i.test(msg)) {
     return 'VIDEO_AGENT';
   }
 
@@ -104,17 +113,31 @@ export function resumeJobStatus(
   const mode = artifacts.generationMode ?? 'AVATAR';
 
   if (stage === 'VIDEO_AGENT') {
-    if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+    if (artifacts.avatarExternalJobId || artifacts.providerJobId) {
+      return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+    }
     return AiInfluencerReelJobStatus.SCRIPT_READY;
   }
   if (stage === 'VOICE') {
     if (mode === 'VIDEO_AGENT') {
-      if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
-      return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      if (artifacts.avatarExternalJobId || artifacts.providerJobId || artifacts.baseMasterUrl) {
+        return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      }
+      return artifacts.spokenText
+        ? AiInfluencerReelJobStatus.SCRIPT_READY
+        : AiInfluencerReelJobStatus.CANDIDATE;
     }
     return AiInfluencerReelJobStatus.VOICE_GENERATING;
   }
   if (stage === 'AVATAR') {
+    if (mode === 'VIDEO_AGENT') {
+      if (artifacts.avatarExternalJobId || artifacts.providerJobId || artifacts.baseMasterUrl) {
+        return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      }
+      return artifacts.spokenText
+        ? AiInfluencerReelJobStatus.SCRIPT_READY
+        : AiInfluencerReelJobStatus.CANDIDATE;
+    }
     return artifacts.avatarExternalJobId
       ? AiInfluencerReelJobStatus.AVATAR_GENERATING
       : AiInfluencerReelJobStatus.VOICE_READY;
@@ -122,7 +145,9 @@ export function resumeJobStatus(
   if (stage === 'RENDER' || stage === 'BRANDING_RENDER') {
     if (mode === 'VIDEO_AGENT') {
       if (artifacts.baseMasterUrl) return AiInfluencerReelJobStatus.AVATAR_READY;
-      if (artifacts.avatarExternalJobId) return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      if (artifacts.avatarExternalJobId || artifacts.providerJobId) {
+        return AiInfluencerReelJobStatus.AVATAR_GENERATING;
+      }
       return AiInfluencerReelJobStatus.SCRIPT_READY;
     }
     return AiInfluencerReelJobStatus.AVATAR_READY;

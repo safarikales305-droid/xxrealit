@@ -111,7 +111,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     });
     for (const row of stuck) {
       try {
-        await this.jobs.advanceJob(row.id);
+        await this.jobs.advanceJobChain(row.id, 3);
       } catch {
         /* logged in job service */
       }
@@ -136,7 +136,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
 
       for (const row of active) {
         try {
-          await this.jobs.advanceJob(row.id);
+          await this.jobs.advanceJobChain(row.id, 3);
         } catch (err) {
           this.log.warn(
             `AI influencer job ${row.id} tick failed: ${err instanceof Error ? err.message : err}`,

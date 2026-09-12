@@ -20,6 +20,13 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
   return {
     videoGenerationMode: mode,
     generationModeUsed: generationModeUsed ?? mode,
+    voiceEngine:
+      o.voiceEngine === 'HEYGEN' || o.voiceEngine === 'ELEVENLABS' ? o.voiceEngine : undefined,
+    providerJobType:
+      o.providerJobType === 'VIDEO_AGENT' || o.providerJobType === 'AVATAR'
+        ? o.providerJobType
+        : undefined,
+    providerJobId: typeof o.providerJobId === 'string' ? o.providerJobId : undefined,
     heygenVideoAgentSessionId:
       typeof o.heygenVideoAgentSessionId === 'string' ? o.heygenVideoAgentSessionId : undefined,
     heygenVideoAgentVideoId:
@@ -45,6 +52,21 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     providerOutputUrl: typeof o.providerOutputUrl === 'string' ? o.providerOutputUrl : undefined,
     videoArchived: o.videoArchived === true,
     archiveCompletedAt: typeof o.archiveCompletedAt === 'string' ? o.archiveCompletedAt : undefined,
+    pipelineStage: typeof o.pipelineStage === 'string' ? o.pipelineStage : undefined,
+    lastHeartbeatAt: typeof o.lastHeartbeatAt === 'string' ? o.lastHeartbeatAt : undefined,
+    videoStyle:
+      o.videoStyle === 'dynamic_influencer' ||
+      o.videoStyle === 'real_estate_news' ||
+      o.videoStyle === 'property_showcase' ||
+      o.videoStyle === 'educational' ||
+      o.videoStyle === 'auto'
+        ? o.videoStyle
+        : undefined,
+    targetDurationSec: typeof o.targetDurationSec === 'number' ? o.targetDurationSec : undefined,
+    avatarFrequency:
+      o.avatarFrequency === 'low' || o.avatarFrequency === 'medium' || o.avatarFrequency === 'high'
+        ? o.avatarFrequency
+        : undefined,
   };
 }
 
@@ -95,17 +117,6 @@ export function videoAgentTimedOut(submittedAtIso: string | undefined, timeoutMs
   return Date.now() - started > timeoutMs;
 }
 
-export function isVideoAgentErrorCode(code: string | null | undefined): boolean {
-  if (!code) return false;
-  return code.startsWith('HEYGEN_VIDEO_AGENT_');
-}
-
-export type JobGenerationArtifacts = {
-  voiceStorageUrl?: string | null;
-  avatarExternalJobId?: string | null;
-  baseMasterUrl?: string | null;
-};
-
 /** Odvodí generation mode u legacy jobů bez explicitního generationModeUsed. */
 export function inferJobGenerationMode(
   meta: AiInfluencerJobRenderMeta,
@@ -124,4 +135,27 @@ export function inferJobGenerationMode(
   }
   if (artifacts.voiceStorageUrl && !meta.videoAgentMaster) return 'AVATAR';
   return resolveVideoGenerationMode(settings);
+}
+
+export type JobGenerationArtifacts = {
+  voiceStorageUrl?: string | null;
+  avatarExternalJobId?: string | null;
+  baseMasterUrl?: string | null;
+};
+
+export function resolveJobProviderJobId(
+  meta: AiInfluencerJobRenderMeta,
+  avatarExternalJobId?: string | null,
+): string | null {
+  return (
+    meta.providerJobId ??
+    meta.heygenVideoAgentSessionId ??
+    parseVideoAgentSessionId(avatarExternalJobId) ??
+    null
+  );
+}
+
+export function isVideoAgentErrorCode(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return code.startsWith('HEYGEN_VIDEO_AGENT_');
 }

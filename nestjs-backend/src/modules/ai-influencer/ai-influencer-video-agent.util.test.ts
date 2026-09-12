@@ -4,6 +4,7 @@ import {
   inferJobGenerationMode,
   isVideoAgentExternalJobId,
   parseVideoAgentSessionId,
+  resolveJobProviderJobId,
   resolveVideoGenerationMode,
   toVideoAgentExternalJobId,
 } from './ai-influencer-video-agent.util';
@@ -28,5 +29,24 @@ describe('ai-influencer-video-agent.util', () => {
       }),
       'VIDEO_AGENT',
     );
+  });
+
+  it('resolveJobProviderJobId uses canonical providerJobId without avatarExternalJobId', () => {
+    assert.equal(
+      resolveJobProviderJobId(
+        { generationModeUsed: 'VIDEO_AGENT', providerJobId: 'sess-canonical' },
+        null,
+      ),
+      'sess-canonical',
+    );
+  });
+
+  it('VIDEO_AGENT tracking is valid with providerJobId present and avatarExternalJobId null', () => {
+    const providerJobId = resolveJobProviderJobId(
+      { generationModeUsed: 'VIDEO_AGENT', providerJobId: 'sess-1' },
+      null,
+    );
+    assert.ok(providerJobId);
+    assert.equal(inferJobGenerationMode({ generationModeUsed: 'VIDEO_AGENT' }, DEFAULT_AI_INFLUENCER_SETTINGS), 'VIDEO_AGENT');
   });
 });

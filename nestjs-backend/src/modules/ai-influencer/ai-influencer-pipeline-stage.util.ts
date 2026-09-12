@@ -118,6 +118,14 @@ export function resolvePipelineFailedStage(input: {
     return 'VIDEO_AGENT';
   }
 
+  if (code === 'HEYGEN_AVATAR_JOB_ID_MISSING') {
+    return 'AVATAR';
+  }
+
+  if (/chybí externí avatar job id/i.test(msg)) {
+    return 'VIDEO_AGENT';
+  }
+
   if (
     code.startsWith('ELEVENLABS_') ||
     /elevenlabs|eleven.?labs/i.test(msg) ||

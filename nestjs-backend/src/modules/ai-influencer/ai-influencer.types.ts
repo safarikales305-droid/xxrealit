@@ -85,9 +85,15 @@ export type AiInfluencerSceneMediaSource =
   | 'AVATAR'
   | 'BROLL';
 
+export type AiInfluencerVoiceEngine = 'HEYGEN' | 'ELEVENLABS';
+export type AiInfluencerProviderJobType = 'VIDEO_AGENT' | 'AVATAR';
+
 export type AiInfluencerJobRenderMeta = {
   videoGenerationMode?: AiInfluencerVideoGenerationMode;
   generationModeUsed?: AiInfluencerVideoGenerationMode;
+  voiceEngine?: AiInfluencerVoiceEngine;
+  providerJobType?: AiInfluencerProviderJobType;
+  providerJobId?: string;
   heygenVideoAgentSessionId?: string;
   heygenVideoAgentVideoId?: string;
   usedVideoAgentFallback?: boolean;
@@ -104,6 +110,11 @@ export type AiInfluencerJobRenderMeta = {
   providerOutputUrl?: string;
   videoArchived?: boolean;
   archiveCompletedAt?: string;
+  pipelineStage?: string;
+  lastHeartbeatAt?: string;
+  videoStyle?: AiInfluencerVideoStyle;
+  targetDurationSec?: number;
+  avatarFrequency?: AiInfluencerAvatarFrequency;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'
