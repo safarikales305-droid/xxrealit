@@ -133,6 +133,22 @@ describe('resumeJobStatus', () => {
     assert.equal(next, AiInfluencerReelJobStatus.AVATAR_GENERATING);
   });
 
+  it('HEYGEN_VIDEO_AGENT_BAD_REQUEST resumes at SCRIPT_READY for media re-prep', () => {
+    const next = resumeJobStatus(
+      AiInfluencerReelJobStatus.FAILED,
+      'VIDEO_AGENT',
+      {
+        generationMode: 'VIDEO_AGENT',
+        providerJobId: 'session-bad',
+        avatarExternalJobId: 'va:session-bad',
+        spokenText: 'text',
+      },
+      'Invalid URL in files[0]',
+      'HEYGEN_VIDEO_AGENT_BAD_REQUEST',
+    );
+    assert.equal(next, AiInfluencerReelJobStatus.SCRIPT_READY);
+  });
+
   it('legacy mis-routed missing avatar id maps to VIDEO_AGENT stage', () => {
     assert.equal(
       resolveFailedStage('SCRIPT', 'Chybí externí avatar job ID.', null),

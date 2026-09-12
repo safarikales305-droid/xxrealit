@@ -117,6 +117,12 @@ export function resumeJobStatus(
   const mode = artifacts.generationMode ?? 'AVATAR';
 
   if (stage === 'VIDEO_AGENT') {
+    if (
+      (errorCode ?? '').toUpperCase() === 'HEYGEN_VIDEO_AGENT_BAD_REQUEST' ||
+      /invalid url in files\[/i.test(errorMessage ?? '')
+    ) {
+      return AiInfluencerReelJobStatus.SCRIPT_READY;
+    }
     if (artifacts.avatarExternalJobId || artifacts.providerJobId) {
       return AiInfluencerReelJobStatus.AVATAR_GENERATING;
     }

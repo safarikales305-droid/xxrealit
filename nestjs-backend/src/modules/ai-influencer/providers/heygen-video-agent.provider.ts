@@ -116,12 +116,16 @@ export class HeyGenVideoAgentProvider {
     if (input.avatarId?.trim()) payload.avatar_id = input.avatarId.trim();
     if (input.voiceId?.trim()) payload.voice_id = input.voiceId.trim();
     if (input.callbackUrl?.trim()) payload.callback_url = input.callbackUrl.trim();
-    if (input.files?.length) {
-      payload.files = input.files.slice(0, 20).map((f) => ({ type: 'url', url: f.url }));
+    const files = input.files?.length ? input.files.slice(0, 20) : [];
+    if (files.length) {
+      payload.files = files.map((f) => ({ type: 'url', url: f.url }));
     }
 
     this.log.log(
-      `[AI-VIDEO][heygen] HEYGEN_SUBMIT POST /v3/video-agents mode=generate orientation=portrait files=${input.files?.length ?? 0}`,
+      `[AI-VIDEO][heygen] HEYGEN VIDEO AGENT REQUEST prompt=PRESENT avatar=${input.avatarId?.trim() ? 'PRESENT' : 'MISSING'} files=${files.length} allFilesPublic=true generationMode=VIDEO_AGENT aspectRatio=9:16`,
+    );
+    this.log.log(
+      `[AI-VIDEO][heygen] HEYGEN_SUBMIT POST /v3/video-agents mode=generate orientation=portrait files=${files.length}`,
     );
 
     const parsed = await this.request('POST', '/v3/video-agents', {

@@ -116,6 +116,30 @@ export type AiInfluencerJobRenderMeta = {
   videoStyle?: AiInfluencerVideoStyle;
   targetDurationSec?: number;
   avatarFrequency?: AiInfluencerAvatarFrequency;
+  heygenPreparedMedia?: Array<{
+    sourceUrl: string;
+    sourceHost: string;
+    publicUrl: string;
+    rehosted: boolean;
+    label?: string;
+    mimeType?: string | null;
+    sourceType?: string;
+  }>;
+  heygenMediaPrepStats?: {
+    selected: number;
+    publicAlready: number;
+    rehosted: number;
+    skipped: number;
+    invalid: number;
+  };
+  heygenMediaIssues?: Array<{
+    index: number;
+    host: string;
+    label?: string;
+    reason: string;
+    action: string;
+  }>;
+  mediaPrepCompletedAt?: string;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'

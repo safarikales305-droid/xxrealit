@@ -23,6 +23,7 @@ import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 import { HeyGenVideoAgentTestService } from './heygen-video-agent-test.service';
+import { HeyGenVideoAgentMediaService } from './heygen-video-agent-media.service';
 import { HeyGenRuntimeConfigService } from './heygen-runtime-config.service';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { PropertyMediaProvider } from './providers/property-media.provider';
@@ -45,6 +46,7 @@ import { PropertyMediaProvider } from './providers/property-media.provider';
     HeyGenAvatarProvider,
     HeyGenVideoAgentProvider,
     HeyGenVideoAgentTestService,
+    HeyGenVideoAgentMediaService,
     DIdAvatarProvider,
     OpenAiScriptProvider,
     ArticleMediaProvider,

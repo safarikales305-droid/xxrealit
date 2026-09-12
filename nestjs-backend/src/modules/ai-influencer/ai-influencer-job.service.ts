@@ -79,6 +79,7 @@ import { PropertyMediaProvider } from './providers/property-media.provider';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
+import { HeyGenVideoAgentMediaService } from './heygen-video-agent-media.service';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import {
   buildHeyGenVideoAgentPrompt,
@@ -149,6 +150,7 @@ export class AiInfluencerJobService {
     private readonly publish: AiInfluencerPublishService,
     private readonly heygen: HeyGenAvatarProvider,
     private readonly videoAgent: HeyGenVideoAgentProvider,
+    private readonly heygenMedia: HeyGenVideoAgentMediaService,
     private readonly elevenLabs: ElevenLabsVoiceProvider,
     private readonly openAi: OpenAiService,
     private readonly aiProvider: AiProviderService,
@@ -905,6 +907,17 @@ export class AiInfluencerJobService {
       providerStatus,
       providerOutputUrlPresent: Boolean(providerOutputUrl),
       masterVideoUrlPresent: Boolean(masterVideoUrl),
+      heygenMedia: meta.heygenMediaPrepStats
+        ? {
+            mediaSelected: meta.heygenMediaPrepStats.selected,
+            publicAlready: meta.heygenMediaPrepStats.publicAlready,
+            rehosted: meta.heygenMediaPrepStats.rehosted,
+            invalid: meta.heygenMediaPrepStats.invalid,
+            skipped: meta.heygenMediaPrepStats.skipped,
+            filesPayloadCount: meta.heygenPreparedMedia?.length ?? 0,
+            issues: meta.heygenMediaIssues ?? [],
+          }
+        : null,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     };
@@ -1060,6 +1073,9 @@ export class AiInfluencerJobService {
       job.errorCode,
     );
     const progress = progressForStatus(resumeStatus);
+    const clearVideoAgentSession =
+      job.errorCode === 'HEYGEN_VIDEO_AGENT_BAD_REQUEST' ||
+      /invalid url in files\[/i.test(job.errorMessage ?? '');
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -1072,6 +1088,18 @@ export class AiInfluencerJobService {
         lastAttemptAt: new Date(),
         progressPercent: progress.percent,
         currentStep: progress.step,
+        ...(clearVideoAgentSession
+          ? {
+              avatarExternalJobId: null,
+              renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+                heygenVideoAgentSessionId: undefined,
+                heygenVideoAgentVideoId: undefined,
+                providerJobId: undefined,
+                videoAgentSubmitInFlight: false,
+                videoAgentSubmittedAt: undefined,
+              }) as object,
+            }
+          : {}),
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY', resumeStatus),
       },
     });
@@ -1750,7 +1778,66 @@ export class AiInfluencerJobService {
     if (!script?.spokenText) throw Object.assign(new Error('Chybí scénář pro Video Agent.'), { code: 'STORYBOARD_INVALID' });
 
     const scenes = (job.scenesJson as ReelScriptPayload['scenes'] | null) ?? script.scenes ?? [];
-    const mediaFiles = collectStoryboardMediaUrls(scenes);
+    const rawMediaFiles = collectStoryboardMediaUrls(scenes);
+    let renderMetaJson = mergeJobRenderMeta(job.renderSettingsJson, {
+      pipelineStage: 'MEDIA_PREPARATION',
+    });
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: 25,
+        currentStep: 'Hledám média',
+        renderSettingsJson: renderMetaJson as object,
+      },
+    });
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: 30,
+        currentStep: 'Připravuji média',
+      },
+    });
+
+    const mediaPrep = await this.heygenMedia.prepareHeyGenMediaFiles(
+      jobId,
+      rawMediaFiles,
+      meta.heygenPreparedMedia,
+    );
+    const mediaFiles = mediaPrep.files;
+    const mediaPrepCompletedAt = new Date().toISOString();
+    renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
+      heygenPreparedMedia: mediaPrep.prepared,
+      heygenMediaPrepStats: mediaPrep.stats,
+      heygenMediaIssues: mediaPrep.issues,
+      mediaPrepCompletedAt,
+      pipelineStage: 'MEDIA_PREPARATION',
+    });
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: 35,
+        currentStep: 'Ověřuji veřejné URL',
+        renderSettingsJson: renderMetaJson as object,
+      },
+    });
+
+    if (mediaPrep.stats.rehosted > 0) {
+      this.log.log(
+        `[AI-VIDEO][${jobId}] ${mediaPrep.stats.rehosted} obrázky byly převedeny do veřejného media storage.`,
+      );
+    }
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        progressPercent: 40,
+        currentStep: 'Média připravena',
+      },
+    });
+
     const prompt = buildHeyGenVideoAgentPrompt({
       script: {
         hook: script.hook,
@@ -1768,15 +1855,19 @@ export class AiInfluencerJobService {
       mediaFiles,
     });
 
-    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT`);
+    this.log.log(
+      `[AI-VIDEO][${jobId}] HEYGEN_SUBMIT filesTotal=${rawMediaFiles.length} filesValid=${mediaFiles.length} filesRehosted=${mediaPrep.stats.rehosted} filesSkipped=${mediaPrep.stats.skipped + mediaPrep.stats.invalid}`,
+    );
+    renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
+      videoAgentSubmitInFlight: true,
+      pipelineStage: 'VIDEO_AGENT_SUBMIT',
+    });
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
-        progressPercent: 35,
-        currentStep: 'Odesílám do HeyGen',
-        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-          videoAgentSubmitInFlight: true,
-        }) as object,
+        progressPercent: 45,
+        currentStep: 'Odesílám Video Agentu',
+        renderSettingsJson: renderMetaJson as object,
       },
     });
 
@@ -1788,12 +1879,13 @@ export class AiInfluencerJobService {
         files: mediaFiles,
       });
     } catch (err) {
+      renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
+        videoAgentSubmitInFlight: false,
+      });
       await this.prisma.aiInfluencerReelJob.update({
         where: { id: jobId },
         data: {
-          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-            videoAgentSubmitInFlight: false,
-          }) as object,
+          renderSettingsJson: renderMetaJson as object,
         },
       });
       const code = errorCode(err);
@@ -1829,7 +1921,7 @@ export class AiInfluencerJobService {
         progressPercent: progress.percent,
         currentStep: progress.step,
         lastAttemptAt: new Date(),
-        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+        renderSettingsJson: mergeJobRenderMeta(renderMetaJson, {
           videoGenerationMode: 'VIDEO_AGENT',
           generationModeUsed: 'VIDEO_AGENT',
           voiceEngine: 'HEYGEN',
