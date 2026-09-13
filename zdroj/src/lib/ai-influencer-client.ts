@@ -217,6 +217,7 @@ export type AiInfluencerDashboard = {
     failedJobsToday: number;
     galleryVideos: number;
   };
+  recentCompleted?: AiInfluencerJobRow[];
   automation?: {
     enabled: boolean;
     paused: boolean;
@@ -418,6 +419,10 @@ export type AiInfluencerGalleryMeta = {
   videoCreatedAt: string | null;
   masterCreatedAt: string | null;
   finishedAt: string | null;
+  completedAtIso?: string | null;
+  completedDateLabel?: string | null;
+  completedTimeLabel?: string | null;
+  completedCombinedLabel?: string | null;
   sceneCount: number;
   backgroundVariationCount: number | null;
   galleryStatus: 'READY' | 'PUBLISHED' | 'PARTIAL' | 'QUALITY_REVIEW';
@@ -425,6 +430,7 @@ export type AiInfluencerGalleryMeta = {
   createdDateLabel: string | null;
   createdTimeLabel: string | null;
   createdCombinedLabel: string | null;
+  inGallery?: boolean;
 };
 
 export type AiInfluencerJobRow = {
@@ -469,6 +475,7 @@ export type AiInfluencerJobRow = {
   gallery?: AiInfluencerGalleryMeta;
   isTest?: boolean;
   renderedAt?: string | null;
+  publishedAt?: string | null;
   postId?: string | null;
   providerJobIdMasked?: string | null;
   canReconcileHeyGen?: boolean;
@@ -852,10 +859,15 @@ export function nestAiInfluencerGetJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}`);
 }
 
-export function nestAiInfluencerVideos(token: string, limit = 60, includeTest = true) {
+export function nestAiInfluencerVideos(token: string, limit = 60, includeTest = false) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (includeTest) qs.set('includeTest', '1');
   return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/videos?${qs.toString()}`);
+}
+
+export function nestAiInfluencerRecentCompleted(token: string, limit = 10) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  return aiInfluencerFetch<AiInfluencerJobRow[]>(token, `/jobs/recent-completed?${qs.toString()}`);
 }
 
 export type ProductionTestStartResponse = {

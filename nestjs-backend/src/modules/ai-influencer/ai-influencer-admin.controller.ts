@@ -74,7 +74,10 @@ export class AiInfluencerAdminController {
   @Get('dashboard')
   async getDashboard() {
     const cfg = await this.settings.getSettings();
-    const stats = await aggregateAiInfluencerDashboardStats(this.prisma);
+    const [stats, recentCompleted] = await Promise.all([
+      aggregateAiInfluencerDashboardStats(this.prisma),
+      this.jobs.listRecentCompleted(10),
+    ]);
     const providers = await this.getProviderStatus();
     const productionVerification = await this.jobs.getLastProductionTestVerification();
 
@@ -112,6 +115,7 @@ export class AiInfluencerAdminController {
         failedJobsToday: stats.failedJobsToday,
         galleryVideos: stats.galleryVideos,
       },
+      recentCompleted,
       providers,
       productionVerification,
     };
@@ -140,6 +144,12 @@ export class AiInfluencerAdminController {
   @Get('jobs/active')
   listActiveJobs() {
     return this.jobs.listActiveJobs();
+  }
+
+  @Get('jobs/recent-completed')
+  listRecentCompleted(@Query('limit') limit?: string) {
+    const parsed = limit ? Number.parseInt(limit, 10) : 10;
+    return this.jobs.listRecentCompleted(Number.isFinite(parsed) ? parsed : 10);
   }
 
   @Get('videos')

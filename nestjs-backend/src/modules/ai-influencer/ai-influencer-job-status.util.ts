@@ -70,6 +70,14 @@ export function masterVideoAssetWhere(): Prisma.AiInfluencerReelJobWhereInput {
 export function galleryVideoWhere(options?: { includeTest?: boolean }): Prisma.AiInfluencerReelJobWhereInput {
   return {
     ...(options?.includeTest ? {} : { isTest: false }),
+    status: { in: GALLERY_VIDEO_STATUSES },
+    ...masterVideoAssetWhere(),
+  };
+}
+
+export function recentCompletedVideoWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    status: { in: GALLERY_VIDEO_STATUSES },
     ...masterVideoAssetWhere(),
   };
 }

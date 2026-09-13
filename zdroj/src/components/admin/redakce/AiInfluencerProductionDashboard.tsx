@@ -298,10 +298,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [detailJob, setDetailJob] = useState<AiInfluencerJobRow | null>(null);
   const [candidateFilter, setCandidateFilter] = useState<'all' | 'suitable' | 'unused' | 'used'>('suitable');
-  const [showTestVideos, setShowTestVideos] = useState(true);
+  const [showTestVideos, setShowTestVideos] = useState(false);
   const [videoFilter, setVideoFilter] = useState<
-    'all' | 'production' | 'test' | 'published' | 'ready' | 'failed' | 'video_agent' | 'avatar'
-  >('all');
+    'all' | 'production' | 'test' | 'published' | 'unpublished' | 'ready' | 'failed' | 'video_agent' | 'avatar'
+  >('production');
   const [selectedVoiceId, setSelectedVoiceId] = useState('');
   const [selectedAvatarId, setSelectedAvatarId] = useState('');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -319,6 +319,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   >(null);
   const prevActiveIdsRef = useRef<string[]>([]);
 
+  const includeTestInApi = showTestVideos || videoFilter === 'test';
+
   const loadCore = useCallback(() => {
     if (!apiAccessToken) return;
     void Promise.all([
@@ -326,7 +328,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       nestAiInfluencerArticles(apiAccessToken),
       nestAiInfluencerJobs(apiAccessToken),
       nestAiInfluencerActiveJobs(apiAccessToken),
-      nestAiInfluencerVideos(apiAccessToken, 60, showTestVideos),
+      nestAiInfluencerVideos(apiAccessToken, 60, includeTestInApi),
       nestAiInfluencerProfile(apiAccessToken),
     ]).then(([d, a, j, active, v, profile]) => {
       if (d) setDashboard(d);
@@ -337,7 +339,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       if (profile && typeof profile.voiceId === 'string') setSelectedVoiceId(profile.voiceId);
       if (profile && typeof profile.avatarId === 'string') setSelectedAvatarId(profile.avatarId);
     });
-  }, [apiAccessToken, showTestVideos]);
+  }, [apiAccessToken, includeTestInApi]);
 
   useEffect(() => {
     if (!apiAccessToken || tab !== 'settings') return;
@@ -388,12 +390,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
   useEffect(() => {
     if (!apiAccessToken) return;
-    if (tab !== 'production' && activeJobs.length === 0) return;
+    const shouldPoll =
+      tab === 'production' || tab === 'overview' || tab === 'videos' || activeJobs.length > 0;
+    if (!shouldPoll) return;
 
     const poll = () => {
       void Promise.all([
         nestAiInfluencerActiveJobs(apiAccessToken),
-        nestAiInfluencerVideos(apiAccessToken, 60, showTestVideos),
+        nestAiInfluencerVideos(apiAccessToken, 60, includeTestInApi),
         nestAiInfluencerDashboard(apiAccessToken),
         nestAiInfluencerJobs(apiAccessToken),
       ]).then(([active, v, d, j]) => {
@@ -423,9 +427,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     };
 
     poll();
-    const id = window.setInterval(poll, 2500);
+    const id = window.setInterval(poll, 4000);
     return () => window.clearInterval(id);
-  }, [apiAccessToken, tab, showTestVideos]);
+  }, [apiAccessToken, tab, includeTestInApi, activeJobs.length]);
 
   useEffect(() => {
     prevActiveIdsRef.current = activeJobs.map((job) => job.id);
@@ -449,12 +453,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     [jobs],
   );
 
-  const recentDone = useMemo(
-    () =>
-      jobs
-        .filter((j) => ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(j.status))
-        .slice(0, 5),
-    [jobs],
+  const recentCompleted = useMemo(
+    () => dashboard?.recentCompleted ?? [],
+    [dashboard?.recentCompleted],
   );
 
   const filteredArticles = useMemo(() => {
@@ -473,6 +474,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       if (videoFilter === 'production') return !v.isTest;
       if (videoFilter === 'published') {
         return v.gallery?.galleryStatus === 'PUBLISHED' || v.gallery?.galleryStatus === 'PARTIAL';
+      }
+      if (videoFilter === 'unpublished') {
+        return v.gallery?.galleryStatus === 'READY' || v.status === 'READY';
       }
       if (videoFilter === 'ready') {
         return v.gallery?.galleryStatus === 'READY' || v.status === 'READY';
@@ -517,8 +521,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     });
   };
 
-  const handleDelete = (jobId: string, historyOnly = false) => {
-    if (!window.confirm(historyOnly ? 'Odstranit pouze z historie?' : 'Odstranit tento neúspěšný pokus?')) return;
+  const handleDelete = (jobId: string, historyOnly = false, isProduction = false) => {
+    const message = historyOnly
+      ? 'Odstranit pouze z historie?'
+      : isProduction
+        ? 'Odstranit produkční video? Smaže se pouze lokální záznam ve správě, ne na sociálních sítích.'
+        : 'Odstranit tento záznam?';
+    if (!window.confirm(message)) return;
     setBusy(`delete-${jobId}`);
     void nestAiInfluencerDeleteJob(apiAccessToken, jobId, historyOnly).then(() => {
       setBusy(null);
@@ -640,10 +649,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   </strong>
                 </p>
                 <p className="text-sm text-zinc-600">
-                  Výroba:{' '}
+                  Pipeline:{' '}
                   <strong className={productionVerified ? 'text-emerald-700' : 'text-amber-700'}>
-                    {productionVerified ? 'VERIFIED' : productionVerificationStatus === 'FAILED' ? 'FAILED' : 'UNVERIFIED'}
+                    {productionVerified ? 'READY' : productionVerificationStatus === 'FAILED' ? 'FAILED' : 'UNVERIFIED'}
                   </strong>
+                </p>
+                <p className="text-sm text-zinc-600">
+                  Aktivní výroba: <strong>{activeJobs.length}</strong>
                 </p>
               </div>
               <span
@@ -819,6 +831,112 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             )}
           </section>
 
+          {recentCompleted.length > 0 ? (
+            <section className="rounded-xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-zinc-900">Nedávno dokončeno</h2>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-orange-700 underline"
+                  onClick={() => setTab('videos')}
+                >
+                  Zobrazit všechna videa
+                </button>
+              </div>
+              <div className="mt-3 space-y-3">
+                {recentCompleted.map((job) => {
+                  const master = resolveMasterUrl(job);
+                  const gallery = job.gallery;
+                  return (
+                    <div key={job.id} className="rounded-lg border border-zinc-100 p-3">
+                      <div className="flex flex-wrap gap-3">
+                        <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-zinc-900">
+                          {master ? (
+                            <video className="h-full w-full object-cover" src={master} preload="metadata" muted>
+                              <track kind="captions" />
+                            </video>
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-xs text-zinc-500">—</div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                                job.isTest ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {job.isTest ? 'Test' : 'Produkční'}
+                            </span>
+                            <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-700">
+                              {galleryStatusLabel(gallery?.galleryStatus)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-600">
+                            Dokončeno: {gallery?.completedCombinedLabel ?? gallery?.finishedAt ?? '—'}
+                          </p>
+                          <p className="text-xs text-zinc-600">
+                            Délka: {gallery?.durationFormatted ?? '—'} · Režim:{' '}
+                            {modeLabel(job.generationMode ?? job.display?.generationMode)} · V galerii:{' '}
+                            {gallery?.inGallery ? '✓' : '—'}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-zinc-500">
+                            <span>FB {publishIcon(job.facebookPublishStatus)}</span>
+                            <span>IG {publishIcon(job.instagramPublishStatus)}</span>
+                            <span>YT {publishIcon(job.youtubePublishStatus)}</span>
+                            <span>Shorts {job.postId ? '✓' : '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {master ? (
+                          <button
+                            type="button"
+                            className="rounded border border-zinc-300 px-2 py-1 text-xs"
+                            onClick={() => setPlayVideoUrl(master)}
+                          >
+                            Přehrát
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded border border-zinc-300 px-2 py-1 text-xs"
+                          onClick={() => setDetailJobId(job.id)}
+                        >
+                          Detail
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-zinc-300 px-2 py-1 text-xs"
+                          onClick={() => setTab('videos')}
+                        >
+                          Přejít do galerie
+                        </button>
+                        {job.status === 'READY' ? (
+                          <button
+                            type="button"
+                            className="rounded bg-orange-600 px-2 py-1 text-xs font-medium text-white"
+                            onClick={() => setDetailJobId(job.id)}
+                          >
+                            Publikovat
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded border border-red-200 px-2 py-1 text-xs text-red-700"
+                          onClick={() => handleDelete(job.id, false, !job.isTest)}
+                        >
+                          Odstranit
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-zinc-900">Kandidáti</h2>
@@ -873,27 +991,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               </table>
             </div>
           </section>
-
-          {recentDone.length > 0 ? (
-            <section className="rounded-xl border border-zinc-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-zinc-900">Nedávno dokončeno</h2>
-              <div className="mt-3 space-y-2">
-                {recentDone.map((job) => (
-                  <div key={job.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-100 px-3 py-2 text-sm">
-                    <span>{resolveAiInfluencerJobTitle(job)}</span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800">{job.status}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
         </>
       ) : null}
 
       {tab === 'videos' ? (
         <section className="rounded-xl border border-zinc-200 bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
-            {(['all', 'production', 'test', 'published', 'ready', 'failed', 'video_agent', 'avatar'] as const).map((f) => (
+            {(['all', 'production', 'test', 'published', 'unpublished', 'ready', 'failed', 'video_agent', 'avatar'] as const).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -908,13 +1012,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       ? 'Testovací'
                       : f === 'published'
                         ? 'Publikovaná'
-                        : f === 'ready'
-                          ? 'Čekající'
-                          : f === 'failed'
-                            ? 'Quality review'
-                            : f === 'video_agent'
-                              ? 'Video Agent'
-                              : 'Avatar fallback'}
+                        : f === 'unpublished'
+                          ? 'Nepublikovaná'
+                          : f === 'ready'
+                            ? 'Čekající'
+                            : f === 'failed'
+                              ? 'Quality review'
+                              : f === 'video_agent'
+                                ? 'Video Agent'
+                                : 'Avatar fallback'}
               </button>
             ))}
             <button
@@ -949,29 +1055,34 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   <div className="space-y-2 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="line-clamp-2 text-sm font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
-                      {job.isTest ? (
-                        <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-                          Test
-                        </span>
-                      ) : null}
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                          job.isTest ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {job.isTest ? 'Test' : 'Produkční'}
+                      </span>
+                      <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-700">
+                        {galleryStatusLabel(gallery?.galleryStatus)}
+                      </span>
+                      <span className="rounded bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                        {(job.generationMode ?? job.display?.generationMode) === 'AVATAR' ? 'Avatar' : 'Video Agent'}
+                      </span>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-zinc-600">
+                      <span>Dokončeno:</span>
+                      <span>{gallery?.completedCombinedLabel ?? gallery?.finishedAt ?? '—'}</span>
                       <span>Vytvořeno:</span>
                       <span>{gallery?.createdCombinedLabel ?? '—'}</span>
-                      <span>Datum:</span>
-                      <span>{gallery?.createdDateLabel ?? '—'}</span>
-                      <span>Čas:</span>
-                      <span>{gallery?.createdTimeLabel ?? '—'}</span>
                       <span>Délka:</span>
                       <span>{gallery?.durationFormatted ?? (job.estimatedDurationSec ? `${job.estimatedDurationSec}s` : '—')}</span>
                       <span>Režim:</span>
                       <span>{modeLabel(job.generationMode ?? job.display?.generationMode)}</span>
-                      <span>Scény:</span>
-                      <span>{gallery?.sceneCount ?? '—'}</span>
                       <span>Status:</span>
                       <span>{galleryStatusLabel(gallery?.galleryStatus)}</span>
                     </div>
                     <div className="flex flex-wrap gap-2 text-[10px] text-zinc-500">
+                      <span>Publikace:</span>
                       <span>FB {publishIcon(job.facebookPublishStatus)}</span>
                       <span>IG {publishIcon(job.instagramPublishStatus)}</span>
                       <span>YT {publishIcon(job.youtubePublishStatus)}</span>
@@ -1007,7 +1118,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       <button
                         type="button"
                         className="rounded border border-red-200 px-2 py-1 text-xs text-red-700"
-                        onClick={() => handleDelete(job.id, false)}
+                        onClick={() => handleDelete(job.id, false, !job.isTest)}
                       >
                         Odstranit
                       </button>
@@ -1809,10 +1920,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             ) : null}
             <div className="mt-3 grid gap-2 text-sm text-zinc-700 sm:grid-cols-2">
               <p>Stav: {detailJob.status}</p>
+              <p>Test / Produkční: {detailJob.isTest ? 'TEST' : 'PRODUKČNÍ'}</p>
               <p>Režim: {modeLabel(detailJob.generationMode ?? detailJob.display?.generationMode)}</p>
               <p>Job ID: {detailJob.id}</p>
               <p>Vytvořeno: {detailJob.gallery?.createdCombinedLabel ?? detailJob.createdAt}</p>
-              <p>Dokončeno: {detailJob.gallery?.finishedAt ?? detailJob.renderedAt ?? '—'}</p>
+              <p>Dokončeno: {detailJob.gallery?.completedCombinedLabel ?? detailJob.gallery?.finishedAt ?? detailJob.renderedAt ?? '—'}</p>
+              <p>Publikováno: {detailJob.publishedAt ?? '—'}</p>
               <p>Délka: {detailJob.gallery?.durationFormatted ?? detailJob.estimatedDurationSec ?? '—'}</p>
               <p>Scény: {detailJob.gallery?.sceneCount ?? '—'}</p>
               <p>Pozadí: {detailJob.gallery?.backgroundVariationCount ?? '—'}</p>

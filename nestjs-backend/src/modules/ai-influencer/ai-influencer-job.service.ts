@@ -24,6 +24,7 @@ import {
   ACTIVE_JOB_STATUSES,
   galleryVideoWhere,
   hasMasterVideoAsset,
+  recentCompletedVideoWhere,
   resolveMasterVideoUrl,
 } from './ai-influencer-job-status.util';
 import {
@@ -588,10 +589,10 @@ export class AiInfluencerJobService {
   async listVideos(limit = 60, options?: { includeTest?: boolean }) {
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
-    const includeTest = options?.includeTest ?? true;
+    const includeTest = options?.includeTest ?? false;
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
       where: galleryVideoWhere({ includeTest }),
-      orderBy: [{ renderedAt: 'desc' }, { updatedAt: 'desc' }],
+      orderBy: [{ renderedAt: 'desc' }, { publishedAt: 'desc' }, { createdAt: 'desc' }],
       take: limit,
       include: {
         article: { select: { id: true, title: true, category: true } },
@@ -599,6 +600,38 @@ export class AiInfluencerJobService {
         candidate: { select: { reelPotentialScore: true } },
       },
     });
+    return this.mapGalleryJobRows(rows, cfg, workerElevenConfigured);
+  }
+
+  async listRecentCompleted(limit = 10) {
+    const cfg = this.settings.getCached();
+    const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: recentCompletedVideoWhere(),
+      orderBy: [{ renderedAt: 'desc' }, { publishedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: limit,
+      include: {
+        article: { select: { id: true, title: true, category: true } },
+        property: { select: { id: true, title: true } },
+        candidate: { select: { reelPotentialScore: true } },
+      },
+    });
+    return this.mapGalleryJobRows(rows, cfg, workerElevenConfigured);
+  }
+
+  private mapGalleryJobRows(
+    rows: Array<
+      Prisma.AiInfluencerReelJobGetPayload<{
+        include: {
+          article: { select: { id: true; title: true; category: true } };
+          property: { select: { id: true; title: true } };
+          candidate: { select: { reelPotentialScore: true } };
+        };
+      }>
+    >,
+    cfg: ReturnType<AiInfluencerSettingsService['getCached']>,
+    workerElevenConfigured: boolean,
+  ) {
     return rows.map((j) => {
       const enriched = this.enrichJobRow(
         {

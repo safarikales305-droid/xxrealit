@@ -1,6 +1,11 @@
 import { Prisma, ReelPlatformPublishStatus } from '@prisma/client';
 import type { PrismaService } from '../../database/prisma.service';
-import { activeJobWhere, galleryVideoWhere, masterVideoAssetWhere } from './ai-influencer-job-status.util';
+import {
+  activeJobWhere,
+  galleryVideoWhere,
+  GALLERY_VIDEO_STATUSES,
+  masterVideoAssetWhere,
+} from './ai-influencer-job-status.util';
 
 export type AiInfluencerDashboardStats = {
   jobsStartedToday: number;
@@ -50,17 +55,24 @@ export function publishedVideoWhere(): Prisma.AiInfluencerReelJobWhereInput {
   };
 }
 
-/** Master video finished today (renderedAt preferred, updatedAt fallback). */
+/** Master video finished today (renderedAt preferred, publishedAt/updatedAt fallback for legacy rows). */
 export function completedVideoTodayWhere(dayStart: Date): Prisma.AiInfluencerReelJobWhereInput {
   return {
-    isTest: false,
     AND: [
       masterVideoAssetWhere(),
+      { status: { in: GALLERY_VIDEO_STATUSES } },
       {
         OR: [
           { renderedAt: { gte: dayStart } },
           {
-            AND: [{ renderedAt: null }, { updatedAt: { gte: dayStart } }],
+            AND: [{ renderedAt: null }, { publishedAt: { gte: dayStart } }],
+          },
+          {
+            AND: [
+              { renderedAt: null },
+              { publishedAt: null },
+              { updatedAt: { gte: dayStart } },
+            ],
           },
         ],
       },

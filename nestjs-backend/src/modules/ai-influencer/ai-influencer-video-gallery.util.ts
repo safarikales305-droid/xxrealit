@@ -1,6 +1,7 @@
 import { ReelPlatformPublishStatus } from '@prisma/client';
 import type { ReelScenePlan } from './ai-influencer.types';
 import { resolveMasterVideoUrl } from './ai-influencer-job-status.util';
+import { resolveCompletedAtIso } from './ai-influencer-completed-at.util';
 import { readJobRenderMeta } from './ai-influencer-video-agent.util';
 
 export type GalleryVideoStatus = 'READY' | 'PUBLISHED' | 'PARTIAL' | 'QUALITY_REVIEW';
@@ -10,6 +11,10 @@ export type GalleryVideoMeta = {
   videoCreatedAt: string | null;
   masterCreatedAt: string | null;
   finishedAt: string | null;
+  completedAtIso: string | null;
+  completedDateLabel: string | null;
+  completedTimeLabel: string | null;
+  completedCombinedLabel: string | null;
   sceneCount: number;
   backgroundVariationCount: number | null;
   galleryStatus: GalleryVideoStatus;
@@ -17,6 +22,7 @@ export type GalleryVideoMeta = {
   createdDateLabel: string | null;
   createdTimeLabel: string | null;
   createdCombinedLabel: string | null;
+  inGallery: boolean;
 };
 
 type GalleryJobInput = {
@@ -27,6 +33,8 @@ type GalleryJobInput = {
   videoUrl?: string | null;
   avatarStorageUrl?: string | null;
   renderedAt?: Date | string | null;
+  publishedAt?: Date | string | null;
+  updatedAt?: Date | string | null;
   createdAt: Date | string;
   estimatedDurationSec?: number | null;
   scenesJson?: unknown;
@@ -83,32 +91,24 @@ export function buildGalleryVideoMeta(job: GalleryJobInput): GalleryVideoMeta {
   const scenes = Array.isArray(job.scenesJson) ? (job.scenesJson as ReelScenePlan[]) : [];
   const meta = readJobRenderMeta(job.renderSettingsJson);
   const qualityMetrics = meta.qualityMetrics as { backgroundVariationCount?: number } | undefined;
-  const createdAtIso =
-    job.renderedAt != null
-      ? job.renderedAt instanceof Date
-        ? job.renderedAt.toISOString()
-        : String(job.renderedAt)
-      : job.createdAt instanceof Date
-        ? job.createdAt.toISOString()
-        : String(job.createdAt);
+  const masterVideoUrl = resolveMasterVideoUrl(job);
 
-  const labels = formatCzechDateTime(createdAtIso);
+  const createdAtIso =
+    job.createdAt instanceof Date ? job.createdAt.toISOString() : String(job.createdAt);
+  const createdLabels = formatCzechDateTime(createdAtIso);
+
+  const completedAtIso = resolveCompletedAtIso(job);
+  const completedLabels = formatCzechDateTime(completedAtIso);
 
   return {
-    masterVideoUrl: resolveMasterVideoUrl(job),
+    masterVideoUrl,
     videoCreatedAt: createdAtIso,
-    masterCreatedAt:
-      job.renderedAt != null
-        ? job.renderedAt instanceof Date
-          ? job.renderedAt.toISOString()
-          : String(job.renderedAt)
-        : null,
-    finishedAt:
-      job.renderedAt != null
-        ? job.renderedAt instanceof Date
-          ? job.renderedAt.toISOString()
-          : String(job.renderedAt)
-        : null,
+    masterCreatedAt: job.renderedAt != null ? completedAtIso : null,
+    finishedAt: completedAtIso,
+    completedAtIso,
+    completedDateLabel: completedLabels?.date ?? null,
+    completedTimeLabel: completedLabels?.time ?? null,
+    completedCombinedLabel: completedLabels?.combined ?? null,
     sceneCount: scenes.length,
     backgroundVariationCount:
       typeof qualityMetrics?.backgroundVariationCount === 'number'
@@ -116,8 +116,9 @@ export function buildGalleryVideoMeta(job: GalleryJobInput): GalleryVideoMeta {
         : null,
     galleryStatus: resolveGalleryVideoStatus(job),
     durationFormatted: formatDurationClock(job.estimatedDurationSec),
-    createdDateLabel: labels?.date ?? null,
-    createdTimeLabel: labels?.time ?? null,
-    createdCombinedLabel: labels?.combined ?? null,
+    createdDateLabel: createdLabels?.date ?? null,
+    createdTimeLabel: createdLabels?.time ?? null,
+    createdCombinedLabel: createdLabels?.combined ?? null,
+    inGallery: Boolean(masterVideoUrl),
   };
 }
