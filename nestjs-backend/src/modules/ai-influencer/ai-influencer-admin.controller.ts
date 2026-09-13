@@ -264,6 +264,11 @@ export class AiInfluencerAdminController {
     return this.jobs.retryJob(id);
   }
 
+  @Post('jobs/:id/retry-storage')
+  retryStorageJob(@Param('id') id: string) {
+    return this.jobs.retryStorageJob(id);
+  }
+
   @Post('jobs/:id/reconcile-heygen')
   reconcileHeyGenJob(@Param('id') id: string) {
     return this.jobs.reconcileHeyGenJob(id);

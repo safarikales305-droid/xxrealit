@@ -214,6 +214,12 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     if (videoAgentRecovered > 0) {
       this.log.log(`[AI Influencer] Recovered ${videoAgentRecovered} stuck Video Agent job(s) on startup`);
     }
+    const legacy = await this.jobs.reconcileLegacyActiveVideoJobs(10);
+    if (legacy.reconciled > 0) {
+      this.log.log(
+        `[AI Influencer] Reconciled ${legacy.reconciled}/${legacy.scanned} legacy active job(s)`,
+      );
+    }
   }
 
   async tick() {
@@ -242,8 +248,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
         );
       }
 
-      const cfg = this.settings.getCached();
-      const concurrency = Math.max(1, cfg.jobsConcurrency);
+      const concurrency = 1;
       const active = await this.prisma.aiInfluencerReelJob.findMany({
         where: {
           status: { in: WORKER_ACTIVE_STATUSES },

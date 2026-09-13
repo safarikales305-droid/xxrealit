@@ -31,6 +31,7 @@ import {
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerRetryStorageJob,
   nestAiInfluencerRunJobNow,
   nestAiInfluencerWakeWorker,
   nestAiInfluencerSyncHeyGen,
@@ -87,6 +88,48 @@ function isActiveGenerationStatus(status: string) {
 }
 
 const ACTIVE_JOBS_STORAGE_KEY = 'xxrealit.ai-influencer.activeJobs';
+const SEEN_TOAST_EVENTS_KEY = 'xxrealit.ai-influencer.seenToastEvents';
+
+function readSeenToastEvents(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(SEEN_TOAST_EVENTS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as string[];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberToastEvent(eventId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const seen = readSeenToastEvents();
+    seen.add(eventId);
+    const trimmed = [...seen].slice(-200);
+    window.sessionStorage.setItem(SEEN_TOAST_EVENTS_KEY, JSON.stringify(trimmed));
+  } catch {
+    /* ignore */
+  }
+}
+
+function jobHasGalleryVideo(row: AiInfluencerJobRow): boolean {
+  return Boolean(
+    row.gallery?.inGallery ||
+      row.gallery?.masterVideoUrl ||
+      row.finalMasterUrl?.trim() ||
+      row.baseMasterUrl?.trim() ||
+      row.videoUrl?.trim() ||
+      row.hasMasterVideo,
+  );
+}
+
+function buildVideoReadyEventId(row: AiInfluencerJobRow): string {
+  const completedAt =
+    row.gallery?.completedAtIso ?? row.renderedAt ?? row.updatedAt ?? row.createdAt ?? '';
+  return `${row.id}:${completedAt}:VIDEO_READY`;
+}
 
 function readCachedActiveJobs(): AiInfluencerActiveJob[] {
   if (typeof window === 'undefined') return [];
@@ -457,8 +500,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     (ScriptProviderTestResult & { ok: true }) | { ok: false; message: string; code?: string } | null
   >(null);
   const prevActiveIdsRef = useRef<string[]>([]);
+  const [cancelModalJob, setCancelModalJob] = useState<AiInfluencerActiveJob | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const includeTestInApi = showTestVideos || videoFilter === 'test';
+  const generationBlocked = activeJobs.length > 0;
+  const primaryActiveJob = activeJobs[0] ?? null;
 
   const loadCore = useCallback(() => {
     if (!apiAccessToken) return;
@@ -561,11 +608,21 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               .map((id) => j.find((job) => job.id === id))
               .filter(
                 (row): row is AiInfluencerJobRow =>
-                  Boolean(row) && ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(row!.status),
+                  Boolean(row) &&
+                  ['READY', 'PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(row!.status) &&
+                  jobHasGalleryVideo(row!),
               );
-            if (completedRows.length > 0) {
-              const allTest = completedRows.every((row) => row.isTest);
-              setToast(allTest ? 'Testovací video bylo vytvořeno.' : 'Video bylo vytvořeno.');
+            for (const row of completedRows) {
+              const eventId = buildVideoReadyEventId(row);
+              const seen = readSeenToastEvents();
+              if (seen.has(eventId)) continue;
+              rememberToastEvent(eventId);
+              setToast(
+                row.isTest
+                  ? 'Testovací video bylo vytvořeno a uloženo do galerie.'
+                  : 'Video bylo vytvořeno a uloženo do galerie.',
+              );
+              break;
             }
           }
           prevActiveIdsRef.current = nextIds;
@@ -581,10 +638,6 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     const id = window.setInterval(poll, 4000);
     return () => window.clearInterval(id);
   }, [apiAccessToken, tab, includeTestInApi, activeJobs.length]);
-
-  useEffect(() => {
-    prevActiveIdsRef.current = activeJobs.map((job) => job.id);
-  }, [activeJobs]);
 
   useEffect(() => {
     if (!toast) return;
@@ -605,7 +658,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   );
 
   const failedJobs = useMemo(
-    () => jobs.filter((j) => ['FAILED', 'CANCELLED'].includes(j.status)),
+    () => jobs.filter((j) => j.status === 'FAILED'),
+    [jobs],
+  );
+
+  const cancelledJobs = useMemo(
+    () => jobs.filter((j) => j.status === 'CANCELLED'),
     [jobs],
   );
 
@@ -704,11 +762,25 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     });
   };
 
-  const handleCancel = (jobId: string) => {
-    if (!window.confirm('Zrušit běžící job?')) return;
+  const handleCancel = (job: AiInfluencerActiveJob) => {
+    setCancelError(null);
+    setCancelModalJob(job);
+  };
+
+  const confirmCancel = () => {
+    if (!cancelModalJob) return;
+    const jobId = cancelModalJob.id;
     setBusy(`cancel-${jobId}`);
-    void nestAiInfluencerCancelJob(apiAccessToken, jobId).then(() => {
+    void nestAiInfluencerCancelJob(apiAccessToken, jobId).then((result) => {
       setBusy(null);
+      if (result.error || !result.data) {
+        setCancelError(result.error ?? 'Zrušení výroby selhalo.');
+        return;
+      }
+      setCancelModalJob(null);
+      setActiveJobs((prev) => prev.filter((job) => job.id !== jobId));
+      prevActiveIdsRef.current = prevActiveIdsRef.current.filter((id) => id !== jobId);
+      setToast('Výroba byla zrušena.');
       loadCore();
     });
   };
@@ -719,7 +791,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     const result = await nestAiInfluencerCreateJob(apiAccessToken, articleId, true);
     if (result.error || !result.data) {
       setCreateState('error');
-      setCreateError(result.error ?? 'Vytvoření jobu selhalo.');
+      if (result.errorCode === 'VIDEO_GENERATION_ALREADY_RUNNING') {
+        setCreateError('Probíhá výroba jiného videa. Počkejte na dokončení nebo zrušte aktivní job.');
+      } else {
+        setCreateError(result.error ?? 'Vytvoření jobu selhalo.');
+      }
       return;
     }
     const created = result.data;
@@ -818,16 +894,35 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         </div>
         <button
           type="button"
+          disabled={generationBlocked}
           onClick={() => {
+            if (generationBlocked) return;
             setCreateError(null);
             setCreateState('idle');
             setCreateOpen(true);
           }}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Vytvořit AI Reel
         </button>
       </div>
+
+      {generationBlocked && primaryActiveJob ? (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-950">
+          <p className="font-semibold">Probíhá výroba jiného videa.</p>
+          <p className="mt-1">
+            {primaryActiveJob.articleTitle} · {primaryActiveJob.progressPercent ?? 0} % ·{' '}
+            {primaryActiveJob.currentStep ?? 'Generuji…'} · {elapsedSince(primaryActiveJob.createdAt ?? primaryActiveJob.updatedAt)}
+          </p>
+          <button
+            type="button"
+            className="mt-2 rounded border border-orange-400 px-3 py-1 text-xs font-medium"
+            onClick={() => setTab('production')}
+          >
+            Přejít na výrobu
+          </button>
+        </div>
+      ) : null}
 
       {tab === 'overview' ? (
         <>
@@ -1130,9 +1225,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                         type="button"
                         disabled={busy === `cancel-${job.id}`}
                         className="rounded border border-red-200 px-3 py-1 text-xs text-red-700"
-                        onClick={() => handleCancel(job.id)}
+                        onClick={() => handleCancel(job)}
                       >
-                        Zrušit job
+                        Zrušit výrobu
                       </button>
                     </div>
                   </div>
@@ -1519,6 +1614,27 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                         {busy === `reconcile-${job.id}` ? 'Synchronizuji…' : 'Dovést video z HeyGen'}
                       </button>
                     ) : null}
+                    {job.errorCode === 'STORAGE_FAILED' ? (
+                      <button
+                        type="button"
+                        disabled={busy === `storage-${job.id}`}
+                        className="rounded bg-emerald-700 px-3 py-1 text-xs font-medium text-white"
+                        onClick={() => {
+                          setBusy(`storage-${job.id}`);
+                          void nestAiInfluencerRetryStorageJob(apiAccessToken, job.id).then((result) => {
+                            setBusy(null);
+                            if (result.error) {
+                              setToast(result.error);
+                              return;
+                            }
+                            setToast('Ukládání znovu spuštěno.');
+                            loadCore();
+                          });
+                        }}
+                      >
+                        Zkusit znovu uložit
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={busy === `retry-${job.id}`}
@@ -1542,6 +1658,28 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ))}
             </div>
           )}
+          {cancelledJobs.length > 0 ? (
+            <div className="mt-6 space-y-3">
+              <h3 className="text-sm font-semibold text-zinc-800">Zrušené ({cancelledJobs.length})</h3>
+              {cancelledJobs.slice(0, 20).map((job) => (
+                <div key={job.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                  <p className="font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                  <p className="mt-1 text-sm text-zinc-600">{job.skipReason ?? job.currentStep ?? 'Zrušeno'}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Provider spuštěn: {job.providerJobIdMasked ? 'ANO' : 'NE'} · Video v galerii:{' '}
+                    {jobHasGalleryVideo(job) ? 'ANO' : 'NE'}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-2 rounded border border-zinc-300 px-3 py-1 text-xs"
+                    onClick={() => setDetailJobId(job.id)}
+                  >
+                    Detail
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -2544,6 +2682,43 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 }}
               >
                 {productionTestBusy ? 'Spouštím…' : 'Spustit test kompletní výroby'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelModalJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-zinc-900">Zrušit výrobu videa?</h3>
+            <p className="mt-3 text-sm text-zinc-700">
+              {cancelModalJob.providerJobId
+                ? 'HeyGen již video zpracovává. Zrušení na portálu nemusí vrátit spotřebovaný kredit.'
+                : 'Tato výroba bude okamžitě zastavena.'}
+            </p>
+            <p className="mt-2 text-sm font-medium text-zinc-900">{cancelModalJob.articleTitle}</p>
+            {cancelError ? (
+              <p className="mt-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{cancelError}</p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm"
+                onClick={() => {
+                  setCancelModalJob(null);
+                  setCancelError(null);
+                }}
+              >
+                Nechat běžet
+              </button>
+              <button
+                type="button"
+                disabled={busy === `cancel-${cancelModalJob.id}`}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                onClick={confirmCancel}
+              >
+                Zrušit výrobu
               </button>
             </div>
           </div>

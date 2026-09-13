@@ -4,6 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AI_INFLUENCER_AUTO_TICK_MS } from './ai-influencer.constants';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
+import { videoGenerationLockWhere } from './ai-influencer-single-flight.util';
 import { decodeHtmlEntities, isWithinPragueWindow } from './ai-influencer-text.util';
 
 @Injectable()
@@ -89,20 +90,12 @@ export class AiInfluencerAutoService implements OnModuleInit, OnModuleDestroy {
       }
 
       const inFlight = await this.prisma.aiInfluencerReelJob.count({
-        where: {
-          status: {
-            in: [
-              AiInfluencerReelJobStatus.EVALUATING,
-              AiInfluencerReelJobStatus.CANDIDATE,
-              AiInfluencerReelJobStatus.SCRIPT_GENERATING,
-              AiInfluencerReelJobStatus.VOICE_GENERATING,
-              AiInfluencerReelJobStatus.AVATAR_GENERATING,
-              AiInfluencerReelJobStatus.RENDERING,
-            ],
-          },
-        },
+        where: videoGenerationLockWhere(),
       });
-      if (inFlight >= cfg.jobsConcurrency) return;
+      if (inFlight >= 1) {
+        this.log.debug('AUTO_GENERATION_SKIPPED_ACTIVE_JOB');
+        return;
+      }
 
       const articles = await this.prisma.newsArticle.findMany({
         where: { status: NewsArticleStatus.PUBLISHED },

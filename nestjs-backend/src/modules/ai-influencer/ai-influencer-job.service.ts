@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -40,6 +41,8 @@ import {
   AI_INFLUENCER_QUEUE_STALE_MS,
   AI_INFLUENCER_QUEUE_STALLED_MS,
   AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS,
+  AI_INFLUENCER_STORAGE_STUCK_MS,
+  AI_INFLUENCER_STORAGE_TIMEOUT_MS,
 } from './ai-influencer.constants';
 import {
   bypassesDuplicateGate,
@@ -140,6 +143,20 @@ import { ProviderGenerationService } from './provider-generation.service';
 import type { ReelScriptPayload } from './ai-influencer.types';
 import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
 import { FfmpegRenderError } from './ai-influencer-ffmpeg.util';
+import {
+  isJobCancelledState,
+  isProviderSubmittedForCancel,
+  shouldBlockAutoPublish,
+  shouldSkipPipelineForCancel,
+  type AiInfluencerCancelPhase,
+} from './ai-influencer-cancel.util';
+import {
+  buildVideoGenerationConflictBody,
+  estimateHeyGenCostCzk,
+  estimateHeyGenCredits,
+  type ActiveVideoGenerationConflict,
+  videoGenerationLockWhere,
+} from './ai-influencer-single-flight.util';
 
 export type HeyGenPortalSyncResult = {
   scanned: number;
@@ -254,6 +271,7 @@ export class AiInfluencerJobService {
     return active.map((j) => {
       const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured, heygenConfigured });
       const meta = readJobRenderMeta(j.renderSettingsJson);
+      const providerJobId = resolveJobProviderJobId(meta, j.avatarExternalJobId);
       const testLabel =
         j.isTest && meta.testKind === 'VIDEO_AGENT'
           ? 'TEST – Video Agent'
@@ -284,8 +302,81 @@ export class AiInfluencerJobService {
         errorKind: display.errorKind,
         pipelineSteps: display.pipelineSteps,
         sourceType: j.propertyId ? 'property' : 'article',
+        providerJobId: providerJobId ? maskProviderJobId(providerJobId) : null,
+        providerLastPolledAt: meta.providerLastPolledAt ?? null,
+        heygenCreditsEstimated: meta.heygenCreditsEstimated ?? null,
+        estimatedCostCzk: j.avatarCostEstimated ?? null,
+        totalCostCzk: j.totalExternalCost ?? null,
       };
     });
+  }
+
+  async findActiveVideoGenerationJob(
+    excludeJobId?: string,
+  ): Promise<ActiveVideoGenerationConflict | null> {
+    const row = await this.prisma.aiInfluencerReelJob.findFirst({
+      where: videoGenerationLockWhere(excludeJobId),
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        article: { select: { title: true } },
+        property: { select: { title: true } },
+      },
+    });
+    if (!row) return null;
+    return {
+      activeJobId: row.id,
+      status: row.status,
+      createdAt: row.createdAt,
+      articleTitle: row.article?.title ?? row.property?.title ?? null,
+    };
+  }
+
+  async assertNoActiveVideoGeneration(excludeJobId?: string): Promise<void> {
+    const active = await this.findActiveVideoGenerationJob(excludeJobId);
+    if (active) {
+      throw new ConflictException(buildVideoGenerationConflictBody(active));
+    }
+  }
+
+  /** Po nasazení — max 1 aktivní job; starší duplicity se ukončí nebo obnoví z HeyGen. */
+  async reconcileLegacyActiveVideoJobs(limit = 10): Promise<{ scanned: number; reconciled: number }> {
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: activeJobWhere(),
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: { id: true, renderSettingsJson: true, avatarExternalJobId: true, createdAt: true },
+    });
+    if (rows.length <= 1) return { scanned: rows.length, reconciled: 0 };
+
+    let reconciled = 0;
+    const [, ...duplicates] = rows;
+    for (const row of duplicates) {
+      const meta = readJobRenderMeta(row.renderSettingsJson);
+      const ageMs = Date.now() - row.createdAt.getTime();
+      const providerSubmitted = isProviderSubmittedForCancel(meta, row.avatarExternalJobId);
+      try {
+        if (providerSubmitted) {
+          const result = await this.reconcileHeyGenJob(row.id);
+          if (result.outcome === 'RECOVERED' || result.outcome === 'ALREADY_ARCHIVED') {
+            reconciled += 1;
+            continue;
+          }
+          await this.cancelJob(row.id, 'Legacy reconciliation — duplicitní aktivní job');
+          reconciled += 1;
+        } else if (ageMs > 30 * 60 * 1000) {
+          await this.cancelJob(row.id, 'Legacy reconciliation — zastaralý job bez provider ID');
+          reconciled += 1;
+        }
+      } catch (err) {
+        this.log.warn(
+          `Legacy active job reconcile ${row.id} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return { scanned: rows.length, reconciled };
   }
 
   async getJob(id: string): Promise<AiInfluencerJobWithRelations> {
@@ -372,23 +463,47 @@ export class AiInfluencerJobService {
       sourceMode === 'RETRY' ||
       sourceMode === 'TEST' ||
       options?.force === true;
+    const targetDurationSec = cfg.targetDurationSec ?? 40;
     const initialRenderMeta = this.buildInitialJobRenderMeta(
       buildSourceModeMeta(sourceMode, {
         manualRequestedAt: sourceMode === 'MANUAL' ? new Date().toISOString() : undefined,
+        heygenCreditsEstimated: estimateHeyGenCredits(targetDurationSec),
       }),
     );
-    const job = await this.prisma.aiInfluencerReelJob.create({
-      data: {
-        articleId,
-        profileId: profile.id,
-        status: AiInfluencerReelJobStatus.EVALUATING,
-        sourceType: 'ARTICLE',
-        forceOverride: bypassQuality,
-        progressPercent: 3,
-        currentStep: 'Čeká ve frontě',
-        renderSettingsJson: initialRenderMeta as object,
-        timelineEvents: appendTimelineEvent(null, 'JOB_CREATED') as object,
-      },
+    const job = await this.prisma.$transaction(async (tx) => {
+      const activeCount = await tx.aiInfluencerReelJob.count({ where: videoGenerationLockWhere() });
+      if (activeCount > 0) {
+        const active = await tx.aiInfluencerReelJob.findFirst({
+          where: videoGenerationLockWhere(),
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, status: true, createdAt: true, article: { select: { title: true } } },
+        });
+        if (active) {
+          throw new ConflictException(
+            buildVideoGenerationConflictBody({
+              activeJobId: active.id,
+              status: active.status,
+              createdAt: active.createdAt,
+              articleTitle: active.article?.title ?? null,
+            }),
+          );
+        }
+      }
+      return tx.aiInfluencerReelJob.create({
+        data: {
+          articleId,
+          profileId: profile.id,
+          status: AiInfluencerReelJobStatus.EVALUATING,
+          sourceType: 'ARTICLE',
+          forceOverride: bypassQuality,
+          progressPercent: 3,
+          currentStep: 'Čeká ve frontě',
+          estimatedDurationSec: targetDurationSec,
+          avatarCostEstimated: estimateHeyGenCostCzk(targetDurationSec, cfg.avatarCostPerSecCzk),
+          renderSettingsJson: initialRenderMeta as object,
+          timelineEvents: appendTimelineEvent(null, 'JOB_CREATED') as object,
+        },
+      });
     });
     this.scheduleBootstrapCreatedJob(job.id);
     const refreshed = await this.getJob(job.id);
@@ -565,13 +680,15 @@ export class AiInfluencerJobService {
       },
     });
     if (!job) return false;
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    if (shouldSkipPipelineForCancel(job.status, meta)) return false;
     const isQueued =
       job.status === AiInfluencerReelJobStatus.EVALUATING && job.progressPercent <= 10;
     if (!isQueued) return true;
 
-    const meta = readJobRenderMeta(job.renderSettingsJson);
-    if (meta.claimedAt) {
-      const claimAge = Date.now() - new Date(meta.claimedAt).getTime();
+    const claimMeta = readJobRenderMeta(job.renderSettingsJson);
+    if (claimMeta.claimedAt) {
+      const claimAge = Date.now() - new Date(claimMeta.claimedAt).getTime();
       if (claimAge < AI_INFLUENCER_CLAIM_STALE_MS) return true;
     }
 
@@ -595,7 +712,7 @@ export class AiInfluencerJobService {
         renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
           claimedAt: new Date().toISOString(),
           workerInstanceId,
-          productionStartedAt: meta.productionStartedAt ?? new Date().toISOString(),
+          productionStartedAt: claimMeta.productionStartedAt ?? new Date().toISOString(),
           queueWarning: undefined,
           queueStalledAt: undefined,
         }) as object,
@@ -734,6 +851,9 @@ export class AiInfluencerJobService {
 
     const profile = await this.registry.getDefaultProfile();
     await this.assertProductionReadyForNewJob();
+    const cfg = this.settings.getCached();
+    await this.assertNoActiveVideoGeneration();
+    const targetDurationSec = cfg.targetDurationSec ?? 40;
     const job = await this.prisma.aiInfluencerReelJob.create({
       data: {
         propertyId,
@@ -743,7 +863,10 @@ export class AiInfluencerJobService {
         forceOverride: options?.force === true,
         progressPercent: 25,
         currentStep: 'Scénář',
+        estimatedDurationSec: targetDurationSec,
+        avatarCostEstimated: estimateHeyGenCostCzk(targetDurationSec, cfg.avatarCostPerSecCzk),
         renderSettingsJson: this.buildInitialJobRenderMeta({
+          heygenCreditsEstimated: estimateHeyGenCredits(targetDurationSec),
           propertyPublish: {
             facebook: options?.publishFacebook,
             instagram: options?.publishInstagram,
@@ -821,24 +944,123 @@ export class AiInfluencerJobService {
   }
 
   async skipJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
-    await this.prisma.aiInfluencerReelJob.update({
-      where: { id: jobId },
-      data: {
-        status: AiInfluencerReelJobStatus.CANCELLED,
-        skipReason: reason ?? 'Přeskočeno administrátorem',
-        progressPercent: 100,
-        currentStep: 'Zrušeno',
-      },
-    });
-    return this.getJob(jobId);
+    return this.cancelJob(jobId, reason ?? 'Přeskočeno administrátorem');
   }
 
-  async cancelJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
+  async cancelJob(
+    jobId: string,
+    reason?: string,
+    cancelledBy = 'admin',
+  ): Promise<AiInfluencerJobWithRelations> {
     const job = await this.getJob(jobId);
     if (!ACTIVE_JOB_STATUSES.includes(job.status)) {
       throw new BadRequestException('Job nelze zrušit — není ve zpracování.');
     }
-    return this.skipJob(jobId, reason ?? 'Zrušeno administrátorem');
+
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    if (shouldSkipPipelineForCancel(job.status, meta)) {
+      return job;
+    }
+
+    const now = new Date().toISOString();
+    const cancelReason = reason ?? 'Zrušeno administrátorem';
+    const providerSubmitted = isProviderSubmittedForCancel(meta, job.avatarExternalJobId);
+    let cancelPhase: AiInfluencerCancelPhase = providerSubmitted
+      ? 'CANCELLED_PROVIDER_CONTINUES'
+      : 'CANCELLED';
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.CANCELLED,
+        skipReason: cancelReason,
+        progressPercent: 100,
+        currentStep:
+          cancelPhase === 'CANCELLED_PROVIDER_CONTINUES'
+            ? 'Zrušeno (HeyGen může pokračovat)'
+            : 'Zrušeno',
+        nextRetryAt: null,
+        facebookPublishStatus:
+          job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED
+            ? job.facebookPublishStatus
+            : ReelPlatformPublishStatus.SKIPPED,
+        instagramPublishStatus:
+          job.instagramPublishStatus === ReelPlatformPublishStatus.PUBLISHED
+            ? job.instagramPublishStatus
+            : ReelPlatformPublishStatus.SKIPPED,
+        youtubePublishStatus:
+          job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED
+            ? job.youtubePublishStatus
+            : ReelPlatformPublishStatus.SKIPPED,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          cancelPhase,
+          cancelRequestedAt: now,
+          cancelledAt: now,
+          cancelledBy,
+          cancelReason,
+          autoPublish: false,
+          providerWasSubmitted: providerSubmitted,
+          creditLikelyConsumed: providerSubmitted,
+          videoAgentSubmitInFlight: false,
+        }) as object,
+        timelineEvents: appendTimelineEvent(
+          appendTimelineEvent(job.timelineEvents, 'CANCEL_REQUESTED'),
+          cancelPhase === 'CANCELLED_PROVIDER_CONTINUES' ? 'CANCELLED_PROVIDER_CONTINUES' : 'CANCELLED',
+          cancelReason,
+        ),
+      },
+    });
+
+    this.worker.wake();
+    return this.getJob(jobId);
+  }
+
+  async retryStorageJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
+    const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    const providerUrl = meta.providerOutputUrl?.trim();
+    const sessionId = extractSessionIdForRecovery(meta, job.avatarExternalJobId);
+
+    if (hasMasterVideoAsset(job)) {
+      return job;
+    }
+
+    if (!providerUrl && !sessionId) {
+      throw new BadRequestException('Chybí URL výsledku z HeyGen — nelze znovu uložit bez nové generace.');
+    }
+
+    let downloadUrl = providerUrl ?? null;
+    if (!downloadUrl && sessionId) {
+      const poll = await this.videoAgent.pollSession(sessionId);
+      if (!poll.videoUrl) {
+        throw new BadRequestException('HeyGen ještě nevrátil video URL.');
+      }
+      downloadUrl = poll.videoUrl;
+    }
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+        errorCode: null,
+        errorMessage: null,
+        failedStage: null,
+        nextRetryAt: null,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          providerOutputUrl: downloadUrl ?? undefined,
+          pipelineStage: 'STORING_RETRY',
+        }) as object,
+      },
+    });
+
+    await this.ingestHeyGenProviderVideo(jobId, sessionId ?? 'retry', {
+      status: 'READY',
+      sessionStatus: meta.providerStatus ?? 'completed',
+      videoUrl: downloadUrl!,
+      videoId: meta.heygenVideoAgentVideoId ?? undefined,
+    });
+
+    return this.getJob(jobId);
   }
 
   async deleteJob(jobId: string, options?: { historyOnly?: boolean }) {
@@ -948,6 +1170,7 @@ export class AiInfluencerJobService {
     }
 
     await this.assertProductionReadyForNewJob({ requireScriptProvider: true });
+    await this.assertNoActiveVideoGeneration();
     const profile = await this.registry.getDefaultProfile();
     const cfg = this.settings.getCached();
     const generationMode = resolveVideoGenerationMode(cfg);
@@ -1016,6 +1239,7 @@ export class AiInfluencerJobService {
   /** Core pipeline test s fixním scénářem — bez OpenAI, stejná orchestrace jako produkce. */
   async createVideoAgentPipelineTestJob() {
     await this.assertProductionReadyForNewJob({ requireScriptProvider: false });
+    await this.assertNoActiveVideoGeneration();
     const profile = await this.registry.getDefaultProfile();
     const cfg = this.settings.getCached();
     const generationMode = resolveVideoGenerationMode(cfg);
@@ -1464,12 +1688,14 @@ export class AiInfluencerJobService {
    */
   async advanceJob(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
+    const meta = readJobRenderMeta(job.renderSettingsJson);
     if (
       job.status === AiInfluencerReelJobStatus.PUBLISHED ||
       job.status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED ||
       job.status === AiInfluencerReelJobStatus.CANCELLED ||
       job.status === AiInfluencerReelJobStatus.SKIPPED_QUALITY ||
-      job.status === AiInfluencerReelJobStatus.SKIPPED_DUPLICATE
+      job.status === AiInfluencerReelJobStatus.SKIPPED_DUPLICATE ||
+      shouldSkipPipelineForCancel(job.status, meta)
     ) {
       return;
     }
@@ -2174,6 +2400,7 @@ export class AiInfluencerJobService {
       select: {
         id: true,
         status: true,
+        errorCode: true,
         avatarExternalJobId: true,
         renderSettingsJson: true,
         baseMasterUrl: true,
@@ -2189,6 +2416,29 @@ export class AiInfluencerJobService {
     for (const row of rows.slice(0, limit)) {
       if (hasMasterVideoAsset(row)) continue;
       const meta = readJobRenderMeta(row.renderSettingsJson);
+      if (shouldSkipPipelineForCancel(row.status, meta)) continue;
+
+      if (
+        meta.pipelineStage === 'STORING' &&
+        meta.storageStartedAt &&
+        meta.providerOutputUrl &&
+        !hasMasterVideoAsset(row)
+      ) {
+        const storageAge = Date.now() - Date.parse(meta.storageStartedAt);
+        if (Number.isFinite(storageAge) && storageAge > AI_INFLUENCER_STORAGE_STUCK_MS) {
+          try {
+            await this.retryStorageJob(row.id);
+            finalized += 1;
+          } catch (err) {
+            errors += 1;
+            this.log.warn(
+              `Storage recovery ${row.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          continue;
+        }
+      }
+
       const sessionId = extractSessionIdForRecovery(meta, row.avatarExternalJobId);
       const hadGallery = hasMasterVideoAsset(row);
 
@@ -2207,6 +2457,9 @@ export class AiInfluencerJobService {
         if (!sessionId) continue;
 
         if (row.status === AiInfluencerReelJobStatus.FAILED) {
+          if (row.errorCode === 'STORAGE_FAILED' || meta.pipelineStage === 'STORAGE_FAILED') {
+            continue;
+          }
           await this.prisma.aiInfluencerReelJob.update({
             where: { id: row.id },
             data: {
@@ -2748,6 +3001,10 @@ export class AiInfluencerJobService {
     const cfg = this.settings.getCached();
     const meta = readJobRenderMeta(job.renderSettingsJson);
 
+    if (shouldSkipPipelineForCancel(job.status, meta)) {
+      return;
+    }
+
     if (job.avatarStorageUrl?.trim()) {
       if (job.status !== AiInfluencerReelJobStatus.AVATAR_READY) {
         await this.prisma.aiInfluencerReelJob.update({
@@ -2861,8 +3118,10 @@ export class AiInfluencerJobService {
 
     const job = await this.getJob(jobId);
     const meta = readJobRenderMeta(job.renderSettingsJson);
+    const cancelled = isJobCancelledState(job.status, meta);
+    const archiveOnly = cancelled || meta.cancelPhase === 'CANCELLED_PROVIDER_CONTINUES';
 
-    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_COMPLETE providerUrl=present`);
+    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_COMPLETE providerUrl=present archiveOnly=${archiveOnly}`);
     await this.setProgressMeta(
       jobId,
       { percent: 75, step: 'HeyGen dokončil video', stepKey: 'HEYGEN_COMPLETED' },
@@ -2887,17 +3146,83 @@ export class AiInfluencerJobService {
     }
 
     this.log.log(`[AI-VIDEO][${jobId}] DOWNLOAD bytes=${buffer.length}`);
+    const storageStartedAt = new Date().toISOString();
     await this.setProgressMeta(
       jobId,
       { percent: 90, step: 'Ukládám do XXREALIT', stepKey: 'STORING' },
       'VIDEO_STORAGE_STARTED',
     );
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          storageStartedAt,
+          providerOutputUrl: poll.videoUrl,
+        }) as object,
+      },
+    });
 
-    const videoUrl = await this.cloudinary.uploadVideoBuffer(
-      buffer,
-      `ai-influencer-video-agent-${jobId}.mp4`,
-    );
+    let videoUrl: string;
+    try {
+      videoUrl = await this.uploadVideoWithTimeout(
+        buffer,
+        `ai-influencer-video-agent-${jobId}.mp4`,
+        AI_INFLUENCER_STORAGE_TIMEOUT_MS,
+      );
+    } catch (err) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          status: AiInfluencerReelJobStatus.FAILED,
+          errorCode: 'STORAGE_FAILED',
+          errorMessage: 'Video bylo v HeyGen vytvořeno, ale nepodařilo se uložit do XXREALIT.',
+          failedStage: 'STORAGE',
+          progressPercent: 90,
+          currentStep: 'Ukládání selhalo',
+          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+            storageFailedAt: new Date().toISOString(),
+            providerOutputUrl: poll.videoUrl,
+            pipelineStage: 'STORAGE_FAILED',
+          }) as object,
+          timelineEvents: appendTimelineEvent(job.timelineEvents, 'STORAGE_FAILED'),
+        },
+      });
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+        code: 'STORAGE_FAILED',
+        pipelineStage: 'STORAGE',
+      });
+    }
+
     this.log.log(`[AI-VIDEO][${jobId}] STORAGE archived permanent url`);
+
+    if (archiveOnly) {
+      await this.prisma.aiInfluencerReelJob.update({
+        where: { id: jobId },
+        data: {
+          status: AiInfluencerReelJobStatus.CANCELLED,
+          avatarStorageUrl: videoUrl,
+          baseMasterUrl: videoUrl,
+          avatarHash: poll.videoId ?? sessionId,
+          progressPercent: 100,
+          currentStep: 'Zrušeno — video archivováno (bez publikace)',
+          renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+            heygenVideoAgentVideoId: poll.videoId ?? meta.heygenVideoAgentVideoId,
+            heygenVideoAgentSessionId: sessionId,
+            videoAgentMaster: true,
+            providerOutputUrl: poll.videoUrl,
+            videoAgentSubmitInFlight: false,
+            providerSubmitState: 'COMPLETED',
+            providerStatus: poll.sessionStatus ?? poll.status,
+            providerCompletedAt: new Date().toISOString(),
+            providerCompletedAfterCancel: true,
+            autoPublish: false,
+            pipelineStage: 'CANCELLED_ARCHIVED',
+          }) as object,
+          timelineEvents: appendTimelineEvent(job.timelineEvents, 'CANCELLED_PROVIDER_ARCHIVED'),
+        },
+      });
+      return;
+    }
 
     const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_READY);
     await this.prisma.aiInfluencerReelJob.update({
@@ -2932,6 +3257,28 @@ export class AiInfluencerJobService {
     });
 
     await this.advanceJob(jobId);
+  }
+
+  private uploadVideoWithTimeout(
+    buffer: Buffer,
+    filename: string,
+    timeoutMs: number,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Storage upload timeout after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+      void this.cloudinary
+        .uploadVideoBuffer(buffer, filename)
+        .then((url) => {
+          clearTimeout(timer);
+          resolve(url);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
   }
 
   private async runVideoAgentPostProcess(jobId: string): Promise<void> {
@@ -3298,6 +3645,8 @@ export class AiInfluencerJobService {
   private async runAutoPublish(jobId: string): Promise<void> {
     const cfg = this.settings.getCached();
     const job = await this.getJob(jobId);
+    const publishMeta = readJobRenderMeta(job.renderSettingsJson);
+    if (shouldBlockAutoPublish(publishMeta)) return;
     if (job.isTest || isProductionTestJob(job.renderSettingsJson)) return;
     if (!job.finalMasterUrl && !job.videoUrl) return;
 

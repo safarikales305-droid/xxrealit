@@ -162,6 +162,21 @@ export type AiInfluencerJobRenderMeta = {
     action: string;
   }>;
   mediaPrepCompletedAt?: string;
+  cancelPhase?: 'CANCEL_REQUESTED' | 'CANCELLING' | 'CANCELLED' | 'CANCELLED_PROVIDER_CONTINUES';
+  cancelRequestedAt?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancelReason?: string;
+  providerWasSubmitted?: boolean;
+  providerCompletedAfterCancel?: boolean;
+  creditLikelyConsumed?: boolean;
+  autoPublish?: boolean;
+  storageStartedAt?: string;
+  storageFailedAt?: string;
+  heygenCreditsEstimated?: number;
+  heygenCreditsUsed?: number | null;
+  providerSubmitStartedAt?: string;
+  providerSubmittedAt?: string;
 };
 export type AiInfluencerVideoGoal =
   | 'website_traffic'

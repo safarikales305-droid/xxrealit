@@ -469,6 +469,11 @@ export type AiInfluencerActiveJob = {
   errorKind?: 'NONE' | 'ACTIVE' | 'LEGACY_STALE';
   pipelineSteps?: AiInfluencerPipelineStep[];
   sourceType?: 'article' | 'property';
+  providerJobId?: string | null;
+  providerLastPolledAt?: string | null;
+  heygenCreditsEstimated?: number | null;
+  estimatedCostCzk?: number | null;
+  totalCostCzk?: number | null;
 };
 
 export type AiInfluencerGalleryMeta = {
@@ -1066,9 +1071,15 @@ export function nestAiInfluencerDeleteProductionTest(token: string, jobId: strin
 }
 
 export function nestAiInfluencerCancelJob(token: string, jobId: string, reason?: string) {
-  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/cancel`, {
+  return aiInfluencerFetchWithError<AiInfluencerJobRow>(token, `/jobs/${jobId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
+  });
+}
+
+export function nestAiInfluencerRetryStorageJob(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<AiInfluencerJobRow>(token, `/jobs/${jobId}/retry-storage`, {
+    method: 'POST',
   });
 }
 

@@ -95,8 +95,15 @@ export function buildHeyGenVideoAgentPrompt(input: BuildVideoAgentPromptInput): 
         .join('\n')}`
     : '';
 
+  const openingHook =
+    input.contentKind === 'PROPERTY'
+      ? 'Open immediately (0–2s) with the best property listing photo OR a bright medium close-up of the presenter — never a black screen, dark chart, empty title card, blank frame, logo-only screen or static graph.'
+      : 'Open immediately (0–2s) with presenter face close-up/medium close-up OR a strong relevant property/news visual with headline energy — never a black screen, dark chart, empty title card, blank frame, logo-only screen or static graph.';
+
   const prompt = [
     `Create a polished vertical real-estate social video in Czech.`,
+    `Open immediately with a bright visually engaging shot. Prefer a close-up/medium close-up of the presenter or a strong relevant property/news visual. Never open on a black screen, dark chart, empty title card, blank frame, logo-only screen or static graph.`,
+    openingHook,
     `Format: portrait 9:16, 1080x1920, fullscreen composition — NO black letterbox/pillarbox bars.`,
     `Target duration: ${duration} seconds (${input.settings.scenePacing === 'dynamic' ? 'dynamic pacing' : 'balanced pacing'}).`,
     styleInstruction(input.videoStyle),
