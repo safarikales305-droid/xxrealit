@@ -103,10 +103,33 @@ function modeLabel(mode?: string) {
 
 function providerDetailFacebook(providers?: AiInfluencerDashboard['providers'] | null): string {
   const fb = providers?.facebook;
-  if (fb?.connected) return `Facebook: READY${fb.pageName ? ` · ${fb.pageName}` : ''}`;
+  if (fb?.rateLimited || fb?.healthStatus === 'RATE_LIMITED' || fb?.publishStatus === 'RATE_LIMITED') {
+    return `Facebook: RATE_LIMITED · Připojeno${fb.pageName ? `: ${fb.pageName}` : ''}. Meta dočasně omezuje API požadavky.${fb.nextCheckAt ? ` Další kontrola: ${new Date(fb.nextCheckAt).toLocaleTimeString('cs-CZ')}.` : ''}`;
+  }
+  if (fb?.connected && fb.publishStatus === 'READY') {
+    return `Facebook: READY${fb.pageName ? ` · ${fb.pageName}` : ''}${fb.checkedAt ? ` · Poslední kontrola: ${new Date(fb.checkedAt).toLocaleTimeString('cs-CZ')}` : ''}`;
+  }
+  if (fb?.connected && fb.lastError) {
+    return `Facebook: AUTH_REQUIRED · ${fb.lastError}`;
+  }
   if (fb?.lastError) return `Facebook: AUTH_REQUIRED · ${fb.lastError}`;
   if (fb?.hint) return `Facebook: ${fb.hint}`;
   return 'Facebook: NOT_CONNECTED · Stránka není připojena nebo token vypršel.';
+}
+
+function facebookHealthChip(providers?: AiInfluencerDashboard['providers'] | null): {
+  ok: boolean;
+  warn: boolean;
+  detail: string;
+} {
+  const fb = providers?.facebook;
+  const rateLimited = Boolean(fb?.rateLimited || fb?.healthStatus === 'RATE_LIMITED');
+  const connected = Boolean(fb?.connected);
+  return {
+    ok: connected && !rateLimited && fb?.publishStatus === 'READY',
+    warn: connected && rateLimited,
+    detail: providerDetailFacebook(providers),
+  };
 }
 
 function providerDetailYoutube(providers?: AiInfluencerDashboard['providers'] | null): string {
@@ -139,7 +162,8 @@ function channelPublishReady(
   providers?: AiInfluencerDashboard['providers'] | null,
 ): { ready: boolean; reason: string } {
   if (channel === 'facebook') {
-    const ready = providers?.facebook?.connected === true;
+    const fb = providers?.facebook;
+    const ready = fb?.publishStatus === 'READY';
     return { ready, reason: providerDetailFacebook(providers) };
   }
   if (channel === 'instagram') {
@@ -535,9 +559,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   }, [apiAccessToken, detailJobId]);
 
   const failedJobs = useMemo(
-    () => jobs.filter((j) => j.status === 'FAILED'),
+    () =>
+      jobs.filter((j) =>
+        ['FAILED', 'SKIPPED_QUALITY', 'SKIPPED_DUPLICATE', 'CANCELLED'].includes(j.status),
+      ),
     [jobs],
   );
+
+  const jobsConsistencyAlert =
+    dashboard?.jobsConsistencyAlert ??
+    ((dashboard?.stats.jobsStartedToday ?? 0) > 0 &&
+    (dashboard?.stats.jobsUnaccountedToday ?? dashboard?.debugCounts?.jobsUnaccountedToday ?? 0) > 0
+      ? 'Nekonzistentní stav jobů – některé spuštěné joby nejsou zařazené.'
+      : null);
 
   const recentCompleted = useMemo(
     () => dashboard?.recentCompleted ?? [],
@@ -756,6 +790,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ['Čeká ve frontě', dashboard?.stats.queuedToday ?? dashboard?.debugCounts?.queuedJobsToday ?? 0],
               ['Publikováno', dashboard?.stats.published ?? 0],
               ['Selhalo dnes', dashboard?.stats.failed ?? failedJobs.length],
+              ...(dashboard?.stats.skippedToday
+                ? [['Přeskočeno dnes', dashboard.stats.skippedToday] as const]
+                : []),
               ['Náklady dnes', `${(dashboard?.stats.costTodayCzk ?? 0).toFixed(2)} Kč`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-zinc-200 bg-white p-4">
@@ -764,6 +801,56 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               </div>
             ))}
           </div>
+
+          {jobsConsistencyAlert ? (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">{jobsConsistencyAlert}</p>
+              <button
+                type="button"
+                className="mt-2 rounded border border-amber-400 px-3 py-1 text-xs font-medium"
+                onClick={() => {
+                  setTab('settings');
+                  setShowDiagnostics(true);
+                }}
+              >
+                Spustit diagnostiku
+              </button>
+            </div>
+          ) : null}
+
+          {dashboard?.generationQueue ? (
+            <section className="rounded-xl border border-zinc-200 bg-white p-4">
+              <p className="text-sm font-semibold text-zinc-900">Generation queue</p>
+              <div className="mt-2 grid gap-2 text-sm text-zinc-700 sm:grid-cols-2 lg:grid-cols-4">
+                <p>Queued: {dashboard.generationQueue.queued}</p>
+                <p>Claimed: {dashboard.generationQueue.claimed}</p>
+                <p>
+                  Worker:{' '}
+                  <strong
+                    className={
+                      dashboard.generationQueue.workerStatus === 'READY'
+                        ? 'text-emerald-700'
+                        : 'text-amber-700'
+                    }
+                  >
+                    {dashboard.generationQueue.workerStatus}
+                  </strong>
+                </p>
+                <p>
+                  Last run:{' '}
+                  {dashboard.generationQueue.lastWorkerRun
+                    ? new Date(dashboard.generationQueue.lastWorkerRun).toLocaleTimeString('cs-CZ')
+                    : '—'}
+                </p>
+                <p>
+                  Last claimed: {dashboard.generationQueue.lastClaimedJobId ?? '—'}
+                </p>
+              </div>
+              {dashboard.generationQueue.message ? (
+                <p className="mt-2 text-xs text-amber-700">{dashboard.generationQueue.message}</p>
+              ) : null}
+            </section>
+          ) : null}
 
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -834,7 +921,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               />
               <HealthChip label="Avatar" ok={providers?.heygen?.generationReady === true} detail={providers?.heygen?.detailMessage ?? undefined} />
               <HealthChip label="Storage" ok={providers?.storage?.configured === true} detail={providers?.storage?.message ?? undefined} />
-              <HealthChip label="FB" ok={providers?.facebook?.connected === true} detail={providerDetailFacebook(providers)} />
+              <HealthChip
+                label="FB"
+                ok={facebookHealthChip(providers).ok}
+                warn={facebookHealthChip(providers).warn}
+                detail={facebookHealthChip(providers).detail}
+              />
               <HealthChip
                 label="IG"
                 ok={providers?.instagram?.publishReady === true}
@@ -1893,10 +1985,24 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <div className="mt-3 space-y-1 font-mono text-xs text-zinc-600">
                 <p>jobsToday: {dashboard?.debugCounts?.jobsToday ?? '—'}</p>
                 <p>activeJobs: {dashboard?.debugCounts?.activeJobs ?? '—'}</p>
+                <p>queuedJobsToday: {dashboard?.debugCounts?.queuedJobsToday ?? '—'}</p>
+                <p>skippedJobsToday: {dashboard?.debugCounts?.skippedJobsToday ?? '—'}</p>
+                <p>jobsUnaccountedToday: {dashboard?.debugCounts?.jobsUnaccountedToday ?? '—'}</p>
                 <p>completedVideosToday: {dashboard?.debugCounts?.completedVideosToday ?? '—'}</p>
                 <p>publishedJobsToday: {dashboard?.debugCounts?.publishedJobsToday ?? '—'}</p>
                 <p>failedJobsToday: {dashboard?.debugCounts?.failedJobsToday ?? '—'}</p>
                 <p>galleryVideos: {dashboard?.debugCounts?.galleryVideos ?? videos.length}</p>
+                {dashboard?.todayJobs?.length ? (
+                  <>
+                    <p className="pt-2 font-semibold text-zinc-800">TODAY JOBS</p>
+                    {dashboard.todayJobs.map((job) => (
+                      <p key={job.jobId}>
+                        {job.jobId.slice(0, 8)} · {job.status} · {job.visibility} · {job.progress}%
+                        {job.skipReason ? ` · ${job.skipReason}` : ''}
+                      </p>
+                    ))}
+                  </>
+                ) : null}
                 <p>AI provider: {providers?.ai?.provider ?? '—'}</p>
                 <p>Configured: {providers?.ai?.configured ? 'YES' : 'NO'}</p>
                 <p>Enabled: {providers?.ai?.enabled ? 'YES' : 'NO'} (db={providers?.ai?.dbEnabled ? 'YES' : 'NO'}, env={providers?.ai?.envEnabled ? 'YES' : 'NO'})</p>

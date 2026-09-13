@@ -13,10 +13,24 @@ import {
   getHeyGenRuntimeConfig,
 } from './ai-influencer-runtime-config.util';
 import { resolveVideoGenerationMode } from './ai-influencer-video-agent.util';
-import { WORKER_ACTIVE_STATUSES } from './ai-influencer-job-status.util';
+import { queuedJobWhere, WORKER_ACTIVE_STATUSES } from './ai-influencer-job-status.util';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
+
+export type AiInfluencerWorkerDiagnostics = {
+  service: string;
+  workerStatus: 'READY' | 'STALE' | 'NOT_RUNNING';
+  lastHeartbeatAt: string | null;
+  lastWorkerRunAt: string | null;
+  lastClaimedJobId: string | null;
+  tickCount: number;
+  queued: number;
+  claimed: number;
+  message: string | null;
+};
+
+const WORKER_HEARTBEAT_STALE_MS = 120_000;
 
 @Injectable()
 export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -24,6 +38,9 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private tickCount = 0;
+  private lastHeartbeatAt: Date | null = null;
+  private lastWorkerRunAt: Date | null = null;
+  private lastClaimedJobId: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -39,9 +56,48 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
 
   onModuleInit() {
     void this.logStartupDiagnostics();
+    this.lastHeartbeatAt = new Date();
     this.timer = setInterval(() => void this.tick(), AI_INFLUENCER_WORKER_TICK_MS);
     void this.registry.getDefaultProfile();
     void this.recoverStuckJobs();
+  }
+
+  async getDiagnostics(): Promise<AiInfluencerWorkerDiagnostics> {
+    const [queued, claimed] = await Promise.all([
+      this.prisma.aiInfluencerReelJob.count({ where: queuedJobWhere() }),
+      this.prisma.aiInfluencerReelJob.count({
+        where: {
+          status: { in: WORKER_ACTIVE_STATUSES },
+          NOT: queuedJobWhere(),
+        },
+      }),
+    ]);
+
+    const heartbeatAgeMs = this.lastHeartbeatAt
+      ? Date.now() - this.lastHeartbeatAt.getTime()
+      : Number.POSITIVE_INFINITY;
+    const workerStatus: AiInfluencerWorkerDiagnostics['workerStatus'] = !this.timer
+      ? 'NOT_RUNNING'
+      : heartbeatAgeMs > WORKER_HEARTBEAT_STALE_MS
+        ? 'STALE'
+        : 'READY';
+
+    return {
+      service: 'AiInfluencerWorkerService (in-process DB polling)',
+      workerStatus,
+      lastHeartbeatAt: this.lastHeartbeatAt?.toISOString() ?? null,
+      lastWorkerRunAt: this.lastWorkerRunAt?.toISOString() ?? null,
+      lastClaimedJobId: this.lastClaimedJobId,
+      tickCount: this.tickCount,
+      queued,
+      claimed,
+      message:
+        workerStatus === 'NOT_RUNNING'
+          ? 'WORKER NOT RUNNING'
+          : workerStatus === 'STALE'
+            ? 'Worker heartbeat je zastaralý — generační pipeline nemusí běžet.'
+            : null,
+    };
   }
 
   private async logStartupDiagnostics(): Promise<void> {
@@ -121,7 +177,13 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   async tick() {
     if (this.running) return;
     this.running = true;
+    this.lastWorkerRunAt = new Date();
     try {
+      const recovered = await this.jobs.recoverStaleQueuedJobs(5);
+      if (recovered > 0) {
+        this.log.log(`[AI Influencer] Recovered ${recovered} stale queued job(s)`);
+      }
+
       const cfg = this.settings.getCached();
       const concurrency = Math.max(1, cfg.jobsConcurrency);
       const active = await this.prisma.aiInfluencerReelJob.findMany({
@@ -135,6 +197,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       });
 
       for (const row of active) {
+        this.lastClaimedJobId = row.id;
         try {
           await this.jobs.advanceJobChain(row.id, 3);
         } catch (err) {
@@ -145,6 +208,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       }
 
       this.tickCount += 1;
+      this.lastHeartbeatAt = new Date();
       if (this.tickCount % 4 === 0) {
         const reconcile = await this.jobs.reconcilePendingHeyGenJobs(5);
         if (reconcile.recovered > 0) {

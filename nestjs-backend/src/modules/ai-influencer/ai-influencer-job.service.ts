@@ -24,6 +24,11 @@ import {
   ACTIVE_JOB_STATUSES,
   galleryVideoWhere,
   hasMasterVideoAsset,
+  isActiveGenerationStatus,
+  isCompletedGenerationStatus,
+  isFailedGenerationStatus,
+  isQueuedGenerationStatus,
+  queuedJobWhere,
   recentCompletedVideoWhere,
   resolveMasterVideoUrl,
 } from './ai-influencer-job-status.util';
@@ -350,10 +355,117 @@ export class AiInfluencerJobService {
 
   /** Posune nově vytvořený job přes několik synchronních fází, dokud nenarazí na čekání/poll. */
   private scheduleBootstrapCreatedJob(jobId: string): void {
-    void this.bootstrapCreatedJob(jobId).catch((err) => {
-      this.log.error(
-        `bootstrapCreatedJob ${jobId} failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    void this.bootstrapCreatedJob(jobId).catch(async (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.log.error(`bootstrapCreatedJob ${jobId} failed: ${message}`);
+      try {
+        const existing = await this.prisma.aiInfluencerReelJob.findUnique({
+          where: { id: jobId },
+          select: { status: true },
+        });
+        if (
+          !existing ||
+          existing.status === AiInfluencerReelJobStatus.FAILED ||
+          existing.status === AiInfluencerReelJobStatus.CANCELLED
+        ) {
+          return;
+        }
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: {
+            status: AiInfluencerReelJobStatus.FAILED,
+            errorCode: 'BOOTSTRAP_FAILED',
+            errorMessage: message.slice(0, 500),
+            failedStage: 'QUEUE',
+            currentStep: 'Bootstrap selhal',
+          },
+        });
+      } catch (updateErr) {
+        this.log.error(
+          `Failed to mark job ${jobId} FAILED after bootstrap error: ${updateErr instanceof Error ? updateErr.message : updateErr}`,
+        );
+      }
+    });
+  }
+
+  /** Znovu nabídne workeru joby ve frontě, které dlouho nepostoupily. */
+  async recoverStaleQueuedJobs(limit = 5): Promise<number> {
+    const staleBefore = new Date(Date.now() - 90_000);
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        AND: [
+          queuedJobWhere(),
+          { updatedAt: { lte: staleBefore } },
+          {
+            OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
+          },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+      select: { id: true },
+    });
+    for (const row of rows) {
+      this.scheduleBootstrapCreatedJob(row.id);
+    }
+    return rows.length;
+  }
+
+  async getTodayJobsDiagnostic() {
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: { createdAt: { gte: dayStart }, isTest: false },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        status: true,
+        progressPercent: true,
+        currentStep: true,
+        isTest: true,
+        errorCode: true,
+        errorMessage: true,
+        skipReason: true,
+        avatarExternalJobId: true,
+        renderSettingsJson: true,
+      },
+    });
+    return rows.map((row) => {
+      const meta =
+        row.renderSettingsJson && typeof row.renderSettingsJson === 'object'
+          ? (row.renderSettingsJson as { generationMode?: string; videoGenerationMode?: string })
+          : {};
+      const generationMode = meta.generationMode ?? meta.videoGenerationMode ?? null;
+      const visibility =
+        isActiveGenerationStatus(row.status) || isQueuedGenerationStatus(row.status)
+          ? 'ACTIVE_OR_QUEUED'
+          : isCompletedGenerationStatus(row.status)
+            ? 'COMPLETED'
+            : isFailedGenerationStatus(row.status)
+              ? row.status.startsWith('SKIPPED')
+                ? 'SKIPPED'
+                : 'FAILED_OR_CANCELLED'
+              : 'UNCLASSIFIED';
+      return {
+        jobId: row.id,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        status: row.status,
+        progress: row.progressPercent,
+        currentStage: row.currentStep,
+        isTest: row.isTest,
+        generationMode,
+        providerJobId: row.avatarExternalJobId,
+        errorCode: row.errorCode,
+        errorMessage: row.errorMessage,
+        skipReason: row.skipReason,
+        visibility,
+        enqueued: row.status === AiInfluencerReelJobStatus.EVALUATING,
+        workerClaimed: !isQueuedGenerationStatus(row.status) && isActiveGenerationStatus(row.status),
+      };
     });
   }
 

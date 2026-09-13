@@ -2,10 +2,12 @@ import { Prisma, ReelPlatformPublishStatus } from '@prisma/client';
 import type { PrismaService } from '../../database/prisma.service';
 import {
   activeJobWhere,
+  claimedJobWhere,
   galleryVideoWhere,
   GALLERY_VIDEO_STATUSES,
   masterVideoAssetWhere,
   queuedJobWhere,
+  skippedJobWhere,
 } from './ai-influencer-job-status.util';
 
 export type AiInfluencerDashboardStats = {
@@ -13,9 +15,14 @@ export type AiInfluencerDashboardStats = {
   jobsCompletedToday: number;
   activeJobs: number;
   queuedJobs: number;
+  claimedJobs: number;
+  jobsInPipelineToday: number;
   publishedVideos: number;
   publishedVideosToday: number;
   failedJobsToday: number;
+  skippedJobsToday: number;
+  cancelledJobsToday: number;
+  jobsUnaccountedToday: number;
   galleryVideos: number;
   costTodayCzk: number;
   costMonthCzk: number;
@@ -106,36 +113,50 @@ export async function aggregateAiInfluencerDashboardStats(
   const weekStart = weekStartLocal(dayStart);
   const monthStart = monthStartLocal(dayStart);
 
+  const todayProductionWhere = { createdAt: { gte: dayStart }, isTest: false };
+
   const [
     jobsStartedToday,
     jobsCompletedToday,
     activeJobs,
     queuedJobs,
+    claimedJobs,
+    jobsInPipelineToday,
     publishedVideos,
     publishedVideosToday,
     failedJobsToday,
+    skippedJobsToday,
+    cancelledJobsToday,
     galleryVideos,
     costToday,
     costMonth,
     jobsWeek,
     failedAllTime,
   ] = await Promise.all([
-    prisma.aiInfluencerReelJob.count({
-      where: { createdAt: { gte: dayStart }, isTest: false },
-    }),
+    prisma.aiInfluencerReelJob.count({ where: todayProductionWhere }),
     prisma.aiInfluencerReelJob.count({ where: completedVideoTodayWhere(dayStart) }),
     prisma.aiInfluencerReelJob.count({ where: activeJobWhere() }),
     prisma.aiInfluencerReelJob.count({
-      where: { AND: [queuedJobWhere(), { createdAt: { gte: dayStart } }] },
+      where: { AND: [queuedJobWhere(), todayProductionWhere] },
+    }),
+    prisma.aiInfluencerReelJob.count({ where: claimedJobWhere() }),
+    prisma.aiInfluencerReelJob.count({
+      where: { AND: [activeJobWhere(), todayProductionWhere] },
     }),
     prisma.aiInfluencerReelJob.count({ where: publishedVideoWhere() }),
     prisma.aiInfluencerReelJob.count({ where: publishedVideoTodayWhere(dayStart) }),
     prisma.aiInfluencerReelJob.count({
       where: { status: 'FAILED', updatedAt: { gte: dayStart }, isTest: false },
     }),
+    prisma.aiInfluencerReelJob.count({
+      where: { AND: [skippedJobWhere(), todayProductionWhere] },
+    }),
+    prisma.aiInfluencerReelJob.count({
+      where: { status: 'CANCELLED', updatedAt: { gte: dayStart }, isTest: false },
+    }),
     prisma.aiInfluencerReelJob.count({ where: galleryVideoWhere() }),
     prisma.aiInfluencerReelJob.aggregate({
-      where: { createdAt: { gte: dayStart }, isTest: false },
+      where: todayProductionWhere,
       _sum: { totalExternalCost: true },
     }),
     prisma.aiInfluencerReelJob.aggregate({
@@ -148,14 +169,27 @@ export async function aggregateAiInfluencerDashboardStats(
     prisma.aiInfluencerReelJob.count({ where: { status: 'FAILED', isTest: false } }),
   ]);
 
+  const jobsAccountedToday =
+    jobsCompletedToday +
+    failedJobsToday +
+    skippedJobsToday +
+    cancelledJobsToday +
+    jobsInPipelineToday;
+  const jobsUnaccountedToday = Math.max(0, jobsStartedToday - jobsAccountedToday);
+
   return {
     jobsStartedToday,
     jobsCompletedToday,
     activeJobs,
     queuedJobs,
+    claimedJobs,
+    jobsInPipelineToday,
     publishedVideos,
     publishedVideosToday,
     failedJobsToday,
+    skippedJobsToday,
+    cancelledJobsToday,
+    jobsUnaccountedToday,
     galleryVideos,
     costTodayCzk: costToday._sum.totalExternalCost ?? 0,
     costMonthCzk: costMonth._sum.totalExternalCost ?? 0,

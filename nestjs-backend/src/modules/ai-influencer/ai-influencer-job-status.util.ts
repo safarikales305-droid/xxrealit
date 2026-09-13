@@ -26,15 +26,34 @@ export const GALLERY_VIDEO_STATUSES: AiInfluencerReelJobStatus[] = [
   AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
 ];
 
+export const SKIPPED_JOB_STATUSES: AiInfluencerReelJobStatus[] = [
+  AiInfluencerReelJobStatus.SKIPPED_QUALITY,
+  AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
+];
+
 export const TERMINAL_JOB_STATUSES: AiInfluencerReelJobStatus[] = [
   AiInfluencerReelJobStatus.READY,
   AiInfluencerReelJobStatus.PUBLISHED,
   AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
   AiInfluencerReelJobStatus.FAILED,
   AiInfluencerReelJobStatus.CANCELLED,
-  AiInfluencerReelJobStatus.SKIPPED_QUALITY,
-  AiInfluencerReelJobStatus.SKIPPED_DUPLICATE,
+  ...SKIPPED_JOB_STATUSES,
 ];
+
+export function skippedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return { status: { in: SKIPPED_JOB_STATUSES } };
+}
+
+export function claimedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    AND: [
+      activeJobWhere(),
+      {
+        NOT: queuedJobWhere(),
+      },
+    ],
+  };
+}
 
 type VideoAssetFields = {
   finalMasterUrl?: string | null;

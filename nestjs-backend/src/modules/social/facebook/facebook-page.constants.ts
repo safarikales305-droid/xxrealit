@@ -17,6 +17,10 @@ export const FACEBOOK_PAGE_API_SCOPES = [
   'pages_read_engagement',
   'pages_manage_metadata',
   'pages_manage_posts',
+].join(',');
+
+/** Instagram Reels publish via Page token + instagram_business_account — bez zastaralých IG OAuth scopes. */
+export const FACEBOOK_PAGE_API_SCOPES_LEGACY_INSTAGRAM = [
   'instagram_basic',
   'instagram_content_publish',
 ].join(',');

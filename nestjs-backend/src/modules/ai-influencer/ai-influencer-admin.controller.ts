@@ -25,6 +25,7 @@ import { AiInfluencerPublishService } from './ai-influencer-publish.service';
 import { DEFAULT_RENDER_SETTINGS, mergeRenderSettings } from './ai-influencer-render.types';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerAutoService } from './ai-influencer-auto.service';
+import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
@@ -69,14 +70,17 @@ export class AiInfluencerAdminController {
     private readonly publish: AiInfluencerPublishService,
     private readonly shortsMusic: ShortsMusicService,
     private readonly auto: AiInfluencerAutoService,
+    private readonly worker: AiInfluencerWorkerService,
   ) {}
 
   @Get('dashboard')
   async getDashboard() {
     const cfg = await this.settings.getSettings();
-    const [stats, recentCompleted] = await Promise.all([
+    const [stats, recentCompleted, workerDiagnostics, todayJobs] = await Promise.all([
       aggregateAiInfluencerDashboardStats(this.prisma),
       this.jobs.listRecentCompleted(10),
+      this.worker.getDiagnostics(),
+      this.jobs.getTodayJobsDiagnostic(),
     ]);
     const providers = await this.getProviderStatus();
     const productionVerification = await this.jobs.getLastProductionTestVerification();
@@ -102,6 +106,9 @@ export class AiInfluencerAdminController {
         reelsWeek: stats.jobsWeek,
         inQueue: stats.activeJobs,
         queuedToday: stats.queuedJobs,
+        skippedToday: stats.skippedJobsToday,
+        cancelledToday: stats.cancelledJobsToday,
+        jobsUnaccountedToday: stats.jobsUnaccountedToday,
         published: stats.publishedVideos,
         failed: stats.failedJobsToday,
         failedAllTime: stats.failedAllTime,
@@ -112,11 +119,30 @@ export class AiInfluencerAdminController {
         jobsToday: stats.jobsStartedToday,
         activeJobs: stats.activeJobs,
         queuedJobsToday: stats.queuedJobs,
+        claimedJobs: stats.claimedJobs,
+        jobsInPipelineToday: stats.jobsInPipelineToday,
+        skippedJobsToday: stats.skippedJobsToday,
+        cancelledJobsToday: stats.cancelledJobsToday,
+        jobsUnaccountedToday: stats.jobsUnaccountedToday,
         completedVideosToday: stats.jobsCompletedToday,
         publishedJobsToday: stats.publishedVideosToday,
         failedJobsToday: stats.failedJobsToday,
         galleryVideos: stats.galleryVideos,
       },
+      generationQueue: {
+        queued: workerDiagnostics.queued,
+        claimed: workerDiagnostics.claimed,
+        workerStatus: workerDiagnostics.workerStatus,
+        lastWorkerRun: workerDiagnostics.lastWorkerRunAt,
+        lastHeartbeatAt: workerDiagnostics.lastHeartbeatAt,
+        lastClaimedJobId: workerDiagnostics.lastClaimedJobId,
+        message: workerDiagnostics.message,
+      },
+      jobsConsistencyAlert:
+        stats.jobsUnaccountedToday > 0
+          ? 'Nekonzistentní stav jobů – některé spuštěné joby nejsou zařazené.'
+          : null,
+      todayJobs,
       recentCompleted,
       providers,
       productionVerification,
@@ -753,7 +779,8 @@ export class AiInfluencerAdminController {
     const productionVerification = await this.jobs.getLastProductionTestVerification();
 
     const publishReasons: string[] = [];
-    if (!fb.ok) publishReasons.push('Facebook není připojen');
+    if (!fb.ok && !fb.connected && !fb.rateLimited) publishReasons.push('Facebook není připojen');
+    if (fb.rateLimited) publishReasons.push('Facebook je rate-limited — publikace bude odložena');
     if (!ig.connected || !ig.scopesOk) publishReasons.push('Instagram není připraven');
     if (!yt.connected) publishReasons.push('YouTube není připojen');
 
@@ -932,13 +959,27 @@ export class AiInfluencerAdminController {
       },
       facebook: {
         configured: true,
-        connected: fb.ok,
+        connected: fb.connected ?? fb.ok,
+        rateLimited: fb.rateLimited ?? false,
+        healthStatus:
+          fb.healthStatus ??
+          (fb.ok ? 'READY' : fb.connected ? 'API_ERROR' : 'NOT_CONNECTED'),
         pageId: this.maskId(fb.pageId),
         pageName: fb.pageName ?? null,
-        tokenActive: fb.ok,
+        tokenActive: fb.ok || (fb.connected === true && !fb.rateLimited),
         lastError: fb.error ?? null,
         hint: fb.hint ?? null,
-        publishStatus: fb.ok ? 'READY' : fb.error ? 'AUTH_REQUIRED' : 'NOT_CONNECTED',
+        checkedAt: fb.checkedAt ?? null,
+        nextCheckAt: fb.nextCheckAt ?? null,
+        publishStatus: fb.rateLimited
+          ? 'RATE_LIMITED'
+          : fb.ok
+            ? 'READY'
+            : fb.connected
+              ? 'AUTH_REQUIRED'
+              : fb.error
+                ? 'AUTH_REQUIRED'
+                : 'NOT_CONNECTED',
       },
       youtube: {
         configured: yt.configured,
@@ -976,6 +1017,8 @@ export class AiInfluencerAdminController {
       },
       instagram: {
         connected: ig.connected,
+        connectedThroughPage: Boolean(ig.linkedPageId && ig.tokenActive),
+        oauthMode: 'PAGE_GRAPH' as const,
         instagramBusinessId: this.maskId(ig.instagramBusinessId),
         instagramUsername: ig.instagramUsername,
         linkedPageName: ig.linkedPageName,
@@ -984,6 +1027,7 @@ export class AiInfluencerAdminController {
         missingScopes: ig.missingScopes,
         needsReconnect: ig.needsReconnect,
         publishReady: igPublishReady,
+        publishPermission: igPublishReady ? 'READY' : ig.scopesOk ? 'MISSING' : 'MISSING',
         message: ig.message,
         testStatus: igTest.status,
       },

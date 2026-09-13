@@ -41,10 +41,15 @@ export type ManualPublishResult = {
 
 export type FacebookTestResult = {
   ok: boolean;
+  connected?: boolean;
+  rateLimited?: boolean;
+  healthStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
   pageId?: string;
   pageName?: string;
   error?: string;
   hint?: string;
+  checkedAt?: string;
+  nextCheckAt?: string;
 };
 
 export type InstagramTestResult = {
@@ -104,10 +109,15 @@ export class AiInfluencerPublishService {
     const result = await this.socialPublisher.testFacebookConnection();
     return {
       ok: result.ok,
+      connected: result.connected,
+      rateLimited: result.rateLimited,
+      healthStatus: result.healthStatus,
       pageId: result.pageId,
       pageName: result.pageName,
       error: result.error,
       hint: result.hint,
+      checkedAt: result.checkedAt,
+      nextCheckAt: result.nextCheckAt,
     };
   }
 

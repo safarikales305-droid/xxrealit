@@ -104,12 +104,16 @@ export type AiInfluencerReadyStatus = {
 export type FacebookProviderStatus = {
   configured: boolean;
   connected: boolean | null;
+  rateLimited?: boolean;
+  healthStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
   pageId?: string | null;
   pageName?: string | null;
   tokenActive?: boolean;
   lastError?: string | null;
   hint?: string | null;
-  publishStatus?: 'READY' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'FAILED';
+  checkedAt?: string | null;
+  nextCheckAt?: string | null;
+  publishStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'FAILED';
 };
 
 export type YoutubeProviderStatus = {
@@ -129,6 +133,8 @@ export type YoutubeProviderStatus = {
 
 export type InstagramProviderStatus = {
   connected: boolean;
+  connectedThroughPage?: boolean;
+  oauthMode?: 'PAGE_GRAPH' | 'INSTAGRAM_LOGIN';
   instagramBusinessId?: string | null;
   instagramUsername?: string | null;
   linkedPageName?: string | null;
@@ -137,6 +143,7 @@ export type InstagramProviderStatus = {
   missingScopes?: string[];
   needsReconnect?: boolean;
   publishReady?: boolean;
+  publishPermission?: 'READY' | 'MISSING';
   message?: string | null;
   testStatus?: string;
 };
@@ -207,6 +214,9 @@ export type AiInfluencerDashboard = {
     reelsWeek: number;
     inQueue: number;
     queuedToday?: number;
+    skippedToday?: number;
+    cancelledToday?: number;
+    jobsUnaccountedToday?: number;
     published: number;
     failed: number;
     failedAllTime?: number;
@@ -217,11 +227,43 @@ export type AiInfluencerDashboard = {
     jobsToday: number;
     activeJobs: number;
     queuedJobsToday?: number;
+    claimedJobs?: number;
+    jobsInPipelineToday?: number;
+    skippedJobsToday?: number;
+    cancelledJobsToday?: number;
+    jobsUnaccountedToday?: number;
     completedVideosToday: number;
     publishedJobsToday: number;
     failedJobsToday: number;
     galleryVideos: number;
   };
+  generationQueue?: {
+    queued: number;
+    claimed: number;
+    workerStatus: 'READY' | 'STALE' | 'NOT_RUNNING';
+    lastWorkerRun: string | null;
+    lastHeartbeatAt: string | null;
+    lastClaimedJobId: string | null;
+    message: string | null;
+  };
+  jobsConsistencyAlert?: string | null;
+  todayJobs?: Array<{
+    jobId: string;
+    createdAt: string;
+    updatedAt: string;
+    status: string;
+    progress: number;
+    currentStage: string | null;
+    isTest: boolean;
+    generationMode: string | null;
+    providerJobId: string | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+    skipReason: string | null;
+    visibility: string;
+    enqueued: boolean;
+    workerClaimed: boolean;
+  }>;
   recentCompleted?: AiInfluencerJobRow[];
   automation?: {
     enabled: boolean;

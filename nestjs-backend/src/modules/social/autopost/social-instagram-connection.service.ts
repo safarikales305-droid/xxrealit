@@ -158,8 +158,8 @@ export class SocialInstagramConnectionService {
       ok: igOk && scopesOk && tokenOk && debug.is_valid !== false,
       message:
         igOk && scopesOk
-          ? 'instagram_content_publish dostupné'
-          : 'Nelze publikovat — dokončete propojení a oprávnění',
+          ? 'Publikace Reels přes Page token (instagram_business_account)'
+          : 'Nelze publikovat — dokončete propojení stránky a Page oprávnění',
     });
 
     let apiOk = false;

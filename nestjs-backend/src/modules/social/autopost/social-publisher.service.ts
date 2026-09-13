@@ -68,6 +68,13 @@ export type FacebookTestConnectionResult = {
   error?: string;
   hint?: string;
   graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
+  /** Token/page record exists locally even when live Graph probe fails. */
+  connected?: boolean;
+  rateLimited?: boolean;
+  healthStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
+  cached?: boolean;
+  checkedAt?: string;
+  nextCheckAt?: string;
 };
 
 export type FacebookTestPublishResult = {
@@ -85,6 +92,14 @@ export { FacebookGraphPublishError };
 @Injectable()
 export class SocialPublisherService {
   private readonly logger = new Logger(SocialPublisherService.name);
+  private fbConnectionCache: {
+    result: FacebookTestConnectionResult;
+    expiresAt: number;
+  } | null = null;
+  private fbRateLimitBackoffUntil = 0;
+  private readonly fbConnectionCacheMs = 10 * 60 * 1000;
+  private readonly fbRateLimitBackoffStepsMs = [60_000, 5 * 60_000, 15 * 60_000];
+  private fbRateLimitBackoffStep = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -639,26 +654,64 @@ export class SocialPublisherService {
     };
   }
 
-  async testFacebookConnection(): Promise<FacebookTestConnectionResult> {
+  async testFacebookConnection(options?: {
+    bypassCache?: boolean;
+  }): Promise<FacebookTestConnectionResult> {
+    const now = Date.now();
+    if (!options?.bypassCache && this.fbConnectionCache && this.fbConnectionCache.expiresAt > now) {
+      return { ...this.fbConnectionCache.result, cached: true };
+    }
+    if (now < this.fbRateLimitBackoffUntil) {
+      return this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+        error: 'Meta dočasně omezuje počet API požadavků.',
+        hint: 'Počkejte několik minut. Health check je cacheovaný.',
+      });
+    }
+
     const pageId = this.settings.resolveFacebookPageId();
+    const fbSettings = this.settings.getSettings().facebook;
     let storedToken: string | null;
     try {
       storedToken = await this.getValidatedStoredToken();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Token není platný.';
-      return { ok: false, error: message };
+      if (pageId && this.settings.resolveFacebookPageAccessToken()) {
+        return this.buildStoredFacebookHealthResult('AUTH_REQUIRED', { error: message });
+      }
+      return { ok: false, connected: false, healthStatus: 'NOT_CONNECTED', error: message };
     }
     if (!pageId || !storedToken) {
-      return { ok: false, error: 'Chybí Page ID nebo access token. Připojte Facebook přes OAuth.' };
+      return {
+        ok: false,
+        connected: false,
+        healthStatus: 'NOT_CONNECTED',
+        error: 'Chybí Page ID nebo access token. Připojte Facebook přes OAuth.',
+      };
     }
 
     const resolved = await this.resolvePageAccessToken(pageId, storedToken);
     if (!resolved.ok) {
+      const graphError = resolved.error;
+      if (this.isRateLimitedGraphError(graphError)) {
+        this.applyFacebookRateLimitBackoff();
+        return this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+          pageId,
+          pageName: fbSettings.pageName ?? undefined,
+          error: graphError.userMessage,
+          hint: graphError.hint,
+          graphError: this.toPublicGraphError(graphError),
+        });
+      }
       return {
         ok: false,
-        error: resolved.error.userMessage,
-        hint: resolved.error.hint,
-        graphError: this.toPublicGraphError(resolved.error),
+        connected: true,
+        healthStatus: 'AUTH_REQUIRED',
+        pageId,
+        pageName: fbSettings.pageName ?? undefined,
+        error: graphError.userMessage,
+        hint: graphError.hint,
+        graphError: this.toPublicGraphError(graphError),
+        checkedAt: new Date().toISOString(),
       };
     }
 
@@ -690,23 +743,108 @@ export class SocialPublisherService {
         error: res.error,
         maskedToken: maskAccessToken(resolved.token),
       });
-      return {
+      if (this.isRateLimitedGraphError(res.error)) {
+        this.applyFacebookRateLimitBackoff();
+        const rateLimited = this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+          pageId,
+          pageName: fbSettings.pageName ?? undefined,
+          error: res.error.userMessage,
+          hint: res.error.hint,
+          graphError: this.toPublicGraphError(res.error),
+        });
+        this.storeFacebookConnectionCache(rateLimited);
+        return rateLimited;
+      }
+      const authRequired: FacebookTestConnectionResult = {
         ok: false,
+        connected: true,
+        healthStatus: 'AUTH_REQUIRED',
         pageId,
+        pageName: fbSettings.pageName ?? undefined,
         error: res.error.userMessage,
         hint: res.error.hint,
         graphError: this.toPublicGraphError(res.error),
+        checkedAt: new Date().toISOString(),
       };
+      this.storeFacebookConnectionCache(authRequired);
+      return authRequired;
     }
 
+    this.fbRateLimitBackoffStep = 0;
     const name = typeof res.data.name === 'string' ? res.data.name : undefined;
-    return {
+    const success: FacebookTestConnectionResult = {
       ok: true,
+      connected: true,
+      healthStatus: 'READY',
       pageId,
-      pageName: name,
+      pageName: name ?? fbSettings.pageName ?? undefined,
       tokenSource: resolved.source,
       maskedToken: maskAccessToken(resolved.token),
+      checkedAt: new Date().toISOString(),
     };
+    this.storeFacebookConnectionCache(success);
+    return success;
+  }
+
+  private isRateLimitedGraphError(error: Pick<ParsedFacebookGraphError, 'code' | 'message'>): boolean {
+    const lower = error.message.toLowerCase();
+    return error.code === 4 || lower.includes('application request limit') || lower.includes('(#4)');
+  }
+
+  private applyFacebookRateLimitBackoff(): void {
+    const stepMs =
+      this.fbRateLimitBackoffStepsMs[
+        Math.min(this.fbRateLimitBackoffStep, this.fbRateLimitBackoffStepsMs.length - 1)
+      ];
+    this.fbRateLimitBackoffStep += 1;
+    this.fbRateLimitBackoffUntil = Date.now() + stepMs;
+  }
+
+  private storeFacebookConnectionCache(result: FacebookTestConnectionResult): void {
+    const checkedAt = result.checkedAt ?? new Date().toISOString();
+    const cached: FacebookTestConnectionResult = {
+      ...result,
+      checkedAt,
+      nextCheckAt: new Date(Date.now() + this.fbConnectionCacheMs).toISOString(),
+    };
+    this.fbConnectionCache = {
+      result: cached,
+      expiresAt: Date.now() + this.fbConnectionCacheMs,
+    };
+  }
+
+  private buildStoredFacebookHealthResult(
+    healthStatus: Exclude<FacebookTestConnectionResult['healthStatus'], undefined>,
+    input: {
+      pageId?: string;
+      pageName?: string;
+      error?: string;
+      hint?: string;
+      graphError?: FacebookTestConnectionResult['graphError'];
+    },
+  ): FacebookTestConnectionResult {
+    const fb = this.settings.getSettings().facebook;
+    const pageId = input.pageId ?? this.settings.resolveFacebookPageId() ?? fb.pageId ?? undefined;
+    const pageName = input.pageName ?? fb.pageName ?? undefined;
+    const hasStoredConnection = Boolean(
+      pageId && (this.settings.resolveFacebookPageAccessToken() || fb.pageId),
+    );
+    const connected = hasStoredConnection || healthStatus === 'RATE_LIMITED';
+    const result: FacebookTestConnectionResult = {
+      ok: healthStatus === 'READY',
+      connected,
+      rateLimited: healthStatus === 'RATE_LIMITED',
+      healthStatus,
+      pageId: pageId ?? undefined,
+      pageName: pageName ?? undefined,
+      error: input.error,
+      hint: input.hint,
+      graphError: input.graphError,
+      checkedAt: new Date().toISOString(),
+      nextCheckAt: new Date(Date.now() + this.fbConnectionCacheMs).toISOString(),
+    };
+    this.storeFacebookConnectionCache(result);
+    return result;
   }
 
   async testFacebookPublish(): Promise<FacebookTestPublishResult> {

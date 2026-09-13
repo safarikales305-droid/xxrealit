@@ -6,6 +6,7 @@ import {
   isCompletedGenerationStatus,
   isFailedGenerationStatus,
   isQueuedGenerationStatus,
+  SKIPPED_JOB_STATUSES,
 } from './ai-influencer-job-status.util';
 
 describe('ai-influencer-job-status helpers', () => {
@@ -22,7 +23,14 @@ describe('ai-influencer-job-status helpers', () => {
 
   it('detects failed and queued states', () => {
     assert.equal(isFailedGenerationStatus(AiInfluencerReelJobStatus.FAILED), true);
+    assert.equal(isFailedGenerationStatus(AiInfluencerReelJobStatus.SKIPPED_QUALITY), true);
     assert.equal(isQueuedGenerationStatus(AiInfluencerReelJobStatus.EVALUATING), true);
     assert.equal(isQueuedGenerationStatus(AiInfluencerReelJobStatus.RENDERING), false);
+  });
+
+  it('classifies skipped terminal statuses', () => {
+    assert.equal(SKIPPED_JOB_STATUSES.includes(AiInfluencerReelJobStatus.SKIPPED_DUPLICATE), true);
+    assert.equal(isFailedGenerationStatus(AiInfluencerReelJobStatus.SKIPPED_DUPLICATE), true);
+    assert.equal(isActiveGenerationStatus(AiInfluencerReelJobStatus.SKIPPED_QUALITY), false);
   });
 });

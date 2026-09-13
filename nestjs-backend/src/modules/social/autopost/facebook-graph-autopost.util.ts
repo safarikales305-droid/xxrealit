@@ -82,6 +82,10 @@ export function parseFacebookGraphError(httpStatus: number, raw: unknown): Parse
     userMessage =
       'Uložený token není Page Access Token. Použijte token stránky z /me/accounts, ne User Access Token.';
     hint = 'Zavolejte GET /me/accounts a použijte access_token příslušné stránky.';
+  } else if (code === 4 || lower.includes('application request limit') || lower.includes('(#4)')) {
+    userMessage =
+      'Meta dočasně omezuje počet API požadavků (rate limit). Připojení stránky zůstává uložené.';
+    hint = 'Počkejte několik minut a zkuste znovu. Snižte frekvenci health check volání.';
   } else if (lower.includes('invalid oauth') || lower.includes('expired') || code === 190) {
     userMessage = 'Facebook access token vypršel nebo je neplatný. Vygenerujte nový Page Access Token.';
   } else if (lower.includes('does not exist') || lower.includes('unsupported get request')) {

@@ -43,10 +43,16 @@ export type InstagramConnectionStatus = {
 };
 
 export const INSTAGRAM_REQUIRED_SCOPES = [
-  'instagram_basic',
-  'instagram_content_publish',
   'pages_show_list',
   'pages_read_engagement',
+  'pages_manage_posts',
+  'pages_manage_metadata',
+] as const;
+
+/** @deprecated Zastaralé IG Login scopes — neposílat v OAuth URL. */
+export const INSTAGRAM_LEGACY_OAUTH_SCOPES = [
+  'instagram_basic',
+  'instagram_content_publish',
 ] as const;
 
 export const DEFAULT_INSTAGRAM_POST_TEMPLATE = `{title}
