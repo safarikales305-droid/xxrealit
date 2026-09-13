@@ -104,8 +104,15 @@ export type AiInfluencerReadyStatus = {
 export type FacebookProviderStatus = {
   configured: boolean;
   connected: boolean | null;
+  storedPageConnected?: boolean;
   rateLimited?: boolean;
-  healthStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
+  healthStatus?:
+    | 'READY'
+    | 'CONNECTED_RATE_LIMITED'
+    | 'RATE_LIMITED'
+    | 'AUTH_REQUIRED'
+    | 'NOT_CONNECTED'
+    | 'API_ERROR';
   pageId?: string | null;
   pageName?: string | null;
   tokenActive?: boolean;
@@ -222,6 +229,7 @@ export type AiInfluencerDashboard = {
     failedAllTime?: number;
     costTodayCzk: number;
     costMonthCzk: number;
+    heygenPendingImport?: number;
   };
   debugCounts?: {
     jobsToday: number;
@@ -601,6 +609,29 @@ export function nestAiInfluencerRunJobNow(token: string, jobId: string) {
 
 export function nestAiInfluencerWakeWorker(token: string) {
   return aiInfluencerFetch<Record<string, unknown>>(token, '/worker/wake', { method: 'POST' });
+}
+
+export type HeyGenPortalSyncResult = {
+  scanned: number;
+  foundInHeyGen: number;
+  recovered: number;
+  storedInGallery: number;
+  stillProcessing: number;
+  providerIdMissing: number;
+  unmatched: number;
+  errors: number;
+  newHeyGenCreateCalls: number;
+  details: Array<{ jobId: string; title: string; outcome: string; message?: string }>;
+};
+
+export function nestAiInfluencerSyncHeyGen(
+  token: string,
+  body?: { limit?: number; sinceDays?: number },
+) {
+  return aiInfluencerFetch<HeyGenPortalSyncResult>(token, '/heygen/sync', {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  });
 }
 
 export type HeyGenReconcileResult = {

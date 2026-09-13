@@ -33,6 +33,7 @@ import {
   nestAiInfluencerRetryJob,
   nestAiInfluencerRunJobNow,
   nestAiInfluencerWakeWorker,
+  nestAiInfluencerSyncHeyGen,
   nestAiInfluencerReconcileHeyGen,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestFacebook,
@@ -120,10 +121,15 @@ function modeLabel(mode?: string) {
 
 function providerDetailFacebook(providers?: AiInfluencerDashboard['providers'] | null): string {
   const fb = providers?.facebook;
-  if (fb?.rateLimited || fb?.healthStatus === 'RATE_LIMITED' || fb?.publishStatus === 'RATE_LIMITED') {
-    return `Facebook: RATE_LIMITED · Připojeno${fb.pageName ? `: ${fb.pageName}` : ''}. Meta dočasně omezuje API požadavky.${fb.nextCheckAt ? ` Další kontrola: ${new Date(fb.nextCheckAt).toLocaleTimeString('cs-CZ')}.` : ''}`;
+  if (
+    fb?.rateLimited ||
+    fb?.healthStatus === 'CONNECTED_RATE_LIMITED' ||
+    fb?.healthStatus === 'RATE_LIMITED' ||
+    fb?.publishStatus === 'RATE_LIMITED'
+  ) {
+    return `Facebook: CONNECTED_RATE_LIMITED · Připojeno${fb.pageName ? `: ${fb.pageName}` : ''}. Meta dočasně omezuje API požadavky.${fb.nextCheckAt ? ` Další kontrola: ${new Date(fb.nextCheckAt).toLocaleTimeString('cs-CZ')}.` : ''}`;
   }
-  if (fb?.connected && fb.publishStatus === 'READY') {
+  if ((fb?.connected || fb?.storedPageConnected) && fb.publishStatus === 'READY') {
     return `Facebook: READY${fb.pageName ? ` · ${fb.pageName}` : ''}${fb.checkedAt ? ` · Poslední kontrola: ${new Date(fb.checkedAt).toLocaleTimeString('cs-CZ')}` : ''}`;
   }
   if (fb?.connected && fb.lastError) {
@@ -140,8 +146,12 @@ function facebookHealthChip(providers?: AiInfluencerDashboard['providers'] | nul
   detail: string;
 } {
   const fb = providers?.facebook;
-  const rateLimited = Boolean(fb?.rateLimited || fb?.healthStatus === 'RATE_LIMITED');
-  const connected = Boolean(fb?.connected);
+  const rateLimited = Boolean(
+    fb?.rateLimited ||
+      fb?.healthStatus === 'CONNECTED_RATE_LIMITED' ||
+      fb?.healthStatus === 'RATE_LIMITED',
+  );
+  const connected = Boolean(fb?.connected || fb?.storedPageConnected || fb?.pageId);
   return {
     ok: connected && !rateLimited && fb?.publishStatus === 'READY',
     warn: connected && rateLimited,
@@ -426,6 +436,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [createError, setCreateError] = useState<string | null>(null);
   const [createState, setCreateState] = useState<'idle' | 'submitting' | 'accepted' | 'error'>('idle');
   const [toast, setToast] = useState<string | null>(null);
+  const [heygenSyncBusy, setHeygenSyncBusy] = useState(false);
+  const [heygenSyncResult, setHeygenSyncResult] = useState<string | null>(null);
   const [playVideoUrl, setPlayVideoUrl] = useState<string | null>(null);
   const [publishJob, setPublishJob] = useState<AiInfluencerJobRow | null>(null);
   const [publishChannels, setPublishChannels] = useState<Record<ManualPublishChannel, boolean>>({
@@ -825,6 +837,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               ['Dnes dokončeno', dashboard?.stats.jobsCompletedToday ?? 0],
               ['Ve výrobě', dashboard?.stats.inQueue ?? activeJobs.length],
               ['Čeká ve frontě', dashboard?.stats.queuedToday ?? dashboard?.debugCounts?.queuedJobsToday ?? 0],
+              [
+                'HeyGen hotovo / čeká import',
+                dashboard?.stats.heygenPendingImport ?? 0,
+              ],
               ['Publikováno', dashboard?.stats.published ?? 0],
               ['Selhalo dnes', dashboard?.stats.failed ?? failedJobs.length],
               ...(dashboard?.stats.skippedToday
@@ -852,6 +868,38 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               >
                 Spustit diagnostiku
               </button>
+            </div>
+          ) : null}
+
+          {(dashboard?.stats.heygenPendingImport ?? 0) > 0 ? (
+            <div className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-950">
+              <p className="font-semibold">
+                HeyGen dokončil {dashboard?.stats.heygenPendingImport} videí, která ještě nebyla uložena do
+                XXREALIT.
+              </p>
+              <button
+                type="button"
+                disabled={heygenSyncBusy}
+                className="mt-2 rounded bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+                onClick={() => {
+                  setHeygenSyncBusy(true);
+                  void nestAiInfluencerSyncHeyGen(apiAccessToken, { limit: 30, sinceDays: 14 }).then((res) => {
+                    setHeygenSyncBusy(false);
+                    if (!res) {
+                      setToast('Synchronizace HeyGen selhala.');
+                      return;
+                    }
+                    setHeygenSyncResult(
+                      `Nalezeno: ${res.foundInHeyGen}, obnoveno: ${res.recovered}, galerie: ${res.storedInGallery}, stále se vyrábí: ${res.stillProcessing}, chybí ID: ${res.providerIdMissing}, chyby: ${res.errors}`,
+                    );
+                    setToast(`HeyGen sync: uloženo ${res.storedInGallery} videí.`);
+                    loadCore();
+                  });
+                }}
+              >
+                {heygenSyncBusy ? 'Synchronizuji…' : 'Dokončit synchronizaci'}
+              </button>
+              {heygenSyncResult ? <p className="mt-2 text-xs">{heygenSyncResult}</p> : null}
             </div>
           ) : null}
 
@@ -1499,6 +1547,36 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
       {tab === 'settings' ? (
         <div className="space-y-4">
+          <section className="rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-zinc-900">HeyGen synchronizace</h2>
+            <p className="mt-1 text-xs text-zinc-600">
+              Stáhne již dokončená HeyGen videa do XXREALIT bez vytvoření nové placené generace.
+            </p>
+            <button
+              type="button"
+              disabled={heygenSyncBusy}
+              className="mt-3 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-medium text-orange-900 hover:bg-orange-100 disabled:opacity-60"
+              onClick={() => {
+                setHeygenSyncBusy(true);
+                void nestAiInfluencerSyncHeyGen(apiAccessToken, { limit: 40, sinceDays: 21 }).then((res) => {
+                  setHeygenSyncBusy(false);
+                  if (!res) {
+                    setToast('Synchronizace HeyGen selhala.');
+                    return;
+                  }
+                  setHeygenSyncResult(
+                    `Nalezeno v HeyGen: ${res.foundInHeyGen}, obnoveno: ${res.recovered}, galerie: ${res.storedInGallery}, processing: ${res.stillProcessing}, chybí ID: ${res.providerIdMissing}, chyby: ${res.errors}`,
+                  );
+                  setToast(`Synchronizace dokončena — ${res.storedInGallery} videí v galerii.`);
+                  loadCore();
+                });
+              }}
+            >
+              {heygenSyncBusy ? 'Synchronizuji HeyGen…' : 'Synchronizovat dokončená HeyGen videa'}
+            </button>
+            {heygenSyncResult ? <p className="mt-2 text-xs text-zinc-600">{heygenSyncResult}</p> : null}
+          </section>
+
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">Automatika a publikování</h2>
             <div className="mt-3 flex flex-wrap gap-4 text-sm">

@@ -7,6 +7,7 @@ import {
 
 export type MetaFacebookHealthStatus =
   | 'READY'
+  | 'CONNECTED_RATE_LIMITED'
   | 'RATE_LIMITED'
   | 'AUTH_REQUIRED'
   | 'PERMISSION_MISSING'
@@ -39,7 +40,7 @@ export class MetaProviderHealthService {
     result: FacebookTestConnectionResult,
     storedPageConnected: boolean,
   ): MetaFacebookHealthStatus {
-    if (result.healthStatus === 'RATE_LIMITED' || result.rateLimited) return 'RATE_LIMITED';
+    if (result.healthStatus === 'RATE_LIMITED' || result.rateLimited) return 'CONNECTED_RATE_LIMITED';
     if (result.ok) return 'READY';
     if (result.healthStatus === 'AUTH_REQUIRED') return 'AUTH_REQUIRED';
     if (!storedPageConnected) return 'DISCONNECTED';
@@ -67,10 +68,10 @@ export class MetaProviderHealthService {
       ...probe,
       ok: probe.ok,
       connected,
-      rateLimited: status === 'RATE_LIMITED',
+      rateLimited: status === 'CONNECTED_RATE_LIMITED' || status === 'RATE_LIMITED',
       healthStatus:
-        status === 'RATE_LIMITED'
-          ? 'RATE_LIMITED'
+        status === 'CONNECTED_RATE_LIMITED' || status === 'RATE_LIMITED'
+          ? 'CONNECTED_RATE_LIMITED'
           : status === 'READY'
             ? 'READY'
             : probe.healthStatus,

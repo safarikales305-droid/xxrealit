@@ -43,7 +43,7 @@ export type FacebookTestResult = {
   ok: boolean;
   connected?: boolean;
   rateLimited?: boolean;
-  healthStatus?: 'READY' | 'RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
+  healthStatus?: 'READY' | 'RATE_LIMITED' | 'CONNECTED_RATE_LIMITED' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'API_ERROR';
   pageId?: string;
   pageName?: string;
   error?: string;

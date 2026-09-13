@@ -141,6 +141,19 @@ import type { ReelScriptPayload } from './ai-influencer.types';
 import { validateAndNormalizeStoryboard } from './ai-influencer-storyboard.util';
 import { FfmpegRenderError } from './ai-influencer-ffmpeg.util';
 
+export type HeyGenPortalSyncResult = {
+  scanned: number;
+  foundInHeyGen: number;
+  recovered: number;
+  storedInGallery: number;
+  stillProcessing: number;
+  providerIdMissing: number;
+  unmatched: number;
+  errors: number;
+  newHeyGenCreateCalls: number;
+  details: Array<{ jobId: string; title: string; outcome: string; message?: string }>;
+};
+
 type AiInfluencerJobWithRelations = Prisma.AiInfluencerReelJobGetPayload<{
   include: {
     article: true;
@@ -677,9 +690,6 @@ export class AiInfluencerJobService {
       const autoAdvance =
         cfg.approvalMode !== 'MANUAL' || job.isTest || meta.isProductionTest === true;
       return !autoAdvance;
-    }
-    if (job.status === AiInfluencerReelJobStatus.AVATAR_GENERATING) {
-      return true;
     }
     return false;
   }
@@ -2146,6 +2156,243 @@ export class AiInfluencerJobService {
     return recovered;
   }
 
+  /** Backend HeyGen polling — volat každý worker tick, nezávisle na advanceJobChain. */
+  async pollHeyGenActiveJobs(limit = 20): Promise<{ polled: number; finalized: number; errors: number }> {
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_READY,
+            AiInfluencerReelJobStatus.FAILED,
+          ],
+        },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit * 3,
+      select: {
+        id: true,
+        status: true,
+        avatarExternalJobId: true,
+        renderSettingsJson: true,
+        baseMasterUrl: true,
+        finalMasterUrl: true,
+        videoUrl: true,
+        avatarStorageUrl: true,
+      },
+    });
+
+    let polled = 0;
+    let finalized = 0;
+    let errors = 0;
+    for (const row of rows.slice(0, limit)) {
+      if (hasMasterVideoAsset(row)) continue;
+      const meta = readJobRenderMeta(row.renderSettingsJson);
+      const sessionId = extractSessionIdForRecovery(meta, row.avatarExternalJobId);
+      const hadGallery = hasMasterVideoAsset(row);
+
+      try {
+        if (
+          row.status === AiInfluencerReelJobStatus.AVATAR_READY &&
+          row.baseMasterUrl?.trim() &&
+          !row.finalMasterUrl?.trim() &&
+          !row.videoUrl?.trim()
+        ) {
+          await this.advanceJob(row.id);
+          finalized += 1;
+          continue;
+        }
+
+        if (!sessionId) continue;
+
+        if (row.status === AiInfluencerReelJobStatus.FAILED) {
+          await this.prisma.aiInfluencerReelJob.update({
+            where: { id: row.id },
+            data: {
+              status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+              errorCode: null,
+              errorMessage: null,
+              failedStage: null,
+            },
+          });
+        }
+
+        polled += 1;
+        await this.runVideoAgentPoll(row.id);
+        const after = await this.prisma.aiInfluencerReelJob.findUnique({
+          where: { id: row.id },
+          select: {
+            status: true,
+            finalMasterUrl: true,
+            baseMasterUrl: true,
+            videoUrl: true,
+            avatarStorageUrl: true,
+          },
+        });
+        if (after && !hadGallery && hasMasterVideoAsset(after)) {
+          finalized += 1;
+        } else if (
+          after &&
+          (after.status === AiInfluencerReelJobStatus.READY ||
+            after.status === AiInfluencerReelJobStatus.PUBLISHED ||
+            after.status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED)
+        ) {
+          finalized += 1;
+        }
+      } catch (err) {
+        errors += 1;
+        this.log.warn(
+          `HeyGen poll ${row.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { polled, finalized, errors };
+  }
+
+  async countHeyGenPendingImport(): Promise<number> {
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        isTest: false,
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_READY,
+            AiInfluencerReelJobStatus.FAILED,
+          ],
+        },
+      },
+      select: {
+        id: true,
+        avatarExternalJobId: true,
+        renderSettingsJson: true,
+        finalMasterUrl: true,
+        baseMasterUrl: true,
+        videoUrl: true,
+        avatarStorageUrl: true,
+      },
+      take: 200,
+    });
+    return rows.filter((row) => {
+      if (hasMasterVideoAsset(row)) return false;
+      const meta = readJobRenderMeta(row.renderSettingsJson);
+      return hasPersistedVideoAgentProviderId(meta, row.avatarExternalJobId);
+    }).length;
+  }
+
+  /** Ruční / cron synchronizace dokončených HeyGen videí do portálu — bez nových CREATE. */
+  async syncHeyGenVideosToPortal(options?: {
+    limit?: number;
+    sinceDays?: number;
+  }): Promise<HeyGenPortalSyncResult> {
+    const limit = Math.max(1, options?.limit ?? 30);
+    const since = new Date(Date.now() - (options?.sinceDays ?? 14) * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        createdAt: { gte: since },
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.AVATAR_READY,
+            AiInfluencerReelJobStatus.FAILED,
+            AiInfluencerReelJobStatus.RENDERING,
+            AiInfluencerReelJobStatus.VOICE_READY,
+            AiInfluencerReelJobStatus.SCRIPT_READY,
+          ],
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit * 4,
+      include: { article: { select: { title: true } } },
+    });
+
+    const result: HeyGenPortalSyncResult = {
+      scanned: 0,
+      foundInHeyGen: 0,
+      recovered: 0,
+      storedInGallery: 0,
+      stillProcessing: 0,
+      providerIdMissing: 0,
+      unmatched: 0,
+      errors: 0,
+      newHeyGenCreateCalls: 0,
+      details: [],
+    };
+
+    for (const job of rows) {
+      if (result.scanned >= limit) break;
+      if (hasMasterVideoAsset(job)) continue;
+
+      result.scanned += 1;
+      const title = job.article?.title ?? job.captionTitle ?? job.id;
+      const meta = readJobRenderMeta(job.renderSettingsJson);
+      const sessionId = extractSessionIdForRecovery(meta, job.avatarExternalJobId);
+
+      if (!sessionId) {
+        result.providerIdMissing += 1;
+        result.details.push({
+          jobId: job.id,
+          title,
+          outcome: 'PROVIDER_ID_MISSING',
+          message: 'Chybí HeyGen session ID — nelze bezpečně obnovit bez provider reference.',
+        });
+        continue;
+      }
+
+      try {
+        const reconcile = await this.reconcileHeyGenJob(job.id);
+        if (reconcile.outcome === 'RECOVERED' || reconcile.outcome === 'ALREADY_ARCHIVED') {
+          result.foundInHeyGen += 1;
+          result.recovered += 1;
+          result.storedInGallery += 1;
+          result.details.push({ jobId: job.id, title, outcome: reconcile.outcome });
+          continue;
+        }
+        if (reconcile.outcome === 'PROVIDER_RUNNING') {
+          result.foundInHeyGen += 1;
+          result.stillProcessing += 1;
+          await this.runVideoAgentPoll(job.id);
+          const refreshed = await this.getJob(job.id);
+          if (hasMasterVideoAsset(refreshed) || refreshed.status === AiInfluencerReelJobStatus.READY) {
+            result.recovered += 1;
+            result.storedInGallery += 1;
+            result.details.push({ jobId: job.id, title, outcome: 'RECOVERED_AFTER_POLL' });
+          } else {
+            result.details.push({
+              jobId: job.id,
+              title,
+              outcome: 'STILL_PROCESSING',
+              message: reconcile.message ?? undefined,
+            });
+          }
+          continue;
+        }
+        if (reconcile.outcome === 'NO_PROVIDER_JOB') {
+          result.providerIdMissing += 1;
+          result.details.push({ jobId: job.id, title, outcome: 'NO_PROVIDER_JOB' });
+          continue;
+        }
+        result.unmatched += 1;
+        result.details.push({
+          jobId: job.id,
+          title,
+          outcome: reconcile.outcome,
+          message: reconcile.message ?? undefined,
+        });
+      } catch (err) {
+        result.errors += 1;
+        result.details.push({
+          jobId: job.id,
+          title,
+          outcome: 'ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return result;
+  }
+
   private async assertPaidGenerationPreflight(
     jobId: string,
     job: AiInfluencerJobWithRelations,
@@ -2616,7 +2863,12 @@ export class AiInfluencerJobService {
     const meta = readJobRenderMeta(job.renderSettingsJson);
 
     this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_COMPLETE providerUrl=present`);
-    await this.setProgressMeta(jobId, RENDER_PROGRESS.DOWNLOAD, 'DOWNLOAD');
+    await this.setProgressMeta(
+      jobId,
+      { percent: 75, step: 'HeyGen dokončil video', stepKey: 'HEYGEN_COMPLETED' },
+      'HEYGEN_COMPLETED',
+    );
+    await this.setProgressMeta(jobId, RENDER_PROGRESS.DOWNLOAD, 'VIDEO_DOWNLOAD_STARTED');
 
     let buffer: Buffer;
     try {
@@ -2635,7 +2887,11 @@ export class AiInfluencerJobService {
     }
 
     this.log.log(`[AI-VIDEO][${jobId}] DOWNLOAD bytes=${buffer.length}`);
-    await this.setProgressMeta(jobId, RENDER_PROGRESS.UPLOAD, 'STORAGE');
+    await this.setProgressMeta(
+      jobId,
+      { percent: 90, step: 'Ukládám do XXREALIT', stepKey: 'STORING' },
+      'VIDEO_STORAGE_STARTED',
+    );
 
     const videoUrl = await this.cloudinary.uploadVideoBuffer(
       buffer,

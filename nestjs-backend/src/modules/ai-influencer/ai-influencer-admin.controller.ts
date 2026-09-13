@@ -78,11 +78,12 @@ export class AiInfluencerAdminController {
   @Get('dashboard')
   async getDashboard() {
     const cfg = await this.settings.getSettings();
-    const [stats, recentCompleted, workerDiagnostics, todayJobs] = await Promise.all([
+    const [stats, recentCompleted, workerDiagnostics, todayJobs, heygenPendingImport] = await Promise.all([
       aggregateAiInfluencerDashboardStats(this.prisma),
       this.jobs.listRecentCompleted(10),
       this.worker.getDiagnostics(),
       this.jobs.getTodayJobsDiagnostic(),
+      this.jobs.countHeyGenPendingImport(),
     ]);
     const providers = await this.getProviderStatus();
     const productionVerification = await this.jobs.getLastProductionTestVerification();
@@ -116,6 +117,7 @@ export class AiInfluencerAdminController {
         failedAllTime: stats.failedAllTime,
         costTodayCzk: stats.costTodayCzk,
         costMonthCzk: stats.costMonthCzk,
+        heygenPendingImport,
       },
       debugCounts: {
         jobsToday: stats.jobsStartedToday,
@@ -265,6 +267,12 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/reconcile-heygen')
   reconcileHeyGenJob(@Param('id') id: string) {
     return this.jobs.reconcileHeyGenJob(id);
+  }
+
+  @Post('heygen/sync')
+  @HttpCode(HttpStatus.OK)
+  syncHeyGenVideos(@Body() body?: { limit?: number; sinceDays?: number }) {
+    return this.jobs.syncHeyGenVideosToPortal(body);
   }
 
   @Get('jobs/:id/heygen-diagnostics')
@@ -978,23 +986,34 @@ export class AiInfluencerAdminController {
       facebook: {
         configured: true,
         connected: fb.connected ?? fb.storedPageConnected ?? fb.ok,
-        rateLimited: fb.status === 'RATE_LIMITED' || fb.rateLimited === true,
+        storedPageConnected: fb.storedPageConnected ?? Boolean(fb.pageId),
+        rateLimited:
+          fb.status === 'CONNECTED_RATE_LIMITED' ||
+          fb.status === 'RATE_LIMITED' ||
+          fb.rateLimited === true,
         healthStatus:
-          fb.status ??
-          fb.healthStatus ??
-          (fb.ok ? 'READY' : fb.connected ? 'API_ERROR' : 'NOT_CONNECTED'),
+          fb.status === 'CONNECTED_RATE_LIMITED' || fb.status === 'RATE_LIMITED'
+            ? 'CONNECTED_RATE_LIMITED'
+            : fb.status ??
+              fb.healthStatus ??
+              (fb.ok ? 'READY' : fb.connected ? 'API_ERROR' : 'NOT_CONNECTED'),
         pageId: this.maskId(fb.pageId),
         pageName: fb.pageName ?? null,
-        tokenActive:
-          fb.ok ||
-          ((fb.connected === true || fb.storedPageConnected === true) && fb.status !== 'RATE_LIMITED'),
+        tokenActive: Boolean(
+          fb.ok || fb.connected || fb.storedPageConnected || fb.pageId,
+        ),
         lastError: fb.error ?? null,
-        hint: fb.hint ?? null,
+        hint:
+          fb.status === 'CONNECTED_RATE_LIMITED' || fb.rateLimited
+            ? 'Připojeno, Meta dočasně omezuje API požadavky.'
+            : fb.hint ?? null,
         checkedAt: fb.checkedAt ?? null,
         nextCheckAt: fb.nextCheckAt ?? null,
         lastSuccessfulCheckAt: fb.lastSuccessfulCheckAt ?? null,
         publishStatus:
-          fb.status === 'RATE_LIMITED' || fb.rateLimited
+          fb.status === 'CONNECTED_RATE_LIMITED' ||
+          fb.status === 'RATE_LIMITED' ||
+          fb.rateLimited
             ? 'RATE_LIMITED'
             : fb.ok
               ? 'READY'

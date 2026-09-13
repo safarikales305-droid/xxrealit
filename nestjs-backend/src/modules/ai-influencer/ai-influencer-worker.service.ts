@@ -235,6 +235,13 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
         }
       }
 
+      const heygenPoll = await this.jobs.pollHeyGenActiveJobs(20);
+      if (heygenPoll.polled > 0 || heygenPoll.finalized > 0) {
+        this.log.log(
+          `[AI Influencer] HeyGen poll: polled=${heygenPoll.polled} finalized=${heygenPoll.finalized} errors=${heygenPoll.errors}`,
+        );
+      }
+
       const cfg = this.settings.getCached();
       const concurrency = Math.max(1, cfg.jobsConcurrency);
       const active = await this.prisma.aiInfluencerReelJob.findMany({
