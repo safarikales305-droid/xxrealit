@@ -40,6 +40,28 @@ export const TERMINAL_JOB_STATUSES: AiInfluencerReelJobStatus[] = [
   ...SKIPPED_JOB_STATUSES,
 ];
 
+/** Normal admin cancel — vše kromě finálních stavů a FAILED. */
+export const ADMIN_NON_CANCELLABLE_STATUSES: AiInfluencerReelJobStatus[] = [
+  AiInfluencerReelJobStatus.READY,
+  AiInfluencerReelJobStatus.PUBLISHED,
+  AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED,
+  AiInfluencerReelJobStatus.CANCELLED,
+  AiInfluencerReelJobStatus.FAILED,
+  ...SKIPPED_JOB_STATUSES,
+];
+
+export function isAdminCancellableStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return !ADMIN_NON_CANCELLABLE_STATUSES.includes(status as AiInfluencerReelJobStatus);
+}
+
+export function isForceCancellableStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return (
+    status !== AiInfluencerReelJobStatus.PUBLISHED &&
+    status !== AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED &&
+    status !== AiInfluencerReelJobStatus.CANCELLED
+  );
+}
+
 export function skippedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return { status: { in: SKIPPED_JOB_STATUSES } };
 }

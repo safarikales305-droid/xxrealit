@@ -220,6 +220,12 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
         `[AI Influencer] Reconciled ${legacy.reconciled}/${legacy.scanned} legacy active job(s)`,
       );
     }
+    const repair = await this.jobs.repairAiInfluencerJobs({ limit: 30 });
+    if (repair.scanned > 0) {
+      this.log.log(
+        `[AI Influencer] Startup repair: scanned=${repair.scanned} recovered=${repair.recovered} cancelled=${repair.cancelled} orphaned=${repair.orphaned}`,
+      );
+    }
   }
 
   async tick() {

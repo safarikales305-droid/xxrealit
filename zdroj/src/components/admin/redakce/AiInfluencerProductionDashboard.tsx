@@ -12,6 +12,8 @@ import {
   nestAiInfluencerArticles,
   nestAiInfluencerActiveJobs,
   nestAiInfluencerCancelJob,
+  nestAiInfluencerForceCancelJob,
+  nestAiInfluencerRepairJobs,
   nestAiInfluencerCreateJob,
   nestAiInfluencerDashboard,
   nestAiInfluencerDeleteFailedJobs,
@@ -55,6 +57,7 @@ import {
   type AiInfluencerPipelineStep,
   type ManualPublishChannel,
   type ManualPublishResult,
+  type AiInfluencerRepairReport,
   type ProductionTestStatus,
   type ScriptProviderTestResult,
 } from '@/lib/ai-influencer-client';
@@ -87,7 +90,6 @@ function isActiveGenerationStatus(status: string) {
   return (ACTIVE_GENERATION_STATUSES as readonly string[]).includes(status);
 }
 
-const ACTIVE_JOBS_STORAGE_KEY = 'xxrealit.ai-influencer.activeJobs';
 const SEEN_TOAST_EVENTS_KEY = 'xxrealit.ai-influencer.seenToastEvents';
 
 function readSeenToastEvents(): Set<string> {
@@ -129,29 +131,6 @@ function buildVideoReadyEventId(row: AiInfluencerJobRow): string {
   const completedAt =
     row.gallery?.completedAtIso ?? row.renderedAt ?? row.updatedAt ?? row.createdAt ?? '';
   return `${row.id}:${completedAt}:VIDEO_READY`;
-}
-
-function readCachedActiveJobs(): AiInfluencerActiveJob[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.sessionStorage.getItem(ACTIVE_JOBS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as AiInfluencerActiveJob[];
-    return Array.isArray(parsed) ? parsed.filter((job) => isActiveGenerationStatus(job.status)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function mergeActiveJobLists(
-  apiJobs: AiInfluencerActiveJob[],
-  localJobs: AiInfluencerActiveJob[],
-): AiInfluencerActiveJob[] {
-  const apiIds = new Set(apiJobs.map((job) => job.id));
-  const optimistic = localJobs.filter(
-    (job) => !apiIds.has(job.id) && isActiveGenerationStatus(job.status),
-  );
-  return [...apiJobs, ...optimistic];
 }
 
 function isProcessing(status: string) {
@@ -461,7 +440,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [dashboard, setDashboard] = useState<AiInfluencerDashboard | null>(null);
   const [articles, setArticles] = useState<AiInfluencerArticleRow[]>([]);
   const [jobs, setJobs] = useState<AiInfluencerJobRow[]>([]);
-  const [activeJobs, setActiveJobs] = useState<AiInfluencerActiveJob[]>(() => readCachedActiveJobs());
+  const [activeJobs, setActiveJobs] = useState<AiInfluencerActiveJob[]>([]);
   const [videos, setVideos] = useState<AiInfluencerJobRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -502,6 +481,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const prevActiveIdsRef = useRef<string[]>([]);
   const [cancelModalJob, setCancelModalJob] = useState<AiInfluencerActiveJob | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairResult, setRepairResult] = useState<AiInfluencerRepairReport | null>(null);
 
   const includeTestInApi = showTestVideos || videoFilter === 'test';
   const generationBlocked = activeJobs.length > 0;
@@ -520,7 +501,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       if (d) setDashboard(d);
       if (a) setArticles(a);
       if (j) setJobs(j);
-      if (active) setActiveJobs((prev) => mergeActiveJobLists(active, prev));
+      if (active) setActiveJobs(active);
       if (v) setVideos(v);
       if (profile && typeof profile.voiceId === 'string') setSelectedVoiceId(profile.voiceId);
       if (profile && typeof profile.avatarId === 'string') setSelectedAvatarId(profile.avatarId);
@@ -572,19 +553,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     return () => window.clearInterval(id);
   }, [apiAccessToken, tab, productionTest?.jobId, productionTest?.progress.outcome]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.sessionStorage.setItem(
-        ACTIVE_JOBS_STORAGE_KEY,
-        JSON.stringify(activeJobs.filter((job) => isActiveGenerationStatus(job.status))),
-      );
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, [activeJobs]);
-
   useEffect(loadCore, [loadCore]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.removeItem('xxrealit.ai-influencer.activeJobs');
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (!apiAccessToken) return;
@@ -626,7 +603,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             }
           }
           prevActiveIdsRef.current = nextIds;
-          setActiveJobs((prev) => mergeActiveJobLists(active, prev));
+          setActiveJobs(active);
         }
         if (v) setVideos(v);
         if (d) setDashboard(d);
@@ -767,20 +744,55 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     setCancelModalJob(job);
   };
 
-  const confirmCancel = () => {
+  const confirmCancel = (force = false) => {
     if (!cancelModalJob) return;
     const jobId = cancelModalJob.id;
     setBusy(`cancel-${jobId}`);
-    void nestAiInfluencerCancelJob(apiAccessToken, jobId).then((result) => {
+    const request = force
+      ? nestAiInfluencerForceCancelJob(apiAccessToken, jobId)
+      : nestAiInfluencerCancelJob(apiAccessToken, jobId);
+    void request.then((result) => {
       setBusy(null);
-      if (result.error || !result.data) {
-        setCancelError(result.error ?? 'Zrušení výroby selhalo.');
+      if (result.error) {
+        setCancelError(result.error);
+        return;
+      }
+      const cleanedOrphan =
+        result.data &&
+        typeof result.data === 'object' &&
+        'cleanedOrphan' in result.data &&
+        result.data.cleanedOrphan === true;
+      if (!result.data && !cleanedOrphan) {
+        setCancelError('Zrušení výroby selhalo.');
         return;
       }
       setCancelModalJob(null);
+      setCancelError(null);
       setActiveJobs((prev) => prev.filter((job) => job.id !== jobId));
       prevActiveIdsRef.current = prevActiveIdsRef.current.filter((id) => id !== jobId);
-      setToast('Výroba byla zrušena.');
+      try {
+        window.sessionStorage.removeItem('xxrealit.ai-influencer.activeJobs');
+      } catch {
+        /* ignore */
+      }
+      setToast('Výroba byla ukončena.');
+      loadCore();
+    });
+  };
+
+  const handleRepairJobs = () => {
+    setRepairBusy(true);
+    setRepairResult(null);
+    void nestAiInfluencerRepairJobs(apiAccessToken, 40).then((result) => {
+      setRepairBusy(false);
+      if (result.error || !result.data) {
+        setToast(result.error ?? 'Oprava jobů selhala.');
+        return;
+      }
+      setRepairResult(result.data);
+      setToast(
+        `Oprava: nalezeno ${result.data.scanned}, obnoveno ${result.data.recovered}, zrušeno ${result.data.cancelled}, orphan ${result.data.orphaned}`,
+      );
       loadCore();
     });
   };
@@ -799,42 +811,14 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       return;
     }
     const created = result.data;
-    const optimistic: AiInfluencerActiveJob = {
-      id: created.jobId,
-      status: created.status,
-      progressPercent: created.progress,
-      currentStep: isActiveGenerationStatus(created.status) ? 'Čeká ve frontě' : created.status,
-      errorMessage: null,
-      failedStage: null,
-      skipReason: null,
-      facebookPublishStatus: null,
-      youtubePublishStatus: null,
-      articleTitle: created.articleTitle,
-      score: null,
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      generationMode: created.generationMode,
-      sourceType: 'article',
-    };
-    if (isActiveGenerationStatus(created.status)) {
-      setActiveJobs((prev) => mergeActiveJobLists([optimistic], prev));
-      prevActiveIdsRef.current = [optimistic.id, ...prevActiveIdsRef.current.filter((id) => id !== optimistic.id)];
-    }
     setCreateState('accepted');
     setToast('Výroba byla spuštěna');
     setCreateOpen(false);
     setCreateState('idle');
     setCreateError(null);
     setTab('production');
-    void Promise.all([
-      nestAiInfluencerActiveJobs(apiAccessToken),
-      nestAiInfluencerDashboard(apiAccessToken),
-      nestAiInfluencerJobs(apiAccessToken),
-    ]).then(([active, d, j]) => {
-      if (active) setActiveJobs((prev) => mergeActiveJobLists(active, prev));
-      if (d) setDashboard(d);
-      if (j) setJobs(j);
-    });
+    prevActiveIdsRef.current = [created.jobId, ...prevActiveIdsRef.current.filter((id) => id !== created.jobId)];
+    loadCore();
   };
 
   const openPublishModal = (job: AiInfluencerJobRow) => {
@@ -1202,6 +1186,10 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                             </span>
                           ) : null}
                           {job.articleTitle}
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          Job ID: {job.canonicalJobId ?? job.id}
+                          {job.providerJobId ? ` · HeyGen: ${job.providerJobId}` : ''}
                         </p>
                         <p className="text-xs text-zinc-500">
                           Zdroj: {job.sourceType === 'property' ? 'nemovitost' : 'článek'} · Režim: {modeLabel(job.generationMode)}
@@ -2170,7 +2158,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                     </div>
                     {Object.entries(productionTest.qualityReport).map(([key, value]) => (
                       <p key={key} className="text-xs text-zinc-600">
-                        {key}: {value}
+                        {key}: {String(value)}
                       </p>
                     ))}
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -2266,6 +2254,23 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <div className="mt-3 space-y-1 font-mono text-xs text-zinc-600">
                 <p>jobsToday: {dashboard?.debugCounts?.jobsToday ?? '—'}</p>
                 <p>activeJobs: {dashboard?.debugCounts?.activeJobs ?? '—'}</p>
+                <div className="py-2">
+                  <button
+                    type="button"
+                    disabled={repairBusy}
+                    className="rounded bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                    onClick={handleRepairJobs}
+                  >
+                    {repairBusy ? 'Opravuji…' : 'Opravit zaseknuté joby'}
+                  </button>
+                  {repairResult ? (
+                    <p className="mt-2 text-xs text-zinc-700">
+                      Nalezeno: {repairResult.scanned} · Obnoveno: {repairResult.recovered} · Zrušeno:{' '}
+                      {repairResult.cancelled} · Dokončeno: {repairResult.completed} · Orphan:{' '}
+                      {repairResult.orphaned} · Duplicity: {repairResult.duplicates}
+                    </p>
+                  ) : null}
+                </div>
                 <p>queuedJobsToday: {dashboard?.debugCounts?.queuedJobsToday ?? '—'}</p>
                 <p>skippedJobsToday: {dashboard?.debugCounts?.skippedJobsToday ?? '—'}</p>
                 <p>jobsUnaccountedToday: {dashboard?.debugCounts?.jobsUnaccountedToday ?? '—'}</p>
@@ -2536,7 +2541,9 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p>Stav: {detailJob.status}</p>
               <p>Test / Produkční: {detailJob.isTest ? 'TEST' : 'PRODUKČNÍ'}</p>
               <p>Režim: {modeLabel(detailJob.generationMode ?? detailJob.display?.generationMode)}</p>
-              <p>Job ID: {detailJob.id}</p>
+              <p>XXREALIT Job ID: {detailJob.id}</p>
+              <p>HeyGen Job ID: {detailJob.providerJobIdMasked ?? '—'}</p>
+              <p>Galerie video: {detailJob.gallery?.masterVideoUrl ? 'ANO' : 'NE'}</p>
               <p>Vytvořeno: {detailJob.gallery?.createdCombinedLabel ?? detailJob.createdAt}</p>
               <p>Dokončeno: {detailJob.gallery?.completedCombinedLabel ?? detailJob.gallery?.finishedAt ?? detailJob.renderedAt ?? '—'}</p>
               <p>Publikováno: {detailJob.publishedAt ?? '—'}</p>
@@ -2698,6 +2705,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 : 'Tato výroba bude okamžitě zastavena.'}
             </p>
             <p className="mt-2 text-sm font-medium text-zinc-900">{cancelModalJob.articleTitle}</p>
+            <p className="mt-1 font-mono text-xs text-zinc-500">XXREALIT Job ID: {cancelModalJob.id}</p>
             {cancelError ? (
               <p className="mt-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{cancelError}</p>
             ) : null}
@@ -2712,11 +2720,21 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               >
                 Nechat běžet
               </button>
+              {cancelError ? (
+                <button
+                  type="button"
+                  disabled={busy === `cancel-${cancelModalJob.id}`}
+                  className="rounded-lg border border-red-400 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 disabled:opacity-60"
+                  onClick={() => confirmCancel(true)}
+                >
+                  Vynutit ukončení
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy === `cancel-${cancelModalJob.id}`}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                onClick={confirmCancel}
+                onClick={() => confirmCancel(false)}
               >
                 Zrušit výrobu
               </button>

@@ -474,6 +474,24 @@ export type AiInfluencerActiveJob = {
   heygenCreditsEstimated?: number | null;
   estimatedCostCzk?: number | null;
   totalCostCzk?: number | null;
+  canonicalJobId?: string;
+};
+
+export type AiInfluencerForceCancelResult =
+  | AiInfluencerJobRow
+  | { success: true; cleanedOrphan: true; jobId: string; message: string };
+
+export type AiInfluencerRepairReport = {
+  ok: boolean;
+  scanned: number;
+  recovered: number;
+  cancelled: number;
+  completed: number;
+  orphaned: number;
+  duplicates: number;
+  stale: number;
+  newHeyGenCreateCalls: number;
+  details: Array<{ jobId: string; outcome: string; message?: string }>;
 };
 
 export type AiInfluencerGalleryMeta = {
@@ -1074,6 +1092,24 @@ export function nestAiInfluencerCancelJob(token: string, jobId: string, reason?:
   return aiInfluencerFetchWithError<AiInfluencerJobRow>(token, `/jobs/${jobId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
+  });
+}
+
+export function nestAiInfluencerForceCancelJob(token: string, jobId: string, reason?: string) {
+  return aiInfluencerFetchWithError<AiInfluencerForceCancelResult>(
+    token,
+    `/jobs/${jobId}/force-cancel`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+export function nestAiInfluencerRepairJobs(token: string, limit = 40) {
+  return aiInfluencerFetchWithError<AiInfluencerRepairReport>(token, '/maintenance/repair-jobs', {
+    method: 'POST',
+    body: JSON.stringify({ limit }),
   });
 }
 

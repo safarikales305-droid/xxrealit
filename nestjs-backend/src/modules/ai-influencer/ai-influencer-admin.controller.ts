@@ -241,6 +241,16 @@ export class AiInfluencerAdminController {
     return this.jobs.cancelJob(id, body?.reason);
   }
 
+  @Post('jobs/:id/force-cancel')
+  forceCancelJob(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.jobs.forceCancelJob(id, body?.reason);
+  }
+
+  @Post('maintenance/repair-jobs')
+  repairJobs(@Body() body?: { limit?: number }) {
+    return this.jobs.repairAiInfluencerJobs(body);
+  }
+
   @Delete('jobs/:id')
   deleteJob(@Param('id') id: string, @Query('historyOnly') historyOnly?: string) {
     return this.jobs.deleteJob(id, { historyOnly: historyOnly === '1' || historyOnly === 'true' });

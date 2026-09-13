@@ -27,6 +27,8 @@ import {
   ACTIVE_JOB_STATUSES,
   galleryVideoWhere,
   hasMasterVideoAsset,
+  isAdminCancellableStatus,
+  isForceCancellableStatus,
   isActiveGenerationStatus,
   isCompletedGenerationStatus,
   isFailedGenerationStatus,
@@ -157,6 +159,10 @@ import {
   type ActiveVideoGenerationConflict,
   videoGenerationLockWhere,
 } from './ai-influencer-single-flight.util';
+import {
+  assessStaleActiveJob,
+  type AiInfluencerRepairReport,
+} from './ai-influencer-job-repair.util';
 
 export type HeyGenPortalSyncResult = {
   scanned: number;
@@ -268,7 +274,12 @@ export class AiInfluencerJobService {
     const cfg = this.settings.getCached();
     const workerElevenConfigured = getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED';
     const heygenConfigured = this.heygenConfig.isApiKeyConfigured();
-    return active.map((j) => {
+    return active
+      .filter((j) => {
+        const meta = readJobRenderMeta(j.renderSettingsJson);
+        return !shouldSkipPipelineForCancel(j.status, meta);
+      })
+      .map((j) => {
       const display = buildJobAdminDisplay(j, cfg, { workerElevenConfigured, heygenConfigured });
       const meta = readJobRenderMeta(j.renderSettingsJson);
       const providerJobId = resolveJobProviderJobId(meta, j.avatarExternalJobId);
@@ -307,6 +318,7 @@ export class AiInfluencerJobService {
         heygenCreditsEstimated: meta.heygenCreditsEstimated ?? null,
         estimatedCostCzk: j.avatarCostEstimated ?? null,
         totalCostCzk: j.totalExternalCost ?? null,
+        canonicalJobId: j.id,
       };
     });
   }
@@ -364,10 +376,10 @@ export class AiInfluencerJobService {
             reconciled += 1;
             continue;
           }
-          await this.cancelJob(row.id, 'Legacy reconciliation — duplicitní aktivní job');
+          await this.forceCancelJob(row.id, 'Legacy reconciliation — duplicitní aktivní job');
           reconciled += 1;
         } else if (ageMs > 30 * 60 * 1000) {
-          await this.cancelJob(row.id, 'Legacy reconciliation — zastaralý job bez provider ID');
+          await this.forceCancelJob(row.id, 'Legacy reconciliation — zastaralý job bez provider ID');
           reconciled += 1;
         }
       } catch (err) {
@@ -944,7 +956,11 @@ export class AiInfluencerJobService {
   }
 
   async skipJob(jobId: string, reason?: string): Promise<AiInfluencerJobWithRelations> {
-    return this.cancelJob(jobId, reason ?? 'Přeskočeno administrátorem');
+    const result = await this.forceCancelJob(jobId, reason ?? 'Přeskočeno administrátorem');
+    if ('cleanedOrphan' in result && result.cleanedOrphan) {
+      throw new NotFoundException(result.message);
+    }
+    return result as AiInfluencerJobWithRelations;
   }
 
   async cancelJob(
@@ -952,20 +968,82 @@ export class AiInfluencerJobService {
     reason?: string,
     cancelledBy = 'admin',
   ): Promise<AiInfluencerJobWithRelations> {
-    const job = await this.getJob(jobId);
-    if (!ACTIVE_JOB_STATUSES.includes(job.status)) {
-      throw new BadRequestException('Job nelze zrušit — není ve zpracování.');
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      include: {
+        article: true,
+        property: true,
+        profile: true,
+        candidate: true,
+      },
+    });
+    if (!job) {
+      throw new NotFoundException('AI Influencer job nenalezen.');
     }
+    if (!isAdminCancellableStatus(job.status)) {
+      throw new BadRequestException(
+        `Job nelze zrušit — stav ${job.status} je finální. Použijte vynucené ukončení.`,
+      );
+    }
+    return this.applyJobCancel(job, reason ?? 'Zrušeno administrátorem', cancelledBy, false);
+  }
 
+  async forceCancelJob(
+    jobId: string,
+    reason?: string,
+    cancelledBy = 'admin',
+  ): Promise<
+    | (AiInfluencerJobWithRelations & { cleanedOrphan?: false })
+    | { success: true; cleanedOrphan: true; jobId: string; message: string }
+  > {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      include: {
+        article: true,
+        property: true,
+        profile: true,
+        candidate: true,
+      },
+    });
+    if (!job) {
+      return {
+        success: true,
+        cleanedOrphan: true,
+        jobId,
+        message: 'Ghost/orphan záznam vyčištěn — job v DB neexistuje.',
+      };
+    }
+    if (job.status === AiInfluencerReelJobStatus.CANCELLED) {
+      const cfg = this.settings.getCached();
+      const enriched = this.enrichJobRow(job, cfg, getElevenLabsRuntimeConfig().apiKeyPresence === 'CONFIGURED');
+      return {
+        ...enriched,
+        gallery: buildGalleryVideoMeta(job),
+        isTest: job.isTest,
+        cleanedOrphan: false,
+      } as AiInfluencerJobWithRelations & { cleanedOrphan: false };
+    }
+    if (!isForceCancellableStatus(job.status)) {
+      throw new BadRequestException(`Job ${jobId} nelze vynutit — stav ${job.status}.`);
+    }
+    return this.applyJobCancel(job, reason ?? 'Vynuceně ukončeno administrátorem', cancelledBy, true);
+  }
+
+  private async applyJobCancel(
+    job: AiInfluencerJobWithRelations,
+    cancelReason: string,
+    cancelledBy: string,
+    force: boolean,
+  ): Promise<AiInfluencerJobWithRelations & { cleanedOrphan?: false }> {
+    const jobId = job.id;
     const meta = readJobRenderMeta(job.renderSettingsJson);
-    if (shouldSkipPipelineForCancel(job.status, meta)) {
-      return job;
+    if (!force && shouldSkipPipelineForCancel(job.status, meta) && job.status === AiInfluencerReelJobStatus.CANCELLED) {
+      return job as AiInfluencerJobWithRelations & { cleanedOrphan?: false };
     }
 
     const now = new Date().toISOString();
-    const cancelReason = reason ?? 'Zrušeno administrátorem';
     const providerSubmitted = isProviderSubmittedForCancel(meta, job.avatarExternalJobId);
-    let cancelPhase: AiInfluencerCancelPhase = providerSubmitted
+    const cancelPhase: AiInfluencerCancelPhase = providerSubmitted
       ? 'CANCELLED_PROVIDER_CONTINUES'
       : 'CANCELLED';
 
@@ -980,6 +1058,9 @@ export class AiInfluencerJobService {
             ? 'Zrušeno (HeyGen může pokračovat)'
             : 'Zrušeno',
         nextRetryAt: null,
+        failedStage: null,
+        errorCode: force ? 'FORCE_CANCELLED' : job.errorCode,
+        errorMessage: null,
         facebookPublishStatus:
           job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED
             ? job.facebookPublishStatus
@@ -1002,9 +1083,13 @@ export class AiInfluencerJobService {
           providerWasSubmitted: providerSubmitted,
           creditLikelyConsumed: providerSubmitted,
           videoAgentSubmitInFlight: false,
+          claimedAt: undefined,
+          workerInstanceId: undefined,
+          queueWarning: undefined,
+          queueStalledAt: undefined,
         }) as object,
         timelineEvents: appendTimelineEvent(
-          appendTimelineEvent(job.timelineEvents, 'CANCEL_REQUESTED'),
+          appendTimelineEvent(job.timelineEvents, force ? 'FORCE_CANCEL_REQUESTED' : 'CANCEL_REQUESTED'),
           cancelPhase === 'CANCELLED_PROVIDER_CONTINUES' ? 'CANCELLED_PROVIDER_CONTINUES' : 'CANCELLED',
           cancelReason,
         ),
@@ -1013,6 +1098,164 @@ export class AiInfluencerJobService {
 
     this.worker.wake();
     return this.getJob(jobId);
+  }
+
+  async repairAiInfluencerJobs(options?: { limit?: number }): Promise<AiInfluencerRepairReport> {
+    const limit = Math.max(1, Math.min(options?.limit ?? 40, 100));
+    const report: AiInfluencerRepairReport = {
+      ok: true,
+      scanned: 0,
+      recovered: 0,
+      cancelled: 0,
+      completed: 0,
+      orphaned: 0,
+      duplicates: 0,
+      stale: 0,
+      newHeyGenCreateCalls: 0,
+      details: [],
+    };
+
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: activeJobWhere(),
+      orderBy: { createdAt: 'asc' },
+      take: limit * 2,
+      include: {
+        article: { select: { id: true, title: true } },
+        property: { select: { id: true, title: true } },
+      },
+    });
+    report.scanned = rows.length;
+
+    const byArticle = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const sourceKey = row.articleId ?? row.propertyId ?? row.id;
+      const bucket = byArticle.get(sourceKey) ?? [];
+      bucket.push(row);
+      byArticle.set(sourceKey, bucket);
+    }
+
+    for (const [, group] of byArticle) {
+      if (group.length <= 1) continue;
+      const [keep, ...dupes] = group.sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+      for (const dupe of dupes) {
+        await this.applyJobCancel(
+          dupe as AiInfluencerJobWithRelations,
+          'Duplicitní aktivní job — ponechán nejstarší',
+          'repair',
+          true,
+        );
+        report.duplicates += 1;
+        report.cancelled += 1;
+        report.details.push({
+          jobId: dupe.id,
+          outcome: 'CANCELLED_DUPLICATE',
+          message: `Ponechán ${keep.id}`,
+        });
+      }
+    }
+
+    const refreshed = await this.prisma.aiInfluencerReelJob.findMany({
+      where: activeJobWhere(),
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+
+    for (const row of refreshed) {
+      const meta = readJobRenderMeta(row.renderSettingsJson);
+      if (shouldSkipPipelineForCancel(row.status, meta)) {
+        continue;
+      }
+
+      const stale = assessStaleActiveJob(row, meta);
+      if (stale.stale) {
+        report.stale += 1;
+      }
+
+      const sessionId = extractSessionIdForRecovery(meta, row.avatarExternalJobId);
+
+      if (stale.reason === 'STORAGE_STALE' && (meta.providerOutputUrl || sessionId)) {
+        try {
+          await this.retryStorageJob(row.id);
+          report.recovered += 1;
+          report.details.push({ jobId: row.id, outcome: 'STORAGE_RECOVERED', message: stale.message ?? undefined });
+          continue;
+        } catch (err) {
+          report.details.push({
+            jobId: row.id,
+            outcome: 'STORAGE_RECOVERY_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      if (sessionId && (stale.reason === 'PROVIDER_POLL_STALE' || stale.reason === 'PROVIDER_MAX_AGE')) {
+        try {
+          const poll = await this.videoAgent.pollSession(sessionId);
+          if (poll.status === 'QUEUED' || poll.status === 'PROCESSING' || poll.status === 'GENERATING') {
+            await this.runVideoAgentPoll(row.id);
+            report.details.push({ jobId: row.id, outcome: 'PROVIDER_STILL_PROCESSING' });
+            continue;
+          }
+          if (poll.videoUrl) {
+            await this.runVideoAgentPoll(row.id);
+            report.recovered += 1;
+            report.completed += 1;
+            report.details.push({ jobId: row.id, outcome: 'PROVIDER_RECOVERED' });
+            continue;
+          }
+          if (poll.status === 'FAILED') {
+            await this.prisma.aiInfluencerReelJob.update({
+              where: { id: row.id },
+              data: {
+                status: AiInfluencerReelJobStatus.FAILED,
+                errorCode: poll.errorCode ?? 'HEYGEN_FAILED',
+                errorMessage: poll.errorMessage ?? 'HeyGen selhal',
+                progressPercent: 100,
+                currentStep: 'Generování selhalo',
+              },
+            });
+            report.details.push({ jobId: row.id, outcome: 'PROVIDER_FAILED' });
+            continue;
+          }
+        } catch {
+          report.details.push({ jobId: row.id, outcome: 'PROVIDER_NOT_FOUND' });
+          report.orphaned += 1;
+          await this.applyJobCancel(
+            row as AiInfluencerJobWithRelations,
+            'ORPHANED — provider job nenalezen',
+            'repair',
+            true,
+          );
+          report.cancelled += 1;
+          continue;
+        }
+      }
+
+      if (
+        stale.stale &&
+        (stale.reason === 'ORPHAN_NO_PROVIDER' ||
+          stale.reason === 'SCRIPT_STALE' ||
+          stale.reason === 'STORAGE_STALE')
+      ) {
+        await this.applyJobCancel(
+          row as AiInfluencerJobWithRelations,
+          stale.message ?? 'STALE — automatická oprava',
+          'repair',
+          true,
+        );
+        report.cancelled += 1;
+        if (stale.reason === 'ORPHAN_NO_PROVIDER') report.orphaned += 1;
+        report.details.push({
+          jobId: row.id,
+          outcome: stale.reason === 'ORPHAN_NO_PROVIDER' ? 'ORPHANED' : 'STALE_CANCELLED',
+          message: stale.message ?? undefined,
+        });
+      }
+    }
+
+    return report;
   }
 
   async retryStorageJob(jobId: string): Promise<AiInfluencerJobWithRelations> {
