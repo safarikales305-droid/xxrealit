@@ -15,6 +15,7 @@ import {
   nestAiInfluencerCreateJob,
   nestAiInfluencerDashboard,
   nestAiInfluencerDeleteFailedJobs,
+  nestAiInfluencerForceStartJob,
   nestAiInfluencerDeleteJob,
   nestAiInfluencerJobs,
   nestAiInfluencerProfile,
@@ -30,6 +31,8 @@ import {
   nestAiInfluencerRegenerateJob,
   nestAiInfluencerResumeAutomation,
   nestAiInfluencerRetryJob,
+  nestAiInfluencerRunJobNow,
+  nestAiInfluencerWakeWorker,
   nestAiInfluencerReconcileHeyGen,
   nestAiInfluencerTestAvatar,
   nestAiInfluencerTestFacebook,
@@ -558,11 +561,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     });
   }, [apiAccessToken, detailJobId]);
 
+  const skippedJobs = useMemo(
+    () => jobs.filter((j) => ['SKIPPED_QUALITY', 'SKIPPED_DUPLICATE'].includes(j.status)),
+    [jobs],
+  );
+
   const failedJobs = useMemo(
-    () =>
-      jobs.filter((j) =>
-        ['FAILED', 'SKIPPED_QUALITY', 'SKIPPED_DUPLICATE', 'CANCELLED'].includes(j.status),
-      ),
+    () => jobs.filter((j) => ['FAILED', 'CANCELLED'].includes(j.status)),
     [jobs],
   );
 
@@ -619,9 +624,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     'UNVERIFIED';
   const providers = dashboard?.providers;
 
-  const handleRetry = (jobId: string) => {
-    setBusy(`retry-${jobId}`);
-    void nestAiInfluencerRetryJob(apiAccessToken, jobId).then(() => {
+  const handleRetry = (job: AiInfluencerJobRow) => {
+    setBusy(`retry-${job.id}`);
+    const action =
+      job.status === 'SKIPPED_QUALITY'
+        ? nestAiInfluencerForceStartJob(apiAccessToken, job.id)
+        : job.status === 'SKIPPED_DUPLICATE' && job.article?.id
+          ? nestAiInfluencerCreateJob(apiAccessToken, job.article.id, true)
+          : nestAiInfluencerRetryJob(apiAccessToken, job.id);
+    void action.then(() => {
       setBusy(null);
       loadCore();
       setTab('production');
@@ -667,7 +678,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const handleCreateJob = async (articleId: string, force = false) => {
     setCreateError(null);
     setCreateState('submitting');
-    const result = await nestAiInfluencerCreateJob(apiAccessToken, articleId, force);
+    const result = await nestAiInfluencerCreateJob(apiAccessToken, articleId, true);
     if (result.error || !result.data) {
       setCreateState('error');
       setCreateError(result.error ?? 'Vytvoření jobu selhalo.');
@@ -823,6 +834,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               <p className="text-sm font-semibold text-zinc-900">Generation queue</p>
               <div className="mt-2 grid gap-2 text-sm text-zinc-700 sm:grid-cols-2 lg:grid-cols-4">
                 <p>Queued: {dashboard.generationQueue.queued}</p>
+                <p>Processing: {dashboard.generationQueue.processing ?? dashboard.generationQueue.claimed}</p>
                 <p>Claimed: {dashboard.generationQueue.claimed}</p>
                 <p>
                   Worker:{' '}
@@ -849,6 +861,13 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               {dashboard.generationQueue.message ? (
                 <p className="mt-2 text-xs text-amber-700">{dashboard.generationQueue.message}</p>
               ) : null}
+              <button
+                type="button"
+                className="mt-3 rounded border border-zinc-300 px-3 py-1 text-xs"
+                onClick={() => void nestAiInfluencerWakeWorker(apiAccessToken).then(loadCore)}
+              >
+                Probudit worker
+              </button>
             </section>
           ) : null}
 
@@ -1374,6 +1393,26 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               </button>
             ) : null}
           </div>
+          {skippedJobs.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-amber-900">Přeskočeno automatikou ({skippedJobs.length})</h3>
+              {skippedJobs.map((job) => (
+                <div key={job.id} className="rounded-lg border border-amber-100 bg-amber-50/40 p-4">
+                  <p className="font-medium text-zinc-900">{resolveAiInfluencerJobTitle(job)}</p>
+                  <p className="mt-1 text-sm text-amber-900">{job.skipReason ?? job.currentStep ?? 'Automatika přeskočila'}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded bg-orange-600 px-3 py-1 text-xs font-medium text-white"
+                      onClick={() => handleRetry(job)}
+                    >
+                      Vytvořit i tak
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {failedJobs.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">Žádné problémy.</p>
           ) : (
@@ -1410,7 +1449,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       type="button"
                       disabled={busy === `retry-${job.id}`}
                       className="rounded bg-orange-600 px-3 py-1 text-xs font-medium text-white"
-                      onClick={() => handleRetry(job.id)}
+                      onClick={() => handleRetry(job)}
                     >
                       {jobRetryLabel(job)}
                     </button>
@@ -2289,7 +2328,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                 </button>
               ) : null}
               {detailJob.status === 'FAILED' ? (
-                <button type="button" className="rounded bg-orange-600 px-3 py-1 text-xs text-white" onClick={() => handleRetry(detailJob.id)}>
+                <button type="button" className="rounded bg-orange-600 px-3 py-1 text-xs text-white" onClick={() => handleRetry(detailJob)}>
                   {jobRetryLabel(detailJob)}
                 </button>
               ) : null}

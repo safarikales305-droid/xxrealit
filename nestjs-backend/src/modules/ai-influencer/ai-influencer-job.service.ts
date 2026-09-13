@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import {
   AiInfluencerReelJobStatus,
@@ -31,7 +33,20 @@ import {
   queuedJobWhere,
   recentCompletedVideoWhere,
   resolveMasterVideoUrl,
+  workerQueueWhere,
 } from './ai-influencer-job-status.util';
+import {
+  AI_INFLUENCER_CLAIM_STALE_MS,
+  AI_INFLUENCER_QUEUE_STALE_MS,
+  AI_INFLUENCER_QUEUE_STALLED_MS,
+} from './ai-influencer.constants';
+import {
+  bypassesDuplicateGate,
+  bypassesQualityGate,
+  buildSourceModeMeta,
+  type AiInfluencerSourceMode,
+} from './ai-influencer-source-mode.util';
+import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
 import {
   isAuthError,
   isTransientError,
@@ -166,6 +181,8 @@ export class AiInfluencerJobService {
     private readonly openAi: OpenAiService,
     private readonly aiProvider: AiProviderService,
     private readonly heygenConfig: HeyGenRuntimeConfigService,
+    @Inject(forwardRef(() => AiInfluencerWorkerService))
+    private readonly worker: AiInfluencerWorkerService,
   ) {}
 
   async listJobs(limit = 50) {
@@ -308,7 +325,7 @@ export class AiInfluencerJobService {
 
   async createJobFromArticle(
     articleId: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; sourceMode?: AiInfluencerSourceMode },
   ): Promise<{
     jobId: string;
     status: string;
@@ -326,14 +343,25 @@ export class AiInfluencerJobService {
     await this.assertProductionReadyForNewJob();
     const cfg = this.settings.getCached();
     const generationMode = resolveVideoGenerationMode(cfg);
-    const initialRenderMeta = this.buildInitialJobRenderMeta();
+    const sourceMode: AiInfluencerSourceMode =
+      options?.sourceMode ?? (options?.force === true ? 'MANUAL' : 'AUTO');
+    const bypassQuality =
+      sourceMode === 'MANUAL' ||
+      sourceMode === 'RETRY' ||
+      sourceMode === 'TEST' ||
+      options?.force === true;
+    const initialRenderMeta = this.buildInitialJobRenderMeta(
+      buildSourceModeMeta(sourceMode, {
+        manualRequestedAt: sourceMode === 'MANUAL' ? new Date().toISOString() : undefined,
+      }),
+    );
     const job = await this.prisma.aiInfluencerReelJob.create({
       data: {
         articleId,
         profileId: profile.id,
         status: AiInfluencerReelJobStatus.EVALUATING,
         sourceType: 'ARTICLE',
-        forceOverride: options?.force === true,
+        forceOverride: bypassQuality,
         progressPercent: 3,
         currentStep: 'Čeká ve frontě',
         renderSettingsJson: initialRenderMeta as object,
@@ -355,6 +383,7 @@ export class AiInfluencerJobService {
 
   /** Posune nově vytvořený job přes několik synchronních fází, dokud nenarazí na čekání/poll. */
   private scheduleBootstrapCreatedJob(jobId: string): void {
+    this.worker.wake();
     void this.bootstrapCreatedJob(jobId).catch(async (err) => {
       const message = err instanceof Error ? err.message : String(err);
       this.log.error(`bootstrapCreatedJob ${jobId} failed: ${message}`);
@@ -390,11 +419,12 @@ export class AiInfluencerJobService {
 
   /** Znovu nabídne workeru joby ve frontě, které dlouho nepostoupily. */
   async recoverStaleQueuedJobs(limit = 5): Promise<number> {
-    const staleBefore = new Date(Date.now() - 90_000);
+    const staleBefore = new Date(Date.now() - AI_INFLUENCER_QUEUE_STALE_MS);
+    const stalledBefore = new Date(Date.now() - AI_INFLUENCER_QUEUE_STALLED_MS);
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
       where: {
         AND: [
-          queuedJobWhere(),
+          workerQueueWhere(),
           { updatedAt: { lte: staleBefore } },
           {
             OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
@@ -403,12 +433,38 @@ export class AiInfluencerJobService {
       },
       orderBy: { createdAt: 'asc' },
       take: limit,
-      select: { id: true },
+      select: { id: true, renderSettingsJson: true, createdAt: true, updatedAt: true },
     });
+    let recovered = 0;
     for (const row of rows) {
+      const waitMs = Date.now() - row.createdAt.getTime();
+      if (waitMs >= AI_INFLUENCER_QUEUE_STALLED_MS) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: row.id },
+          data: {
+            errorCode: 'STALLED_QUEUE',
+            currentStep: 'Fronta zaseknutá – worker znovu spouští job',
+            renderSettingsJson: mergeJobRenderMeta(row.renderSettingsJson, {
+              queueStalledAt: new Date().toISOString(),
+              queueWarning: 'Worker ještě dlouho job nepřevzal – automatická obnova',
+              claimedAt: undefined,
+            }) as object,
+          },
+        });
+      } else if (waitMs >= 30_000) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: row.id },
+          data: {
+            renderSettingsJson: mergeJobRenderMeta(row.renderSettingsJson, {
+              queueWarning: 'Worker ještě job nepřevzal',
+            }) as object,
+          },
+        });
+      }
       this.scheduleBootstrapCreatedJob(row.id);
+      recovered += 1;
     }
-    return rows.length;
+    return recovered;
   }
 
   async getTodayJobsDiagnostic() {
@@ -470,7 +526,93 @@ export class AiInfluencerJobService {
   }
 
   private async bootstrapCreatedJob(jobId: string): Promise<void> {
+    await this.tryClaimQueuedJob(jobId, 'bootstrap');
     await this.advanceJobChain(jobId, 12);
+  }
+
+  /** Atomicky převzme job ve frontě workerem nebo bootstrapem. */
+  async tryClaimQueuedJob(jobId: string, workerInstanceId: string): Promise<boolean> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        status: true,
+        progressPercent: true,
+        renderSettingsJson: true,
+        updatedAt: true,
+      },
+    });
+    if (!job) return false;
+    const isQueued =
+      job.status === AiInfluencerReelJobStatus.EVALUATING && job.progressPercent <= 10;
+    if (!isQueued) return true;
+
+    const meta = readJobRenderMeta(job.renderSettingsJson);
+    if (meta.claimedAt) {
+      const claimAge = Date.now() - new Date(meta.claimedAt).getTime();
+      if (claimAge < AI_INFLUENCER_CLAIM_STALE_MS) return true;
+    }
+
+    const updated = await this.prisma.aiInfluencerReelJob.updateMany({
+      where: {
+        id: jobId,
+        status: AiInfluencerReelJobStatus.EVALUATING,
+        progressPercent: { lte: 10 },
+      },
+      data: {
+        progressPercent: 8,
+        currentStep: 'Worker zpracovává',
+        lastAttemptAt: new Date(),
+      },
+    });
+    if (updated.count === 0) return false;
+
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          claimedAt: new Date().toISOString(),
+          workerInstanceId,
+          productionStartedAt: meta.productionStartedAt ?? new Date().toISOString(),
+          queueWarning: undefined,
+          queueStalledAt: undefined,
+        }) as object,
+      },
+    });
+    return true;
+  }
+
+  async runJobNow(jobId: string): Promise<AiInfluencerJobWithRelations> {
+    const job = await this.getJob(jobId);
+    if (
+      job.status === AiInfluencerReelJobStatus.PUBLISHED ||
+      job.status === AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED
+    ) {
+      throw new BadRequestException('Dokončený job nelze znovu spustit.');
+    }
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.EVALUATING,
+        progressPercent: 3,
+        currentStep: 'Čeká ve frontě',
+        nextRetryAt: null,
+        errorCode: null,
+        errorMessage: null,
+        failedStage: null,
+        skipReason: null,
+        forceOverride: true,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          ...buildSourceModeMeta('MANUAL', { manualRequestedAt: new Date().toISOString() }),
+          claimedAt: undefined,
+          queueStalledAt: undefined,
+          queueWarning: undefined,
+        }) as object,
+        timelineEvents: appendTimelineEvent(job.timelineEvents, 'MANUAL_RUN_NOW'),
+      },
+    });
+    this.scheduleBootstrapCreatedJob(jobId);
+    return this.getJob(jobId);
   }
 
   /** Worker i bootstrap — několik fází za tick, dokud pipeline nečeká na provider nebo selže. */
@@ -648,10 +790,14 @@ export class AiInfluencerJobService {
         failedStage: null,
         progressPercent: 15,
         currentStep: 'Kandidát vybrán (ruční override)',
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          ...buildSourceModeMeta('MANUAL'),
+          evaluationScoreWarning: job.skipReason ?? undefined,
+        }) as object,
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'MANUAL_OVERRIDE'),
       },
     });
-    await this.advanceJob(jobId);
+    this.scheduleBootstrapCreatedJob(jobId);
     return this.getJob(jobId);
   }
 
@@ -1225,6 +1371,18 @@ export class AiInfluencerJobService {
     const clearVideoAgentSession =
       job.errorCode === 'HEYGEN_VIDEO_AGENT_BAD_REQUEST' ||
       /invalid url in files\[/i.test(job.errorMessage ?? '');
+    const retryMeta = mergeJobRenderMeta(job.renderSettingsJson, {
+      ...buildSourceModeMeta('RETRY'),
+      ...(clearVideoAgentSession
+        ? {
+            heygenVideoAgentSessionId: undefined,
+            heygenVideoAgentVideoId: undefined,
+            providerJobId: undefined,
+            videoAgentSubmitInFlight: false,
+            videoAgentSubmittedAt: undefined,
+          }
+        : {}),
+    });
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
@@ -1235,24 +1393,15 @@ export class AiInfluencerJobService {
         nextRetryAt: null,
         attemptCount: { increment: 1 },
         lastAttemptAt: new Date(),
+        forceOverride: true,
         progressPercent: progress.percent,
         currentStep: progress.step,
-        ...(clearVideoAgentSession
-          ? {
-              avatarExternalJobId: null,
-              renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
-                heygenVideoAgentSessionId: undefined,
-                heygenVideoAgentVideoId: undefined,
-                providerJobId: undefined,
-                videoAgentSubmitInFlight: false,
-                videoAgentSubmittedAt: undefined,
-              }) as object,
-            }
-          : {}),
+        renderSettingsJson: retryMeta as object,
+        ...(clearVideoAgentSession ? { avatarExternalJobId: null } : {}),
         timelineEvents: appendTimelineEvent(job.timelineEvents, 'RETRY', resumeStatus),
       },
     });
-    await this.advanceJobChain(jobId, 6);
+    this.scheduleBootstrapCreatedJob(jobId);
     return this.getJob(jobId);
   }
 
@@ -1410,7 +1559,7 @@ export class AiInfluencerJobService {
     await this.aiProvider.assertScriptGenerationReady();
 
     await this.setProgress(jobId, AiInfluencerReelJobStatus.EVALUATING, undefined, 'EVALUATION_STARTED');
-    if (job.candidateId && !job.forceOverride) {
+    if (job.candidateId && !bypassesQualityGate(job)) {
       if (job.status !== AiInfluencerReelJobStatus.CANDIDATE) {
         await this.prisma.aiInfluencerReelJob.update({
           where: { id: jobId },
@@ -1451,11 +1600,16 @@ export class AiInfluencerJobService {
     });
 
     const cfg = this.settings.getCached();
-    const passes = result.reelPotentialScore >= cfg.minScore || job.forceOverride;
+    const bypassQuality = bypassesQualityGate(job);
+    const passes = result.reelPotentialScore >= cfg.minScore || bypassQuality;
     const nextStatus = passes
       ? AiInfluencerReelJobStatus.CANDIDATE
       : AiInfluencerReelJobStatus.SKIPPED_QUALITY;
     const progress = progressForStatus(nextStatus);
+    const scoreWarning =
+      bypassQuality && result.reelPotentialScore < cfg.minScore
+        ? `AI score ${result.reelPotentialScore}/${cfg.minScore} – ručně vyžádáno, pokračuji ve výrobě`
+        : null;
 
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
@@ -1472,8 +1626,13 @@ export class AiInfluencerJobService {
         failedStage: null,
         progressPercent: progress.percent,
         currentStep: passes
-          ? `Kandidát · score ${result.reelPotentialScore}/${cfg.minScore}`
+          ? scoreWarning ??
+            `Kandidát · score ${result.reelPotentialScore}/${cfg.minScore}`
           : `Nevybráno · score ${result.reelPotentialScore}/${cfg.minScore}`,
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          evaluationScore: result.reelPotentialScore,
+          evaluationScoreWarning: scoreWarning ?? undefined,
+        }) as object,
         timelineEvents: appendTimelineEvent(
           appendTimelineEvent(job.timelineEvents, 'EVALUATION_SCORE', String(result.reelPotentialScore)),
           passes ? 'CANDIDATE_SELECTED' : 'SKIPPED_QUALITY',
@@ -1499,7 +1658,7 @@ export class AiInfluencerJobService {
 
     await this.aiProvider.assertScriptGenerationReady();
 
-    if (!existing.forceOverride && (await this.isDuplicateTopic(existing))) {
+    if (!bypassesDuplicateGate(existing) && (await this.isDuplicateTopic(existing))) {
       const progress = progressForStatus(AiInfluencerReelJobStatus.SKIPPED_DUPLICATE);
       await this.prisma.aiInfluencerReelJob.update({
         where: { id: jobId },

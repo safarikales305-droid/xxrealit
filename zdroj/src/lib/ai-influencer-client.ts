@@ -239,8 +239,10 @@ export type AiInfluencerDashboard = {
   };
   generationQueue?: {
     queued: number;
+    processing?: number;
     claimed: number;
     workerStatus: 'READY' | 'STALE' | 'NOT_RUNNING';
+    workerInstanceId?: string | null;
     lastWorkerRun: string | null;
     lastHeartbeatAt: string | null;
     lastClaimedJobId: string | null;
@@ -591,6 +593,14 @@ export function nestAiInfluencerApproveScript(token: string, jobId: string) {
 
 export function nestAiInfluencerRetryJob(token: string, jobId: string) {
   return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
+export function nestAiInfluencerRunJobNow(token: string, jobId: string) {
+  return aiInfluencerFetch<AiInfluencerJobRow>(token, `/jobs/${jobId}/run-now`, { method: 'POST' });
+}
+
+export function nestAiInfluencerWakeWorker(token: string) {
+  return aiInfluencerFetch<Record<string, unknown>>(token, '/worker/wake', { method: 'POST' });
 }
 
 export type HeyGenReconcileResult = {

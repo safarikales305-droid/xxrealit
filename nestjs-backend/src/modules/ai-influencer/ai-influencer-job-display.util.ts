@@ -217,7 +217,10 @@ export function buildJobAdminDisplay(
     errorKind,
     displayErrorMessage,
     displayErrorCode,
-    retryLabel: buildRetryLabel(generationMode, failedStageResolved, errorKind),
+    retryLabel:
+      job.status === 'SKIPPED_QUALITY' || job.status === 'SKIPPED_DUPLICATE'
+        ? 'Vytvořit i tak'
+        : buildRetryLabel(generationMode, failedStageResolved, errorKind),
     retryHint:
       errorKind === 'LEGACY_STALE'
         ? 'Job bude restartován přes HeyGen Video Agent bez ElevenLabs voice fáze.'

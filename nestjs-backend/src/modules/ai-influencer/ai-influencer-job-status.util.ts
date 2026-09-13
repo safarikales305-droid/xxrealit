@@ -44,14 +44,23 @@ export function skippedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return { status: { in: SKIPPED_JOB_STATUSES } };
 }
 
+export function workerQueueWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    status: AiInfluencerReelJobStatus.EVALUATING,
+    progressPercent: { lte: 10 },
+  };
+}
+
+/** Jobs waiting at the front of the pipeline (created, not yet advancing). */
+export function queuedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    OR: [workerQueueWhere(), { status: AiInfluencerReelJobStatus.SCRIPT_READY }],
+  };
+}
+
 export function claimedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return {
-    AND: [
-      activeJobWhere(),
-      {
-        NOT: queuedJobWhere(),
-      },
-    ],
+    AND: [activeJobWhere(), { NOT: workerQueueWhere() }],
   };
 }
 
@@ -103,19 +112,6 @@ export function recentCompletedVideoWhere(): Prisma.AiInfluencerReelJobWhereInpu
 
 export function activeJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return { status: { in: ACTIVE_JOB_STATUSES } };
-}
-
-/** Jobs waiting at the front of the pipeline (created, not yet advancing). */
-export function queuedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
-  return {
-    OR: [
-      {
-        status: AiInfluencerReelJobStatus.EVALUATING,
-        progressPercent: { lte: 10 },
-      },
-      { status: AiInfluencerReelJobStatus.SCRIPT_READY },
-    ],
-  };
 }
 
 export function isActiveGenerationStatus(status: AiInfluencerReelJobStatus | string): boolean {

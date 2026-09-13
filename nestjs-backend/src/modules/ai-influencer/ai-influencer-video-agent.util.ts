@@ -61,6 +61,26 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
       ? (o.manualPublishChannels as Array<'facebook' | 'instagram' | 'youtube' | 'portal'>)
       : undefined,
     originIsTest: o.originIsTest === true,
+    sourceMode:
+      o.sourceMode === 'AUTO' ||
+      o.sourceMode === 'MANUAL' ||
+      o.sourceMode === 'TEST' ||
+      o.sourceMode === 'RETRY'
+        ? o.sourceMode
+        : undefined,
+    bypassQualityGate: o.bypassQualityGate === true,
+    automaticRequested: o.automaticRequested === true,
+    manualRequested: o.manualRequested === true,
+    manualRequestedAt: typeof o.manualRequestedAt === 'string' ? o.manualRequestedAt : undefined,
+    claimedAt: typeof o.claimedAt === 'string' ? o.claimedAt : undefined,
+    workerInstanceId: typeof o.workerInstanceId === 'string' ? o.workerInstanceId : undefined,
+    productionStartedAt:
+      typeof o.productionStartedAt === 'string' ? o.productionStartedAt : undefined,
+    evaluationScore: typeof o.evaluationScore === 'number' ? o.evaluationScore : undefined,
+    evaluationScoreWarning:
+      typeof o.evaluationScoreWarning === 'string' ? o.evaluationScoreWarning : undefined,
+    queueStalledAt: typeof o.queueStalledAt === 'string' ? o.queueStalledAt : undefined,
+    queueWarning: typeof o.queueWarning === 'string' ? o.queueWarning : undefined,
     pipelineStage: typeof o.pipelineStage === 'string' ? o.pipelineStage : undefined,
     lastHeartbeatAt: typeof o.lastHeartbeatAt === 'string' ? o.lastHeartbeatAt : undefined,
     videoStyle:

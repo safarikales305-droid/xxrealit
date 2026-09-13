@@ -117,6 +117,18 @@ export type AiInfluencerJobRenderMeta = {
   manualPublishApprovedAt?: string;
   manualPublishChannels?: Array<'facebook' | 'instagram' | 'youtube' | 'portal'>;
   originIsTest?: boolean;
+  sourceMode?: 'AUTO' | 'MANUAL' | 'TEST' | 'RETRY';
+  bypassQualityGate?: boolean;
+  automaticRequested?: boolean;
+  manualRequested?: boolean;
+  manualRequestedAt?: string;
+  claimedAt?: string;
+  workerInstanceId?: string;
+  productionStartedAt?: string;
+  evaluationScore?: number;
+  evaluationScoreWarning?: string;
+  queueStalledAt?: string;
+  queueWarning?: string;
   videoStyle?: AiInfluencerVideoStyle;
   targetDurationSec?: number;
   avatarFrequency?: AiInfluencerAvatarFrequency;

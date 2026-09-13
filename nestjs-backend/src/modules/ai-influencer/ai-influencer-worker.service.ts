@@ -1,8 +1,11 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { AiProviderService } from '../openai/ai-provider.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
-import { AI_INFLUENCER_WORKER_TICK_MS } from './ai-influencer.constants';
+import {
+  AI_INFLUENCER_WORKER_TICK_MS,
+  AI_INFLUENCER_WORKER_WATCHDOG_MS,
+} from './ai-influencer.constants';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
@@ -13,19 +16,21 @@ import {
   getHeyGenRuntimeConfig,
 } from './ai-influencer-runtime-config.util';
 import { resolveVideoGenerationMode } from './ai-influencer-video-agent.util';
-import { queuedJobWhere, WORKER_ACTIVE_STATUSES } from './ai-influencer-job-status.util';
+import { claimedJobWhere, queuedJobWhere, workerQueueWhere, WORKER_ACTIVE_STATUSES } from './ai-influencer-job-status.util';
 import { ElevenLabsVoiceProvider } from './providers/elevenlabs-voice.provider';
 import { HeyGenAvatarProvider } from './providers/heygen-avatar.provider';
 import { HeyGenVideoAgentProvider } from './providers/heygen-video-agent.provider';
 
 export type AiInfluencerWorkerDiagnostics = {
   service: string;
+  workerInstanceId: string;
   workerStatus: 'READY' | 'STALE' | 'NOT_RUNNING';
   lastHeartbeatAt: string | null;
   lastWorkerRunAt: string | null;
   lastClaimedJobId: string | null;
   tickCount: number;
   queued: number;
+  processing: number;
   claimed: number;
   message: string | null;
 };
@@ -35,8 +40,11 @@ const WORKER_HEARTBEAT_STALE_MS = 120_000;
 @Injectable()
 export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(AiInfluencerWorkerService.name);
+  private readonly workerInstanceId = `ai-worker-${process.pid}-${Date.now().toString(36)}`;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private wakePending = false;
   private tickCount = 0;
   private lastHeartbeatAt: Date | null = null;
   private lastWorkerRunAt: Date | null = null;
@@ -44,6 +52,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => AiInfluencerJobService))
     private readonly jobs: AiInfluencerJobService,
     private readonly registry: AiInfluencerProviderRegistry,
     private readonly settings: AiInfluencerSettingsService,
@@ -58,19 +67,45 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
     void this.logStartupDiagnostics();
     this.lastHeartbeatAt = new Date();
     this.timer = setInterval(() => void this.tick(), AI_INFLUENCER_WORKER_TICK_MS);
+    this.watchdogTimer = setInterval(() => void this.watchdog(), AI_INFLUENCER_WORKER_WATCHDOG_MS);
     void this.registry.getDefaultProfile();
     void this.recoverStuckJobs();
   }
 
+  wake(): void {
+    this.wakePending = true;
+    void this.tick();
+  }
+
+  getWorkerInstanceId(): string {
+    return this.workerInstanceId;
+  }
+
+  private async watchdog(): Promise<void> {
+    const staleQueued = await this.prisma.aiInfluencerReelJob.count({
+      where: {
+        AND: [
+          workerQueueWhere(),
+          { createdAt: { lte: new Date(Date.now() - 60_000) } },
+        ],
+      },
+    });
+    if (staleQueued > 0) {
+      this.log.warn(`[AI Influencer] ${staleQueued} queued job(s) older than 60s — waking worker`);
+      this.wake();
+    }
+  }
+
   async getDiagnostics(): Promise<AiInfluencerWorkerDiagnostics> {
-    const [queued, claimed] = await Promise.all([
-      this.prisma.aiInfluencerReelJob.count({ where: queuedJobWhere() }),
+    const [queued, processing, claimed] = await Promise.all([
+      this.prisma.aiInfluencerReelJob.count({ where: workerQueueWhere() }),
       this.prisma.aiInfluencerReelJob.count({
         where: {
           status: { in: WORKER_ACTIVE_STATUSES },
-          NOT: queuedJobWhere(),
+          NOT: workerQueueWhere(),
         },
       }),
+      this.prisma.aiInfluencerReelJob.count({ where: claimedJobWhere() }),
     ]);
 
     const heartbeatAgeMs = this.lastHeartbeatAt
@@ -84,12 +119,14 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
 
     return {
       service: 'AiInfluencerWorkerService (in-process DB polling)',
+      workerInstanceId: this.workerInstanceId,
       workerStatus,
       lastHeartbeatAt: this.lastHeartbeatAt?.toISOString() ?? null,
       lastWorkerRunAt: this.lastWorkerRunAt?.toISOString() ?? null,
       lastClaimedJobId: this.lastClaimedJobId,
       tickCount: this.tickCount,
       queued,
+      processing,
       claimed,
       message:
         workerStatus === 'NOT_RUNNING'
@@ -154,6 +191,7 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
   }
 
   private async recoverStuckJobs(): Promise<void> {
@@ -175,7 +213,10 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
   }
 
   async tick() {
-    if (this.running) return;
+    if (this.running) {
+      this.wakePending = true;
+      return;
+    }
     this.running = true;
     this.lastWorkerRunAt = new Date();
     try {
@@ -197,6 +238,8 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       });
 
       for (const row of active) {
+        const claimed = await this.jobs.tryClaimQueuedJob(row.id, this.workerInstanceId);
+        if (!claimed) continue;
         this.lastClaimedJobId = row.id;
         try {
           await this.jobs.advanceJobChain(row.id, 3);
@@ -219,6 +262,10 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       }
     } finally {
       this.running = false;
+      if (this.wakePending) {
+        this.wakePending = false;
+        void this.tick();
+      }
     }
   }
 }

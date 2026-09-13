@@ -139,7 +139,7 @@ export class AiInfluencerAutoService implements OnModuleInit, OnModuleDestroy {
 
         this.lastPickAt = Date.now();
         try {
-          await this.jobs.createJobFromArticle(article.id);
+          await this.jobs.createJobFromArticle(article.id, { sourceMode: 'AUTO' });
           this.log.log(`Auto-picked article ${article.id} for AI Reel`);
         } catch (err) {
           this.log.warn(`Auto pick failed for ${article.id}: ${err}`);

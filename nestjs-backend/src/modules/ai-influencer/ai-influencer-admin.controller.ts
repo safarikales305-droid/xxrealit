@@ -18,6 +18,7 @@ import { OpenAiService } from '../openai/openai.service';
 import { AiProviderService } from '../openai/ai-provider.service';
 import { YouTubeOAuthService } from '../social/youtube/youtube-oauth.service';
 import { YouTubePublishService } from '../social/youtube/youtube-publish.service';
+import { MetaProviderHealthService } from '../social/autopost/meta-provider-health.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
@@ -71,6 +72,7 @@ export class AiInfluencerAdminController {
     private readonly shortsMusic: ShortsMusicService,
     private readonly auto: AiInfluencerAutoService,
     private readonly worker: AiInfluencerWorkerService,
+    private readonly metaHealth: MetaProviderHealthService,
   ) {}
 
   @Get('dashboard')
@@ -131,8 +133,10 @@ export class AiInfluencerAdminController {
       },
       generationQueue: {
         queued: workerDiagnostics.queued,
+        processing: workerDiagnostics.processing,
         claimed: workerDiagnostics.claimed,
         workerStatus: workerDiagnostics.workerStatus,
+        workerInstanceId: workerDiagnostics.workerInstanceId,
         lastWorkerRun: workerDiagnostics.lastWorkerRunAt,
         lastHeartbeatAt: workerDiagnostics.lastHeartbeatAt,
         lastClaimedJobId: workerDiagnostics.lastClaimedJobId,
@@ -203,7 +207,21 @@ export class AiInfluencerAdminController {
     @Param('articleId') articleId: string,
     @Body() body?: { force?: boolean },
   ) {
-    return this.jobs.createJobFromArticle(articleId, { force: body?.force === true });
+    return this.jobs.createJobFromArticle(articleId, {
+      sourceMode: 'MANUAL',
+      force: body?.force !== false,
+    });
+  }
+
+  @Post('jobs/:id/run-now')
+  runJobNow(@Param('id') id: string) {
+    return this.jobs.runJobNow(id);
+  }
+
+  @Post('worker/wake')
+  wakeWorker() {
+    this.worker.wake();
+    return this.worker.getDiagnostics();
   }
 
   @Post('jobs/:id/force-start')
@@ -716,7 +734,7 @@ export class AiInfluencerAdminController {
       this.videoAgent.getReadiness(),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
-      this.publish.testFacebookConnection(),
+      this.metaHealth.getFacebookPageHealth(),
       this.publish.getInstagramConnectionStatus(),
     ]);
     const heygenHealth = await this.heygen.getHealth(profile.avatarId);
@@ -959,27 +977,34 @@ export class AiInfluencerAdminController {
       },
       facebook: {
         configured: true,
-        connected: fb.connected ?? fb.ok,
-        rateLimited: fb.rateLimited ?? false,
+        connected: fb.connected ?? fb.storedPageConnected ?? fb.ok,
+        rateLimited: fb.status === 'RATE_LIMITED' || fb.rateLimited === true,
         healthStatus:
+          fb.status ??
           fb.healthStatus ??
           (fb.ok ? 'READY' : fb.connected ? 'API_ERROR' : 'NOT_CONNECTED'),
         pageId: this.maskId(fb.pageId),
         pageName: fb.pageName ?? null,
-        tokenActive: fb.ok || (fb.connected === true && !fb.rateLimited),
+        tokenActive:
+          fb.ok ||
+          ((fb.connected === true || fb.storedPageConnected === true) && fb.status !== 'RATE_LIMITED'),
         lastError: fb.error ?? null,
         hint: fb.hint ?? null,
         checkedAt: fb.checkedAt ?? null,
         nextCheckAt: fb.nextCheckAt ?? null,
-        publishStatus: fb.rateLimited
-          ? 'RATE_LIMITED'
-          : fb.ok
-            ? 'READY'
-            : fb.connected
-              ? 'AUTH_REQUIRED'
-              : fb.error
-                ? 'AUTH_REQUIRED'
-                : 'NOT_CONNECTED',
+        lastSuccessfulCheckAt: fb.lastSuccessfulCheckAt ?? null,
+        publishStatus:
+          fb.status === 'RATE_LIMITED' || fb.rateLimited
+            ? 'RATE_LIMITED'
+            : fb.ok
+              ? 'READY'
+              : fb.connected || fb.storedPageConnected
+                ? fb.status === 'AUTH_REQUIRED'
+                  ? 'AUTH_REQUIRED'
+                  : 'ERROR'
+                : fb.error
+                  ? 'AUTH_REQUIRED'
+                  : 'NOT_CONNECTED',
       },
       youtube: {
         configured: yt.configured,
