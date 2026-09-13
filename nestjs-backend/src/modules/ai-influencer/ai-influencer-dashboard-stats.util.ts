@@ -5,12 +5,14 @@ import {
   galleryVideoWhere,
   GALLERY_VIDEO_STATUSES,
   masterVideoAssetWhere,
+  queuedJobWhere,
 } from './ai-influencer-job-status.util';
 
 export type AiInfluencerDashboardStats = {
   jobsStartedToday: number;
   jobsCompletedToday: number;
   activeJobs: number;
+  queuedJobs: number;
   publishedVideos: number;
   publishedVideosToday: number;
   failedJobsToday: number;
@@ -108,6 +110,7 @@ export async function aggregateAiInfluencerDashboardStats(
     jobsStartedToday,
     jobsCompletedToday,
     activeJobs,
+    queuedJobs,
     publishedVideos,
     publishedVideosToday,
     failedJobsToday,
@@ -122,6 +125,9 @@ export async function aggregateAiInfluencerDashboardStats(
     }),
     prisma.aiInfluencerReelJob.count({ where: completedVideoTodayWhere(dayStart) }),
     prisma.aiInfluencerReelJob.count({ where: activeJobWhere() }),
+    prisma.aiInfluencerReelJob.count({
+      where: { AND: [queuedJobWhere(), { createdAt: { gte: dayStart } }] },
+    }),
     prisma.aiInfluencerReelJob.count({ where: publishedVideoWhere() }),
     prisma.aiInfluencerReelJob.count({ where: publishedVideoTodayWhere(dayStart) }),
     prisma.aiInfluencerReelJob.count({
@@ -146,6 +152,7 @@ export async function aggregateAiInfluencerDashboardStats(
     jobsStartedToday,
     jobsCompletedToday,
     activeJobs,
+    queuedJobs,
     publishedVideos,
     publishedVideosToday,
     failedJobsToday,

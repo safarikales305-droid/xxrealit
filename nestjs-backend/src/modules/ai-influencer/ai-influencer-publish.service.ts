@@ -20,6 +20,24 @@ import type { YoutubePrivacyStatus } from '../social/youtube/youtube.constants';
 import type { InstagramConnectionStatus } from '../social/autopost/social-instagram.types';
 import { AI_EDITOR_SYSTEM_EMAIL } from '../news-editorial/news-system-user.service';
 import { buildAiReelListingTrackingUrl } from './ai-reel-listing-tracking.util';
+import { hasMasterVideoAsset, resolveMasterVideoUrl } from './ai-influencer-job-status.util';
+import { mergeJobRenderMeta, readJobRenderMeta } from './ai-influencer-video-agent.util';
+
+export type ManualPublishChannel = 'facebook' | 'instagram' | 'youtube' | 'portal';
+
+export type ManualPublishChannelResult = {
+  ok: boolean;
+  error?: string;
+  permalink?: string;
+  postId?: string;
+  videoId?: string;
+};
+
+export type ManualPublishResult = {
+  ok: boolean;
+  jobId: string;
+  channels: Partial<Record<ManualPublishChannel, ManualPublishChannelResult>>;
+};
 
 export type FacebookTestResult = {
   ok: boolean;
@@ -161,6 +179,124 @@ export class AiInfluencerPublishService {
     return `${origin}/?tab=shorts`;
   }
 
+  private assertPublishAllowed(
+    job: {
+      isTest: boolean;
+      status: AiInfluencerReelJobStatus;
+      finalMasterUrl?: string | null;
+      baseMasterUrl?: string | null;
+      videoUrl?: string | null;
+      avatarStorageUrl?: string | null;
+    },
+    options?: { manualAdminApproval?: boolean },
+  ): void {
+    if (!hasMasterVideoAsset(job)) {
+      throw new BadRequestException('Chybí finální master video.');
+    }
+    if (
+      job.status !== AiInfluencerReelJobStatus.READY &&
+      job.status !== AiInfluencerReelJobStatus.PARTIALLY_PUBLISHED &&
+      job.status !== AiInfluencerReelJobStatus.PUBLISHED
+    ) {
+      throw new BadRequestException('Video není připravené k publikaci.');
+    }
+    if (job.isTest && !options?.manualAdminApproval) {
+      throw new BadRequestException(
+        'Testovací video lze publikovat pouze ručně z administrace.',
+      );
+    }
+  }
+
+  private async markManualPublishApproved(
+    jobId: string,
+    channels: ManualPublishChannel[],
+  ): Promise<void> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      select: { renderSettingsJson: true, isTest: true },
+    });
+    if (!job) return;
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          manualPublishApproved: true,
+          manualPublishApprovedAt: new Date().toISOString(),
+          manualPublishChannels: channels,
+          originIsTest: job.isTest,
+        }) as object,
+      },
+    });
+  }
+
+  async publishManual(
+    jobId: string,
+    body: {
+      channels: ManualPublishChannel[];
+      manualAdminApproval?: boolean;
+    },
+  ): Promise<ManualPublishResult> {
+    if (body.manualAdminApproval !== true) {
+      throw new BadRequestException('Ruční publikace vyžaduje explicitní potvrzení administrátora.');
+    }
+
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new BadRequestException('Job nenalezen.');
+    this.assertPublishAllowed(job, { manualAdminApproval: true });
+
+    const channels = [...new Set(body.channels ?? [])];
+    if (channels.length === 0) {
+      throw new BadRequestException('Vyberte alespoň jeden kanál.');
+    }
+
+    await this.markManualPublishApproved(jobId, channels);
+
+    const results: ManualPublishResult = {
+      ok: false,
+      jobId,
+      channels: {},
+    };
+
+    for (const channel of channels) {
+      try {
+        if (channel === 'facebook') {
+          const fb = await this.publishToFacebook(jobId, { manualAdminApproval: true });
+          results.channels.facebook = {
+            ok: true,
+            permalink: fb.permalink,
+            postId: fb.postId,
+          };
+        } else if (channel === 'instagram') {
+          const ig = await this.publishToInstagram(jobId, { manualAdminApproval: true });
+          results.channels.instagram = {
+            ok: true,
+            permalink: ig.permalink,
+            postId: ig.mediaId,
+          };
+        } else if (channel === 'youtube') {
+          const yt = await this.publishToYoutube(jobId, undefined, { manualAdminApproval: true });
+          results.channels.youtube = {
+            ok: true,
+            permalink: yt.url,
+            videoId: yt.videoId,
+          };
+        } else if (channel === 'portal') {
+          const portal = await this.publishToPortal(jobId, { manualAdminApproval: true });
+          results.channels.portal = {
+            ok: true,
+            postId: portal.postId,
+          };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        results.channels[channel] = { ok: false, error: message };
+      }
+    }
+
+    results.ok = Object.values(results.channels).some((row) => row?.ok);
+    return results;
+  }
+
   private buildInstagramCaption(job: {
     id: string;
     propertyId: string | null;
@@ -185,14 +321,17 @@ export class AiInfluencerPublishService {
       .slice(0, 2200);
   }
 
-  async publishToInstagram(jobId: string): Promise<{ permalink?: string; mediaId?: string }> {
+  async publishToInstagram(
+    jobId: string,
+    options?: { manualAdminApproval?: boolean },
+  ): Promise<{ permalink?: string; mediaId?: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
       include: { article: true },
     });
     if (!job) throw new Error('Job nenalezen.');
-    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
-    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    this.assertPublishAllowed(job, options);
+    const videoUrl = resolveMasterVideoUrl(job);
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
 
     if (
@@ -287,14 +426,17 @@ export class AiInfluencerPublishService {
     }
   }
 
-  async publishToFacebook(jobId: string): Promise<{ permalink?: string; postId?: string }> {
+  async publishToFacebook(
+    jobId: string,
+    options?: { manualAdminApproval?: boolean },
+  ): Promise<{ permalink?: string; postId?: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
-    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
-    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    this.assertPublishAllowed(job, options);
+    const videoUrl = resolveMasterVideoUrl(job);
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
 
     if (job.facebookPublishStatus === ReelPlatformPublishStatus.PUBLISHED && job.facebookPostId) {
@@ -360,19 +502,20 @@ export class AiInfluencerPublishService {
   async publishToYoutube(
     jobId: string,
     privacyStatus?: YoutubePrivacyStatus,
+    options?: { manualAdminApproval?: boolean },
   ): Promise<{ videoId: string; url: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
-    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
+    this.assertPublishAllowed(job, options);
 
     if (job.ownershipType === EditorialReelOwnershipType.EXTERNAL) {
       throw new Error('EXTERNAL: Externí videa nelze reuploadovat na XXREALIT kanál.');
     }
 
-    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    const videoUrl = resolveMasterVideoUrl(job);
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
 
     if (job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED && job.youtubeVideoId) {
@@ -472,15 +615,18 @@ export class AiInfluencerPublishService {
     }
   }
 
-  async publishToPortal(jobId: string): Promise<{ postId: string }> {
+  async publishToPortal(
+    jobId: string,
+    options?: { manualAdminApproval?: boolean },
+  ): Promise<{ postId: string }> {
     const job = await this.prisma.aiInfluencerReelJob.findUnique({
       where: { id: jobId },
       include: { article: true, property: true },
     });
     if (!job) throw new Error('Job nenalezen.');
-    if (job.isTest) throw new BadRequestException('Testovací video nelze publikovat.');
+    this.assertPublishAllowed(job, options);
 
-    const videoUrl = job.finalMasterUrl ?? job.videoUrl;
+    const videoUrl = resolveMasterVideoUrl(job);
     if (!videoUrl?.trim()) throw new Error('Chybí finální master video.');
     const primaryTitle = this.jobPrimaryTitle(job);
     const previewImage = this.jobPreviewImage(job);

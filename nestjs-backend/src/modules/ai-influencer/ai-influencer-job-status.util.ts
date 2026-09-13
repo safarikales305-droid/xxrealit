@@ -86,6 +86,44 @@ export function activeJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
   return { status: { in: ACTIVE_JOB_STATUSES } };
 }
 
+/** Jobs waiting at the front of the pipeline (created, not yet advancing). */
+export function queuedJobWhere(): Prisma.AiInfluencerReelJobWhereInput {
+  return {
+    OR: [
+      {
+        status: AiInfluencerReelJobStatus.EVALUATING,
+        progressPercent: { lte: 10 },
+      },
+      { status: AiInfluencerReelJobStatus.SCRIPT_READY },
+    ],
+  };
+}
+
+export function isActiveGenerationStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return ACTIVE_JOB_STATUSES.includes(status as AiInfluencerReelJobStatus);
+}
+
+export function isCompletedGenerationStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return GALLERY_VIDEO_STATUSES.includes(status as AiInfluencerReelJobStatus);
+}
+
+export function isFailedGenerationStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return (
+    status === AiInfluencerReelJobStatus.FAILED ||
+    status === AiInfluencerReelJobStatus.CANCELLED ||
+    status === AiInfluencerReelJobStatus.SKIPPED_QUALITY ||
+    status === AiInfluencerReelJobStatus.SKIPPED_DUPLICATE
+  );
+}
+
+export function isQueuedGenerationStatus(status: AiInfluencerReelJobStatus | string): boolean {
+  return (
+    status === AiInfluencerReelJobStatus.EVALUATING ||
+    status === AiInfluencerReelJobStatus.SCRIPT_READY
+  );
+}
+
+/** @deprecated use isActiveGenerationStatus */
 export function isActiveJobStatus(status: AiInfluencerReelJobStatus): boolean {
-  return ACTIVE_JOB_STATUSES.includes(status);
+  return isActiveGenerationStatus(status);
 }

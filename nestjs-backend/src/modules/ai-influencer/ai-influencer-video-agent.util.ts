@@ -54,6 +54,13 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     archiveCompletedAt: typeof o.archiveCompletedAt === 'string' ? o.archiveCompletedAt : undefined,
     allowAvatarFallback:
       typeof o.allowAvatarFallback === 'boolean' ? o.allowAvatarFallback : undefined,
+    manualPublishApproved: o.manualPublishApproved === true,
+    manualPublishApprovedAt:
+      typeof o.manualPublishApprovedAt === 'string' ? o.manualPublishApprovedAt : undefined,
+    manualPublishChannels: Array.isArray(o.manualPublishChannels)
+      ? (o.manualPublishChannels as Array<'facebook' | 'instagram' | 'youtube' | 'portal'>)
+      : undefined,
+    originIsTest: o.originIsTest === true,
     pipelineStage: typeof o.pipelineStage === 'string' ? o.pipelineStage : undefined,
     lastHeartbeatAt: typeof o.lastHeartbeatAt === 'string' ? o.lastHeartbeatAt : undefined,
     videoStyle:

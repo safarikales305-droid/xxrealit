@@ -108,6 +108,8 @@ export type FacebookProviderStatus = {
   pageName?: string | null;
   tokenActive?: boolean;
   lastError?: string | null;
+  hint?: string | null;
+  publishStatus?: 'READY' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'FAILED';
 };
 
 export type YoutubeProviderStatus = {
@@ -122,6 +124,7 @@ export type YoutubeProviderStatus = {
   missingEnv?: string[];
   redirectUri?: string | null;
   message?: string | null;
+  publishStatus?: 'READY' | 'AUTH_REQUIRED' | 'NOT_CONNECTED' | 'FAILED';
 };
 
 export type InstagramProviderStatus = {
@@ -203,6 +206,7 @@ export type AiInfluencerDashboard = {
     jobsCompletedToday?: number;
     reelsWeek: number;
     inQueue: number;
+    queuedToday?: number;
     published: number;
     failed: number;
     failedAllTime?: number;
@@ -212,6 +216,7 @@ export type AiInfluencerDashboard = {
   debugCounts?: {
     jobsToday: number;
     activeJobs: number;
+    queuedJobsToday?: number;
     completedVideosToday: number;
     publishedJobsToday: number;
     failedJobsToday: number;
@@ -841,6 +846,36 @@ export function nestAiInfluencerPublishInstagram(token: string, jobId: string) {
     `/jobs/${jobId}/publish/instagram`,
     { method: 'POST' },
   );
+}
+
+export type ManualPublishChannel = 'facebook' | 'instagram' | 'youtube' | 'portal';
+
+export type ManualPublishResult = {
+  ok: boolean;
+  jobId: string;
+  channels: Partial<
+    Record<
+      ManualPublishChannel,
+      { ok: boolean; error?: string; permalink?: string; postId?: string; videoId?: string }
+    >
+  >;
+};
+
+export function nestAiInfluencerPublishManual(
+  token: string,
+  jobId: string,
+  channels: ManualPublishChannel[],
+) {
+  return aiInfluencerFetchWithError<ManualPublishResult>(token, `/jobs/${jobId}/publish/manual`, {
+    method: 'POST',
+    body: JSON.stringify({ channels, manualAdminApproval: true }),
+  });
+}
+
+export function nestAiInfluencerPublishPortal(token: string, jobId: string) {
+  return aiInfluencerFetchWithError<{ postId: string }>(token, `/jobs/${jobId}/publish/portal`, {
+    method: 'POST',
+  });
 }
 
 export function nestAiInfluencerVerifyInstagram(token: string) {

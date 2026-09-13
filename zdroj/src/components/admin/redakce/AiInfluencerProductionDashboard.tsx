@@ -20,6 +20,7 @@ import {
   nestAiInfluencerProfile,
   nestAiInfluencerPublishFacebook,
   nestAiInfluencerPublishInstagram,
+  nestAiInfluencerPublishManual,
   nestAiInfluencerPublishYoutube,
   nestAiInfluencerDeleteProductionTest,
   nestAiInfluencerProductionTestActive,
@@ -47,6 +48,8 @@ import {
   type AiInfluencerDashboard,
   type AiInfluencerJobRow,
   type AiInfluencerPipelineStep,
+  type ManualPublishChannel,
+  type ManualPublishResult,
   type ProductionTestStatus,
   type ScriptProviderTestResult,
 } from '@/lib/ai-influencer-client';
@@ -62,20 +65,94 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'settings', label: 'Nastavení' },
 ];
 
+const ACTIVE_GENERATION_STATUSES = [
+  'EVALUATING',
+  'CANDIDATE',
+  'SCRIPT_GENERATING',
+  'SCRIPT_READY',
+  'VOICE_GENERATING',
+  'VOICE_READY',
+  'AVATAR_GENERATING',
+  'AVATAR_READY',
+  'RENDERING',
+  'PUBLISHING',
+] as const;
+
+function isActiveGenerationStatus(status: string) {
+  return (ACTIVE_GENERATION_STATUSES as readonly string[]).includes(status);
+}
+
+function mergeActiveJobLists(
+  apiJobs: AiInfluencerActiveJob[],
+  localJobs: AiInfluencerActiveJob[],
+): AiInfluencerActiveJob[] {
+  const apiIds = new Set(apiJobs.map((job) => job.id));
+  const optimistic = localJobs.filter(
+    (job) => !apiIds.has(job.id) && isActiveGenerationStatus(job.status),
+  );
+  return [...apiJobs, ...optimistic];
+}
+
 function isProcessing(status: string) {
-  return ![
-    'READY',
-    'PUBLISHED',
-    'PARTIALLY_PUBLISHED',
-    'FAILED',
-    'CANCELLED',
-    'SKIPPED_QUALITY',
-    'SKIPPED_DUPLICATE',
-  ].includes(status);
+  return isActiveGenerationStatus(status);
 }
 
 function modeLabel(mode?: string) {
   return mode === 'AVATAR' ? 'Avatar fallback' : 'Video Agent';
+}
+
+function providerDetailFacebook(providers?: AiInfluencerDashboard['providers'] | null): string {
+  const fb = providers?.facebook;
+  if (fb?.connected) return `Facebook: READY${fb.pageName ? ` · ${fb.pageName}` : ''}`;
+  if (fb?.lastError) return `Facebook: AUTH_REQUIRED · ${fb.lastError}`;
+  if (fb?.hint) return `Facebook: ${fb.hint}`;
+  return 'Facebook: NOT_CONNECTED · Stránka není připojena nebo token vypršel.';
+}
+
+function providerDetailYoutube(providers?: AiInfluencerDashboard['providers'] | null): string {
+  const yt = providers?.youtube;
+  if (yt?.connected && yt.refreshTokenOk && yt.uploadScopeOk) {
+    return `YouTube: READY${yt.channelTitle ? ` · ${yt.channelTitle}` : ''}`;
+  }
+  if (yt?.message) return `YouTube: ${yt.publishStatus ?? 'ERROR'} · ${yt.message}`;
+  return 'YouTube: NOT_CONNECTED · OAuth kanál není připojen.';
+}
+
+function providerDetailInstagram(providers?: AiInfluencerDashboard['providers'] | null): string {
+  const ig = providers?.instagram;
+  if (ig?.publishReady) return `Instagram: READY${ig.instagramUsername ? ` · @${ig.instagramUsername}` : ''}`;
+  if (ig?.missingScopes?.length) {
+    return `Instagram: MISSING_PERMISSIONS · ${ig.missingScopes.join(', ')}`;
+  }
+  if (ig?.message) return `Instagram: AUTH_REQUIRED · ${ig.message}`;
+  return 'Instagram: NOT_CONNECTED · Vyžaduje Meta propojení a oprávnění.';
+}
+
+function providerDetailShorts(providers?: AiInfluencerDashboard['providers'] | null): string {
+  const shorts = providers?.shorts;
+  if (shorts?.connected) return 'XXREALIT Shorts: READY · Cloudinary storage';
+  return shorts?.message ?? 'XXREALIT Shorts: NOT_CONFIGURED · chybí persistent storage';
+}
+
+function channelPublishReady(
+  channel: ManualPublishChannel,
+  providers?: AiInfluencerDashboard['providers'] | null,
+): { ready: boolean; reason: string } {
+  if (channel === 'facebook') {
+    const ready = providers?.facebook?.connected === true;
+    return { ready, reason: providerDetailFacebook(providers) };
+  }
+  if (channel === 'instagram') {
+    const ready = providers?.instagram?.publishReady === true;
+    return { ready, reason: providerDetailInstagram(providers) };
+  }
+  if (channel === 'youtube') {
+    const yt = providers?.youtube;
+    const ready = Boolean(yt?.connected && yt.refreshTokenOk && yt.uploadScopeOk);
+    return { ready, reason: providerDetailYoutube(providers) };
+  }
+  const ready = providers?.shorts?.connected === true;
+  return { ready, reason: providerDetailShorts(providers) };
 }
 
 function stageLabel(stage: string | null | undefined) {
@@ -309,6 +386,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [createState, setCreateState] = useState<'idle' | 'submitting' | 'accepted' | 'error'>('idle');
   const [toast, setToast] = useState<string | null>(null);
   const [playVideoUrl, setPlayVideoUrl] = useState<string | null>(null);
+  const [publishJob, setPublishJob] = useState<AiInfluencerJobRow | null>(null);
+  const [publishChannels, setPublishChannels] = useState<Record<ManualPublishChannel, boolean>>({
+    facebook: true,
+    instagram: false,
+    youtube: true,
+    portal: true,
+  });
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishResult, setPublishResult] = useState<ManualPublishResult | null>(null);
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [testArticleId, setTestArticleId] = useState('');
   const [productionTest, setProductionTest] = useState<ProductionTestStatus | null>(null);
@@ -334,7 +420,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       if (d) setDashboard(d);
       if (a) setArticles(a);
       if (j) setJobs(j);
-      if (active) setActiveJobs(active);
+      if (active) setActiveJobs((prev) => mergeActiveJobLists(active, prev));
       if (v) setVideos(v);
       if (profile && typeof profile.voiceId === 'string') setSelectedVoiceId(profile.voiceId);
       if (profile && typeof profile.avatarId === 'string') setSelectedAvatarId(profile.avatarId);
@@ -418,7 +504,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
             }
           }
           prevActiveIdsRef.current = nextIds;
-          setActiveJobs(active);
+          setActiveJobs((prev) => mergeActiveJobLists(active, prev));
         }
         if (v) setVideos(v);
         if (d) setDashboard(d);
@@ -558,7 +644,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       id: created.jobId,
       status: created.status,
       progressPercent: created.progress,
-      currentStep: 'Job vytvořen',
+      currentStep: isActiveGenerationStatus(created.status) ? 'Čeká ve frontě' : created.status,
       errorMessage: null,
       failedStage: null,
       skipReason: null,
@@ -571,16 +657,58 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
       generationMode: created.generationMode,
       sourceType: 'article',
     };
-    setActiveJobs((prev) => [optimistic, ...prev.filter((j) => j.id !== optimistic.id)]);
-    prevActiveIdsRef.current = [optimistic.id, ...prevActiveIdsRef.current.filter((id) => id !== optimistic.id)];
+    if (isActiveGenerationStatus(created.status)) {
+      setActiveJobs((prev) => mergeActiveJobLists([optimistic], prev));
+      prevActiveIdsRef.current = [optimistic.id, ...prevActiveIdsRef.current.filter((id) => id !== optimistic.id)];
+    }
     setCreateState('accepted');
-    window.setTimeout(() => {
-      setCreateOpen(false);
-      setCreateState('idle');
-      setCreateError(null);
-      setTab('production');
-      loadCore();
-    }, 700);
+    setToast('Výroba byla spuštěna');
+    setCreateOpen(false);
+    setCreateState('idle');
+    setCreateError(null);
+    setTab('production');
+    void Promise.all([
+      nestAiInfluencerActiveJobs(apiAccessToken),
+      nestAiInfluencerDashboard(apiAccessToken),
+      nestAiInfluencerJobs(apiAccessToken),
+    ]).then(([active, d, j]) => {
+      if (active) setActiveJobs((prev) => mergeActiveJobLists(active, prev));
+      if (d) setDashboard(d);
+      if (j) setJobs(j);
+    });
+  };
+
+  const openPublishModal = (job: AiInfluencerJobRow) => {
+    setPublishResult(null);
+    setPublishJob(job);
+    setPublishChannels({
+      facebook: channelPublishReady('facebook', providers).ready,
+      instagram: channelPublishReady('instagram', providers).ready,
+      youtube: channelPublishReady('youtube', providers).ready,
+      portal: channelPublishReady('portal', providers).ready,
+    });
+  };
+
+  const handleManualPublish = async () => {
+    if (!publishJob) return;
+    const selected = (Object.entries(publishChannels) as Array<[ManualPublishChannel, boolean]>)
+      .filter(([, enabled]) => enabled)
+      .map(([channel]) => channel);
+    if (selected.length === 0) {
+      setToast('Vyberte alespoň jeden kanál.');
+      return;
+    }
+    setPublishBusy(true);
+    setPublishResult(null);
+    const result = await nestAiInfluencerPublishManual(apiAccessToken, publishJob.id, selected);
+    setPublishBusy(false);
+    if (result.error || !result.data) {
+      setToast(result.error ?? 'Publikace selhala.');
+      return;
+    }
+    setPublishResult(result.data);
+    setToast(result.data.ok ? 'Publikace dokončena.' : 'Publikace dokončena s chybami.');
+    loadCore();
   };
 
   return (
@@ -620,11 +748,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
       {tab === 'overview' ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             {[
               ['Dnes spuštěno', dashboard?.stats.jobsStartedToday ?? dashboard?.stats.reelsToday ?? 0],
               ['Dnes dokončeno', dashboard?.stats.jobsCompletedToday ?? 0],
               ['Ve výrobě', dashboard?.stats.inQueue ?? activeJobs.length],
+              ['Čeká ve frontě', dashboard?.stats.queuedToday ?? dashboard?.debugCounts?.queuedJobsToday ?? 0],
               ['Publikováno', dashboard?.stats.published ?? 0],
               ['Selhalo dnes', dashboard?.stats.failed ?? failedJobs.length],
               ['Náklady dnes', `${(dashboard?.stats.costTodayCzk ?? 0).toFixed(2)} Kč`],
@@ -705,16 +834,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
               />
               <HealthChip label="Avatar" ok={providers?.heygen?.generationReady === true} detail={providers?.heygen?.detailMessage ?? undefined} />
               <HealthChip label="Storage" ok={providers?.storage?.configured === true} detail={providers?.storage?.message ?? undefined} />
-              <HealthChip label="FB" ok={providers?.facebook?.connected === true} />
+              <HealthChip label="FB" ok={providers?.facebook?.connected === true} detail={providerDetailFacebook(providers)} />
               <HealthChip
                 label="IG"
                 ok={providers?.instagram?.publishReady === true}
                 warn={providers?.instagram?.connected === true && !providers?.instagram?.publishReady}
-                detail={
-                  providers?.instagram?.missingScopes?.length
-                    ? `Chybí oprávnění: ${providers.instagram.missingScopes.join(', ')}`
-                    : providers?.instagram?.message ?? undefined
-                }
+                detail={providerDetailInstagram(providers)}
                 action={
                   !providers?.instagram?.publishReady ? (
                     <button
@@ -727,8 +852,8 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   ) : undefined
                 }
               />
-              <HealthChip label="YT" ok={providers?.youtube?.connected === true} />
-              <HealthChip label="Shorts" ok={providers?.shorts?.connected === true} />
+              <HealthChip label="YT" ok={Boolean(providers?.youtube?.connected && providers?.youtube?.refreshTokenOk && providers?.youtube?.uploadScopeOk)} detail={providerDetailYoutube(providers)} />
+              <HealthChip label="Shorts" ok={providers?.shorts?.connected === true} detail={providerDetailShorts(providers)} />
             </div>
           </section>
 
@@ -913,11 +1038,11 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                         >
                           Přejít do galerie
                         </button>
-                        {job.status === 'READY' ? (
+                        {['READY', 'PARTIALLY_PUBLISHED'].includes(job.status) ? (
                           <button
                             type="button"
                             className="rounded bg-orange-600 px-2 py-1 text-xs font-medium text-white"
-                            onClick={() => setDetailJobId(job.id)}
+                            onClick={() => openPublishModal(job)}
                           >
                             Publikovat
                           </button>
@@ -1101,6 +1226,15 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                       <button type="button" className="rounded border border-zinc-300 px-2 py-1 text-xs" onClick={() => setDetailJobId(job.id)}>
                         Detail
                       </button>
+                      {['READY', 'PARTIALLY_PUBLISHED'].includes(job.status) ? (
+                        <button
+                          type="button"
+                          className="rounded bg-orange-600 px-2 py-1 text-xs font-medium text-white"
+                          onClick={() => openPublishModal(job)}
+                        >
+                          Publikovat
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="rounded border border-zinc-300 px-2 py-1 text-xs"
@@ -1855,6 +1989,99 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         </div>
       ) : null}
 
+      {publishJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-zinc-900">Publikovat video</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setPublishJob(null);
+                  setPublishResult(null);
+                }}
+                aria-label="Zavřít"
+              >
+                <X className="size-5 text-zinc-500" />
+              </button>
+            </div>
+            <p className="mt-2 text-sm font-medium text-zinc-900">{resolveAiInfluencerJobTitle(publishJob)}</p>
+            {publishJob.isTest ? (
+              <p className="mt-1 text-xs text-violet-700">
+                Testovací video — publikace proběhne ručně. Historie zůstane označena jako TEST.
+              </p>
+            ) : null}
+            <div className="mt-4 space-y-2">
+              {(
+                [
+                  ['facebook', 'Facebook'],
+                  ['instagram', 'Instagram'],
+                  ['youtube', 'YouTube'],
+                  ['portal', 'XXREALIT Shorts'],
+                ] as Array<[ManualPublishChannel, string]>
+              ).map(([channel, label]) => {
+                const readiness = channelPublishReady(channel, providers);
+                return (
+                  <label
+                    key={channel}
+                    className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-sm ${
+                      readiness.ready ? 'border-zinc-200' : 'border-zinc-100 bg-zinc-50 opacity-80'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={publishChannels[channel]}
+                      disabled={!readiness.ready || publishBusy}
+                      onChange={(e) =>
+                        setPublishChannels((prev) => ({ ...prev, [channel]: e.target.checked }))
+                      }
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="font-medium text-zinc-900">{label}</span>
+                      <span className="mt-0.5 block text-xs text-zinc-600">{readiness.reason}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {publishResult ? (
+              <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+                {(['facebook', 'instagram', 'youtube', 'portal'] as ManualPublishChannel[]).map((channel) => {
+                  const row = publishResult.channels[channel];
+                  if (!row) return null;
+                  return (
+                    <p key={channel}>
+                      {channel}: {row.ok ? '✓ publikováno' : `✕ ${row.error ?? 'selhalo'}`}
+                    </p>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={publishBusy}
+                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                onClick={() => void handleManualPublish()}
+              >
+                {publishBusy ? 'Publikuji…' : 'Spustit publikaci'}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm"
+                onClick={() => {
+                  setPublishJob(null);
+                  setPublishResult(null);
+                }}
+              >
+                Zavřít
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {createOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
@@ -1960,11 +2187,16 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
                   {jobRetryLabel(detailJob)}
                 </button>
               ) : null}
-              {(detailJob.finalMasterUrl ?? detailJob.videoUrl) && detailJob.status === 'READY' ? (
+              {(detailJob.finalMasterUrl ?? detailJob.videoUrl) &&
+              ['READY', 'PARTIALLY_PUBLISHED'].includes(detailJob.status) ? (
                 <>
-                  <button type="button" className="rounded border px-3 py-1 text-xs" onClick={() => void nestAiInfluencerPublishFacebook(apiAccessToken, detailJob.id).then(loadCore)}>FB</button>
-                  <button type="button" className="rounded border px-3 py-1 text-xs" onClick={() => void nestAiInfluencerPublishInstagram(apiAccessToken, detailJob.id).then(loadCore)}>IG</button>
-                  <button type="button" className="rounded border px-3 py-1 text-xs" onClick={() => void nestAiInfluencerPublishYoutube(apiAccessToken, detailJob.id).then(loadCore)}>YT</button>
+                  <button
+                    type="button"
+                    className="rounded bg-orange-600 px-3 py-1 text-xs font-medium text-white"
+                    onClick={() => openPublishModal(detailJob)}
+                  >
+                    Publikovat
+                  </button>
                   <button type="button" className="rounded border px-3 py-1 text-xs" onClick={() => void nestAiInfluencerRegenerateJob(apiAccessToken, detailJob.id).then(loadCore)}>Přegenerovat</button>
                 </>
               ) : null}

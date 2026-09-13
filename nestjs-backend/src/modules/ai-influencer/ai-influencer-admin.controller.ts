@@ -101,6 +101,7 @@ export class AiInfluencerAdminController {
         jobsCompletedToday: stats.jobsCompletedToday,
         reelsWeek: stats.jobsWeek,
         inQueue: stats.activeJobs,
+        queuedToday: stats.queuedJobs,
         published: stats.publishedVideos,
         failed: stats.failedJobsToday,
         failedAllTime: stats.failedAllTime,
@@ -110,6 +111,7 @@ export class AiInfluencerAdminController {
       debugCounts: {
         jobsToday: stats.jobsStartedToday,
         activeJobs: stats.activeJobs,
+        queuedJobsToday: stats.queuedJobs,
         completedVideosToday: stats.jobsCompletedToday,
         publishedJobsToday: stats.publishedVideosToday,
         failedJobsToday: stats.failedJobsToday,
@@ -234,6 +236,21 @@ export class AiInfluencerAdminController {
   @Post('jobs/:id/regenerate')
   regenerateJob(@Param('id') id: string) {
     return this.jobs.regenerateRender(id);
+  }
+
+  @Post('jobs/:id/publish/manual')
+  publishManual(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      channels?: Array<'facebook' | 'instagram' | 'youtube' | 'portal'>;
+      manualAdminApproval?: boolean;
+    },
+  ) {
+    return this.jobs.publishManual(id, {
+      channels: body.channels ?? ['facebook', 'instagram', 'youtube', 'portal'],
+      manualAdminApproval: body.manualAdminApproval === true,
+    });
   }
 
   @Post('jobs/:id/publish/facebook')
@@ -920,6 +937,8 @@ export class AiInfluencerAdminController {
         pageName: fb.pageName ?? null,
         tokenActive: fb.ok,
         lastError: fb.error ?? null,
+        hint: fb.hint ?? null,
+        publishStatus: fb.ok ? 'READY' : fb.error ? 'AUTH_REQUIRED' : 'NOT_CONNECTED',
       },
       youtube: {
         configured: yt.configured,
@@ -932,6 +951,28 @@ export class AiInfluencerAdminController {
         autoPublishReady: yt.autoPublishReady,
         missingEnv: yt.missingEnv,
         redirectUri: yt.redirectUri,
+        message:
+          !yt.connected
+            ? yt.missingEnv?.length
+              ? `Chybí konfigurace: ${yt.missingEnv.join(', ')}`
+              : 'YouTube kanál není připojen.'
+            : !yt.refreshTokenOk
+              ? 'Refresh token je neplatný — znovu připojte YouTube OAuth.'
+              : !yt.uploadScopeOk
+                ? 'Chybí upload scope pro YouTube.'
+                : yt.healthStatus
+                  ? `YouTube health: ${yt.healthStatus}`
+                  : null,
+        publishStatus:
+          yt.connected && yt.refreshTokenOk && yt.uploadScopeOk
+            ? 'READY'
+            : !yt.connected
+              ? 'NOT_CONNECTED'
+              : !yt.refreshTokenOk
+                ? 'AUTH_REQUIRED'
+                : !yt.uploadScopeOk
+                  ? 'AUTH_REQUIRED'
+                  : 'FAILED',
       },
       instagram: {
         connected: ig.connected,

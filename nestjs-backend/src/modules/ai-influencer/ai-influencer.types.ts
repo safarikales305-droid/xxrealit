@@ -113,6 +113,10 @@ export type AiInfluencerJobRenderMeta = {
   pipelineStage?: string;
   lastHeartbeatAt?: string;
   allowAvatarFallback?: boolean;
+  manualPublishApproved?: boolean;
+  manualPublishApprovedAt?: string;
+  manualPublishChannels?: Array<'facebook' | 'instagram' | 'youtube' | 'portal'>;
+  originIsTest?: boolean;
   videoStyle?: AiInfluencerVideoStyle;
   targetDurationSec?: number;
   avatarFrequency?: AiInfluencerAvatarFrequency;

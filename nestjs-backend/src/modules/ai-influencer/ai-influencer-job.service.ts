@@ -329,13 +329,13 @@ export class AiInfluencerJobService {
         status: AiInfluencerReelJobStatus.EVALUATING,
         sourceType: 'ARTICLE',
         forceOverride: options?.force === true,
-        progressPercent: 5,
-        currentStep: 'Job vytvořen',
+        progressPercent: 3,
+        currentStep: 'Čeká ve frontě',
         renderSettingsJson: initialRenderMeta as object,
         timelineEvents: appendTimelineEvent(null, 'JOB_CREATED') as object,
       },
     });
-    await this.bootstrapCreatedJob(job.id);
+    this.scheduleBootstrapCreatedJob(job.id);
     const refreshed = await this.getJob(job.id);
     return {
       jobId: refreshed.id,
@@ -349,6 +349,14 @@ export class AiInfluencerJobService {
   }
 
   /** Posune nově vytvořený job přes několik synchronních fází, dokud nenarazí na čekání/poll. */
+  private scheduleBootstrapCreatedJob(jobId: string): void {
+    void this.bootstrapCreatedJob(jobId).catch((err) => {
+      this.log.error(
+        `bootstrapCreatedJob ${jobId} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
+
   private async bootstrapCreatedJob(jobId: string): Promise<void> {
     await this.advanceJobChain(jobId, 12);
   }
@@ -472,7 +480,7 @@ export class AiInfluencerJobService {
         }) as object,
       },
     });
-    await this.bootstrapCreatedJob(job.id);
+    this.scheduleBootstrapCreatedJob(job.id);
     return this.getJob(job.id);
   }
 
@@ -715,7 +723,7 @@ export class AiInfluencerJobService {
       },
     });
 
-    await this.bootstrapCreatedJob(job.id);
+    this.scheduleBootstrapCreatedJob(job.id);
     const refreshed = await this.getJob(job.id);
     return {
       jobId: refreshed.id,
@@ -779,7 +787,7 @@ export class AiInfluencerJobService {
       },
     });
 
-    await this.bootstrapCreatedJob(job.id);
+    this.scheduleBootstrapCreatedJob(job.id);
     const refreshed = await this.getJob(job.id);
     return {
       jobId: refreshed.id,
@@ -2449,21 +2457,31 @@ export class AiInfluencerJobService {
     });
   }
 
-  async publishToFacebook(jobId: string) {
-    return this.publish.publishToFacebook(jobId);
+  async publishToFacebook(jobId: string, options?: { manualAdminApproval?: boolean }) {
+    return this.publish.publishToFacebook(jobId, options);
   }
 
-  async publishToYoutube(jobId: string) {
+  async publishToYoutube(jobId: string, options?: { manualAdminApproval?: boolean }) {
     const cfg = this.settings.getCached();
-    return this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus);
+    return this.publish.publishToYoutube(jobId, cfg.youtubePrivacyStatus, options);
   }
 
-  async publishToInstagram(jobId: string) {
-    return this.publish.publishToInstagram(jobId);
+  async publishToInstagram(jobId: string, options?: { manualAdminApproval?: boolean }) {
+    return this.publish.publishToInstagram(jobId, options);
   }
 
-  async publishToPortal(jobId: string) {
-    return this.publish.publishToPortal(jobId);
+  async publishToPortal(jobId: string, options?: { manualAdminApproval?: boolean }) {
+    return this.publish.publishToPortal(jobId, options);
+  }
+
+  async publishManual(
+    jobId: string,
+    body: {
+      channels: Array<'facebook' | 'instagram' | 'youtube' | 'portal'>;
+      manualAdminApproval?: boolean;
+    },
+  ) {
+    return this.publish.publishManual(jobId, body);
   }
 
   async regenerateRender(jobId: string): Promise<AiInfluencerJobWithRelations> {
