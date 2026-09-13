@@ -36,7 +36,23 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     fallbackNotice: typeof o.fallbackNotice === 'string' ? o.fallbackNotice : undefined,
     videoAgentSubmittedAt:
       typeof o.videoAgentSubmittedAt === 'string' ? o.videoAgentSubmittedAt : undefined,
+    videoAgentSubmitStartedAt:
+      typeof o.videoAgentSubmitStartedAt === 'string' ? o.videoAgentSubmitStartedAt : undefined,
     videoAgentSubmitInFlight: o.videoAgentSubmitInFlight === true,
+    providerSubmitState:
+      o.providerSubmitState === 'SUBMITTING' ||
+      o.providerSubmitState === 'SUBMITTED' ||
+      o.providerSubmitState === 'SUBMIT_UNKNOWN' ||
+      o.providerSubmitState === 'COMPLETED'
+        ? o.providerSubmitState
+        : undefined,
+    providerStatus: typeof o.providerStatus === 'string' ? o.providerStatus : undefined,
+    providerLastPolledAt:
+      typeof o.providerLastPolledAt === 'string' ? o.providerLastPolledAt : undefined,
+    providerCompletedAt:
+      typeof o.providerCompletedAt === 'string' ? o.providerCompletedAt : undefined,
+    generationAttemptId:
+      typeof o.generationAttemptId === 'string' ? o.generationAttemptId : undefined,
     pronunciationRulesApplied:
       Array.isArray(o.pronunciationRulesApplied) ?
         (o.pronunciationRulesApplied as string[])

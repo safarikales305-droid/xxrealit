@@ -210,6 +210,10 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
         /* logged in job service */
       }
     }
+    const videoAgentRecovered = await this.jobs.recoverStuckVideoAgentJobs(10);
+    if (videoAgentRecovered > 0) {
+      this.log.log(`[AI Influencer] Recovered ${videoAgentRecovered} stuck Video Agent job(s) on startup`);
+    }
   }
 
   async tick() {
@@ -223,6 +227,12 @@ export class AiInfluencerWorkerService implements OnModuleInit, OnModuleDestroy 
       const recovered = await this.jobs.recoverStaleQueuedJobs(5);
       if (recovered > 0) {
         this.log.log(`[AI Influencer] Recovered ${recovered} stale queued job(s)`);
+      }
+      if (this.tickCount % 6 === 0) {
+        const videoAgentRecovered = await this.jobs.recoverStuckVideoAgentJobs(5);
+        if (videoAgentRecovered > 0) {
+          this.log.log(`[AI Influencer] Recovered ${videoAgentRecovered} stuck Video Agent job(s)`);
+        }
       }
 
       const cfg = this.settings.getCached();

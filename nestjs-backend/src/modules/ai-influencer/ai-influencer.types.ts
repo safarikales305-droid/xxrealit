@@ -100,7 +100,13 @@ export type AiInfluencerJobRenderMeta = {
   videoAgentMaster?: boolean;
   fallbackNotice?: string;
   videoAgentSubmittedAt?: string;
+  videoAgentSubmitStartedAt?: string;
   videoAgentSubmitInFlight?: boolean;
+  providerSubmitState?: 'SUBMITTING' | 'SUBMITTED' | 'SUBMIT_UNKNOWN' | 'COMPLETED';
+  providerStatus?: string;
+  providerLastPolledAt?: string;
+  providerCompletedAt?: string;
+  generationAttemptId?: string;
   pronunciationRulesApplied?: string[];
   qualityMetrics?: Record<string, unknown>;
   isProductionTest?: boolean;

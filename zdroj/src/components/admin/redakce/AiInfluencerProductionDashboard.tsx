@@ -85,6 +85,20 @@ function isActiveGenerationStatus(status: string) {
   return (ACTIVE_GENERATION_STATUSES as readonly string[]).includes(status);
 }
 
+const ACTIVE_JOBS_STORAGE_KEY = 'xxrealit.ai-influencer.activeJobs';
+
+function readCachedActiveJobs(): AiInfluencerActiveJob[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.sessionStorage.getItem(ACTIVE_JOBS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as AiInfluencerActiveJob[];
+    return Array.isArray(parsed) ? parsed.filter((job) => isActiveGenerationStatus(job.status)) : [];
+  } catch {
+    return [];
+  }
+}
+
 function mergeActiveJobLists(
   apiJobs: AiInfluencerActiveJob[],
   localJobs: AiInfluencerActiveJob[],
@@ -394,7 +408,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
   const [dashboard, setDashboard] = useState<AiInfluencerDashboard | null>(null);
   const [articles, setArticles] = useState<AiInfluencerArticleRow[]>([]);
   const [jobs, setJobs] = useState<AiInfluencerJobRow[]>([]);
-  const [activeJobs, setActiveJobs] = useState<AiInfluencerActiveJob[]>([]);
+  const [activeJobs, setActiveJobs] = useState<AiInfluencerActiveJob[]>(() => readCachedActiveJobs());
   const [videos, setVideos] = useState<AiInfluencerJobRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -498,6 +512,18 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     const id = window.setInterval(poll, 2000);
     return () => window.clearInterval(id);
   }, [apiAccessToken, tab, productionTest?.jobId, productionTest?.progress.outcome]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(
+        ACTIVE_JOBS_STORAGE_KEY,
+        JSON.stringify(activeJobs.filter((job) => isActiveGenerationStatus(job.status))),
+      );
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [activeJobs]);
 
   useEffect(loadCore, [loadCore]);
 

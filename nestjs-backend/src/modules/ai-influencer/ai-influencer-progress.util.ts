@@ -7,10 +7,10 @@ export type ProgressMeta = {
 };
 
 export const RENDER_PROGRESS = {
-  DOWNLOAD: { percent: 70, step: 'Stahuji video', stepKey: 'DOWNLOAD' },
-  COMPOSITING: { percent: 80, step: 'Renderuji 1080×1920', stepKey: 'COMPOSITING' },
+  DOWNLOAD: { percent: 80, step: 'Stahuji master video', stepKey: 'DOWNLOADING' },
+  COMPOSITING: { percent: 88, step: 'Zpracovávám video', stepKey: 'POST_PROCESSING' },
   BRANDING: { percent: 88, step: 'Přidávám titulky a XXREALIT branding', stepKey: 'BRANDING' },
-  UPLOAD: { percent: 92, step: 'Nahrávám výsledné video', stepKey: 'UPLOAD' },
+  UPLOAD: { percent: 95, step: 'Ukládám do galerie', stepKey: 'STORAGE' },
 } as const;
 
 const BASE: Record<string, ProgressMeta> = {
@@ -20,10 +20,10 @@ const BASE: Record<string, ProgressMeta> = {
   SCRIPT_GENERATING: { percent: 15, step: 'Generuji scénář', stepKey: 'SCRIPT' },
   SCRIPT_READY: { percent: 25, step: 'Storyboard připraven', stepKey: 'STORYBOARD' },
   VOICE_GENERATING: { percent: 30, step: 'Generuji hlas', stepKey: 'VOICE' },
-  VOICE_READY: { percent: 35, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
-  AVATAR_GENERATING: { percent: 45, step: 'Odesílám Video Agentu', stepKey: 'VIDEO_AGENT_SUBMIT' },
-  AVATAR_READY: { percent: 80, step: 'Video Agent master stažen', stepKey: 'VIDEO_AGENT_READY' },
-  RENDERING: { percent: 80, step: 'Renderuji 1080×1920', stepKey: 'COMPOSITING' },
+  VOICE_READY: { percent: 40, step: 'Hlas připraven', stepKey: 'VOICE_READY' },
+  AVATAR_GENERATING: { percent: 50, step: 'HeyGen vyrábí video', stepKey: 'VIDEO_AGENT_PROCESSING' },
+  AVATAR_READY: { percent: 75, step: 'HeyGen dokončil video', stepKey: 'VIDEO_AGENT_READY' },
+  RENDERING: { percent: 88, step: 'Zpracovávám video', stepKey: 'POST_PROCESSING' },
   VALIDATING: { percent: 93, step: 'Kontrola kvality', stepKey: 'VALIDATING' },
   UPLOADING: { percent: 92, step: 'Nahrávám výsledné video', stepKey: 'UPLOADING' },
   READY: { percent: 100, step: 'Hotovo', stepKey: 'READY' },
@@ -41,10 +41,10 @@ export function progressForStatus(
 ): ProgressMeta {
   if (status === AiInfluencerReelJobStatus.AVATAR_GENERATING && avatarPollRatio != null) {
     const ratio = Math.min(1, Math.max(0, avatarPollRatio));
-    const percent = Math.round(55 + ratio * 15);
+    const percent = Math.round(50 + ratio * 25);
     return {
       percent,
-      step: 'AI skládá a renderuje scény',
+      step: 'HeyGen vyrábí video',
       stepKey: 'VIDEO_AGENT_PROCESSING',
     };
   }

@@ -39,6 +39,7 @@ import {
   AI_INFLUENCER_CLAIM_STALE_MS,
   AI_INFLUENCER_QUEUE_STALE_MS,
   AI_INFLUENCER_QUEUE_STALLED_MS,
+  AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS,
 } from './ai-influencer.constants';
 import {
   bypassesDuplicateGate,
@@ -122,6 +123,14 @@ import {
   videoAgentPollRatio,
   videoAgentTimedOut,
 } from './ai-influencer-video-agent.util';
+import {
+  extractSessionIdForRecovery,
+  hasPersistedVideoAgentProviderId,
+  isVideoAgentSubmitStale,
+  isVideoAgentSubmitUnknown,
+  shouldBlockVideoAgentResubmit,
+  shouldResumeVideoAgentPolling,
+} from './ai-influencer-video-agent-persist.util';
 import {
   isElevenLabsRequiredForJob,
   resolveVoiceEngine,
@@ -1310,30 +1319,64 @@ export class AiInfluencerJobService {
   async reconcilePendingHeyGenJobs(limit = 5): Promise<{ scanned: number; recovered: number }> {
     const rows = await this.prisma.aiInfluencerReelJob.findMany({
       where: {
-        avatarExternalJobId: { startsWith: VIDEO_AGENT_EXTERNAL_PREFIX },
         status: {
           in: [
             AiInfluencerReelJobStatus.FAILED,
+            AiInfluencerReelJobStatus.VOICE_READY,
+            AiInfluencerReelJobStatus.SCRIPT_READY,
             AiInfluencerReelJobStatus.AVATAR_GENERATING,
             AiInfluencerReelJobStatus.AVATAR_READY,
             AiInfluencerReelJobStatus.RENDERING,
           ],
         },
+        OR: [
+          { avatarExternalJobId: { startsWith: VIDEO_AGENT_EXTERNAL_PREFIX } },
+          { progressPercent: { gte: 40, lte: 55 } },
+        ],
       },
       orderBy: { updatedAt: 'desc' },
-      take: Math.max(limit, 5) * 4,
-      select: { id: true, finalMasterUrl: true, baseMasterUrl: true, videoUrl: true, avatarStorageUrl: true },
+      take: Math.max(limit, 5) * 6,
+      select: {
+        id: true,
+        finalMasterUrl: true,
+        baseMasterUrl: true,
+        videoUrl: true,
+        avatarStorageUrl: true,
+        avatarExternalJobId: true,
+        renderSettingsJson: true,
+        progressPercent: true,
+        status: true,
+      },
     });
 
     const candidates = rows
-      .filter((row) => !hasMasterVideoAsset(row))
+      .filter((row) => {
+        if (hasMasterVideoAsset(row)) return false;
+        const meta = readJobRenderMeta(row.renderSettingsJson);
+        return (
+          hasPersistedVideoAgentProviderId(meta, row.avatarExternalJobId) ||
+          isVideoAgentSubmitUnknown(meta) ||
+          (meta.videoAgentSubmitInFlight === true && row.progressPercent >= 40)
+        );
+      })
       .slice(0, limit);
 
     let recovered = 0;
     for (const row of candidates) {
       try {
+        const meta = readJobRenderMeta(row.renderSettingsJson);
+        if (
+          !hasPersistedVideoAgentProviderId(meta, row.avatarExternalJobId) &&
+          isVideoAgentSubmitStale(meta, AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS)
+        ) {
+          await this.markVideoAgentProviderReferenceLost(row.id, meta);
+          continue;
+        }
         const result = await this.reconcileHeyGenJob(row.id);
         if (result.outcome === 'RECOVERED' || result.outcome === 'ALREADY_ARCHIVED') {
+          recovered += 1;
+        } else if (result.outcome === 'PROVIDER_RUNNING') {
+          await this.runVideoAgentPoll(row.id);
           recovered += 1;
         }
       } catch (err) {
@@ -2040,6 +2083,187 @@ export class AiInfluencerJobService {
     await this.runVoiceGeneration(jobId);
   }
 
+  async recoverStuckVideoAgentJobs(limit = 10): Promise<number> {
+    const rows = await this.prisma.aiInfluencerReelJob.findMany({
+      where: {
+        status: {
+          in: [
+            AiInfluencerReelJobStatus.VOICE_READY,
+            AiInfluencerReelJobStatus.SCRIPT_READY,
+            AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            AiInfluencerReelJobStatus.FAILED,
+          ],
+        },
+        progressPercent: { gte: 40 },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit * 3,
+      select: {
+        id: true,
+        status: true,
+        progressPercent: true,
+        avatarExternalJobId: true,
+        renderSettingsJson: true,
+        finalMasterUrl: true,
+        baseMasterUrl: true,
+        videoUrl: true,
+        avatarStorageUrl: true,
+      },
+    });
+
+    let recovered = 0;
+    for (const row of rows) {
+      if (hasMasterVideoAsset(row)) continue;
+      const meta = readJobRenderMeta(row.renderSettingsJson);
+      const sessionId = extractSessionIdForRecovery(meta, row.avatarExternalJobId);
+      if (sessionId) {
+        try {
+          if (row.status === AiInfluencerReelJobStatus.FAILED) {
+            await this.prisma.aiInfluencerReelJob.update({
+              where: { id: row.id },
+              data: {
+                status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+                errorCode: null,
+                errorMessage: null,
+                failedStage: null,
+              },
+            });
+          }
+          await this.runVideoAgentPoll(row.id);
+          recovered += 1;
+        } catch (err) {
+          this.log.warn(
+            `Video Agent recovery poll ${row.id} failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+        continue;
+      }
+      if (isVideoAgentSubmitStale(meta) && !sessionId) {
+        await this.markVideoAgentProviderReferenceLost(row.id, meta);
+        recovered += 1;
+      }
+    }
+    return recovered;
+  }
+
+  private async assertPaidGenerationPreflight(
+    jobId: string,
+    job: AiInfluencerJobWithRelations,
+    cfg: ReturnType<AiInfluencerSettingsService['getCached']>,
+    meta: ReturnType<typeof readJobRenderMeta>,
+  ): Promise<void> {
+    await this.aiProvider.assertScriptGenerationReady();
+    if (isElevenLabsRequiredForJob(meta, cfg)) {
+      await this.elevenLabs.assertReadyForGeneration(job.profile.voiceId);
+    }
+    this.heygenConfig.assertApiKeyConfigured('VIDEO_AGENT');
+    const readiness = await this.videoAgent.getReadiness();
+    if (!readiness.available) {
+      throw Object.assign(new Error(readiness.message ?? 'HeyGen Video Agent není dostupný.'), {
+        code:
+          readiness.apiKeyPresence === 'MISSING'
+            ? 'HEYGEN_NOT_CONFIGURED'
+            : 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
+        pipelineStage: 'VIDEO_AGENT',
+      });
+    }
+    const storageDiag = this.cloudinary.getDiagnostics();
+    if (!storageDiag.configured) {
+      throw Object.assign(new Error('Cloudinary storage není nakonfigurován.'), {
+        code: 'STORAGE_NOT_CONFIGURED',
+        pipelineStage: 'STORAGE',
+      });
+    }
+    const profile = await this.registry.getDefaultProfile();
+    const heygenReadiness = await this.heygen.getGenerationReadiness(profile.avatarId);
+    if (!heygenReadiness.ready) {
+      throw Object.assign(new Error(heygenReadiness.message ?? 'HeyGen avatar není připraven.'), {
+        code: 'HEYGEN_NOT_CONFIGURED',
+        pipelineStage: 'VIDEO_AGENT',
+      });
+    }
+    this.log.log(`[AI-REEL][PREFLIGHT] AI_PREFLIGHT_PASSED jobId=${jobId}`);
+  }
+
+  private async persistVideoAgentProviderSession(
+    jobId: string,
+    input: {
+      sessionId: string;
+      videoId?: string | null;
+      providerStatus?: string | null;
+      renderMetaJson: Record<string, unknown>;
+      timelineEvents: unknown;
+      scriptEstimatedDuration?: number | null;
+      avatarCostIncrement: number;
+    },
+  ): Promise<void> {
+    const submittedAt = new Date().toISOString();
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+        avatarExternalJobId: toVideoAgentExternalJobId(input.sessionId),
+        avatarCostEstimated: input.avatarCostIncrement,
+        totalExternalCost: { increment: input.avatarCostIncrement },
+        progressPercent: 50,
+        currentStep: 'HeyGen vyrábí video',
+        lastAttemptAt: new Date(),
+        renderSettingsJson: mergeJobRenderMeta(input.renderMetaJson, {
+          videoGenerationMode: 'VIDEO_AGENT',
+          generationModeUsed: 'VIDEO_AGENT',
+          voiceEngine: 'HEYGEN',
+          providerJobType: 'VIDEO_AGENT',
+          providerJobId: input.sessionId,
+          heygenVideoAgentSessionId: input.sessionId,
+          heygenVideoAgentVideoId: input.videoId ?? undefined,
+          videoAgentSubmittedAt: submittedAt,
+          videoAgentSubmitInFlight: false,
+          providerSubmitState: 'SUBMITTED',
+          providerStatus: input.providerStatus ?? 'SUBMITTED',
+          pipelineStage: 'VIDEO_AGENT_PROCESSING',
+          lastHeartbeatAt: submittedAt,
+        }) as object,
+        timelineEvents: appendTimelineEvent(
+          input.timelineEvents,
+          'HEYGEN_PROVIDER_ID_PERSISTED',
+          input.sessionId,
+        ),
+      },
+    });
+    this.log.log(
+      `[AI-VIDEO][${jobId}] HEYGEN_PROVIDER_ID_PERSISTED session=${input.sessionId.slice(0, 8)}…`,
+    );
+  }
+
+  private async markVideoAgentProviderReferenceLost(
+    jobId: string,
+    meta: ReturnType<typeof readJobRenderMeta>,
+  ): Promise<void> {
+    const job = await this.prisma.aiInfluencerReelJob.findUnique({
+      where: { id: jobId },
+      select: { timelineEvents: true, renderSettingsJson: true },
+    });
+    const message =
+      'HeyGen generace mohla být vytvořena, ale XXREALIT ztratil její identifikátor. Automatické vytvoření další placené generace bylo z bezpečnostních důvodů zastaveno.';
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        status: AiInfluencerReelJobStatus.FAILED,
+        errorCode: 'PROVIDER_REFERENCE_LOST',
+        errorMessage: message,
+        failedStage: 'VIDEO_AGENT',
+        currentStep: 'Generování selhalo · Video Agent',
+        renderSettingsJson: mergeJobRenderMeta(job?.renderSettingsJson ?? meta, {
+          videoAgentSubmitInFlight: false,
+          providerSubmitState: 'SUBMIT_UNKNOWN',
+          pipelineStage: 'RECOVERY_REQUIRED',
+        }) as object,
+        timelineEvents: appendTimelineEvent(job?.timelineEvents, 'PROVIDER_REFERENCE_LOST'),
+      },
+    });
+    this.log.error(`[AI-VIDEO][${jobId}] PROVIDER_REFERENCE_LOST`);
+  }
+
   private async runVideoAgentStart(jobId: string): Promise<void> {
     const job = await this.getJob(jobId);
     const cfg = this.settings.getCached();
@@ -2059,33 +2283,40 @@ export class AiInfluencerJobService {
       await this.runVideoAgentPoll(jobId);
       return;
     }
-    if (meta.videoAgentSubmitInFlight && !meta.heygenVideoAgentSessionId) {
+
+    const existingProviderId = resolveJobProviderJobId(meta, job.avatarExternalJobId);
+    if (shouldResumeVideoAgentPolling(meta, job.avatarExternalJobId)) {
+      if (job.status !== AiInfluencerReelJobStatus.AVATAR_GENERATING) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: {
+            status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
+            avatarExternalJobId:
+              job.avatarExternalJobId ?? toVideoAgentExternalJobId(existingProviderId!),
+          },
+        });
+      }
+      await this.runVideoAgentPoll(jobId);
       return;
     }
 
-    const readiness = await this.videoAgent.getReadiness();
-    if (!readiness.available) {
-      if (
-        await this.maybeRunVideoAgentFallback(
-          jobId,
-          readiness.message ?? 'HeyGen Video Agent není dostupný.',
-          readiness.apiKeyPresence === 'MISSING' ? 'HEYGEN_NOT_CONFIGURED' : 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
-        )
-      ) {
-        return;
+    if (shouldBlockVideoAgentResubmit(meta, job.avatarExternalJobId)) {
+      if (isVideoAgentSubmitStale(meta, AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS)) {
+        await this.markVideoAgentProviderReferenceLost(jobId, meta);
       }
-      throw Object.assign(new Error(readiness.message ?? 'HeyGen Video Agent není dostupný.'), {
-        code:
-          readiness.apiKeyPresence === 'MISSING'
-            ? 'HEYGEN_NOT_CONFIGURED'
-            : 'HEYGEN_VIDEO_AGENT_NOT_AVAILABLE',
-        pipelineStage: 'VIDEO_AGENT',
-      });
+      return;
     }
 
-    this.heygenConfig.assertApiKeyConfigured('VIDEO_AGENT');
+    if (isVideoAgentSubmitUnknown(meta) && !existingProviderId) {
+      if (isVideoAgentSubmitStale(meta, AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS)) {
+        await this.markVideoAgentProviderReferenceLost(jobId, meta);
+      }
+      return;
+    }
+
+    await this.assertPaidGenerationPreflight(jobId, job, cfg, meta);
     this.log.log(
-      `[AI-REEL][HEYGEN] jobId=${jobId} generationMode=${getJobSnapshotGenerationMode(meta, cfg)} apiKeyPresent=${this.heygenConfig.isApiKeyConfigured()} providerConfigured=${readiness.available} provider=HEYGEN workerRuntime=true`,
+      `[AI-REEL][HEYGEN] jobId=${jobId} generationMode=${getJobSnapshotGenerationMode(meta, cfg)} apiKeyPresent=${this.heygenConfig.isApiKeyConfigured()} providerConfigured=true provider=HEYGEN workerRuntime=true`,
     );
     const avatarId = this.registry.resolveAvatarId(job.profile.avatarId);
     const script = job.scriptJson as ReelScriptPayload | null;
@@ -2172,15 +2403,21 @@ export class AiInfluencerJobService {
     this.log.log(
       `[AI-VIDEO][${jobId}] HEYGEN_SUBMIT filesTotal=${rawMediaFiles.length} filesValid=${mediaFiles.length} filesRehosted=${mediaPrep.stats.rehosted} filesSkipped=${mediaPrep.stats.skipped + mediaPrep.stats.invalid}`,
     );
+    const generationAttemptId = meta.generationAttemptId ?? `${jobId}-${Date.now()}`;
+    const submitStartedAt = new Date().toISOString();
     renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
+      generationAttemptId,
       videoAgentSubmitInFlight: true,
-      pipelineStage: 'VIDEO_AGENT_SUBMIT',
+      videoAgentSubmitStartedAt: submitStartedAt,
+      providerSubmitState: 'SUBMITTING',
+      pipelineStage: 'VIDEO_AGENT_SUBMITTING',
     });
+    this.log.log(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT_STARTED attempt=${generationAttemptId}`);
     await this.prisma.aiInfluencerReelJob.update({
       where: { id: jobId },
       data: {
         progressPercent: 45,
-        currentStep: 'Odesílám Video Agentu',
+        currentStep: 'Odesílám požadavek do HeyGen',
         renderSettingsJson: renderMetaJson as object,
       },
     });
@@ -2193,8 +2430,31 @@ export class AiInfluencerJobService {
         files: mediaFiles,
       });
     } catch (err) {
+      const code = errorCode(err);
+      const message = err instanceof Error ? err.message : String(err);
+      const isTimeout =
+        code === 'ETIMEDOUT' ||
+        /timeout|timed out|aborted/i.test(message);
+      if (isTimeout) {
+        renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
+          videoAgentSubmitInFlight: true,
+          providerSubmitState: 'SUBMIT_UNKNOWN',
+          pipelineStage: 'VIDEO_AGENT_SUBMITTING',
+        });
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: {
+            currentStep: 'HeyGen submit neznámý — čekám na recovery',
+            renderSettingsJson: renderMetaJson as object,
+            timelineEvents: appendTimelineEvent(job.timelineEvents, 'HEYGEN_SUBMIT_UNKNOWN'),
+          },
+        });
+        this.log.warn(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT_UNKNOWN — no automatic re-create`);
+        return;
+      }
       renderMetaJson = mergeJobRenderMeta(renderMetaJson, {
         videoAgentSubmitInFlight: false,
+        providerSubmitState: undefined,
       });
       await this.prisma.aiInfluencerReelJob.update({
         where: { id: jobId },
@@ -2202,11 +2462,10 @@ export class AiInfluencerJobService {
           renderSettingsJson: renderMetaJson as object,
         },
       });
-      const code = errorCode(err);
       if (cfg.allowVideoAgentFallback && this.canUseElevenLabsFallback() && (code?.startsWith('HEYGEN_VIDEO_AGENT_') ?? false)) {
         if (await this.maybeRunVideoAgentFallback(
           jobId,
-          err instanceof Error ? err.message : 'Video Agent submit selhal.',
+          message,
           code,
         )) {
           return;
@@ -2216,40 +2475,24 @@ export class AiInfluencerJobService {
     }
 
     this.log.log(
-      `[AI-VIDEO][${jobId}] HEYGEN SUBMIT status=200 mode=VIDEO_AGENT providerJobId=${started.sessionId ? 'present' : 'missing'}`,
+      `[AI-VIDEO][${jobId}] HEYGEN_SUBMIT_SUCCEEDED providerJobId=${started.sessionId ? 'present' : 'missing'}`,
     );
     this.log.log(
       `[AI-VIDEO][${jobId}] HEYGEN_ACCEPTED session=${started.sessionId.slice(0, 8)}… status=${started.providerStatus ?? 'unknown'}`,
     );
-    const submittedAt = new Date().toISOString();
-    const progress = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING);
-    await this.prisma.aiInfluencerReelJob.update({
-      where: { id: jobId },
-      data: {
-        status: AiInfluencerReelJobStatus.AVATAR_GENERATING,
-        avatarExternalJobId: toVideoAgentExternalJobId(started.sessionId),
-        avatarCostEstimated: cfg.avatarCostPerSecCzk * (script.estimatedDuration ?? cfg.targetDurationSec),
-        totalExternalCost: {
-          increment: cfg.avatarCostPerSecCzk * (script.estimatedDuration ?? cfg.targetDurationSec),
-        },
-        progressPercent: progress.percent,
-        currentStep: progress.step,
-        lastAttemptAt: new Date(),
-        renderSettingsJson: mergeJobRenderMeta(renderMetaJson, {
-          videoGenerationMode: 'VIDEO_AGENT',
-          generationModeUsed: 'VIDEO_AGENT',
-          voiceEngine: 'HEYGEN',
-          providerJobType: 'VIDEO_AGENT',
-          providerJobId: started.sessionId,
-          heygenVideoAgentSessionId: started.sessionId,
-          heygenVideoAgentVideoId: started.videoId ?? undefined,
-          videoAgentSubmittedAt: submittedAt,
-          videoAgentSubmitInFlight: false,
-          pipelineStage: progress.stepKey,
-          lastHeartbeatAt: submittedAt,
-        }) as object,
-        timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_SUBMITTED', started.sessionId),
-      },
+    const avatarCostIncrement =
+      cfg.avatarCostPerSecCzk * (script.estimatedDuration ?? cfg.targetDurationSec);
+    await this.persistVideoAgentProviderSession(jobId, {
+      sessionId: started.sessionId,
+      videoId: started.videoId,
+      providerStatus: started.providerStatus,
+      renderMetaJson: mergeJobRenderMeta(renderMetaJson, {
+        generationAttemptId,
+        heygenVideoAgentVideoId: started.videoId ?? undefined,
+      }),
+      timelineEvents: appendTimelineEvent(job.timelineEvents, 'VIDEO_AGENT_SUBMITTED', started.sessionId),
+      scriptEstimatedDuration: script.estimatedDuration,
+      avatarCostIncrement,
     });
   }
 
@@ -2275,13 +2518,19 @@ export class AiInfluencerJobService {
       return;
     }
 
-    const sessionId =
-      meta.heygenVideoAgentSessionId ??
-      parseVideoAgentSessionId(job.avatarExternalJobId) ??
-      null;
+    const sessionId = extractSessionIdForRecovery(meta, job.avatarExternalJobId);
     if (!sessionId) {
-      if (job.status === AiInfluencerReelJobStatus.AVATAR_GENERATING && !job.avatarExternalJobId) {
-        this.log.warn(`[AI-VIDEO][${jobId}] HEYGEN_SUBMIT missing session — retrying submit`);
+      if (shouldBlockVideoAgentResubmit(meta, job.avatarExternalJobId)) {
+        if (isVideoAgentSubmitStale(meta, AI_INFLUENCER_VIDEO_AGENT_SUBMIT_STALE_MS)) {
+          await this.markVideoAgentProviderReferenceLost(jobId, meta);
+        }
+        return;
+      }
+      if (
+        !isVideoAgentSubmitUnknown(meta) &&
+        !meta.videoAgentSubmitInFlight &&
+        !hasPersistedVideoAgentProviderId(meta, job.avatarExternalJobId)
+      ) {
         await this.runVideoAgentStart(jobId);
         return;
       }
@@ -2302,6 +2551,20 @@ export class AiInfluencerJobService {
     }
 
     const poll = await this.videoAgent.pollSession(sessionId);
+    const polledAt = new Date().toISOString();
+    await this.prisma.aiInfluencerReelJob.update({
+      where: { id: jobId },
+      data: {
+        renderSettingsJson: mergeJobRenderMeta(job.renderSettingsJson, {
+          providerLastPolledAt: polledAt,
+          providerStatus: poll.sessionStatus ?? poll.status,
+          lastHeartbeatAt: polledAt,
+        }) as object,
+      },
+    });
+    this.log.log(
+      `[AI-VIDEO][${jobId}] HEYGEN_STATUS_POLL status=${poll.status} session=${sessionId.slice(0, 8)}…`,
+    );
     if (poll.status === 'QUEUED' || poll.status === 'PROCESSING' || poll.status === 'GENERATING') {
       const ratio = videoAgentPollRatio(meta.videoAgentSubmittedAt);
       const longRunning = videoAgentTimedOut(meta.videoAgentSubmittedAt, 20 * 60 * 1000);
@@ -2309,7 +2572,7 @@ export class AiInfluencerJobService {
         jobId,
         AiInfluencerReelJobStatus.AVATAR_GENERATING,
         ratio,
-        longRunning ? 'HEYGEN_LONG_RUNNING' : undefined,
+        longRunning ? 'HEYGEN_LONG_RUNNING' : 'HEYGEN_PROCESSING',
       );
       return;
     }
@@ -2400,6 +2663,10 @@ export class AiInfluencerJobService {
           videoAgentMaster: true,
           providerOutputUrl: poll.videoUrl,
           videoAgentSubmitInFlight: false,
+          providerSubmitState: 'COMPLETED',
+          providerStatus: poll.sessionStatus ?? poll.status,
+          providerCompletedAt: new Date().toISOString(),
+          pipelineStage: 'VIDEO_AGENT_READY',
         }) as object,
         timelineEvents: appendTimelineEvent(
           appendTimelineEvent(job.timelineEvents, 'HEYGEN_COMPLETE'),
@@ -3426,10 +3693,11 @@ export class AiInfluencerJobService {
 
     const cfg = this.settings.getCached();
     const profile = await this.registry.getDefaultProfile();
-    const [videoAgentReadiness, heygenReadiness, storageDiag] = await Promise.all([
+    const [videoAgentReadiness, heygenReadiness, storageDiag, elevenReadiness] = await Promise.all([
       this.videoAgent.getReadiness(),
       this.heygen.getGenerationReadiness(profile.avatarId),
       Promise.resolve(this.cloudinary.getDiagnostics()),
+      this.elevenLabs.getGenerationReadiness(profile.voiceId),
     ]);
     const videoAgentCanonical = resolveVideoAgentCanonicalReady({
       videoAgentAvailable: videoAgentReadiness.available,
@@ -3456,8 +3724,8 @@ export class AiInfluencerJobService {
       storageConfigured: storageDiag.configured,
       heygenReady: heygenReadiness.ready,
       videoAgentAvailable: videoAgentReadiness.available,
-      elevenReady: true,
-      elevenTtsReady: true,
+      elevenReady: elevenReadiness.ready,
+      elevenTtsReady: elevenReadiness.ready,
     });
     if (!production.ready) {
       for (const reason of production.reasons) {

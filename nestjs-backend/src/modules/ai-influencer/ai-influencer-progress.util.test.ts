@@ -10,18 +10,18 @@ describe('ai-influencer-progress', () => {
     assert.match(p.step, /hlas/i);
   });
 
-  it('video agent poll interpolates 55–70%', () => {
+  it('video agent poll interpolates 50–75%', () => {
     const start = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING, 0);
     const mid = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING, 0.5);
     const end = progressForStatus(AiInfluencerReelJobStatus.AVATAR_GENERATING, 1);
-    assert.equal(start.percent, 55);
+    assert.equal(start.percent, 50);
     assert.equal(mid.percent, 63);
-    assert.equal(end.percent, 70);
+    assert.equal(end.percent, 75);
   });
 
   it('render sub-steps have expected labels', () => {
-    assert.equal(RENDER_PROGRESS.DOWNLOAD.percent, 70);
+    assert.equal(RENDER_PROGRESS.DOWNLOAD.percent, 80);
     assert.match(RENDER_PROGRESS.BRANDING.step, /branding/i);
-    assert.equal(RENDER_PROGRESS.UPLOAD.percent, 92);
+    assert.equal(RENDER_PROGRESS.UPLOAD.percent, 95);
   });
 });

@@ -158,7 +158,7 @@ export function resolveElevenLabsRuntimeDiagnostics(input: {
   const voiceIdPresent = Boolean(voiceId);
   const ttsReady = input.ttsPermission === 'PASS' || (apiKeyPresent && voiceIdPresent);
   const usable = apiKeyPresent && voiceIdPresent && ttsReady;
-  const providerReady = input.elevenRequired ? usable : true;
+  const providerReady = input.elevenRequired ? usable : apiKeyPresent && voiceIdPresent;
 
   const voicesRead =
     !input.elevenRequired
