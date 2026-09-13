@@ -175,6 +175,9 @@ export type AiInfluencerJobRenderMeta = {
   storageFailedAt?: string;
   heygenCreditsEstimated?: number;
   heygenCreditsUsed?: number | null;
+  topicCandidateId?: string;
+  topicCandidateApproved?: boolean;
+  sourceAttribution?: unknown;
   facebookPublishRetryAttempts?: number;
   facebookPublishRetryAt?: string;
   providerSubmitStartedAt?: string;
@@ -278,6 +281,71 @@ export type AiInfluencerAutomationSettings = {
   ctaTextMode: 'auto' | 'custom';
   customCtaText: string;
   youtubeCtaText: string;
+  topicHunter: AiInfluencerTopicHunterSettings;
+};
+
+export type AiInfluencerTopicHunterSettings = {
+  enabled: boolean;
+  searchIntervalHours: number;
+  regions: {
+    czechRepublic: boolean;
+    prague: boolean;
+    czechRegions: boolean;
+    slovakia: boolean;
+    europe: boolean;
+    world: boolean;
+  };
+  categories: {
+    luxury: boolean;
+    cheapest: boolean;
+    mostExpensive: boolean;
+    bizarre: boolean;
+    development: boolean;
+    mortgages: boolean;
+    prices: boolean;
+    rental: boolean;
+    legislation: boolean;
+    architecture: boolean;
+    investment: boolean;
+    construction: boolean;
+  };
+  minTotalScore: number;
+  maxProposalsPerDay: number;
+  autoCreateVideo: boolean;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+};
+
+export const DEFAULT_TOPIC_HUNTER_SETTINGS: AiInfluencerTopicHunterSettings = {
+  enabled: false,
+  searchIntervalHours: 3,
+  regions: {
+    czechRepublic: true,
+    prague: true,
+    czechRegions: true,
+    slovakia: false,
+    europe: false,
+    world: false,
+  },
+  categories: {
+    luxury: true,
+    cheapest: true,
+    mostExpensive: true,
+    bizarre: true,
+    development: true,
+    mortgages: true,
+    prices: true,
+    rental: true,
+    legislation: true,
+    architecture: true,
+    investment: true,
+    construction: true,
+  },
+  minTotalScore: 75,
+  maxProposalsPerDay: 10,
+  autoCreateVideo: false,
+  lastRunAt: null,
+  lastRunStatus: null,
 };
 
 export const DEFAULT_PREFERRED_CATEGORIES = [
@@ -376,6 +444,7 @@ export const DEFAULT_AI_INFLUENCER_SETTINGS: AiInfluencerAutomationSettings = {
   ctaTextMode: 'auto',
   customCtaText: 'Více najdete na XXREALIT.CZ.',
   youtubeCtaText: 'Sledujte XXREALIT a dejte odběr.',
+  topicHunter: { ...DEFAULT_TOPIC_HUNTER_SETTINGS },
 };
 
 export type VoiceGenerateInput = {

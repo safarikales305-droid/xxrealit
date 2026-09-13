@@ -9,12 +9,14 @@ import {
 } from '@nestjs/common';
 import {
   AiInfluencerReelJobStatus,
+  AiInfluencerTopicCandidateStatus,
   NewsArticleStatus,
   Prisma,
   ProviderGenerationStatus,
   ProviderGenerationType,
   ReelPlatformPublishStatus,
 } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PrismaService } from '../../database/prisma.service';
@@ -534,6 +536,114 @@ export class AiInfluencerJobService {
     };
   }
 
+  async createJobFromTopicCandidate(candidateId: string): Promise<{
+    jobId: string;
+    status: string;
+    progress: number;
+    title: string;
+    generationMode: 'VIDEO_AGENT' | 'AVATAR';
+    estimatedCostCzk: number;
+  }> {
+    const candidate = await this.prisma.aiInfluencerTopicCandidate.findUnique({
+      where: { id: candidateId },
+    });
+    if (!candidate) throw new NotFoundException('Návrh tématu nenalezen.');
+    if (
+      candidate.status === AiInfluencerTopicCandidateStatus.VIDEO_QUEUED ||
+      candidate.status === AiInfluencerTopicCandidateStatus.VIDEO_CREATED
+    ) {
+      throw new BadRequestException('Video z tohoto návrhu již bylo spuštěno.');
+    }
+    if (!candidate.proposedScriptJson) {
+      throw new BadRequestException('Chybí schválený scénář — nejdříve zobrazte náhled scénáře.');
+    }
+
+    await this.assertProductionReadyForNewJob();
+    await this.assertNoActiveVideoGeneration();
+
+    const profile = await this.registry.getDefaultProfile();
+    const cfg = this.settings.getCached();
+    const generationMode = resolveVideoGenerationMode(cfg);
+    const script = candidate.proposedScriptJson as import('./ai-influencer.types').ReelScriptPayload;
+    const targetDurationSec = script.estimatedDuration ?? candidate.estimatedDurationSec ?? cfg.targetDurationSec ?? 35;
+    const scriptHash = createHash('sha256')
+      .update(JSON.stringify({ candidateId, script }))
+      .digest('hex');
+
+    const initialRenderMeta = mergeJobRenderMeta(this.buildInitialJobRenderMeta(), {
+      sourceMode: 'MANUAL',
+      manualRequested: true,
+      manualRequestedAt: new Date().toISOString(),
+      bypassQualityGate: true,
+      topicCandidateId: candidateId,
+      topicCandidateApproved: true,
+      heygenCreditsEstimated: estimateHeyGenCredits(targetDurationSec),
+      sourceAttribution: candidate.sourceJson,
+    });
+
+    const job = await this.prisma.$transaction(async (tx) => {
+      const activeCount = await tx.aiInfluencerReelJob.count({ where: videoGenerationLockWhere() });
+      if (activeCount > 0) {
+        const active = await tx.aiInfluencerReelJob.findFirst({
+          where: videoGenerationLockWhere(),
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, status: true, createdAt: true, article: { select: { title: true } } },
+        });
+        if (active) {
+          throw new ConflictException(
+            buildVideoGenerationConflictBody({
+              activeJobId: active.id,
+              status: active.status,
+              createdAt: active.createdAt,
+              articleTitle: active.article?.title ?? candidate.title,
+            }),
+          );
+        }
+      }
+      const created = await tx.aiInfluencerReelJob.create({
+        data: {
+          profileId: profile.id,
+          status: AiInfluencerReelJobStatus.SCRIPT_READY,
+          sourceType: 'TOPIC_CANDIDATE',
+          forceOverride: true,
+          progressPercent: 25,
+          currentStep: 'Storyboard schválen — start výroby',
+          estimatedDurationSec: targetDurationSec,
+          selectedHook: script.hook,
+          scriptJson: script as object,
+          spokenText: script.spokenText,
+          captionTitle: script.captionTitle ?? candidate.proposedTitle ?? candidate.title,
+          captionDescription: script.captionDescription ?? candidate.summary,
+          hashtags: Array.isArray(script.hashtags) ? script.hashtags.join(' ') : null,
+          scenesJson: script.scenes as object,
+          scriptHash,
+          avatarCostEstimated: estimateHeyGenCostCzk(targetDurationSec, cfg.avatarCostPerSecCzk),
+          renderSettingsJson: initialRenderMeta as object,
+          timelineEvents: appendTimelineEvent(null, 'TOPIC_VIDEO_JOB_CREATED') as object,
+        },
+      });
+      await tx.aiInfluencerTopicCandidate.update({
+        where: { id: candidateId },
+        data: {
+          status: AiInfluencerTopicCandidateStatus.VIDEO_QUEUED,
+          createdVideoJobId: created.id,
+        },
+      });
+      return created;
+    });
+
+    this.scheduleBootstrapCreatedJob(job.id);
+    const refreshed = await this.getJob(job.id);
+    return {
+      jobId: refreshed.id,
+      status: refreshed.status,
+      progress: refreshed.progressPercent,
+      title: candidate.title,
+      generationMode,
+      estimatedCostCzk: estimateHeyGenCostCzk(targetDurationSec, cfg.avatarCostPerSecCzk),
+    };
+  }
+
   /** Posune nově vytvořený job přes několik synchronních fází, dokud nenarazí na čekání/poll. */
   private scheduleBootstrapCreatedJob(jobId: string): void {
     this.worker.wake();
@@ -821,7 +931,10 @@ export class AiInfluencerJobService {
       const meta = readJobRenderMeta(job.renderSettingsJson);
       const cfg = this.settings.getCached();
       const autoAdvance =
-        cfg.approvalMode !== 'MANUAL' || job.isTest || meta.isProductionTest === true;
+        cfg.approvalMode !== 'MANUAL' ||
+        job.isTest ||
+        meta.isProductionTest === true ||
+        meta.topicCandidateApproved === true;
       return !autoAdvance;
     }
     return false;
@@ -1965,7 +2078,10 @@ export class AiInfluencerJobService {
           const meta = readJobRenderMeta(job.renderSettingsJson);
           const cfg = this.settings.getCached();
           const autoAdvance =
-            cfg.approvalMode !== 'MANUAL' || job.isTest || meta.isProductionTest === true;
+            cfg.approvalMode !== 'MANUAL' ||
+            job.isTest ||
+            meta.isProductionTest === true ||
+            meta.topicCandidateApproved === true;
           if (autoAdvance) {
             if (shouldSkipVoicePhaseForVideoAgent(meta, cfg)) {
               await this.runVideoAgentStart(jobId);
@@ -4447,6 +4563,19 @@ export class AiInfluencerJobService {
     });
 
     await this.runAutoPublish(job.id);
+    await this.syncTopicCandidateVideoCreated(job.id);
+  }
+
+  private async syncTopicCandidateVideoCreated(jobId: string): Promise<void> {
+    const candidate = await this.prisma.aiInfluencerTopicCandidate.findFirst({
+      where: { createdVideoJobId: jobId },
+      select: { id: true, status: true },
+    });
+    if (!candidate || candidate.status === AiInfluencerTopicCandidateStatus.VIDEO_CREATED) return;
+    await this.prisma.aiInfluencerTopicCandidate.update({
+      where: { id: candidate.id },
+      data: { status: AiInfluencerTopicCandidateStatus.VIDEO_CREATED },
+    });
   }
 
   private async resolvePropertyScenes(

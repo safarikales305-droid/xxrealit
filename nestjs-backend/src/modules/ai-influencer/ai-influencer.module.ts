@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { AiSalesModule } from '../ai-sales/ai-sales.module';
 import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { OpenAiModule } from '../openai/openai.module';
@@ -27,11 +28,15 @@ import { HeyGenVideoAgentMediaService } from './heygen-video-agent-media.service
 import { HeyGenRuntimeConfigService } from './heygen-runtime-config.service';
 import { OpenAiScriptProvider } from './providers/openai-script.provider';
 import { PropertyMediaProvider } from './providers/property-media.provider';
+import { AiInfluencerTopicHunterService } from './ai-influencer-topic-hunter.service';
+import { AiInfluencerUrlExtractService } from './ai-influencer-url-extract.service';
+import { WebTopicDiscoveryProvider } from './providers/web-topic-discovery.provider';
 
 @Module({
   imports: [
     forwardRef(() => AuthModule),
     forwardRef(() => PropertiesModule),
+    AiSalesModule,
     OpenAiModule,
     ShortsMusicModule,
     forwardRef(() => SocialModule),
@@ -60,6 +65,9 @@ import { PropertyMediaProvider } from './providers/property-media.provider';
     AiInfluencerJobService,
     AiInfluencerWorkerService,
     AiInfluencerAutoService,
+    AiInfluencerUrlExtractService,
+    WebTopicDiscoveryProvider,
+    AiInfluencerTopicHunterService,
   ],
   exports: [AiInfluencerJobService, AiInfluencerSettingsService, AiInfluencerAutoService],
 })

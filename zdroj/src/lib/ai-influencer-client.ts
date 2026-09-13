@@ -213,6 +213,17 @@ export type AiInfluencerDashboard = {
     ctaTextMode?: 'auto' | 'custom';
     customCtaText?: string;
     youtubeCtaText?: string;
+    topicHunter?: {
+      enabled?: boolean;
+      searchIntervalHours?: number;
+      minTotalScore?: number;
+      maxProposalsPerDay?: number;
+      autoCreateVideo?: boolean;
+      regions?: Record<string, boolean>;
+      categories?: Record<string, boolean>;
+      lastRunAt?: string | null;
+      lastRunStatus?: string | null;
+    };
   };
   stats: {
     reelsToday: number;
@@ -1130,4 +1141,169 @@ export function nestAiInfluencerDeleteFailedJobs(token: string) {
   return aiInfluencerFetch<{ ok: boolean; deleted: number }>(token, '/jobs/bulk/failed', {
     method: 'DELETE',
   });
+}
+
+export type TopicCandidateFilter =
+  | 'all'
+  | 'top'
+  | 'today'
+  | 'cz'
+  | 'prague'
+  | 'luxury'
+  | 'cheap'
+  | 'bizarre'
+  | 'mortgages'
+  | 'development'
+  | 'trends'
+  | 'url'
+  | 'used'
+  | 'ignored';
+
+export type AiInfluencerTopicCandidateRow = {
+  id: string;
+  title: string;
+  summary: string | null;
+  category: string | null;
+  country: string | null;
+  region: string | null;
+  sourceUrl: string | null;
+  canonicalUrl: string | null;
+  sourceName: string | null;
+  sourcePublishedAt: string | null;
+  discoveredAt: string;
+  checkedAt: string | null;
+  origin: 'WEB_DISCOVERY' | 'URL_IMPORT' | 'MANUAL';
+  viralScore: number;
+  relevanceScore: number;
+  freshnessScore: number;
+  confidenceScore: number;
+  videoPotentialScore: number;
+  totalScore: number;
+  sourceCount: number;
+  trendDetected: boolean;
+  status: string;
+  scoreExplanation: string | null;
+  evidenceJson: unknown;
+  sourceJson: unknown;
+  factsJson: unknown;
+  proposedHook: string | null;
+  proposedTitle: string | null;
+  proposedScriptJson: unknown;
+  estimatedDurationSec: number | null;
+  createdVideoJobId: string | null;
+};
+
+export type TopicCandidatesResponse = {
+  items: AiInfluencerTopicCandidateRow[];
+  todayCount: number;
+  minScore: number;
+  discovery: {
+    phase: string;
+    message: string;
+    found?: number;
+    startedAt?: string;
+    finishedAt?: string;
+    error?: string;
+  };
+  searchConfigured: boolean;
+};
+
+export type TopicUrlAnalyzeResult = {
+  duplicate: boolean;
+  candidate: AiInfluencerTopicCandidateRow;
+  extracted?: unknown;
+  analyzed?: unknown;
+};
+
+export type TopicScriptPreviewResult = {
+  candidate: AiInfluencerTopicCandidateRow;
+  script: {
+    hook?: string;
+    intro?: string;
+    spokenText?: string;
+    captionTitle?: string;
+    captionDescription?: string;
+    estimatedDuration?: number;
+    scenes?: unknown[];
+    segments?: Array<{ text?: string; headline?: string }>;
+  };
+  cached: boolean;
+};
+
+export type TopicCostEstimate = {
+  estimatedDurationSec: number;
+  provider: string;
+  mode: string;
+  estimatedCostCzk: number;
+  label: string;
+};
+
+export type TopicStartVideoResult = {
+  jobId: string;
+  status: string;
+  progress: number;
+  title: string;
+  generationMode: 'VIDEO_AGENT' | 'AVATAR';
+  estimatedCostCzk: number;
+};
+
+export function nestAiInfluencerTopicCandidates(token: string, filter: TopicCandidateFilter = 'all') {
+  return aiInfluencerFetch<TopicCandidatesResponse>(
+    token,
+    `/topics/candidates?filter=${encodeURIComponent(filter)}`,
+  );
+}
+
+export function nestAiInfluencerTopicCandidate(token: string, id: string) {
+  return aiInfluencerFetch<AiInfluencerTopicCandidateRow>(token, `/topics/candidates/${encodeURIComponent(id)}`);
+}
+
+export function nestAiInfluencerAnalyzeTopicUrl(token: string, url: string) {
+  return aiInfluencerFetchWithError<TopicUrlAnalyzeResult>(token, '/topics/analyze-url', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function nestAiInfluencerDiscoverTopics(token: string) {
+  return aiInfluencerFetchWithError<{ ok: boolean; message: string; progress?: TopicCandidatesResponse['discovery'] }>(
+    token,
+    '/topics/discover',
+    { method: 'POST', body: JSON.stringify({ manual: true }) },
+  );
+}
+
+export function nestAiInfluencerTopicDiscoveryStatus(token: string) {
+  return aiInfluencerFetch<TopicCandidatesResponse['discovery']>(token, '/topics/discovery/status');
+}
+
+export function nestAiInfluencerTopicScriptPreview(token: string, id: string) {
+  return aiInfluencerFetchWithError<TopicScriptPreviewResult>(
+    token,
+    `/topics/candidates/${encodeURIComponent(id)}/script-preview`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerTopicCostEstimate(token: string, id: string) {
+  return aiInfluencerFetch<TopicCostEstimate>(
+    token,
+    `/topics/candidates/${encodeURIComponent(id)}/cost-estimate`,
+  );
+}
+
+export function nestAiInfluencerStartTopicVideo(token: string, id: string) {
+  return aiInfluencerFetchWithError<TopicStartVideoResult>(
+    token,
+    `/topics/candidates/${encodeURIComponent(id)}/start-video`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAiInfluencerRejectTopicCandidate(token: string, id: string, reason?: string) {
+  return aiInfluencerFetchWithError<AiInfluencerTopicCandidateRow>(
+    token,
+    `/topics/candidates/${encodeURIComponent(id)}/reject`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  );
 }

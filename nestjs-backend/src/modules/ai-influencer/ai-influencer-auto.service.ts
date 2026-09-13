@@ -4,6 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AI_INFLUENCER_AUTO_TICK_MS } from './ai-influencer.constants';
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
+import { AiInfluencerTopicHunterService } from './ai-influencer-topic-hunter.service';
 import { videoGenerationLockWhere } from './ai-influencer-single-flight.util';
 import { decodeHtmlEntities, isWithinPragueWindow } from './ai-influencer-text.util';
 
@@ -18,6 +19,7 @@ export class AiInfluencerAutoService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly jobs: AiInfluencerJobService,
     private readonly settings: AiInfluencerSettingsService,
+    private readonly topicHunter: AiInfluencerTopicHunterService,
   ) {}
 
   onModuleInit() {
@@ -139,8 +141,28 @@ export class AiInfluencerAutoService implements OnModuleInit, OnModuleDestroy {
         }
         break;
       }
+
+      await this.tickTopicDiscovery(cfg);
     } finally {
       this.running = false;
+    }
+  }
+
+  private async tickTopicDiscovery(cfg: Awaited<ReturnType<AiInfluencerSettingsService['getSettings']>>): Promise<void> {
+    if (!cfg.topicHunter.enabled) return;
+    const intervalMs = Math.max(1, cfg.topicHunter.searchIntervalHours) * 60 * 60 * 1000;
+    const lastRunMs = cfg.topicHunter.lastRunAt ? new Date(cfg.topicHunter.lastRunAt).getTime() : 0;
+    if (Date.now() - lastRunMs < intervalMs) return;
+    if (this.topicHunter.getDiscoveryProgress().phase === 'searching' ||
+        this.topicHunter.getDiscoveryProgress().phase === 'analyzing' ||
+        this.topicHunter.getDiscoveryProgress().phase === 'fact_checking' ||
+        this.topicHunter.getDiscoveryProgress().phase === 'scoring') {
+      return;
+    }
+    try {
+      await this.topicHunter.runDiscovery();
+    } catch (err) {
+      this.log.warn(`Topic discovery tick failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 

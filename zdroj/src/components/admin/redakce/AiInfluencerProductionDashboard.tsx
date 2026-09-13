@@ -61,14 +61,16 @@ import {
   type ProductionTestStatus,
   type ScriptProviderTestResult,
 } from '@/lib/ai-influencer-client';
+import { AiTopicHunterPanel, AiTopicHunterSettingsSection } from './AiTopicHunterPanel';
 import { nestYoutubeOAuthConnectUrl } from '@/lib/editorial-center-client';
 
-type TabId = 'overview' | 'production' | 'videos' | 'errors' | 'settings';
+type TabId = 'overview' | 'production' | 'videos' | 'topics' | 'errors' | 'settings';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Přehled' },
   { id: 'production', label: 'Výroba' },
   { id: 'videos', label: 'Videa' },
+  { id: 'topics', label: 'AI Lovec témat' },
   { id: 'errors', label: 'Chyby / Retry' },
   { id: 'settings', label: 'Nastavení' },
 ];
@@ -1387,6 +1389,19 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
         </>
       ) : null}
 
+      {tab === 'topics' ? (
+        <AiTopicHunterPanel
+          apiAccessToken={apiAccessToken}
+          generationBlocked={generationBlocked}
+          topicHunterEnabled={dashboard?.settings.topicHunter?.enabled}
+          onToast={setToast}
+          onVideoStarted={() => {
+            setTab('production');
+            loadCore();
+          }}
+        />
+      ) : null}
+
       {tab === 'videos' ? (
         <section className="rounded-xl border border-zinc-200 bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -1673,6 +1688,12 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
 
       {tab === 'settings' ? (
         <div className="space-y-4">
+          <AiTopicHunterSettingsSection
+            apiAccessToken={apiAccessToken}
+            settings={dashboard?.settings ?? null}
+            onUpdated={loadCore}
+          />
+
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">HeyGen synchronizace</h2>
             <p className="mt-1 text-xs text-zinc-600">

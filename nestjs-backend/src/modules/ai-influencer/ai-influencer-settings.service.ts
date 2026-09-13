@@ -3,7 +3,9 @@ import { PrismaService } from '../../database/prisma.service';
 import { AI_INFLUENCER_SETTINGS_KEY } from './ai-influencer.constants';
 import {
   DEFAULT_AI_INFLUENCER_SETTINGS,
+  DEFAULT_TOPIC_HUNTER_SETTINGS,
   type AiInfluencerAutomationSettings,
+  type AiInfluencerTopicHunterSettings,
 } from './ai-influencer.types';
 
 @Injectable()
@@ -237,6 +239,54 @@ export class AiInfluencerSettingsService implements OnModuleInit {
       ctaTextMode: o.ctaTextMode === 'custom' ? 'custom' : d.ctaTextMode,
       customCtaText: str(o.customCtaText, d.customCtaText),
       youtubeCtaText: str(o.youtubeCtaText, d.youtubeCtaText),
+      topicHunter: this.normalizeTopicHunter(o.topicHunter, d.topicHunter),
+    };
+  }
+
+  private normalizeTopicHunter(
+    raw: unknown,
+    fallback: AiInfluencerTopicHunterSettings,
+  ): AiInfluencerTopicHunterSettings {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const regionsRaw = o.regions && typeof o.regions === 'object' ? (o.regions as Record<string, unknown>) : {};
+    const categoriesRaw =
+      o.categories && typeof o.categories === 'object' ? (o.categories as Record<string, unknown>) : {};
+    const bool = (v: unknown, fb: boolean) => (typeof v === 'boolean' ? v : fb);
+    const num = (v: unknown, fb: number, min: number, max: number) => {
+      const n = typeof v === 'number' ? v : Number.parseFloat(String(v ?? ''));
+      if (!Number.isFinite(n)) return fb;
+      return Math.min(max, Math.max(min, n));
+    };
+    return {
+      enabled: bool(o.enabled, fallback.enabled),
+      searchIntervalHours: num(o.searchIntervalHours, fallback.searchIntervalHours, 1, 24),
+      regions: {
+        czechRepublic: bool(regionsRaw.czechRepublic, fallback.regions.czechRepublic),
+        prague: bool(regionsRaw.prague, fallback.regions.prague),
+        czechRegions: bool(regionsRaw.czechRegions, fallback.regions.czechRegions),
+        slovakia: bool(regionsRaw.slovakia, fallback.regions.slovakia),
+        europe: bool(regionsRaw.europe, fallback.regions.europe),
+        world: bool(regionsRaw.world, fallback.regions.world),
+      },
+      categories: {
+        luxury: bool(categoriesRaw.luxury, fallback.categories.luxury),
+        cheapest: bool(categoriesRaw.cheapest, fallback.categories.cheapest),
+        mostExpensive: bool(categoriesRaw.mostExpensive, fallback.categories.mostExpensive),
+        bizarre: bool(categoriesRaw.bizarre, fallback.categories.bizarre),
+        development: bool(categoriesRaw.development, fallback.categories.development),
+        mortgages: bool(categoriesRaw.mortgages, fallback.categories.mortgages),
+        prices: bool(categoriesRaw.prices, fallback.categories.prices),
+        rental: bool(categoriesRaw.rental, fallback.categories.rental),
+        legislation: bool(categoriesRaw.legislation, fallback.categories.legislation),
+        architecture: bool(categoriesRaw.architecture, fallback.categories.architecture),
+        investment: bool(categoriesRaw.investment, fallback.categories.investment),
+        construction: bool(categoriesRaw.construction, fallback.categories.construction),
+      },
+      minTotalScore: num(o.minTotalScore, fallback.minTotalScore, 0, 100),
+      maxProposalsPerDay: num(o.maxProposalsPerDay, fallback.maxProposalsPerDay, 1, 50),
+      autoCreateVideo: bool(o.autoCreateVideo, fallback.autoCreateVideo),
+      lastRunAt: typeof o.lastRunAt === 'string' ? o.lastRunAt : fallback.lastRunAt,
+      lastRunStatus: typeof o.lastRunStatus === 'string' ? o.lastRunStatus : fallback.lastRunStatus,
     };
   }
 }

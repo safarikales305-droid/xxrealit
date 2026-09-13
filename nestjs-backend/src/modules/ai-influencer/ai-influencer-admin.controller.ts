@@ -27,6 +27,10 @@ import { DEFAULT_RENDER_SETTINGS, mergeRenderSettings } from './ai-influencer-re
 import { AiInfluencerJobService } from './ai-influencer-job.service';
 import { AiInfluencerAutoService } from './ai-influencer-auto.service';
 import { AiInfluencerWorkerService } from './ai-influencer-worker.service';
+import {
+  AiInfluencerTopicHunterService,
+  type TopicCandidateListFilter,
+} from './ai-influencer-topic-hunter.service';
 import { AiInfluencerProviderRegistry } from './ai-influencer-provider.registry';
 import { AiInfluencerSettingsService } from './ai-influencer-settings.service';
 import { DIdAvatarProvider } from './providers/did-avatar.provider';
@@ -73,6 +77,7 @@ export class AiInfluencerAdminController {
     private readonly auto: AiInfluencerAutoService,
     private readonly worker: AiInfluencerWorkerService,
     private readonly metaHealth: MetaProviderHealthService,
+    private readonly topicHunter: AiInfluencerTopicHunterService,
   ) {}
 
   @Get('dashboard')
@@ -153,6 +158,57 @@ export class AiInfluencerAdminController {
       providers,
       productionVerification,
     };
+  }
+
+  @Get('topics/candidates')
+  listTopicCandidates(@Query('filter') filter?: TopicCandidateListFilter) {
+    return this.topicHunter.listCandidates(filter ?? 'all');
+  }
+
+  @Get('topics/candidates/:id')
+  getTopicCandidate(@Param('id') id: string) {
+    return this.topicHunter.getCandidate(id);
+  }
+
+  @Post('topics/analyze-url')
+  @HttpCode(HttpStatus.ACCEPTED)
+  analyzeTopicUrl(@Body() body: { url?: string }) {
+    const url = body?.url?.trim();
+    if (!url) throw new BadRequestException('Chybí URL.');
+    return this.topicHunter.analyzeUrl(url);
+  }
+
+  @Post('topics/discover')
+  @HttpCode(HttpStatus.ACCEPTED)
+  discoverTopics(@Body() body?: { manual?: boolean }) {
+    return this.topicHunter.runDiscovery({ manual: body?.manual !== false });
+  }
+
+  @Get('topics/discovery/status')
+  getTopicDiscoveryStatus() {
+    return this.topicHunter.getDiscoveryProgress();
+  }
+
+  @Post('topics/candidates/:id/script-preview')
+  getTopicScriptPreview(@Param('id') id: string) {
+    return this.topicHunter.generateScriptPreview(id);
+  }
+
+  @Get('topics/candidates/:id/cost-estimate')
+  async getTopicCostEstimate(@Param('id') id: string) {
+    const candidate = await this.topicHunter.getCandidate(id);
+    return this.topicHunter.estimateProductionCost(candidate.estimatedDurationSec ?? 35);
+  }
+
+  @Post('topics/candidates/:id/start-video')
+  @HttpCode(HttpStatus.ACCEPTED)
+  startVideoFromTopic(@Param('id') id: string) {
+    return this.jobs.createJobFromTopicCandidate(id);
+  }
+
+  @Post('topics/candidates/:id/reject')
+  rejectTopicCandidate(@Param('id') id: string, @Body() body?: { reason?: string }) {
+    return this.topicHunter.rejectCandidate(id, body?.reason);
   }
 
   @Get('settings')

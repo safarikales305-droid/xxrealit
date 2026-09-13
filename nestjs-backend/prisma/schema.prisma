@@ -8320,6 +8320,71 @@ model SrealityImportJob {
   @@index([createdAt])
 }
 
+enum AiInfluencerTopicCandidateStatus {
+  DISCOVERED
+  ANALYZING
+  VERIFYING
+  READY
+  APPROVED
+  REJECTED
+  DUPLICATE
+  OUTDATED
+  VIDEO_QUEUED
+  VIDEO_CREATED
+}
+
+enum AiInfluencerTopicOrigin {
+  WEB_DISCOVERY
+  URL_IMPORT
+  MANUAL
+}
+
+model AiInfluencerTopicCandidate {
+  id                   String                           @id @default(cuid())
+  title                String
+  summary              String?                          @db.Text
+  category             String?
+  country              String?                          @default("CZ")
+  region               String?
+  sourceUrl            String?
+  canonicalUrl         String?
+  sourceName           String?
+  sourcePublishedAt    DateTime?
+  discoveredAt         DateTime                         @default(now())
+  checkedAt            DateTime?
+  origin               AiInfluencerTopicOrigin          @default(WEB_DISCOVERY)
+  topicFingerprint     String?
+  viralScore           Int                              @default(0)
+  relevanceScore       Int                              @default(0)
+  freshnessScore       Int                              @default(0)
+  confidenceScore      Int                              @default(0)
+  videoPotentialScore  Int                              @default(0)
+  totalScore           Int                              @default(0)
+  sourceCount          Int                              @default(1)
+  trendDetected        Boolean                          @default(false)
+  status               AiInfluencerTopicCandidateStatus @default(DISCOVERED)
+  scoreExplanation     String?                          @db.Text
+  evidenceJson         Json?
+  sourceJson           Json?
+  factsJson            Json?
+  proposedHook         String?
+  proposedTitle        String?
+  proposedScriptJson   Json?
+  mediaPlanJson        Json?
+  estimatedDurationSec Int?
+  dismissedAt          DateTime?
+  rejectionReason      String?
+  createdVideoJobId    String?                          @unique
+  createdVideoJob      AiInfluencerReelJob?             @relation(fields: [createdVideoJobId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+
+  @@index([status, totalScore])
+  @@index([canonicalUrl])
+  @@index([topicFingerprint])
+  @@index([discoveredAt])
+}
+
 model AiInfluencerReelJob {
   id                   String                    @id @default(cuid())
   articleId            String?
@@ -8404,6 +8469,7 @@ model AiInfluencerReelJob {
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
   providerGenerations  ProviderGeneration[]
+  topicCandidate       AiInfluencerTopicCandidate?
   @@index([status, createdAt])
   @@index([articleId])
   @@index([propertyId])

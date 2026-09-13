@@ -73,6 +73,8 @@ export function readJobRenderMeta(renderSettingsJson: unknown): AiInfluencerJobR
     manualPublishApproved: o.manualPublishApproved === true,
     manualPublishApprovedAt:
       typeof o.manualPublishApprovedAt === 'string' ? o.manualPublishApprovedAt : undefined,
+    topicCandidateId: typeof o.topicCandidateId === 'string' ? o.topicCandidateId : undefined,
+    topicCandidateApproved: o.topicCandidateApproved === true,
     manualPublishChannels: Array.isArray(o.manualPublishChannels)
       ? (o.manualPublishChannels as Array<'facebook' | 'instagram' | 'youtube' | 'portal'>)
       : undefined,
