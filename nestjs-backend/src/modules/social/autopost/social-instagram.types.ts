@@ -38,6 +38,8 @@ export type InstagramConnectionStatus = {
   missingScopes: string[];
   scopesOk: boolean;
   needsReconnect: boolean;
+  rateLimited?: boolean;
+  cached?: boolean;
   message: string | null;
   diagnostics: InstagramDiagnosticStep[];
 };

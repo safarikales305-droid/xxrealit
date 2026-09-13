@@ -1,0 +1,1 @@
+ALTER TYPE "ReelPlatformPublishStatus" ADD VALUE IF NOT EXISTS 'RATE_LIMITED';

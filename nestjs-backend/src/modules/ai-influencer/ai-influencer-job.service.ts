@@ -62,6 +62,10 @@ import {
   type ProgressMeta,
 } from './ai-influencer-progress.util';
 import { resumeJobStatus, resolveFailedStage } from './ai-influencer-retry.util';
+import {
+  nextFacebookPublishRetryMeta,
+  shouldRetryFacebookPublish,
+} from './meta-facebook-publish-retry.util';
 import { OpenAiService } from '../openai/openai.service';
 import {
   decodeHtmlEntities,
@@ -3915,7 +3919,26 @@ export class AiInfluencerJobService {
     let ytOk = job.youtubePublishStatus === ReelPlatformPublishStatus.PUBLISHED;
     let portalOk = Boolean(job.postId);
 
-    if (fbAuto && !fbOk) {
+    const fbRateLimited =
+      job.facebookPublishStatus === ReelPlatformPublishStatus.RATE_LIMITED ||
+      job.facebookPublishStatus === ReelPlatformPublishStatus.QUOTA_EXCEEDED;
+
+    if (fbAuto && !fbOk && fbRateLimited && shouldRetryFacebookPublish(job)) {
+      try {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: {
+            renderSettingsJson: nextFacebookPublishRetryMeta(job.renderSettingsJson) as object,
+          },
+        });
+        await this.publish.publishToFacebook(jobId);
+        fbOk = true;
+      } catch (err) {
+        this.log.warn(`Auto Facebook publish retry failed for ${jobId}: ${err}`);
+      }
+    }
+
+    if (fbAuto && !fbOk && !fbRateLimited) {
       try {
         await this.publish.publishToFacebook(jobId);
         fbOk = true;

@@ -33,6 +33,7 @@ import { FacebookAdminController } from './autopost/facebook-admin.controller';
 import { SocialAutopostSettingsService } from './autopost/social-autopost-settings.service';
 import { SocialPublisherService } from './autopost/social-publisher.service';
 import { MetaProviderHealthService } from './autopost/meta-provider-health.service';
+import { MetaGraphCoordinatorService } from './autopost/meta-graph-coordinator.service';
 import { SocialPublishLogService } from './autopost/social-publish-log.service';
 import {
   SocialPublishEnqueueService,
@@ -120,6 +121,7 @@ import { SocialInstagramCaptionService } from './autopost/social-instagram-capti
     ListingReelAdminService,
     IntroVideoUploadExceptionFilter,
     MetaProviderHealthService,
+    MetaGraphCoordinatorService,
   ],
   exports: [
     FacebookConfigService,
@@ -134,6 +136,7 @@ import { SocialInstagramCaptionService } from './autopost/social-instagram-capti
     SocialPublishEnqueueService,
     SocialPublisherService,
     MetaProviderHealthService,
+    MetaGraphCoordinatorService,
     SocialInstagramPublisherService,
     SocialInstagramConnectionService,
     TikTokModule,

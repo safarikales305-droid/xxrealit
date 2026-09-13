@@ -401,7 +401,7 @@ export class AiInfluencerAdminController {
 
   @Post('test/facebook')
   testFacebook() {
-    return this.publish.testFacebookConnection();
+    return this.publish.testFacebookConnection({ forceLive: true });
   }
 
   @Get('youtube/status')
@@ -746,7 +746,23 @@ export class AiInfluencerAdminController {
     return 'READY';
   }
 
-  private async getProviderStatus() {
+  private providerStatusCache: {
+    expiresAt: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: any;
+  } | null = null;
+  private readonly providerStatusCacheMs = 10 * 60 * 1000;
+
+  private async getProviderStatus(options?: { bypassLiveMeta?: boolean }) {
+    const now = Date.now();
+    if (
+      !options?.bypassLiveMeta &&
+      this.providerStatusCache &&
+      this.providerStatusCache.expiresAt > now
+    ) {
+      return this.providerStatusCache.data;
+    }
+
     const profile = await this.registry.getDefaultProfile();
     const [activeAi, workerScriptProvider, elevenHealth, elevenReadiness, heygenReadiness, videoAgentReadiness, did, yt, fb, ig] = await Promise.all([
       this.aiProvider.resolveScriptProvider(),
@@ -757,8 +773,14 @@ export class AiInfluencerAdminController {
       this.videoAgent.getReadiness(),
       this.did.testConnection(),
       this.youtubeOAuth.getConnectionStatus(),
-      this.metaHealth.getFacebookPageHealth(),
-      this.publish.getInstagramConnectionStatus(),
+      this.metaHealth.getFacebookPageHealth({
+        bypassCache: options?.bypassLiveMeta,
+        forceLive: options?.bypassLiveMeta,
+      }),
+      this.publish.getInstagramConnectionStatus({
+        bypassCache: options?.bypassLiveMeta,
+        forceLive: options?.bypassLiveMeta,
+      }),
     ]);
     const heygenHealth = await this.heygen.getHealth(profile.avatarId);
     const storageDiag = this.cloudinary.getDiagnostics();
@@ -848,7 +870,7 @@ export class AiInfluencerAdminController {
       ttsPermission: elevenHealth.ttsPermission,
     });
 
-    return {
+    const result = {
       ready: {
         ready: productionReady,
         reason: productionReady ? null : readyReasons[0] ?? 'Není připraveno',
@@ -1131,5 +1153,14 @@ export class AiInfluencerAdminController {
         providerHeygenApiKey: heygenReadiness.apiKeyPresence,
       },
     };
+
+    if (!options?.bypassLiveMeta) {
+      this.providerStatusCache = {
+        expiresAt: Date.now() + this.providerStatusCacheMs,
+        data: result,
+      };
+    }
+
+    return result;
   }
 }

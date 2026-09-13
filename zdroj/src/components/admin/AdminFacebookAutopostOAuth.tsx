@@ -8,7 +8,12 @@ import {
   nestAdminFacebookAutopostConnectUrl,
   nestAdminFacebookAutopostListPages,
   nestAdminFacebookAutopostSelectPage,
+  nestAdminFacebookAutopostHealth,
+  nestAdminMetaGraphTelemetry,
+  nestAdminSocialAutopostTestConnection,
   type FacebookAutopostSettingsPublic,
+  type FacebookTestConnectionResponse,
+  type MetaGraphTelemetry,
 } from '@/lib/social-autopost-admin-api';
 
 type PageOption = { id: string; name: string; picture?: string | null };
@@ -44,6 +49,31 @@ export function AdminFacebookAutopostOAuth({
   const [showPicker, setShowPicker] = useState(false);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [confirmPage, setConfirmPage] = useState<PageOption | null>(null);
+  const [fbHealth, setFbHealth] = useState<FacebookTestConnectionResponse | null>(null);
+  const [metaTelemetry, setMetaTelemetry] = useState<MetaGraphTelemetry | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+
+  const rateLimited =
+    fbHealth?.rateLimited ||
+    fbHealth?.healthStatus === 'CONNECTED_RATE_LIMITED' ||
+    metaTelemetry?.apiStatus === 'RATE_LIMITED' ||
+    metaTelemetry?.apiStatus === 'BACKOFF';
+
+  const refreshDiagnostics = useCallback(async (live = false) => {
+    const [health, telemetry] = await Promise.all([
+      live
+        ? nestAdminSocialAutopostTestConnection(token)
+        : nestAdminFacebookAutopostHealth(token),
+      nestAdminMetaGraphTelemetry(token),
+    ]);
+    if (health) setFbHealth(health);
+    if (telemetry) setMetaTelemetry(telemetry);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !fb.connected) return;
+    void refreshDiagnostics(false);
+  }, [token, fb.connected, refreshDiagnostics]);
 
   const preferredPageId = params.get('preferredPageId');
 
@@ -134,16 +164,106 @@ export function AdminFacebookAutopostOAuth({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            {fb.connected ? (
+              <button
+                type="button"
+                disabled={busy || healthLoading}
+                onClick={() => {
+                  setHealthLoading(true);
+                  void refreshDiagnostics(true).finally(() => setHealthLoading(false));
+                }}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                Otestovat připojení
+              </button>
+            ) : null}
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || rateLimited}
+              title={
+                rateLimited
+                  ? 'Meta API je dočasně omezené. Další OAuth pokus bude možný po cooldownu.'
+                  : undefined
+              }
               onClick={() => void startOAuth()}
               className="rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe0] disabled:opacity-50"
             >
-              {fb.connected ? 'Obnovit token' : 'Připojit Facebook'}
+              {fb.connected ? 'Obnovit OAuth' : 'Připojit Facebook'}
             </button>
           </div>
         </div>
+
+        {fb.connected ? (
+          <div
+            className={`mt-4 rounded-lg border px-3 py-3 text-sm ${
+              rateLimited
+                ? 'border-amber-200 bg-amber-50 text-amber-950'
+                : fbHealth?.ok
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : 'border-zinc-200 bg-zinc-50 text-zinc-800'
+            }`}
+          >
+            <p>
+              <span className="font-semibold">Stav:</span>{' '}
+              {rateLimited ? '✓ Připojeno' : fbHealth?.ok ? '✓ Připojeno' : fb.connected ? '✓ Připojeno' : '× Nepřipojeno'}
+            </p>
+            <p>
+              <span className="font-semibold">API:</span>{' '}
+              {rateLimited
+                ? '⚠ Dočasný Meta limit'
+                : fbHealth?.ok
+                  ? '✓ OK'
+                  : fbHealth?.error ?? '—'}
+            </p>
+            <p>
+              <span className="font-semibold">Token:</span> ✓ uložen
+            </p>
+            <p>
+              <span className="font-semibold">Page ID:</span> ✓ {fb.pageId ? 'známé' : '—'}
+            </p>
+            {rateLimited ? (
+              <p className="mt-1">
+                Facebook je připojen, Meta dočasně omezuje počet požadavků.
+                {metaTelemetry?.backoffUntil
+                  ? ` Další pokus: ${formatDt(metaTelemetry.backoffUntil)}.`
+                  : null}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {metaTelemetry && fb.connected ? (
+          <dl className="mt-4 grid gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700 sm:grid-cols-2">
+            <div>
+              <dt className="font-medium text-zinc-500">Meta API — poslední úspěch</dt>
+              <dd>{formatDt(metaTelemetry.lastSuccessfulRequestAt)}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-zinc-500">Poslední chyba</dt>
+              <dd>
+                {metaTelemetry.lastErrorCode
+                  ? `#${metaTelemetry.lastErrorCode} ${metaTelemetry.lastErrorMessage ?? ''}`
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-zinc-500">Požadavky / 5 min</dt>
+              <dd>{metaTelemetry.requestsLast5Min}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-zinc-500">Požadavky / 1 h</dt>
+              <dd>{metaTelemetry.requestsLast1Hour}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-zinc-500">Cache odpovědi</dt>
+              <dd>{metaTelemetry.cachedResponses}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-zinc-500">Deduplikované</dt>
+              <dd>{metaTelemetry.dedupedRequests}</dd>
+            </div>
+          </dl>
+        ) : null}
 
         {fb.tokenWarning ? (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

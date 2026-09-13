@@ -612,7 +612,7 @@ export function AiInfluencerProductionDashboard({ apiAccessToken }: { apiAccessT
     };
 
     poll();
-    const id = window.setInterval(poll, 4000);
+    const id = window.setInterval(poll, 15000);
     return () => window.clearInterval(id);
   }, [apiAccessToken, tab, includeTestInApi, activeJobs.length]);
 

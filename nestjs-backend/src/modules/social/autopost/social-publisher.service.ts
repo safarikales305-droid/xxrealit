@@ -48,6 +48,8 @@ import { NewsEditorialSettingsService } from '../../news-editorial/news-editoria
 import { SocialInstagramPublisherService, InstagramGraphPublishError } from './social-instagram-publisher.service';
 import { SocialInstagramConnectionService } from './social-instagram-connection.service';
 import { SocialInstagramCaptionService } from './social-instagram-caption.service';
+import { MetaGraphCoordinatorService } from './meta-graph-coordinator.service';
+import { isMetaGraphRateLimitError } from './meta-graph-error.util';
 import type { InstagramPublishResult } from './social-instagram.types';
 
 export type FacebookPublishPayload = {
@@ -97,8 +99,14 @@ export class SocialPublisherService {
     expiresAt: number;
   } | null = null;
   private fbRateLimitBackoffUntil = 0;
-  private readonly fbConnectionCacheMs = 10 * 60 * 1000;
-  private readonly fbRateLimitBackoffStepsMs = [60_000, 5 * 60_000, 15 * 60_000];
+  private readonly fbConnectionCacheMs = 15 * 60 * 1000;
+  private readonly fbRateLimitBackoffStepsMs = [
+    60_000,
+    5 * 60_000,
+    15 * 60_000,
+    30 * 60_000,
+    60 * 60_000,
+  ];
   private fbRateLimitBackoffStep = 0;
 
   constructor(
@@ -106,6 +114,7 @@ export class SocialPublisherService {
     private readonly settings: SocialAutopostSettingsService,
     private readonly fbConfig: FacebookConfigService,
     private readonly tokenService: SocialAutopostTokenService,
+    private readonly metaGraph: MetaGraphCoordinatorService,
     private readonly reelPublisher: SocialFacebookReelPublisherService,
     private readonly teaserService: FacebookVideoTeaserService,
     private readonly listingReelFinalVideo: ListingReelFinalVideoService,
@@ -339,7 +348,7 @@ export class SocialPublisherService {
   }
 
   /**
-   * Page Access Token: preferuje access_token z GET /me/accounts, jinak uložený token pokud GET /{pageId} projde.
+   * Page Access Token: preferuje uložený token ověřený GET /{pageId}; /me/accounts jen jako fallback.
    */
   private async resolvePageAccessToken(
     pageId: string,
@@ -351,6 +360,40 @@ export class SocialPublisherService {
     const graphApi = this.graphApiBase();
     const masked = maskAccessToken(storedToken);
 
+    const pageUrl = buildGraphUrl(
+      graphApi,
+      `/${encodeURIComponent(pageId)}`,
+      { fields: 'id,name' },
+      storedToken,
+    );
+    this.logger.log(
+      `[facebook-autopost] resolve token: GET page pageId=${pageId} token=${masked} url=${stripAccessTokenFromUrl(pageUrl)}`,
+    );
+
+    const pageRes = await this.metaGraph.fetchJson<{ id?: string; name?: string }>(pageUrl, undefined, {
+      dedupeKey: `resolve-page:${pageId}`,
+      cacheTtlMs: 15 * 60_000,
+    });
+    if (pageRes.ok) {
+      return { ok: true, token: storedToken, source: 'stored_page_token' };
+    }
+
+    this.logGraphFailure('resolve_page_token', {
+      pageId,
+      endpoint: pageUrl,
+      httpStatus: pageRes.status,
+      error: pageRes.error,
+      maskedToken: masked,
+    });
+
+    if (isMetaGraphRateLimitError(pageRes.error)) {
+      return { ok: false, error: pageRes.error };
+    }
+
+    if (!this.shouldFallbackToMeAccounts(pageRes.error)) {
+      return { ok: false, error: pageRes.error };
+    }
+
     const accountsUrl = buildGraphUrl(
       graphApi,
       '/me/accounts',
@@ -358,10 +401,17 @@ export class SocialPublisherService {
       storedToken,
     );
     this.logger.log(
-      `[facebook-autopost] resolve token: GET /me/accounts pageId=${pageId} token=${masked} url=${stripAccessTokenFromUrl(accountsUrl)}`,
+      `[facebook-autopost] resolve token fallback: GET /me/accounts pageId=${pageId} token=${masked} url=${stripAccessTokenFromUrl(accountsUrl)}`,
     );
 
-    const accountsRes = await fetchFacebookGraphJson<{ data?: GraphAccountsPage[] }>(accountsUrl);
+    const accountsRes = await this.metaGraph.fetchJson<{ data?: GraphAccountsPage[] }>(
+      accountsUrl,
+      undefined,
+      {
+        dedupeKey: `me-accounts:${pageId}`,
+        cacheTtlMs: 15 * 60_000,
+      },
+    );
     if (accountsRes.ok) {
       const match = (accountsRes.data.data ?? []).find((p) => p.id === pageId);
       const pageToken = match?.access_token?.trim();
@@ -379,30 +429,10 @@ export class SocialPublisherService {
         error: accountsRes.error,
         maskedToken: masked,
       });
+      if (isMetaGraphRateLimitError(accountsRes.error)) {
+        return { ok: false, error: accountsRes.error };
+      }
     }
-
-    const pageUrl = buildGraphUrl(
-      graphApi,
-      `/${encodeURIComponent(pageId)}`,
-      { fields: 'id,name' },
-      storedToken,
-    );
-    this.logger.log(
-      `[facebook-autopost] resolve token: GET page pageId=${pageId} token=${masked} url=${stripAccessTokenFromUrl(pageUrl)}`,
-    );
-
-    const pageRes = await fetchFacebookGraphJson<{ id?: string; name?: string }>(pageUrl);
-    if (pageRes.ok) {
-      return { ok: true, token: storedToken, source: 'stored_page_token' };
-    }
-
-    this.logGraphFailure('resolve_page_token', {
-      pageId,
-      endpoint: pageUrl,
-      httpStatus: pageRes.status,
-      error: pageRes.error,
-      maskedToken: masked,
-    });
 
     if (!accountsRes.ok) {
       return { ok: false, error: accountsRes.error };
@@ -421,6 +451,18 @@ export class SocialPublisherService {
     error.hint =
       'Token vypadá jako User Access Token bez přístupu k této stránce, nebo je Page ID špatně. Pro publikování použijte Page Access Token s oprávněním pages_manage_posts.';
     return { ok: false, error };
+  }
+
+  private shouldFallbackToMeAccounts(error: ParsedFacebookGraphError): boolean {
+    const lower = error.message.toLowerCase();
+    return (
+      error.code === 100 ||
+      error.code === 190 ||
+      lower.includes('does not exist') ||
+      lower.includes('unsupported get request') ||
+      lower.includes('page access') ||
+      lower.includes('must be a page')
+    );
   }
 
   private async getValidatedStoredToken(): Promise<string | null> {
@@ -656,25 +698,31 @@ export class SocialPublisherService {
 
   async testFacebookConnection(options?: {
     bypassCache?: boolean;
+    forceLive?: boolean;
   }): Promise<FacebookTestConnectionResult> {
     const now = Date.now();
     if (!options?.bypassCache && this.fbConnectionCache && this.fbConnectionCache.expiresAt > now) {
       return { ...this.fbConnectionCache.result, cached: true };
     }
-    if (now < this.fbRateLimitBackoffUntil) {
-      return this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+    if (!options?.forceLive && now < this.fbRateLimitBackoffUntil) {
+      return this.buildStoredFacebookHealthResult('CONNECTED_RATE_LIMITED', {
         error: 'Meta dočasně omezuje počet API požadavků.',
         hint: 'Počkejte několik minut. Health check je cacheovaný.',
+      });
+    }
+    if (!options?.forceLive && this.metaGraph.isInBackoff()) {
+      return this.buildStoredFacebookHealthResult('CONNECTED_RATE_LIMITED', {
+        error: 'Meta dočasně omezuje počet API požadavků.',
+        hint: 'Počkejte na konec backoff intervalu.',
       });
     }
 
     const pageId = this.settings.resolveFacebookPageId();
     const fbSettings = this.settings.getSettings().facebook;
-    let storedToken: string | null;
-    try {
-      storedToken = await this.getValidatedStoredToken();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Token není platný.';
+    const probe = await this.tokenService.getStoredTokenForHealthProbe();
+    const storedToken = probe.token;
+    if (!probe.ok || !storedToken) {
+      const message = probe.warning ?? 'Token není platný.';
       if (pageId && this.settings.resolveFacebookPageAccessToken()) {
         return this.buildStoredFacebookHealthResult('AUTH_REQUIRED', { error: message });
       }
@@ -694,7 +742,7 @@ export class SocialPublisherService {
       const graphError = resolved.error;
       if (this.isRateLimitedGraphError(graphError)) {
         this.applyFacebookRateLimitBackoff();
-        return this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+        return this.buildStoredFacebookHealthResult('CONNECTED_RATE_LIMITED', {
           pageId,
           pageName: fbSettings.pageName ?? undefined,
           error: graphError.userMessage,
@@ -727,7 +775,15 @@ export class SocialPublisherService {
       `[facebook-autopost] test_connection: GET ${stripAccessTokenFromUrl(url)} token=${maskAccessToken(resolved.token)}`,
     );
 
-    const res = await fetchFacebookGraphJson<{ id?: string; name?: string }>(url);
+    const res = await this.metaGraph.fetchJson<{ id?: string; name?: string }>(
+      url,
+      undefined,
+      {
+        dedupeKey: `test-connection:${pageId}`,
+        cacheTtlMs: options?.forceLive ? 0 : 15 * 60_000,
+        skipWhenBackoff: options?.forceLive ? false : undefined,
+      },
+    );
     await this.settings.appendApiLog({
       action: 'test_connection',
       ok: res.ok,
@@ -745,7 +801,7 @@ export class SocialPublisherService {
       });
       if (this.isRateLimitedGraphError(res.error)) {
         this.applyFacebookRateLimitBackoff();
-        const rateLimited = this.buildStoredFacebookHealthResult('RATE_LIMITED', {
+        const rateLimited = this.buildStoredFacebookHealthResult('CONNECTED_RATE_LIMITED', {
           pageId,
           pageName: fbSettings.pageName ?? undefined,
           error: res.error.userMessage,
@@ -787,17 +843,18 @@ export class SocialPublisherService {
   }
 
   private isRateLimitedGraphError(error: Pick<ParsedFacebookGraphError, 'code' | 'message'>): boolean {
-    const lower = error.message.toLowerCase();
-    return error.code === 4 || lower.includes('application request limit') || lower.includes('(#4)');
+    return isMetaGraphRateLimitError({ ...error, httpStatus: 429 });
   }
 
   private applyFacebookRateLimitBackoff(): void {
     const stepMs =
       this.fbRateLimitBackoffStepsMs[
         Math.min(this.fbRateLimitBackoffStep, this.fbRateLimitBackoffStepsMs.length - 1)
-      ];
+      ] ?? this.fbRateLimitBackoffStepsMs[this.fbRateLimitBackoffStepsMs.length - 1]!;
+    const jitterMs = Math.floor(Math.random() * 15_000);
     this.fbRateLimitBackoffStep += 1;
-    this.fbRateLimitBackoffUntil = Date.now() + stepMs;
+    this.fbRateLimitBackoffUntil = Date.now() + stepMs + jitterMs;
+    this.metaGraph.applyRateLimitBackoff('facebook health');
   }
 
   private storeFacebookConnectionCache(result: FacebookTestConnectionResult): void {
@@ -829,11 +886,12 @@ export class SocialPublisherService {
     const hasStoredConnection = Boolean(
       pageId && (this.settings.resolveFacebookPageAccessToken() || fb.pageId),
     );
-    const connected = hasStoredConnection || healthStatus === 'RATE_LIMITED';
+    const connected = hasStoredConnection || healthStatus === 'CONNECTED_RATE_LIMITED' || healthStatus === 'RATE_LIMITED';
     const result: FacebookTestConnectionResult = {
       ok: healthStatus === 'READY',
       connected,
-      rateLimited: healthStatus === 'RATE_LIMITED',
+      rateLimited:
+        healthStatus === 'CONNECTED_RATE_LIMITED' || healthStatus === 'RATE_LIMITED',
       healthStatus,
       pageId: pageId ?? undefined,
       pageName: pageName ?? undefined,

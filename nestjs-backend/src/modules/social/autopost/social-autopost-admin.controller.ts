@@ -27,6 +27,7 @@ import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.d
 import { PrismaService } from '../../../database/prisma.service';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialPublisherService } from './social-publisher.service';
+import { MetaProviderHealthService } from './meta-provider-health.service';
 import {
   SocialPublishEnqueueService,
   SocialPublishProcessorService,
@@ -79,7 +80,13 @@ export class SocialAutopostAdminController {
     private readonly propertyMedia: PropertyMediaCloudinaryService,
     private readonly listingReelAdmin: ListingReelAdminService,
     private readonly instagramCaption: SocialInstagramCaptionService,
+    private readonly metaHealth: MetaProviderHealthService,
   ) {}
+
+  @Get('meta/telemetry')
+  getMetaTelemetry() {
+    return this.metaHealth.getMetaTelemetry();
+  }
 
   @Get('settings')
   getSettings() {
@@ -177,9 +184,14 @@ export class SocialAutopostAdminController {
     return this.settings.updateSettings({ tiktok: body });
   }
 
+  @Get('facebook/health')
+  facebookHealth() {
+    return this.metaHealth.getFacebookPageHealth();
+  }
+
   @Post('facebook/test-connection')
   testConnection() {
-    return this.publisher.testFacebookConnection();
+    return this.publisher.testFacebookConnection({ bypassCache: true, forceLive: true });
   }
 
   @Post('facebook/test-publish')

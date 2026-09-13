@@ -159,6 +159,9 @@ export type FacebookGraphErrorPublic = {
 
 export type FacebookTestConnectionResponse = {
   ok: boolean;
+  connected?: boolean;
+  rateLimited?: boolean;
+  healthStatus?: string;
   pageName?: string;
   pageId?: string;
   tokenSource?: string;
@@ -166,6 +169,22 @@ export type FacebookTestConnectionResponse = {
   error?: string;
   hint?: string;
   graphError?: FacebookGraphErrorPublic;
+  checkedAt?: string;
+  nextCheckAt?: string;
+  cached?: boolean;
+};
+
+export type MetaGraphTelemetry = {
+  connection: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+  apiStatus: 'READY' | 'RATE_LIMITED' | 'BACKOFF' | 'UNKNOWN';
+  lastSuccessfulRequestAt: string | null;
+  lastErrorCode: number | null;
+  lastErrorMessage: string | null;
+  backoffUntil: string | null;
+  requestsLast5Min: number;
+  requestsLast1Hour: number;
+  cachedResponses: number;
+  dedupedRequests: number;
 };
 
 export type FacebookTestPublishResponse = {
@@ -383,12 +402,23 @@ export function nestAdminSocialAutopostPlatformPatch(
   );
 }
 
+export function nestAdminFacebookAutopostHealth(token: string) {
+  return adminFetch<FacebookTestConnectionResponse & { status?: string; storedPageConnected?: boolean }>(
+    token,
+    '/social/autopost/admin/facebook/health',
+  );
+}
+
 export function nestAdminSocialAutopostTestConnection(token: string) {
   return adminFetch<FacebookTestConnectionResponse>(
     token,
     '/social/autopost/admin/facebook/test-connection',
     { method: 'POST' },
   );
+}
+
+export function nestAdminMetaGraphTelemetry(token: string) {
+  return adminFetch<MetaGraphTelemetry>(token, '/social/autopost/admin/meta/telemetry');
 }
 
 export function nestAdminInstagramStatus(token: string) {

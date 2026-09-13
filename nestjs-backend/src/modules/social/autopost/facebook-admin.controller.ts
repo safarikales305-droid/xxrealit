@@ -79,6 +79,6 @@ export class FacebookAdminController {
 
   @Post('test-connection')
   testConnection() {
-    return this.publisher.testFacebookConnection();
+    return this.publisher.testFacebookConnection({ bypassCache: true, forceLive: true });
   }
 }

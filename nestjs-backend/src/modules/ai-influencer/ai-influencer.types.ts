@@ -175,6 +175,8 @@ export type AiInfluencerJobRenderMeta = {
   storageFailedAt?: string;
   heygenCreditsEstimated?: number;
   heygenCreditsUsed?: number | null;
+  facebookPublishRetryAttempts?: number;
+  facebookPublishRetryAt?: string;
   providerSubmitStartedAt?: string;
   providerSubmittedAt?: string;
 };

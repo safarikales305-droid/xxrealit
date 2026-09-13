@@ -10,6 +10,10 @@ import { SocialPublisherService } from '../social/autopost/social-publisher.serv
 import { SocialInstagramConnectionService } from '../social/autopost/social-instagram-connection.service';
 import { SocialInstagramPublisherService } from '../social/autopost/social-instagram-publisher.service';
 import {
+  FacebookGraphPublishError,
+} from '../social/autopost/facebook-graph-autopost.util';
+import { isMetaGraphRateLimitError } from '../social/autopost/meta-graph-error.util';
+import {
   buildYouTubeReelTags,
   buildYouTubeReelTitle,
   normalizeYoutubePrivacy,
@@ -105,8 +109,11 @@ export class AiInfluencerPublishService {
     );
   }
 
-  async testFacebookConnection(): Promise<FacebookTestResult> {
-    const result = await this.socialPublisher.testFacebookConnection();
+  async testFacebookConnection(options?: { forceLive?: boolean }): Promise<FacebookTestResult> {
+    const result = await this.socialPublisher.testFacebookConnection({
+      bypassCache: options?.forceLive,
+      forceLive: options?.forceLive,
+    });
     return {
       ok: result.ok,
       connected: result.connected,
@@ -121,8 +128,11 @@ export class AiInfluencerPublishService {
     };
   }
 
-  async getInstagramConnectionStatus(): Promise<InstagramConnectionStatus> {
-    return this.instagramConnection.getConnectionStatus();
+  async getInstagramConnectionStatus(options?: {
+    bypassCache?: boolean;
+    forceLive?: boolean;
+  }): Promise<InstagramConnectionStatus> {
+    return this.instagramConnection.getConnectionStatus(options);
   }
 
   async verifyInstagramConnection(): Promise<InstagramConnectionStatus> {
@@ -494,6 +504,24 @@ export class AiInfluencerPublishService {
 
       return { permalink: permalink ?? undefined, postId: postId ?? undefined };
     } catch (err) {
+      if (
+        err instanceof FacebookGraphPublishError &&
+        err.graphError &&
+        isMetaGraphRateLimitError(err.graphError)
+      ) {
+        await this.prisma.aiInfluencerReelJob.update({
+          where: { id: jobId },
+          data: {
+            facebookPublishStatus: ReelPlatformPublishStatus.RATE_LIMITED,
+            facebookPublishError: err.message.slice(0, 2000),
+            currentStep: 'FB_RATE_LIMITED',
+          },
+        });
+        await this.syncOverallPublishStatus(jobId);
+        this.log.warn(`Facebook publish rate limited for ${jobId}: ${err.message}`);
+        return {};
+      }
+
       const message = err instanceof Error ? err.message : String(err);
       const authRequired = /auth|token|permission|OAuth/i.test(message);
       await this.prisma.aiInfluencerReelJob.update({
