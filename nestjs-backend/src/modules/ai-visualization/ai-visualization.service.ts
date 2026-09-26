@@ -61,6 +61,7 @@ export class AiVisualizationService {
     resultPreviewUrl: string | null;
     publicShareId: string | null;
     errorMessage: string | null;
+    parentId?: string | null;
     createdAt: Date;
     completedAt: Date | null;
   }): VisualizationPublicView {
@@ -76,6 +77,7 @@ export class AiVisualizationService {
       resultPreviewUrl: row.resultPreviewUrl,
       publicShareId: row.publicShareId,
       errorMessage: row.errorMessage,
+      parentId: row.parentId ?? null,
       createdAt: row.createdAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
     };
@@ -352,6 +354,29 @@ export class AiVisualizationService {
       take: Math.min(100, limit),
     });
     return { items: rows.map((r) => this.toPublicView(r)) };
+  }
+
+  async listSession(anonymousSessionId: string, userId?: string | null) {
+    if (!anonymousSessionId?.trim()) throw new BadRequestException('Chybí relace prohlížeče.');
+    const rows = await this.prisma.aiVisualization.findMany({
+      where: {
+        anonymousSessionId: anonymousSessionId.trim(),
+        status: { in: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] },
+        ...(userId ? { OR: [{ userId: null }, { userId }] } : { userId: null }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+    });
+    return { items: rows.map((r) => this.toPublicView(r)) };
+  }
+
+  async deleteForSession(id: string, anonymousSessionId: string, userId?: string | null) {
+    const row = await this.prisma.aiVisualization.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException();
+    if (row.anonymousSessionId !== anonymousSessionId) throw new ForbiddenException();
+    if (row.userId && row.userId !== userId) throw new ForbiddenException();
+    await this.prisma.aiVisualization.delete({ where: { id } });
+    return { ok: true };
   }
 
   async deleteMine(id: string, userId: string) {

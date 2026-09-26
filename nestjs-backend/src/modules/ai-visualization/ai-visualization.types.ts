@@ -65,6 +65,7 @@ export type VisualizationPublicView = {
   resultPreviewUrl: string | null;
   publicShareId: string | null;
   errorMessage: string | null;
+  parentId: string | null;
   createdAt: string;
   completedAt: string | null;
 };

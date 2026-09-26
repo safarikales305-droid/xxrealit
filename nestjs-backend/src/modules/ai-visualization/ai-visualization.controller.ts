@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -55,6 +56,16 @@ export class AiVisualizationPublicController {
       userId: req.user?.id,
       meta: body.meta,
     });
+  }
+
+  @Get('session')
+  @UseGuards(OptionalJwtAuthGuard)
+  listSession(
+    @Req() req: AuthedRequest & { query: { anonymousSessionId?: string } },
+  ) {
+    const sid = req.query.anonymousSessionId?.trim();
+    if (!sid) throw new BadRequestException('Chybí anonymousSessionId.');
+    return this.viz.listSession(sid, req.user?.id);
   }
 
   @Post('upload')
@@ -135,6 +146,17 @@ export class AiVisualizationPublicController {
     return this.viz.enableShare(id, anonymousSessionId, req.user?.id);
   }
 
+  @Delete(':id/session')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalJwtAuthGuard)
+  deleteFromSession(
+    @Param('id') id: string,
+    @Body('anonymousSessionId') anonymousSessionId: string,
+    @Req() req: AuthedRequest,
+  ) {
+    return this.viz.deleteForSession(id, anonymousSessionId, req.user?.id);
+  }
+
   @Post('renovation/estimate')
   @HttpCode(HttpStatus.OK)
   @UseGuards(OptionalJwtAuthGuard)
@@ -151,6 +173,27 @@ export class AiVisualizationPublicController {
     @Req() req: AuthedRequest,
   ) {
     return this.renovation.createEstimate({
+      ...body,
+      userId: req.user?.id,
+    });
+  }
+
+  @Post('renovation/estimate-project')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalJwtAuthGuard)
+  createProjectRenovationEstimate(
+    @Body()
+    body: {
+      primaryVisualizationId: string;
+      anonymousSessionId: string;
+      location?: string;
+      areaSqm?: number;
+      scopePartial?: boolean;
+      materialTier?: AiRenovationMaterialTier;
+    },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.renovation.createProjectEstimate({
       ...body,
       userId: req.user?.id,
     });

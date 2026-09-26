@@ -146,6 +146,133 @@ export class AiRenovationService {
     return this.serializeEstimate(row);
   }
 
+  async createProjectEstimate(input: {
+    primaryVisualizationId: string;
+    anonymousSessionId: string;
+    userId?: string | null;
+    location?: string;
+    areaSqm?: number;
+    scopePartial?: boolean;
+    materialTier?: AiRenovationMaterialTier;
+  }) {
+    const primary = await this.assertVizAccess(
+      input.primaryVisualizationId,
+      input.anonymousSessionId,
+      input.userId,
+    );
+    const rows = await this.prisma.aiVisualization.findMany({
+      where: {
+        anonymousSessionId: input.anonymousSessionId,
+        status: 'COMPLETED',
+        ...(input.userId ? { OR: [{ userId: null }, { userId: input.userId }] } : { userId: null }),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const roots = new Map<string, (typeof rows)[0]>();
+    for (const row of rows) {
+      const rootId = row.parentId ?? row.id;
+      if (!roots.has(rootId)) roots.set(rootId, row);
+    }
+    if (roots.size === 0) throw new BadRequestException('Nejdřív dokončete alespoň jednu vizualizaci.');
+
+    const materialTier = input.materialTier ?? 'STANDARD';
+    const region = input.location?.trim() || 'CZ';
+    const scopePartial = input.scopePartial ?? false;
+
+    const mergedMap = new Map<string, RenovationLineItem>();
+    let estimateMin = 0;
+    let estimateMax = 0;
+    let pricingVersion = this.pricing.version;
+
+    for (const viz of roots.values()) {
+      const areaSqm = input.areaSqm ?? this.defaultArea(viz.propertyType);
+      const renovationLevel = viz.renovationLevel ?? 'RENOVATION';
+      const snap = this.pricing.computeDeterministicEstimate({
+        propertyType: viz.propertyType ?? 'other',
+        areaSqm,
+        renovationLevel,
+        materialTier,
+        scopePartial,
+        region,
+      });
+      pricingVersion = snap.pricingVersion;
+      estimateMin += snap.estimateMin;
+      estimateMax += snap.estimateMax;
+      for (const line of snap.lineItems) {
+        const prev = mergedMap.get(line.id);
+        if (!prev) mergedMap.set(line.id, { ...line });
+        else {
+          mergedMap.set(line.id, {
+            ...prev,
+            label: prev.label,
+            amountMin: prev.amountMin + line.amountMin,
+            amountMax: prev.amountMax + line.amountMax,
+          });
+        }
+      }
+    }
+
+    const lineItems = [...mergedMap.values()];
+    const reserveMin = Math.round(estimateMin * 0.1);
+    const reserveMax = Math.round(estimateMax * 0.1);
+
+    await this.viz.trackEvent({
+      eventName: 'ai_visualization_estimate_start' as AiVisualizationEventName,
+      visualizationId: primary.id,
+      userId: input.userId,
+      anonymousSessionId: input.anonymousSessionId,
+      meta: { projectParts: roots.size },
+    });
+
+    const row = await this.prisma.aiRenovationEstimate.upsert({
+      where: { visualizationId: primary.id },
+      create: {
+        visualizationId: primary.id,
+        userId: input.userId ?? undefined,
+        anonymousSessionId: input.anonymousSessionId,
+        location: region,
+        areaSqm: input.areaSqm,
+        scopePartial,
+        materialTier,
+        lineItemsJson: lineItems as unknown as Prisma.InputJsonValue,
+        estimateMin,
+        estimateMax,
+        reserveMin,
+        reserveMax,
+        totalMinWithReserve: estimateMin + reserveMin,
+        totalMaxWithReserve: estimateMax + reserveMax,
+        pricingVersion,
+        region,
+      },
+      update: {
+        location: region,
+        areaSqm: input.areaSqm,
+        scopePartial,
+        materialTier,
+        lineItemsJson: lineItems as unknown as Prisma.InputJsonValue,
+        estimateMin,
+        estimateMax,
+        reserveMin,
+        reserveMax,
+        totalMinWithReserve: estimateMin + reserveMin,
+        totalMaxWithReserve: estimateMax + reserveMax,
+        pricingVersion,
+        region,
+        calculatedAt: new Date(),
+      },
+    });
+
+    await this.viz.trackEvent({
+      eventName: 'ai_visualization_estimate_complete' as AiVisualizationEventName,
+      visualizationId: primary.id,
+      userId: input.userId,
+      anonymousSessionId: input.anonymousSessionId,
+      meta: { estimateId: row.id, projectParts: roots.size },
+    });
+
+    return this.serializeEstimate(row);
+  }
+
   async findCompanies(input: { location?: string; visualizationId: string; limit?: number }) {
     const take = Math.min(30, input.limit ?? 12);
     const city = input.location?.trim();

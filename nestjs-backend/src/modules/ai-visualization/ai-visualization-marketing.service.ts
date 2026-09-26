@@ -100,6 +100,17 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
     }
 
     const rootSessionId = this.rootSessionId(viz);
+    const existingSessionReel = await this.prisma.aiVisualizationMarketingReel.findFirst({
+      where: {
+        status: { in: ACTIVE_ROOT_STATUSES },
+        visualization: { anonymousSessionId: viz.anonymousSessionId },
+      },
+    });
+    if (existingSessionReel && existingSessionReel.visualizationId !== visualizationId) {
+      this.log.debug(`Skip marketing reel — session ${viz.anonymousSessionId} already has a reel`);
+      return;
+    }
+
     if (!cfg.marketingPublishEachVariant && viz.parentId) {
       const sibling = await this.prisma.aiVisualizationMarketingReel.findFirst({
         where: {

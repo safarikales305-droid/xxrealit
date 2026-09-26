@@ -12,6 +12,7 @@ export type AiVisualizationView = {
   originalPreviewUrl: string | null;
   resultPreviewUrl: string | null;
   publicShareId: string | null;
+  parentId: string | null;
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -178,6 +179,59 @@ export function pollAiVisualizationStatus(id: string) {
   });
 }
 
+export async function fetchAiVisualizationSession(): Promise<{ items: AiVisualizationView[] } | null> {
+  const sid = encodeURIComponent(getAiVisualizationAnonymousSessionId());
+  return vizFetch<{ items: AiVisualizationView[] }>(
+    `/public/ai-visualization/session?anonymousSessionId=${sid}`,
+    { headers: getAuthHeaders(), cache: 'no-store' },
+  );
+}
+
+export async function deleteAiVisualizationFromSession(id: string): Promise<boolean> {
+  if (!API_BASE_URL) return false;
+  const res = await fetch(`${API_BASE_URL}/public/ai-visualization/${encodeURIComponent(id)}/session`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ anonymousSessionId: getAiVisualizationAnonymousSessionId() }),
+  });
+  return res.ok;
+}
+
+export function resolveVisualizationRootId(viz: Pick<AiVisualizationView, 'id' | 'parentId'>): string {
+  return viz.parentId ?? viz.id;
+}
+
+export type GalleryCard = {
+  rootId: string;
+  display: AiVisualizationView;
+  variantCount: number;
+};
+
+/** Jedna karta galerie = jedna nahraná fotografie (root) + nejlepší dokončený výsledek. */
+export function buildGalleryCards(items: AiVisualizationView[]): GalleryCard[] {
+  const byRoot = new Map<string, AiVisualizationView[]>();
+  for (const item of items) {
+    const rootId = resolveVisualizationRootId(item);
+    const list = byRoot.get(rootId) ?? [];
+    list.push(item);
+    byRoot.set(rootId, list);
+  }
+  const cards: GalleryCard[] = [];
+  for (const [rootId, group] of byRoot) {
+    const completed = group.filter((g) => g.status === 'COMPLETED' && g.resultPreviewUrl);
+    const display =
+      completed.sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))[0] ??
+      group.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (!display) continue;
+    cards.push({ rootId, display, variantCount: group.length });
+  }
+  return cards.sort((a, b) => b.display.createdAt.localeCompare(a.display.createdAt));
+}
+
+export function countCompletedRoots(items: AiVisualizationView[]): number {
+  return buildGalleryCards(items).filter((c) => c.display.status === 'COMPLETED').length;
+}
+
 export async function enableAiVisualizationShare(id: string) {
   return vizFetch<{ publicShareId: string }>(`/public/ai-visualization/${encodeURIComponent(id)}/share`, {
     method: 'POST',
@@ -309,6 +363,22 @@ export async function createAiRenovationEstimate(input: {
   materialTier?: 'ECONOMY' | 'STANDARD' | 'PREMIUM';
 }) {
   return renovationFetch<AiRenovationEstimate>('/public/ai-visualization/renovation/estimate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      anonymousSessionId: getAiVisualizationAnonymousSessionId(),
+    }),
+  });
+}
+
+export async function createAiRenovationProjectEstimate(input: {
+  primaryVisualizationId: string;
+  location?: string;
+  areaSqm?: number;
+  scopePartial?: boolean;
+  materialTier?: 'ECONOMY' | 'STANDARD' | 'PREMIUM';
+}) {
+  return renovationFetch<AiRenovationEstimate>('/public/ai-visualization/renovation/estimate-project', {
     method: 'POST',
     body: JSON.stringify({
       ...input,

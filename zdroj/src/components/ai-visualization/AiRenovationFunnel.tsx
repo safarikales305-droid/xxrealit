@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   createAiRenovationEstimate,
+  createAiRenovationProjectEstimate,
   fetchRenovationCompanies,
   formatCzkAmount,
   formatCzkRange,
@@ -14,7 +15,10 @@ import {
   type AiVisualizationConfig,
   type AiVisualizationView,
   type RenovationCompanyOption,
+  countCompletedRoots,
 } from '@/lib/ai-visualization-client';
+
+type EstimateScope = 'single' | 'project';
 
 type MaterialTier = 'ECONOMY' | 'STANDARD' | 'PREMIUM';
 
@@ -23,11 +27,26 @@ type Props = {
   config: AiVisualizationConfig | null;
   propertyTypeLabel: string;
   styleLabel: string;
+  sessionItems?: AiVisualizationView[];
+  openEstimateToken?: number;
+  openContractorsToken?: number;
+  hideInitialCta?: boolean;
+  onEstimateSaved?: (estimate: AiRenovationEstimate) => void;
 };
 
 type FunnelStep = 'cta' | 'form' | 'budget' | 'email' | 'companies' | 'done';
 
-export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel }: Props) {
+export function AiRenovationFunnel({
+  viz,
+  config,
+  propertyTypeLabel,
+  styleLabel,
+  sessionItems = [],
+  openEstimateToken = 0,
+  openContractorsToken = 0,
+  hideInitialCta = false,
+  onEstimateSaved,
+}: Props) {
   const { isAuthenticated, user } = useAuth();
   const [step, setStep] = useState<FunnelStep>('cta');
   const [location, setLocation] = useState('');
@@ -52,6 +71,14 @@ export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel 
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentUrl, setSentUrl] = useState<string | null>(null);
   const [description, setDescription] = useState(viz.userPrompt ?? '');
+  const [estimateScope, setEstimateScope] = useState<EstimateScope>('single');
+
+  const completedRoots = countCompletedRoots(sessionItems.length ? sessionItems : [viz]);
+  const canProjectEstimate = completedRoots > 1;
+
+  useEffect(() => {
+    if (openEstimateToken > 0) setStep('form');
+  }, [openEstimateToken]);
 
   useEffect(() => {
     if (isAuthenticated && user?.email) setEmail(user.email);
@@ -79,19 +106,29 @@ export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel 
       setLoadingEstimate(false);
       return;
     }
-    const res = await createAiRenovationEstimate({
-      visualizationId: viz.id,
-      location: location.trim() || undefined,
-      areaSqm: area,
-      scopePartial,
-      materialTier,
-    });
+    const res =
+      estimateScope === 'project' && canProjectEstimate
+        ? await createAiRenovationProjectEstimate({
+            primaryVisualizationId: viz.id,
+            location: location.trim() || undefined,
+            areaSqm: area,
+            scopePartial,
+            materialTier,
+          })
+        : await createAiRenovationEstimate({
+            visualizationId: viz.id,
+            location: location.trim() || undefined,
+            areaSqm: area,
+            scopePartial,
+            materialTier,
+          });
     setLoadingEstimate(false);
     if ('message' in res) {
       setEstimateError(res.message);
       return;
     }
     setEstimate(res.data);
+    onEstimateSaved?.(res.data);
     setStep('budget');
   };
 
@@ -131,6 +168,13 @@ export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel 
     setStep('companies');
     await loadCompanies();
   };
+
+  useEffect(() => {
+    if (openContractorsToken <= 0) return;
+    if (estimate) void goToCompanies();
+    else setStep('form');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openContractorsToken]);
 
   const toggleCompany = (id: string) => {
     setSelectedIds((prev) => {
@@ -201,8 +245,8 @@ export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel 
   }
 
   return (
-    <div className="mt-6 space-y-4">
-      {step === 'cta' ? (
+    <div id="ai-renovation-funnel" className="mt-6 space-y-4">
+      {step === 'cta' && !hideInitialCta ? (
         <div className="rounded-2xl border-2 border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 shadow-sm">
           <p className="text-base font-bold text-zinc-900">🏗️ Líbí se vám návrh?</p>
           <p className="mt-2 text-sm text-zinc-700">
@@ -221,6 +265,29 @@ export function AiRenovationFunnel({ viz, config, propertyTypeLabel, styleLabel 
       {step === 'form' ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="font-bold text-zinc-900">Upřesněte projekt</p>
+          {canProjectEstimate ? (
+            <fieldset className="mt-3">
+              <legend className="text-sm font-semibold text-zinc-800">Rozsah odhadu</legend>
+              <div className="mt-2 space-y-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={estimateScope === 'single'}
+                    onChange={() => setEstimateScope('single')}
+                  />
+                  pouze tato vizualizace
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    checked={estimateScope === 'project'}
+                    onChange={() => setEstimateScope('project')}
+                  />
+                  celý projekt ({completedRoots} fotografií)
+                </label>
+              </div>
+            </fieldset>
+          ) : null}
           <p className="mt-1 text-xs text-zinc-600">Co rekonstruujete: {propertyTypeLabel}</p>
           <label className="mt-4 block text-sm font-semibold text-zinc-800">
             Přibližná velikost (m²)

@@ -13,12 +13,13 @@ export const metadata: Metadata = {
 };
 
 type PageProps = {
-  searchParams: Promise<{ sourceImage?: string }>;
+  searchParams: Promise<{ sourceImage?: string; viz?: string }>;
 };
 
 export default async function AiVizualizacePage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const prefilled = sp.sourceImage?.trim() || null;
+  const initialVizId = sp.viz?.trim() || null;
 
   return (
     <div className="min-h-dvh bg-gradient-to-b from-orange-50/80 via-white to-zinc-50">
@@ -35,7 +36,7 @@ export default async function AiVizualizacePage({ searchParams }: PageProps) {
           </p>
         </div>
         <div className="mt-8">
-          <AiVisualizationWizard prefilledImageUrl={prefilled} />
+          <AiVisualizationWizard prefilledImageUrl={prefilled} initialVizId={initialVizId} />
         </div>
       </main>
     </div>
