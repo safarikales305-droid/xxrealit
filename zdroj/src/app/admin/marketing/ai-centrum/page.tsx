@@ -334,6 +334,10 @@ export default function AdminAiCentrumPage() {
           AI obchodník →
         </a>
         {' · '}
+        <a href="/admin/marketing/ai-vizualizace" className="font-semibold text-orange-600 underline">
+          AI vizualizace rekonstrukce
+        </a>
+        {' · '}
         <a href="/admin/marketing/ai-hledac-nemovitosti" className="font-semibold text-orange-600 underline">
           AI Hledač nemovitostí →
         </a>

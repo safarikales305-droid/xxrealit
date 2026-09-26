@@ -51,6 +51,7 @@ function resolveActiveSection(pathname: string | null): PublicHeaderActiveSectio
     return 'posts';
   }
   if (pathname.startsWith('/shorts')) return 'shorts';
+  if (pathname.startsWith('/ai-vizualizace')) return 'none';
   if (
     pathname.startsWith('/nemovitost') ||
     pathname.startsWith('/inzerat') ||
@@ -118,6 +119,15 @@ export function PublicHeader({
         )}
 
         <div className="hidden items-center gap-2 lg:flex">
+          <Link
+            href="/ai-vizualizace"
+            className={`${TAB_BASE} ${
+              pathname?.startsWith('/ai-vizualizace') ? TAB_ACTIVE : 'border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100'
+            }`}
+          >
+            <span aria-hidden>✨</span>
+            <span>AI Vizualizace</span>
+          </Link>
           {portalTabs.map((tab) => {
             const active = tab.id === contentActiveId && !profilesActive;
             return (
@@ -204,6 +214,13 @@ export function PublicHeader({
                 </Link>
               );
             })}
+            <Link
+              href="/ai-vizualizace"
+              className={`${TAB_BASE} ${pathname?.startsWith('/ai-vizualizace') ? TAB_ACTIVE : 'border-orange-200 bg-orange-50 text-orange-800'}`}
+            >
+              <span aria-hidden>✨</span>
+              <span>AI Vizualizace</span>
+            </Link>
             <Link
               href={PROFILES_HREF}
               className={`${TAB_BASE} lg:hidden ${profilesActive ? TAB_ACTIVE : TAB_INACTIVE}`}

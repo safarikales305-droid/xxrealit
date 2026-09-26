@@ -68,6 +68,7 @@ import { NewsEditorialModule } from './modules/news-editorial/news-editorial.mod
 import { EditorialReelModule } from './modules/editorial-reel/editorial-reel.module';
 import { AiInfluencerModule } from './modules/ai-influencer/ai-influencer.module';
 import { AiPropertyFinderModule } from './modules/ai-property-finder/ai-property-finder.module';
+import { AiVisualizationModule } from './modules/ai-visualization/ai-visualization.module';
 
 @Module({
   imports: [
@@ -142,6 +143,7 @@ import { AiPropertyFinderModule } from './modules/ai-property-finder/ai-property
     EditorialReelModule,
     AiInfluencerModule,
     AiPropertyFinderModule,
+    AiVisualizationModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

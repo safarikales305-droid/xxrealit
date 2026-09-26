@@ -8614,3 +8614,106 @@ model AiPropertySearchWatch {
   @@index([email])
   @@index([createdAt])
 }
+
+enum AiVisualizationStatus {
+  DRAFT
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AiVisualizationRenovationLevel {
+  LIGHT
+  RENOVATION
+  MAJOR
+}
+
+enum AiVisualizationEventName {
+  ai_visualization_open
+  ai_visualization_upload
+  ai_visualization_generate
+  ai_visualization_complete
+  ai_visualization_failed
+  ai_visualization_variant
+  ai_visualization_share
+  ai_visualization_download_click
+  ai_visualization_login_required
+  ai_visualization_download
+}
+
+enum AiVisualizationWatermarkPosition {
+  BOTTOM_LEFT
+  BOTTOM_RIGHT
+}
+
+model AiVisualizationSettings {
+  id                          String                          @id @default("default")
+  enabled                     Boolean                         @default(true)
+  anonymousEnabled            Boolean                         @default(true)
+  anonymousFreeGenerations    Int                             @default(2)
+  loggedInFreeGenerations     Int                             @default(10)
+  maxUploadBytes              Int                             @default(12582912)
+  provider                    String                          @default("openai")
+  model                       String                          @default("gpt-image-1")
+  outputQuality               String                          @default("high")
+  originalRetentionDays       Int                             @default(30)
+  resultRetentionDays         Int                             @default(90)
+  watermarkEnabled            Boolean                         @default(true)
+  watermarkPosition           AiVisualizationWatermarkPosition  @default(BOTTOM_RIGHT)
+  watermarkOnDownload         Boolean                         @default(false)
+  estimatedCostCzkPerGeneration Float?
+  updatedAt                   DateTime                        @updatedAt
+}
+
+model AiVisualization {
+  id                    String                        @id @default(cuid())
+  userId                String?
+  anonymousSessionId    String
+  idempotencyKey        String?                       @unique
+  parentId              String?
+  parent                AiVisualization?              @relation("AiVisualizationVariants", fields: [parentId], references: [id], onDelete: SetNull)
+  variants              AiVisualization[]             @relation("AiVisualizationVariants")
+  status                AiVisualizationStatus         @default(DRAFT)
+  progress              Int                           @default(0)
+  propertyType          String?
+  style                 String?
+  renovationLevel       AiVisualizationRenovationLevel?
+  userPrompt            String?                       @db.Text
+  provider              String?
+  model                 String?
+  originalCloudinaryId  String?
+  originalPreviewUrl    String?
+  resultCloudinaryId    String?
+  resultPreviewUrl      String?
+  publicShareId         String?                       @unique
+  sharedAt              DateTime?
+  errorMessage          String?                       @db.Text
+  errorCode             String?
+  ipHash                String?
+  estimatedCostCzk      Float?
+  usageMeta             Json?
+  generationStartedAt   DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([anonymousSessionId, createdAt])
+  @@index([status, createdAt])
+  @@index([publicShareId])
+  @@index([ipHash, createdAt])
+}
+
+model AiVisualizationEvent {
+  id                 String                   @id @default(cuid())
+  eventName          AiVisualizationEventName
+  visualizationId    String?
+  userId             String?
+  anonymousSessionId String?
+  meta               Json?
+  createdAt          DateTime                 @default(now())
+
+  @@index([eventName, createdAt])
+  @@index([visualizationId])
+}
