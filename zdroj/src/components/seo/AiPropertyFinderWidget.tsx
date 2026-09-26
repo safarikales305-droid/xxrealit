@@ -14,8 +14,10 @@ import {
 } from 'react';
 import { ArrowLeft, Bot, Loader2, X } from 'lucide-react';
 import {
-  AI_FINDER_UI_STATE_KEY,
   captureAiPropertyFinderLead,
+  clearLegacyAiFinderModalState,
+  readAiFinderConvenience,
+  writeAiFinderConvenience,
   createAiPropertyFinderSession,
   createAiPropertyWatch,
   fetchAiPropertyFinderConfig,
@@ -25,7 +27,6 @@ import {
   getAiFinderVisitorId,
   isFinderApiError,
   placeholderIcon,
-  readAiFinderDismissed,
   refineAiPropertySearch,
   searchAiProperties,
   trackAiPropertyFinderEvent,
@@ -36,15 +37,6 @@ import {
 } from '@/lib/ai-property-finder-client';
 
 type FinderStep = 'query' | 'email' | 'searching' | 'results' | 'detail';
-
-type UiPersist = {
-  sessionId: string | null;
-  query: string;
-  step: FinderStep;
-  detailId: string | null;
-  leadEmailCaptured: boolean;
-  response: PropertySearchResponse | null;
-};
 
 type FinderContextValue = {
   seoContext: AiPropertyFinderSeoContext;
@@ -100,24 +92,13 @@ function contextualHeadline(ctx: AiPropertyFinderSeoContext): string {
   return `Hledám ${type} v ${ctx.locationName}`;
 }
 
-function readPersistedUi(): Partial<UiPersist> | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = sessionStorage.getItem(AI_FINDER_UI_STATE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Partial<UiPersist>;
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedUi(state: UiPersist) {
-  if (typeof window === 'undefined') return;
-  try {
-    sessionStorage.setItem(AI_FINDER_UI_STATE_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
+function queryPlaceholders(seoContext: AiPropertyFinderSeoContext): string[] {
+  const city = seoContext.locationName;
+  return [
+    `Rodinný dům ${city} a okolí do 8 milionů`,
+    `Chata do 5 mil. Kč do 30 km od ${city}`,
+    `Byt 3+kk ${city} do 6 milionů`,
+  ];
 }
 
 const SEARCH_STEPS = [
@@ -160,19 +141,19 @@ export function AiPropertyFinderProvider({
   seoContext: AiPropertyFinderSeoContext;
   children: ReactNode;
 }) {
-  const persisted = useMemo(() => readPersistedUi(), []);
+  const convenience = useMemo(() => readAiFinderConvenience(), []);
   const visitorId = useMemo(() => getAiFinderVisitorId(), []);
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(persisted?.query ?? contextualHeadline(seoContext));
-  const [step, setStep] = useState<FinderStep>(persisted?.step ?? 'query');
-  const [sessionId, setSessionId] = useState<string | null>(persisted?.sessionId ?? null);
-  const [leadEmailCaptured, setLeadEmailCaptured] = useState(persisted?.leadEmailCaptured ?? false);
+  const defaultQuery = convenience.lastSearchQuery?.trim() || contextualHeadline(seoContext);
+  const [query, setQuery] = useState(defaultQuery);
+  const [step, setStep] = useState<FinderStep>('query');
+  const [sessionId, setSessionId] = useState<string | null>(convenience.sessionId ?? null);
+  const [leadEmailCaptured, setLeadEmailCaptured] = useState(convenience.leadEmailCaptured ?? false);
   const [leadEmail, setLeadEmail] = useState('');
   const [marketingConsent, setMarketingConsent] = useState(false);
-  const [response, setResponse] = useState<PropertySearchResponse | null>(persisted?.response ?? null);
+  const [response, setResponse] = useState<PropertySearchResponse | null>(null);
   const [detail, setDetail] = useState<PropertyResultDetailPayload | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(persisted?.detailId ?? null);
   const [busy, setBusy] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
   const [searchProgress, setSearchProgress] = useState(0);
@@ -180,27 +161,27 @@ export function AiPropertyFinderProvider({
   const [watchEmail, setWatchEmail] = useState('');
   const [watchConsent, setWatchConsent] = useState(false);
   const [watchMsg, setWatchMsg] = useState<string | null>(null);
-  const scrollTracked = useRef(false);
-  const [autoShown, setAutoShown] = useState(false);
+  const dismissedThisPageViewRef = useRef(false);
+  const autoOpenedThisLoadRef = useRef(false);
 
-  const persist = useCallback(
-    (patch: Partial<UiPersist>) => {
-      writePersistedUi({
-        sessionId,
-        query,
-        step,
-        detailId,
-        leadEmailCaptured,
-        response,
-        ...patch,
+  const persistConvenience = useCallback(
+    (patch: Partial<{ sessionId: string | null; lastSearchQuery: string; leadEmailCaptured: boolean }>) => {
+      writeAiFinderConvenience({
+        sessionId: patch.sessionId !== undefined ? patch.sessionId : sessionId,
+        lastSearchQuery: patch.lastSearchQuery !== undefined ? patch.lastSearchQuery : query,
+        leadEmailCaptured: patch.leadEmailCaptured !== undefined ? patch.leadEmailCaptured : leadEmailCaptured,
       });
     },
-    [detailId, leadEmailCaptured, query, response, sessionId, step],
+    [leadEmailCaptured, query, sessionId],
   );
 
   useEffect(() => {
-    persist({});
-  }, [persist]);
+    clearLegacyAiFinderModalState();
+  }, []);
+
+  useEffect(() => {
+    persistConvenience({});
+  }, [persistConvenience]);
 
   useEffect(() => {
     void fetchAiPropertyFinderConfig().then((cfg) => {
@@ -273,7 +254,7 @@ export function AiPropertyFinderProvider({
       setResponse(res);
       setStep('results');
       setSearchProgress(SEARCH_STEPS.length);
-      persist({ sessionId: res.sessionId, response: res, step: 'results', query: text });
+      persistConvenience({ sessionId: res.sessionId, lastSearchQuery: text });
 
       trackAiPropertyFinderEvent({
         eventName: 'AI_PROPERTY_FINDER_RESULTS',
@@ -282,11 +263,24 @@ export function AiPropertyFinderProvider({
         meta: { count: res.results.length, path: seoContext.path },
       });
     },
-    [ensureSession, leadEmailCaptured, persist, seoContext, sessionId, visitorId],
+    [ensureSession, leadEmailCaptured, persistConvenience, seoContext, sessionId, visitorId],
   );
+
+  const resetToEntryForm = useCallback(() => {
+    setStep('query');
+    setDetail(null);
+    setGateError(null);
+  }, []);
 
   const openFinder = useCallback(
     async (source: 'cta' | 'auto' | 'fab' | 'reopen') => {
+      if (source === 'auto') {
+        resetToEntryForm();
+        setResponse(null);
+      }
+      if (source === 'cta' || source === 'reopen' || source === 'fab') {
+        dismissedThisPageViewRef.current = false;
+      }
       setOpen(true);
       await ensureSession();
       const event =
@@ -310,53 +304,32 @@ export function AiPropertyFinderProvider({
         });
       }
     },
-    [ensureSession, seoContext.path, sessionId, visitorId],
+    [ensureSession, resetToEntryForm, seoContext.path, sessionId, visitorId],
   );
 
   useEffect(() => {
-    if (!enabled || readAiFinderDismissed()) return;
-    let timer: number | undefined;
-    let cfg: Awaited<ReturnType<typeof fetchAiPropertyFinderConfig>> | null = null;
-
-    const onScroll = () => {
-      if (scrollTracked.current || !cfg || isFinderApiError(cfg) || cfg.popupAsCtaOnly) return;
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
-      if (pct >= cfg.popupScrollPercent) {
-        scrollTracked.current = true;
-        if (!autoShown && !readAiFinderDismissed()) {
-          setAutoShown(true);
-          void openFinder('auto');
-        }
-      }
-    };
-
-    void fetchAiPropertyFinderConfig().then((loaded) => {
-      cfg = loaded;
-      if (!loaded || isFinderApiError(loaded) || !loaded.enabled || loaded.popupAsCtaOnly) return;
-      window.addEventListener('scroll', onScroll, { passive: true });
-      timer = window.setTimeout(() => {
-        if (!autoShown && !readAiFinderDismissed()) {
-          setAutoShown(true);
-          void openFinder('auto');
-        }
-      }, loaded.popupDelaySec * 1000);
-    });
-
-    return () => {
-      if (timer != null) window.clearTimeout(timer);
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, [autoShown, enabled, openFinder]);
+    if (!enabled || dismissedThisPageViewRef.current || autoOpenedThisLoadRef.current) return;
+    autoOpenedThisLoadRef.current = true;
+    const t = window.setTimeout(() => {
+      if (dismissedThisPageViewRef.current) return;
+      void openFinder('auto');
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [enabled, openFinder]);
 
   const closeFinder = useCallback(() => {
+    dismissedThisPageViewRef.current = true;
+    if (step === 'detail') {
+      setStep('results');
+      setDetail(null);
+    }
     setOpen(false);
     trackAiPropertyFinderEvent({
       eventName: 'AI_PROPERTY_FINDER_CLOSED',
       visitorId,
       sessionId: sessionId ?? undefined,
     });
-  }, [sessionId, visitorId]);
+  }, [sessionId, step, visitorId]);
 
   const submitQuery = useCallback(() => {
     const text = query.trim();
@@ -378,8 +351,8 @@ export function AiPropertyFinderProvider({
       visitorId,
       sessionId: sessionId ?? undefined,
     });
-    persist({ step: 'email', query: text });
-  }, [leadEmailCaptured, persist, query, runSearchInternal, seoContext.path, sessionId, visitorId]);
+    persistConvenience({ lastSearchQuery: text });
+  }, [leadEmailCaptured, persistConvenience, query, runSearchInternal, seoContext.path, sessionId, visitorId]);
 
   const submitLeadAndSearch = useCallback(async () => {
     const text = query.trim();
@@ -415,13 +388,13 @@ export function AiPropertyFinderProvider({
     }
     setLeadEmailCaptured(true);
     setWatchEmail(leadEmail);
-    persist({ leadEmailCaptured: true, sessionId: sid });
+    persistConvenience({ leadEmailCaptured: true, sessionId: sid });
     void runSearchInternal(text);
   }, [
     ensureSession,
     leadEmail,
     marketingConsent,
-    persist,
+    persistConvenience,
     query,
     runSearchInternal,
     seoContext,
@@ -432,8 +405,6 @@ export function AiPropertyFinderProvider({
   const openDetail = useCallback(
     async (row: PropertySearchResult) => {
       setStep('detail');
-      setDetailId(row.id);
-      persist({ step: 'detail', detailId: row.id });
       trackAiPropertyFinderEvent({
         eventName: 'AI_PROPERTY_FINDER_RESULT_DETAIL',
         visitorId,
@@ -454,15 +425,13 @@ export function AiPropertyFinderProvider({
       }
       setDetail(payload);
     },
-    [persist, response?.sessionId, sessionId, visitorId],
+    [response?.sessionId, sessionId, visitorId],
   );
 
   const backToResults = useCallback(() => {
     setStep('results');
     setDetail(null);
-    setDetailId(null);
-    persist({ step: 'results', detailId: null });
-  }, [persist]);
+  }, []);
 
   const runRefine = useCallback(
     (text: string) => {
@@ -479,8 +448,7 @@ export function AiPropertyFinderProvider({
   const resetToQuery = useCallback(() => {
     setResponse(null);
     setStep('query');
-    persist({ step: 'query', response: null });
-  }, [persist]);
+  }, []);
 
   const submitWatch = useCallback(async () => {
     if (!response?.criteria) return;
@@ -499,12 +467,6 @@ export function AiPropertyFinderProvider({
       });
     }
   }, [response, visitorId, watchConsent, watchEmail]);
-
-  useEffect(() => {
-    if (!open || step !== 'detail' || !detailId || detail || !response) return;
-    const row = response.results.find((r) => r.id === detailId);
-    if (row) void openDetail(row);
-  }, [detail, detailId, open, openDetail, response, step]);
 
   const value: FinderContextValue = {
     seoContext,
@@ -641,7 +603,9 @@ function AiPropertyFinderModal() {
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">🤖 AI hledač nemovitostí</p>
-            <h2 className="text-lg font-bold text-zinc-900">Hledání na míru</h2>
+            <h2 className="text-lg font-bold text-zinc-900">
+              {f.step === 'query' ? 'Co hledáte?' : f.step === 'email' ? 'Ještě e-mail' : 'Hledání na míru'}
+            </h2>
           </div>
           <button type="button" onClick={f.closeFinder} className="rounded-lg p-2 hover:bg-zinc-100" aria-label="Zavřít">
             <X className="h-5 w-5" />
@@ -658,7 +622,12 @@ function AiPropertyFinderModal() {
 
           {!showDetail && f.step === 'query' ? (
             <>
-              <p className="text-sm text-zinc-600">Napište, co hledáte. AI XXREALIT prohledá dostupné nabídky.</p>
+              <p className="text-sm text-zinc-600">Popište, jakou nemovitost hledáte. AI prohledá XXREALIT i další dostupné zdroje.</p>
+              <ul className="mt-3 space-y-1 text-xs italic text-zinc-500">
+                {queryPlaceholders(f.seoContext).map((ex) => (
+                  <li key={ex}>„{ex}"</li>
+                ))}
+              </ul>
               <textarea
                 value={f.query}
                 onChange={(e) => f.setQuery(e.target.value)}
@@ -672,7 +641,7 @@ function AiPropertyFinderModal() {
                 onClick={f.submitQuery}
                 className="mt-3 w-full rounded-xl bg-orange-600 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
               >
-                Vyhledat nemovitosti
+                Najít nabídky pomocí AI
               </button>
               <p className="mt-3 text-xs text-zinc-500">
                 Hledáme na XXREALIT
@@ -683,7 +652,9 @@ function AiPropertyFinderModal() {
 
           {!showDetail && f.step === 'email' ? (
             <>
-              <p className="text-base font-semibold text-zinc-900">Kam vám můžeme poslat nové odpovídající nabídky?</p>
+              <p className="text-base font-semibold text-zinc-900">
+                Kam vám můžeme případně poslat nové nabídky?
+              </p>
               <input
                 type="email"
                 value={f.leadEmail}
@@ -698,7 +669,7 @@ function AiPropertyFinderModal() {
                 onClick={() => void f.submitLeadAndSearch()}
                 className="mt-3 w-full rounded-xl bg-orange-600 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
               >
-                {f.busy ? 'Ukládám…' : 'Zobrazit nalezené nabídky'}
+                {f.busy ? 'Ukládám…' : 'Pokračovat v hledání'}
               </button>
               <label className="mt-4 flex items-start gap-2 text-xs text-zinc-600">
                 <input
@@ -831,6 +802,23 @@ function AiPropertyFinderModal() {
   );
 }
 
+function OptionalExternalIframe({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !url.startsWith('https://')) return null;
+  return (
+    <div className="mt-4">
+      <p className="mb-2 text-xs text-zinc-500">Náhled původní stránky (pokud ji server povolí vložit):</p>
+      <iframe
+        title="Náhled inzerátu"
+        src={url}
+        className="h-72 w-full rounded-xl border border-zinc-200 bg-zinc-50"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
 function DetailView({
   payload,
   onBack,
@@ -882,6 +870,9 @@ function DetailView({
       <p className="mt-4 text-xs text-zinc-500">
         {row.isInternal ? 'XXREALIT' : 'Externí nabídka'} · Zdroj: {row.source}
       </p>
+      {row.isExternal && row.sourceUrl.startsWith('https://') ? (
+        <OptionalExternalIframe url={row.sourceUrl} />
+      ) : null}
       {row.isInternal && d?.sourceUrl ? (
         <Link
           href={d.sourceUrl}
@@ -903,7 +894,7 @@ function DetailView({
           href={row.sourceUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-6 inline-block text-sm text-zinc-600 underline"
+          className="mt-6 inline-block text-sm font-medium text-orange-700 underline"
           onClick={() =>
             trackAiPropertyFinderEvent({
               eventName: 'AI_PROPERTY_FINDER_EXTERNAL_CLICK',
@@ -913,7 +904,7 @@ function DetailView({
             })
           }
         >
-          Zobrazit původní inzerát
+          Otevřít původní inzerát ↗
         </a>
       ) : null}
     </div>
@@ -928,10 +919,13 @@ function AiPropertyFinderStickyCta() {
       <button
         type="button"
         onClick={() => void openFinder('reopen')}
-        className="fixed bottom-20 right-4 z-40 hidden max-w-[220px] rounded-2xl bg-orange-600 px-4 py-3 text-left text-sm font-bold text-white shadow-xl hover:bg-orange-700 sm:bottom-8 sm:right-8 sm:block"
+        className="fixed bottom-20 right-4 z-40 hidden max-w-[240px] rounded-2xl border-2 border-orange-200 bg-white px-4 py-3 text-left shadow-xl hover:border-orange-300 sm:bottom-8 sm:right-8 sm:block"
       >
-        <span className="text-lg">🤖</span>
-        <span className="mt-1 block leading-tight">Najít nemovitost pomocí AI</span>
+        <span className="text-2xl">🤖</span>
+        <span className="mt-1 block text-sm font-bold text-zinc-900">Nenašli jste vhodnou nemovitost?</span>
+        <span className="mt-2 block rounded-xl bg-orange-600 px-3 py-2 text-center text-xs font-bold text-white">
+          Vyhledat nabídky pomocí AI
+        </span>
       </button>
       <button
         type="button"
@@ -939,7 +933,7 @@ function AiPropertyFinderStickyCta() {
         className="fixed inset-x-4 bottom-4 z-40 rounded-2xl bg-orange-600 px-4 py-3 text-center text-sm font-bold text-white shadow-xl hover:bg-orange-700 sm:hidden"
         style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
       >
-        🤖 Najít nemovitost pomocí AI
+        🤖 Vyhledat nabídky pomocí AI
       </button>
     </>
   );

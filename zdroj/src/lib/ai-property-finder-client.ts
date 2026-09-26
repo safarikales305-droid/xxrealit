@@ -94,7 +94,45 @@ export type PropertyResultDetailPayload = {
 export type FinderApiError = { ok: false; status: number; message: string };
 
 const DISMISS_KEY = 'xxrealit.ai-finder.dismissed-until';
+/** @deprecated modal UI state — do not restore step/detail on page load */
 export const AI_FINDER_UI_STATE_KEY = 'xxrealit.ai-finder.ui';
+export const AI_FINDER_CONVENIENCE_KEY = 'xxrealit.ai-finder.convenience';
+
+export type AiFinderConvenienceState = {
+  sessionId: string | null;
+  lastSearchQuery: string;
+  leadEmailCaptured: boolean;
+};
+
+export function readAiFinderConvenience(): Partial<AiFinderConvenienceState> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(AI_FINDER_CONVENIENCE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as AiFinderConvenienceState;
+  } catch {
+    return {};
+  }
+}
+
+export function writeAiFinderConvenience(state: AiFinderConvenienceState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(AI_FINDER_CONVENIENCE_KEY, JSON.stringify(state));
+    sessionStorage.removeItem(AI_FINDER_UI_STATE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearLegacyAiFinderModalState(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(AI_FINDER_UI_STATE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function readAiFinderDismissed(): boolean {
   if (typeof window === 'undefined') return false;
