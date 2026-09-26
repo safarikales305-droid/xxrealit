@@ -35,6 +35,12 @@ export class AiPropertyFinderAdminController {
     return this.settings.updateSettings(body as never);
   }
 
+  @Get('leads')
+  listLeads(@Query('limit') limit?: string) {
+    const take = Number.parseInt(limit ?? '50', 10);
+    return this.finder.listAdminLeads(Number.isFinite(take) ? take : 50);
+  }
+
   @Get('sessions')
   async listSessions(@Query('limit') limit?: string) {
     const take = Math.min(100, Math.max(1, Number.parseInt(limit ?? '40', 10) || 40));

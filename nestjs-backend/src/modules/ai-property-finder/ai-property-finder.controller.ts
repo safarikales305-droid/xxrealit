@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Param, Post } from '@nestjs/common';
 import { AiPropertyFinderEventName } from '@prisma/client';
 import { AiPropertyFinderService } from './ai-property-finder.service';
 import { AiPropertyFinderSettingsService } from './ai-property-finder-settings.service';
@@ -10,9 +10,18 @@ export class AiPropertyFinderPublicController {
     private readonly settings: AiPropertyFinderSettingsService,
   ) {}
 
+  private clientKey(ip: string, visitorId?: string): string {
+    return `${ip}:${visitorId ?? 'anon'}`.slice(0, 120);
+  }
+
   @Get('config')
   async getConfig() {
     return this.finder.getPublicConfig();
+  }
+
+  @Get('session/:sessionId')
+  getSession(@Param('sessionId') sessionId: string) {
+    return this.finder.getSessionPublic(sessionId);
   }
 
   @Post('session')
@@ -39,9 +48,62 @@ export class AiPropertyFinderPublicController {
     });
   }
 
+  @Post('parse-query')
+  @HttpCode(HttpStatus.OK)
+  parseQuery(
+    @Body()
+    body: {
+      query: string;
+      sessionId?: string;
+      seoContext?: {
+        intentSlug: string;
+        locationSlug: string;
+        locationName: string;
+        intentLabel: string;
+        path: string;
+      };
+    },
+  ) {
+    const seoContext = body.seoContext ? this.finder.buildSeoContext(body.seoContext) : null;
+    return this.finder.parseQueryOnly({ query: body.query, seoContext });
+  }
+
+  @Post('capture-lead')
+  @HttpCode(HttpStatus.OK)
+  captureLead(
+    @Ip() ip: string,
+    @Body()
+    body: {
+      sessionId: string;
+      email: string;
+      query: string;
+      marketingConsent?: boolean;
+      visitorId?: string;
+      seoContext?: {
+        intentSlug: string;
+        locationSlug: string;
+        locationName: string;
+        intentLabel: string;
+        path: string;
+      };
+    },
+  ) {
+    const seoContext = body.seoContext ? this.finder.buildSeoContext(body.seoContext) : null;
+    return this.finder.captureLead({
+      sessionId: body.sessionId,
+      email: body.email,
+      query: body.query,
+      marketingConsent: body.marketingConsent,
+      visitorId: body.visitorId,
+      seoContext,
+      clientKey: this.clientKey(ip, body.visitorId),
+    });
+  }
+
   @Post('search')
   @HttpCode(HttpStatus.OK)
   async search(
+    @Ip() ip: string,
     @Body()
     body: {
       sessionId?: string;
@@ -62,15 +124,23 @@ export class AiPropertyFinderPublicController {
       visitorId: body.visitorId,
       query: body.query,
       seoContext,
+      clientKey: this.clientKey(ip, body.visitorId),
     });
+  }
+
+  @Get('result/:sessionId/:resultId')
+  getResult(@Param('sessionId') sessionId: string, @Param('resultId') resultId: string) {
+    return this.finder.getResultDetail(sessionId, decodeURIComponent(resultId));
   }
 
   @Post('refine')
   refine(
+    @Ip() ip: string,
     @Body()
     body: {
       sessionId: string;
       message: string;
+      visitorId?: string;
       seoContext?: {
         intentSlug: string;
         locationSlug: string;
@@ -85,6 +155,7 @@ export class AiPropertyFinderPublicController {
       sessionId: body.sessionId,
       message: body.message,
       seoContext,
+      clientKey: this.clientKey(ip, body.visitorId),
     });
   }
 

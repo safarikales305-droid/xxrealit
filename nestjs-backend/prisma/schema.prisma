@@ -8504,6 +8504,24 @@ enum AiPropertyFinderEventName {
   AI_QUERY_REFINED
   AI_WATCH_CREATED
   AI_FINDER_DISMISSED
+  AI_PROPERTY_FINDER_OPEN
+  AI_PROPERTY_FINDER_QUERY
+  AI_PROPERTY_FINDER_EMAIL_REQUESTED
+  AI_PROPERTY_FINDER_LEAD_CREATED
+  AI_PROPERTY_FINDER_SEARCH_STARTED
+  AI_PROPERTY_FINDER_RESULTS
+  AI_PROPERTY_FINDER_RESULT_DETAIL
+  AI_PROPERTY_FINDER_EXTERNAL_CLICK
+  AI_PROPERTY_FINDER_CLOSED
+  AI_PROPERTY_FINDER_REOPENED
+}
+
+enum AiPropertyFinderLeadStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  SPAM
+  CLOSED
 }
 
 model AiPropertyFinderSettings {
@@ -8532,22 +8550,55 @@ model AiPropertyFinderEvent {
 }
 
 model AiPropertySearchSession {
-  id                 String   @id @default(cuid())
-  visitorId          String?
-  sourcePage         String?
-  sourceSeoIntent    String?
-  sourceSeoLocation  String?
-  initialQuery       String?  @db.Text
-  parsedCriteriaJson Json?
-  messagesJson       Json?
-  resultsCount       Int      @default(0)
-  createdAt          DateTime @default(now())
-  lastActivityAt     DateTime @default(now())
+  id                   String    @id @default(cuid())
+  visitorId            String?
+  sourcePage           String?
+  sourceSeoIntent      String?
+  sourceSeoLocation    String?
+  initialQuery         String?   @db.Text
+  parsedCriteriaJson   Json?
+  messagesJson         Json?
+  lastResultsJson      Json?
+  pendingQuery         String?   @db.Text
+  leadEmail            String?
+  leadMarketingConsent Boolean   @default(false)
+  leadCapturedAt       DateTime?
+  resultsCount         Int       @default(0)
+  createdAt            DateTime  @default(now())
+  lastActivityAt       DateTime  @default(now())
 
   watches AiPropertySearchWatch[]
+  leads   AiPropertyFinderLead[]
 
   @@index([createdAt])
   @@index([visitorId])
+  @@index([leadEmail])
+}
+
+model AiPropertyFinderLead {
+  id                 String                     @id @default(cuid())
+  email              String
+  status             AiPropertyFinderLeadStatus @default(NEW)
+  initialQuery       String?                    @db.Text
+  parsedCriteriaJson Json?
+  locationLabel      String?
+  budgetMax          Int?
+  propertyTypeLabel  String?
+  sourcePage         String?
+  sourcePageUrl      String?
+  sourceSeoIntent    String?
+  sourceSeoLocation  String?
+  resultsCount       Int?
+  marketingConsent   Boolean                    @default(false)
+  visitorId          String?
+  sessionId          String?
+  session            AiPropertySearchSession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([email])
+  @@index([status, createdAt])
+  @@index([sessionId])
 }
 
 model AiPropertySearchWatch {

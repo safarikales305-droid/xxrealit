@@ -17,6 +17,27 @@ export type AiPropertyFinderConfig = {
   searchProviderConfigured?: boolean;
 };
 
+export type AiPropertyFinderEventName =
+  | 'AI_FINDER_SHOWN'
+  | 'AI_FINDER_OPENED'
+  | 'AI_SEARCH_STARTED'
+  | 'AI_SEARCH_COMPLETED'
+  | 'AI_RESULT_CLICKED'
+  | 'AI_EXTERNAL_RESULT_CLICKED'
+  | 'AI_QUERY_REFINED'
+  | 'AI_WATCH_CREATED'
+  | 'AI_FINDER_DISMISSED'
+  | 'AI_PROPERTY_FINDER_OPEN'
+  | 'AI_PROPERTY_FINDER_QUERY'
+  | 'AI_PROPERTY_FINDER_EMAIL_REQUESTED'
+  | 'AI_PROPERTY_FINDER_LEAD_CREATED'
+  | 'AI_PROPERTY_FINDER_SEARCH_STARTED'
+  | 'AI_PROPERTY_FINDER_RESULTS'
+  | 'AI_PROPERTY_FINDER_RESULT_DETAIL'
+  | 'AI_PROPERTY_FINDER_EXTERNAL_CLICK'
+  | 'AI_PROPERTY_FINDER_CLOSED'
+  | 'AI_PROPERTY_FINDER_REOPENED';
+
 export type PropertySearchResult = {
   id: string;
   source: string;
@@ -32,6 +53,8 @@ export type PropertySearchResult = {
   imageUrl?: string | null;
   imageUsageAllowed: boolean;
   contactDisplayAllowed: boolean;
+  contactName?: string | null;
+  contactPhone?: string | null;
   isInternal: boolean;
   isExternal: boolean;
   matchScore: number;
@@ -51,7 +74,27 @@ export type PropertySearchResponse = {
   criteria?: Record<string, unknown>;
 };
 
+export type PropertyResultDetailPayload = {
+  result: PropertySearchResult;
+  detail: {
+    title: string;
+    description: string;
+    price: number | null;
+    currency: string;
+    location: string;
+    area: number | null;
+    disposition: string | null;
+    images: string[];
+    contactName: string | null;
+    contactPhone: string | null;
+    sourceUrl: string;
+  } | null;
+};
+
+export type FinderApiError = { ok: false; status: number; message: string };
+
 const DISMISS_KEY = 'xxrealit.ai-finder.dismissed-until';
+export const AI_FINDER_UI_STATE_KEY = 'xxrealit.ai-finder.ui';
 
 export function readAiFinderDismissed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -87,16 +130,34 @@ export function getAiFinderVisitorId(): string {
   }
 }
 
-async function finderFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as T;
+async function finderFetch<T>(path: string, init?: RequestInit): Promise<T | FinderApiError | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = (await res.json()) as { message?: string | string[] };
+        if (typeof body.message === 'string') message = body.message;
+        else if (Array.isArray(body.message)) message = body.message.join(', ');
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, status: res.status, message };
+    }
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function isFinderApiError(v: unknown): v is FinderApiError {
+  return Boolean(v && typeof v === 'object' && 'ok' in v && (v as FinderApiError).ok === false);
 }
 
 export function fetchAiPropertyFinderConfig() {
@@ -104,12 +165,48 @@ export function fetchAiPropertyFinderConfig() {
 }
 
 export function trackAiPropertyFinderEvent(input: {
-  eventName: string;
+  eventName: AiPropertyFinderEventName;
   visitorId?: string;
   sessionId?: string;
   meta?: Record<string, unknown>;
 }) {
   void finderFetch('/public/ai-property-finder/event', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createAiPropertyFinderSession(input: {
+  visitorId?: string;
+  sourcePage?: string;
+  seoContext?: AiPropertyFinderSeoContext;
+}) {
+  return finderFetch<{ sessionId: string; leadEmailCaptured: boolean; contextualPrompt?: string | null }>(
+    '/public/ai-property-finder/session',
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function fetchAiPropertyFinderSession(sessionId: string) {
+  return finderFetch<{ sessionId: string; leadEmailCaptured: boolean; resultsCount: number }>(
+    `/public/ai-property-finder/session/${encodeURIComponent(sessionId)}`,
+  );
+}
+
+export function captureAiPropertyFinderLead(input: {
+  sessionId: string;
+  email: string;
+  query: string;
+  marketingConsent?: boolean;
+  visitorId?: string;
+  seoContext?: AiPropertyFinderSeoContext;
+}) {
+  return finderFetch<{
+    ok: boolean;
+    leadCreated: boolean;
+    sessionId: string;
+    criteriaSummary: string[];
+  }>('/public/ai-property-finder/capture-lead', {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -131,11 +228,18 @@ export function refineAiPropertySearch(input: {
   sessionId: string;
   message: string;
   seoContext?: AiPropertyFinderSeoContext;
+  visitorId?: string;
 }) {
   return finderFetch<PropertySearchResponse>('/public/ai-property-finder/refine', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function fetchAiPropertyResultDetail(sessionId: string, resultId: string) {
+  return finderFetch<PropertyResultDetailPayload>(
+    `/public/ai-property-finder/result/${encodeURIComponent(sessionId)}/${encodeURIComponent(resultId)}`,
+  );
 }
 
 export function createAiPropertyWatch(input: {

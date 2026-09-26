@@ -61,4 +61,35 @@ export class XxRealitPropertyProvider implements PropertyDiscoveryProvider {
       };
     });
   }
+
+  async getPublicDetail(propertyId: string) {
+    const row = await this.properties.findOneForPublicShare(propertyId.trim());
+    const rec = row as Record<string, unknown>;
+    const images: string[] = [];
+    if (Array.isArray(rec.images)) {
+      for (const img of rec.images) {
+        if (typeof img === 'string') images.push(img);
+        else if (img && typeof img === 'object' && typeof (img as { url?: string }).url === 'string') {
+          images.push((img as { url: string }).url);
+        }
+      }
+    }
+    const author = rec.author as { name?: string | null; phone?: string | null } | undefined;
+    return {
+      id: propertyId,
+      title: String(rec.title ?? ''),
+      description: String(rec.description ?? rec.perex ?? '').slice(0, 8000),
+      price: (rec.price as number | null) ?? null,
+      currency: 'CZK',
+      location: String(rec.city ?? rec.location ?? ''),
+      area: (rec.area as number | null) ?? (rec.usableArea as number | null) ?? null,
+      disposition: (rec.layout as string | null) ?? (rec.disposition as string | null) ?? null,
+      images,
+      contactName: author?.name ?? null,
+      contactPhone: author?.phone ?? null,
+      sourceUrl: (rec.slug as string | null)
+        ? `/nemovitosti/${rec.slug as string}`
+        : `/nemovitost/${propertyId}`,
+    };
+  }
 }

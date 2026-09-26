@@ -11,7 +11,10 @@ import { SeoLatestPostsBlock } from '@/components/seo/SeoLatestPostsBlock';
 import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock';
 import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import { ShareButtons } from '@/components/share/ShareButtons';
-import { AiPropertyFinderWidget } from '@/components/seo/AiPropertyFinderWidget';
+import {
+  AiPropertyFinderHeroBlock,
+  AiPropertyFinderProvider,
+} from '@/components/seo/AiPropertyFinderWidget';
 
 type Props = {
   data: ProgrammaticSeoPageData;
@@ -62,16 +65,16 @@ export function ProgrammaticSeoPage({ data }: Props) {
   const shareUrl = data.seo?.canonical ?? `https://www.xxrealit.cz${data.path}`;
   const canShare = !data.seo?.noindex;
 
-  return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <SeoBreadcrumbs
-        items={[
-          { name: 'Domů', path: '/' },
-          { name: intent.label, path: `/${intent.slug}` },
-          { name: location.name, path: data.path },
-        ]}
-      />
+  const seoContext = {
+    intentSlug: intent.slug,
+    locationSlug: location.slug,
+    locationName: location.name,
+    intentLabel: intent.label,
+    path: data.path,
+  };
 
+  const pageInner = (
+    <>
       <div className="mt-6">
         <ProgrammaticSeoHero
           h1={h1}
@@ -87,6 +90,8 @@ export function ProgrammaticSeoPage({ data }: Props) {
           </div>
         ) : null}
       </div>
+
+      {!intent.isBrokerPage ? <AiPropertyFinderHeroBlock /> : null}
 
       {showComingSoon ? (
         <div className="mt-8">
@@ -210,19 +215,25 @@ export function ProgrammaticSeoPage({ data }: Props) {
 
       <ProgrammaticInternalLinks data={data} />
 
-      {!intent.isBrokerPage ? (
-        <AiPropertyFinderWidget
-          seoContext={{
-            intentSlug: intent.slug,
-            locationSlug: location.slug,
-            locationName: location.name,
-            intentLabel: intent.label,
-            path: data.path,
-          }}
-        />
-      ) : null}
-
       <SeoDiscoverPortalBlock />
+    </>
+  );
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <SeoBreadcrumbs
+        items={[
+          { name: 'Domů', path: '/' },
+          { name: intent.label, path: `/${intent.slug}` },
+          { name: location.name, path: data.path },
+        ]}
+      />
+
+      {!intent.isBrokerPage ? (
+        <AiPropertyFinderProvider seoContext={seoContext}>{pageInner}</AiPropertyFinderProvider>
+      ) : (
+        pageInner
+      )}
     </div>
   );
 }
