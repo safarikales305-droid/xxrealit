@@ -9,6 +9,7 @@ import { ProgrammaticSeoRegisterCta } from '@/components/seo/ProgrammaticSeoRegi
 import { SeoMarketStatsBox } from '@/components/seo/SeoMarketStatsBox';
 import { SeoLatestPostsBlock } from '@/components/seo/SeoLatestPostsBlock';
 import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock';
+import { SeoAiVisualizationSection } from '@/components/seo/SeoAiVisualizationSection';
 import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import {
@@ -144,6 +145,12 @@ export function ProgrammaticSeoPage({ data }: Props) {
       ) : null}
 
       {marketStats ? <SeoMarketStatsBox stats={marketStats} /> : null}
+
+      <SeoAiVisualizationSection
+        locationName={location.name}
+        intentLabel={intent.label}
+        locative={location.locative}
+      />
 
       <LocationMapSection
         title={`Lokalita ${location.name}`}

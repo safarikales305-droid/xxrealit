@@ -46,6 +46,39 @@ type Settings = {
   marketingPublishMode: 'IMMEDIATE' | 'SCHEDULED';
   marketingMusicEnabled: boolean;
   marketingMusicVolumePercent: number;
+  marketingCtaPath: string;
+  marketingBrandingEnabled: boolean;
+};
+
+type MarketingFunnel = {
+  days: number;
+  seoCtaClicks: number;
+  uploads: number;
+  completedVisualizations: number;
+  estimatesCreated: number;
+  leadEmails: number;
+  contractorRequests: number;
+  companiesContacted: number;
+};
+
+type ReelRow = {
+  id: string;
+  status: string;
+  adminStatus?: string;
+  scheduledPublishAt: string | null;
+  publishedAt: string | null;
+  contractorCount: number | null;
+  estimateMin: number | null;
+  retryCount: number;
+  nextRetryAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  failurePhase: string | null;
+  metaErrorCode: number | null;
+  metaErrorSubcode: number | null;
+  httpStatus: number | null;
+  facebookPermalink: string | null;
+  visualization: { originalPreviewUrl: string | null; resultPreviewUrl: string | null };
 };
 
 type RenovationRequestRow = {
@@ -73,38 +106,40 @@ export default function AdminAiVizualizacePage() {
     publishedTotal: number;
     failed: number;
   } | null>(null);
-  const [marketingReels, setMarketingReels] = useState<
-    Array<{
-      id: string;
-      status: string;
-      scheduledPublishAt: string | null;
-      publishedAt: string | null;
-      contractorCount: number | null;
-      estimateMin: number | null;
-      visualization: { originalPreviewUrl: string | null; resultPreviewUrl: string | null };
-    }>
-  >([]);
+  const [marketingReels, setMarketingReels] = useState<ReelRow[]>([]);
+  const [marketingFunnel, setMarketingFunnel] = useState<MarketingFunnel | null>(null);
+  const [reelDetail, setReelDetail] = useState<Record<string, unknown> | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!API_BASE_URL) return;
     const h = getAuthHeaders();
-    const [sRes, stRes, ren, mStats, mList] = await Promise.all([
+    const [sRes, stRes, ren, mStats, mList, mFunnel] = await Promise.all([
       fetch(`${API_BASE_URL}/admin/ai-visualization/stats`, { headers: h }),
       fetch(`${API_BASE_URL}/admin/ai-visualization/settings`, { headers: h }),
       fetchAdminRenovationRequests(),
       fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels/stats`, { headers: h }),
       fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels`, { headers: h }),
+      fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels/funnel`, { headers: h }),
     ]);
     if (sRes.ok) setStats((await sRes.json()) as Stats);
     if (stRes.ok) setSettings((await stRes.json()) as Settings);
     if (ren?.items) setRenovationRequests(ren.items);
     if (mStats.ok) setMarketingStats((await mStats.json()) as typeof marketingStats);
     if (mList.ok) {
-      const body = (await mList.json()) as { items: typeof marketingReels };
+      const body = (await mList.json()) as { items: ReelRow[] };
       setMarketingReels(body.items ?? []);
     }
+    if (mFunnel.ok) setMarketingFunnel((await mFunnel.json()) as MarketingFunnel);
   }, []);
+
+  async function openReelDetail(id: string) {
+    if (!API_BASE_URL) return;
+    const res = await fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels/${encodeURIComponent(id)}`, {
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) setReelDetail((await res.json()) as Record<string, unknown>);
+  }
 
   useEffect(() => {
     void load();
@@ -154,6 +189,20 @@ export default function AdminAiVizualizacePage() {
         </div>
       ) : null}
 
+      {marketingFunnel ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">Funnel (30 dní)</h2>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <Stat label="SEO → AI kliknutí" value={String(marketingFunnel.seoCtaClicks)} />
+            <Stat label="Uploady" value={String(marketingFunnel.uploads)} />
+            <Stat label="Dokončené vizualizace" value={String(marketingFunnel.completedVisualizations)} />
+            <Stat label="Rozpočty" value={String(marketingFunnel.estimatesCreated)} />
+            <Stat label="E-maily (lead)" value={String(marketingFunnel.leadEmails)} />
+            <Stat label="Poptávky firmám" value={String(marketingFunnel.contractorRequests)} />
+          </div>
+        </div>
+      ) : null}
+
       {marketingStats ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold text-zinc-900">Marketing Reels (Facebook)</h2>
@@ -194,26 +243,74 @@ export default function AdminAiVizualizacePage() {
                         '—'
                       )}
                     </td>
-                    <td className="py-2 pr-2">{r.status}</td>
+                    <td className="py-2 pr-2">{r.status === 'SKIPPED_NO_CONSENT' ? 'NOT_ELIGIBLE_NO_CONSENT' : r.status}</td>
                     <td className="py-2 pr-2">{r.estimateMin != null ? 'ANO' : 'NE'}</td>
                     <td className="py-2 pr-2">{r.contractorCount ?? 0}</td>
                     <td className="py-2">
-                      <button
-                        type="button"
-                        className="mr-2 text-orange-700 underline"
-                        onClick={() => void reelAction(r.id, 'publish_now')}
-                      >
-                        Publikovat
+                      <button type="button" className="mr-2 text-zinc-700 underline" onClick={() => void openReelDetail(r.id)}>
+                        Detail
                       </button>
-                      <button type="button" className="text-zinc-600 underline" onClick={() => void reelAction(r.id, 'retry')}>
-                        Retry
-                      </button>
+                      {r.status === 'READY' || r.status === 'RETRY_WAIT' || r.status === 'WAITING_FOR_FACEBOOK' ? (
+                        <button
+                          type="button"
+                          className="mr-2 text-orange-700 underline"
+                          onClick={() => void reelAction(r.id, 'publish_now')}
+                        >
+                          Publikovat nyní
+                        </button>
+                      ) : null}
+                      {r.status === 'FAILED' ? (
+                        <button type="button" className="mr-2 text-orange-700 underline" onClick={() => void reelAction(r.id, 'retry')}>
+                          Zkusit znovu
+                        </button>
+                      ) : null}
+                      {r.status === 'PUBLISHED' && r.facebookPermalink ? (
+                        <a href={r.facebookPermalink} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">
+                          Zobrazit Reel
+                        </a>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {reelDetail ? (
+            <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-bold text-zinc-900">Detail jobu</p>
+                <button type="button" className="text-zinc-500" onClick={() => setReelDetail(null)}>
+                  Zavřít
+                </button>
+              </div>
+              <p className="mt-2">
+                Stav: <strong>{String(reelDetail.adminStatus ?? reelDetail.status)}</strong>
+              </p>
+              <p>Fáze: {String(reelDetail.failurePhase ?? '—')}</p>
+              <p>Počet pokusů: {String(reelDetail.retryCount ?? 0)}</p>
+              <p>HTTP: {String(reelDetail.httpStatus ?? '—')}</p>
+              <p>Meta code: {String(reelDetail.metaErrorCode ?? '—')}</p>
+              <p>Meta subcode: {String(reelDetail.metaErrorSubcode ?? '—')}</p>
+              <p>
+                Poslední pokus:{' '}
+                {reelDetail.lastAttemptAt ? new Date(String(reelDetail.lastAttemptAt)).toLocaleString('cs-CZ') : '—'}
+              </p>
+              <p>
+                Další retry:{' '}
+                {reelDetail.nextRetryAt ? new Date(String(reelDetail.nextRetryAt)).toLocaleString('cs-CZ') : '—'}
+              </p>
+              <p className="mt-2 text-red-700">Chyba: {String(reelDetail.lastError ?? '—')}</p>
+              {Array.isArray(reelDetail.timeline) ? (
+                <ul className="mt-3 space-y-1">
+                  {(reelDetail.timeline as Array<{ step: string; ok?: boolean; failed?: boolean }>).map((t) => (
+                    <li key={t.step}>
+                      {t.step} {t.ok ? '✓' : t.failed ? '✕' : '…'}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -281,7 +378,21 @@ export default function AdminAiVizualizacePage() {
             value={settings.estimatedCostCzkPerGeneration ?? 0}
             onChange={(v) => setSettings({ ...settings, estimatedCostCzkPerGeneration: v })}
           />
-          <h3 className="pt-2 text-sm font-bold text-zinc-900">Automatický marketing AI vizualizací</h3>
+          <h3 className="pt-2 text-sm font-bold text-zinc-900">Automatické marketingové Reels</h3>
+          <p className="text-xs text-zinc-500">Souhlas se ukládá u vizualizace; bez něj stav NOT_ELIGIBLE_NO_CONSENT.</p>
+          <label className="block text-sm">
+            URL CTA
+            <input
+              className="mt-1 w-full rounded border px-2 py-1"
+              value={settings.marketingCtaPath ?? '/ai-vizualizace'}
+              onChange={(e) => setSettings({ ...settings, marketingCtaPath: e.target.value })}
+            />
+          </label>
+          <Toggle
+            label="Zobrazit XXREALIT branding ve videu"
+            checked={settings.marketingBrandingEnabled ?? true}
+            onChange={(v) => setSettings({ ...settings, marketingBrandingEnabled: v })}
+          />
           <Toggle
             label="Automaticky vytvářet Reels"
             checked={settings.marketingReelsEnabled}

@@ -8649,6 +8649,7 @@ enum AiVisualizationEventName {
   renovation_request_sent
   renovation_company_response
   renovation_offer_received
+  ai_visualization_seo_cta_click
   visualization_marketing_eligible
   visualization_reel_queued
   visualization_reel_rendered
@@ -8691,6 +8692,8 @@ model AiVisualizationSettings {
   marketingPublishMode              AiVisualizationMarketingPublishMode @default(SCHEDULED)
   marketingMusicEnabled             Boolean                         @default(true)
   marketingMusicVolumePercent       Int                             @default(12)
+  marketingCtaPath                  String                          @default("/ai-vizualizace")
+  marketingBrandingEnabled          Boolean                         @default(true)
   updatedAt                   DateTime                        @updatedAt
 }
 
@@ -8863,6 +8866,7 @@ enum AiVisualizationMarketingReelStatus {
   PUBLISHING
   PUBLISHED
   FAILED
+  RETRY_WAIT
   SKIPPED
   SKIPPED_NO_CONSENT
   WAITING_FOR_FACEBOOK
@@ -8891,10 +8895,17 @@ model AiVisualizationMarketingReel {
   nextRetryAt        DateTime?
   renderStartedAt    DateTime?
   renderCompletedAt  DateTime?
+  publishStartedAt   DateTime?
+  lastAttemptAt      DateTime?
+  failurePhase       String?
+  metaErrorCode      Int?
+  metaErrorSubcode   Int?
+  httpStatus         Int?
   createdAt          DateTime                           @default(now())
   updatedAt          DateTime                           @updatedAt
 
   @@index([status, scheduledPublishAt])
+  @@index([status, nextRetryAt])
   @@index([rootSessionId])
   @@index([publishedAt])
 }

@@ -21,20 +21,14 @@ export function formatCzkRange(min: number, max: number): string {
 
 export function buildFacebookReelCaption(ctx: MarketingReelContext): string {
   const variant = resolveCopyVariant(ctx);
-  const lines: string[] = ['🏠 Další AI proměna vytvořená na XXREALIT.', ''];
+  const lines: string[] = ['🏠 Další AI proměna vytvořená na XXREALIT', ''];
+
+  lines.push('Podívejte se, jak může nemovitost vypadat po rekonstrukci.', '');
 
   if (variant === 'C') {
-    lines.push(
-      `Další uživatel XXREALIT si vytvořil AI vizualizaci, spočítal orientační cenu rekonstrukce a následně oslovil ${ctx.contractorCount} stavebních firem.`,
-      '',
-    );
-  } else if (variant === 'B') {
-    lines.push('Další uživatel XXREALIT si vytvořil AI návrh rekonstrukce a nechal spočítat orientační cenu.', '');
-  } else {
-    lines.push(
-      'Stačí nahrát fotografii domu, bytu nebo místnosti a během chvíle můžete vidět, jak by nemovitost mohla vypadat po rekonstrukci.',
-      '',
-    );
+    lines.push(`Poptávka odeslána ${ctx.contractorCount} stavebním firmám.`, '');
+  } else if (variant === 'B' && ctx.hasEstimate && ctx.showEstimate && ctx.estimateMin != null && ctx.estimateMax != null) {
+    lines.push(`AI odhad rekonstrukce od ${formatCzkRange(ctx.estimateMin, ctx.estimateMax)}`, '');
   }
 
   lines.push(
@@ -42,7 +36,7 @@ export function buildFacebookReelCaption(ctx: MarketingReelContext): string {
     '💰 orientační rozpočet rekonstrukce',
     '🏗️ možnost oslovit stavební firmy',
     '',
-    `Vyzkoušejte vlastní vizualizaci zdarma:`,
+    `Vyzkoušejte zdarma:`,
     ctx.ctaUrl,
     '',
     '#XXREALIT #rekonstrukce #nemovitosti #AIvizualizace',
@@ -92,9 +86,10 @@ export function buildReelSlideCopy(ctx: MarketingReelContext): {
   };
 }
 
-export function buildMarketingCtaUrl(baseFrontendUrl: string, marketingReelId: string): string {
+export function buildMarketingCtaUrl(baseFrontendUrl: string, marketingReelId: string, ctaPath = '/ai-vizualizace'): string {
   const base = baseFrontendUrl.replace(/\/+$/, '');
-  const url = new URL(`${base}/ai-vizualizace`);
+  const path = ctaPath.startsWith('/') ? ctaPath : `/${ctaPath}`;
+  const url = new URL(`${base}${path}`);
   url.searchParams.set('utm_source', 'facebook');
   url.searchParams.set('utm_medium', 'reel');
   url.searchParams.set('utm_campaign', 'ai_visualization');

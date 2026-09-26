@@ -10,7 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { SocialAutopostSettingsService } from '../social/autopost/social-autopost-settings.service';
 import { SocialPublisherService } from '../social/autopost/social-publisher.service';
-import { isMetaGraphRateLimitError } from '../social/autopost/meta-graph-error.util';
+import { classifyMetaGraphError, isMetaGraphAuthError } from '../social/autopost/meta-graph-error.util';
 import { FacebookGraphPublishError } from '../social/autopost/facebook-graph-autopost.util';
 import { ShortsMusicService } from '../shorts-music/shorts-music.service';
 import { AiVisualizationSettingsService } from './ai-visualization-settings.service';
@@ -31,7 +31,19 @@ const ACTIVE_ROOT_STATUSES: AiVisualizationMarketingReelStatus[] = [
   'PUBLISHING',
   'PUBLISHED',
   'WAITING_FOR_FACEBOOK',
+  'RETRY_WAIT',
 ];
+
+const MAX_REEL_ATTEMPTS = 5;
+const STALE_RENDERING_MS = 30 * 60 * 1000;
+const STALE_PUBLISHING_MS = 25 * 60 * 1000;
+const TICK_MS = 15_000;
+
+/** Backoff minutes: ~1, 5, 15, 60, 60… */
+export function marketingReelRetryDelayMinutes(retryCount: number): number {
+  const schedule = [1, 5, 15, 60, 60, 120];
+  return schedule[Math.min(Math.max(retryCount, 1), schedule.length) - 1] ?? 60;
+}
 
 @Injectable()
 export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDestroy {
@@ -51,7 +63,9 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
   ) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.tick(), 15_000);
+    this.log.log('[AI_VISUALIZATION_REEL] AI visualization marketing worker started');
+    this.timer = setInterval(() => void this.tick(), TICK_MS);
+    void this.tick();
   }
 
   onModuleDestroy() {
@@ -170,43 +184,128 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
   async tick() {
     if (this.ticking) return;
     this.ticking = true;
+    const started = Date.now();
     try {
       await this.socialSettings.reload();
       const cfg = await this.settings.getSettings();
       if (!cfg.marketingReelsEnabled) return;
 
       const now = new Date();
-      const job = await this.prisma.aiVisualizationMarketingReel.findFirst({
-        where: {
-          OR: [
-            { status: 'QUEUED' },
-            { status: 'READY', scheduledPublishAt: { lte: now } },
-            { status: 'WAITING_FOR_FACEBOOK', videoUrl: { not: null } },
-            {
-              status: 'FAILED',
-              retryCount: { lt: 5 },
-              OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
-            },
-          ],
-        },
-        orderBy: [{ scheduledPublishAt: 'asc' }, { createdAt: 'asc' }],
-      });
+      await this.recoverStaleJobs(now);
+
+      const job = await this.pickNextJob(now);
       if (!job) return;
 
-      if (job.status === 'QUEUED' || (job.status === 'FAILED' && !job.videoUrl)) {
-        await this.runRender(job.id, cfg);
-        return;
-      }
-
-      if (job.status === 'READY' || job.status === 'WAITING_FOR_FACEBOOK') {
-        if (!job.scheduledPublishAt || job.scheduledPublishAt > now) return;
-        if (!cfg.marketingPublishFacebook) return;
-        await this.runPublish(job.id, cfg);
-      }
+      await this.processMarketingJob(job.id, cfg, now);
     } catch (err) {
-      this.log.warn(`Marketing tick error: ${err instanceof Error ? err.message : err}`);
+      this.log.warn(`[AI_VISUALIZATION_REEL] Marketing tick error: ${err instanceof Error ? err.message : err}`);
     } finally {
       this.ticking = false;
+      const durationMs = Date.now() - started;
+      if (durationMs > 5000) {
+        this.log.warn(`[AI_VISUALIZATION_REEL] tick slow durationMs=${durationMs}`);
+      }
+    }
+  }
+
+  private async recoverStaleJobs(now: Date) {
+    const staleRenderBefore = new Date(now.getTime() - STALE_RENDERING_MS);
+    const stalePublishBefore = new Date(now.getTime() - STALE_PUBLISHING_MS);
+
+    const staleRendering = await this.prisma.aiVisualizationMarketingReel.findMany({
+      where: { status: 'RENDERING', renderStartedAt: { lt: staleRenderBefore } },
+      take: 3,
+    });
+    for (const row of staleRendering) {
+      this.log.warn(`[AI_VISUALIZATION_REEL] recover stale RENDERING jobId=${row.id}`);
+      await this.prisma.aiVisualizationMarketingReel.update({
+        where: { id: row.id },
+        data: {
+          status: row.videoUrl ? 'READY' : 'QUEUED',
+          lastError: 'Obnoveno po timeoutu renderu.',
+          failurePhase: 'VIDEO_RENDER',
+        },
+      });
+    }
+
+    const stalePublishing = await this.prisma.aiVisualizationMarketingReel.findMany({
+      where: { status: 'PUBLISHING', publishStartedAt: { lt: stalePublishBefore } },
+      take: 3,
+    });
+    for (const row of stalePublishing) {
+      if (row.facebookPostId || row.facebookPermalink) {
+        await this.prisma.aiVisualizationMarketingReel.update({
+          where: { id: row.id },
+          data: { status: 'PUBLISHED', publishedAt: row.publishedAt ?? now },
+        });
+        continue;
+      }
+      this.log.warn(`[AI_VISUALIZATION_REEL] recover stale PUBLISHING jobId=${row.id}`);
+      await this.prisma.aiVisualizationMarketingReel.update({
+        where: { id: row.id },
+        data: {
+          status: 'RETRY_WAIT',
+          nextRetryAt: now,
+          scheduledPublishAt: now,
+          lastError: 'Obnoveno po timeoutu publikování.',
+          failurePhase: 'FACEBOOK_PUBLISH',
+        },
+      });
+    }
+  }
+
+  private async pickNextJob(now: Date) {
+    return this.prisma.aiVisualizationMarketingReel.findFirst({
+      where: {
+        OR: [
+          { status: 'QUEUED' },
+          {
+            status: 'RETRY_WAIT',
+            retryCount: { lt: MAX_REEL_ATTEMPTS },
+            nextRetryAt: { lte: now },
+          },
+          {
+            status: 'READY',
+            OR: [{ scheduledPublishAt: null }, { scheduledPublishAt: { lte: now } }],
+          },
+          {
+            status: 'WAITING_FOR_FACEBOOK',
+            videoUrl: { not: null },
+            OR: [{ scheduledPublishAt: null }, { scheduledPublishAt: { lte: now } }],
+          },
+        ],
+      },
+      orderBy: [{ scheduledPublishAt: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  private async processMarketingJob(
+    jobId: string,
+    cfg: Awaited<ReturnType<AiVisualizationSettingsService['getSettings']>>,
+    now: Date,
+  ) {
+    const job = await this.prisma.aiVisualizationMarketingReel.findUnique({ where: { id: jobId } });
+    if (!job) return;
+
+    this.log.log(
+      `[AI_VISUALIZATION_REEL] jobId=${job.id} visualizationId=${job.visualizationId} state=${job.status} attempt=${job.retryCount}`,
+    );
+
+    if (job.status === 'QUEUED' || (job.status === 'RETRY_WAIT' && !job.videoUrl)) {
+      await this.runRender(job.id, cfg);
+      return;
+    }
+
+    if (job.status === 'RETRY_WAIT' && job.videoUrl) {
+      if (!job.nextRetryAt || job.nextRetryAt > now) return;
+      await this.runPublish(job.id, cfg);
+      return;
+    }
+
+    if (job.status === 'READY' || job.status === 'WAITING_FOR_FACEBOOK') {
+      if (job.scheduledPublishAt && job.scheduledPublishAt > now) return;
+      if (!cfg.marketingPublishFacebook) return;
+      await this.runPublish(job.id, cfg);
     }
   }
 
@@ -261,23 +360,38 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
           videoCloudinaryId: uploaded.publicId,
           videoUrl: uploaded.secureUrl,
           renderCompletedAt: new Date(),
+          scheduledPublishAt: reel.scheduledPublishAt ?? new Date(),
           facebookCaption: buildFacebookReelCaption(ctx),
           copyVariant: resolveCopyVariant(ctx),
+          failurePhase: null,
+          metaErrorCode: null,
+          metaErrorSubcode: null,
+          httpStatus: null,
         },
       });
 
       await this.track(viz.id, 'visualization_reel_rendered', viz.userId, viz.anonymousSessionId, { reelId });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const retryCount = reel.retryCount + 1;
+      const delayMin = marketingReelRetryDelayMinutes(retryCount);
+      const nextRetryAt = new Date(Date.now() + delayMin * 60 * 1000);
+      const permanent = retryCount >= MAX_REEL_ATTEMPTS;
       await this.prisma.aiVisualizationMarketingReel.update({
         where: { id: reelId },
         data: {
-          status: 'FAILED',
+          status: permanent ? 'FAILED' : 'RETRY_WAIT',
           lastError: message.slice(0, 2000),
-          retryCount: { increment: 1 },
-          nextRetryAt: new Date(Date.now() + 15 * 60 * 1000),
+          failurePhase: 'VIDEO_RENDER',
+          retryCount,
+          nextRetryAt: permanent ? null : nextRetryAt,
+          scheduledPublishAt: permanent ? reel.scheduledPublishAt : nextRetryAt,
+          lastAttemptAt: new Date(),
         },
       });
+      this.log.warn(
+        `[AI_VISUALIZATION_REEL] render failed jobId=${reelId} attempt=${retryCount} permanent=${permanent}`,
+      );
       await this.track(viz.id, 'visualization_reel_failed', viz.userId, viz.anonymousSessionId, { reelId, message });
     } finally {
       if (tmpRoot) await this.render.cleanup(tmpRoot);
@@ -311,7 +425,7 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
 
     await this.prisma.aiVisualizationMarketingReel.update({
       where: { id: reelId },
-      data: { status: 'PUBLISHING' },
+      data: { status: 'PUBLISHING', publishStartedAt: new Date(), lastAttemptAt: new Date() },
     });
 
     const ctx = this.buildContext(
@@ -337,31 +451,62 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
           publishedAt: new Date(),
           facebookPostId: result.externalPostId ?? result.externalReelId ?? null,
           facebookPermalink: result.publishedUrl ?? null,
+          failurePhase: null,
+          metaErrorCode: null,
+          metaErrorSubcode: null,
+          httpStatus: null,
+          lastError: null,
         },
       });
       await this.track(reel.visualizationId, 'visualization_reel_published', reel.visualization.userId, reel.visualization.anonymousSessionId, {
         reelId,
       });
     } catch (err) {
+      const graph =
+        err instanceof FacebookGraphPublishError && err.graphError
+          ? err.graphError
+          : undefined;
+      const kind = graph
+        ? classifyMetaGraphError({
+            code: graph.code,
+            message: graph.message,
+            httpStatus: graph.httpStatus,
+            error_subcode: graph.error_subcode,
+          })
+        : 'UNKNOWN';
       const rateLimited =
-        (err instanceof FacebookGraphPublishError &&
-          err.graphError &&
-          isMetaGraphRateLimitError(err.graphError)) ||
-        (err instanceof Error && /rate limit|#4/i.test(err.message));
+        kind === 'RATE_LIMIT' ||
+        kind === 'META_TEMPORARY' ||
+        (err instanceof Error && /rate limit|#4|timeout/i.test(err.message));
+      const permanentAuth = graph ? isMetaGraphAuthError(kind) : false;
       const retryCount = reel.retryCount + 1;
-      const backoffMin = Math.min(360, 15 * 2 ** Math.min(retryCount, 5));
+      const delayMin = marketingReelRetryDelayMinutes(retryCount);
+      const nextRetryAt = new Date(Date.now() + delayMin * 60 * 1000);
+      const permanent = permanentAuth || (!rateLimited && retryCount >= MAX_REEL_ATTEMPTS);
+      const phase = graph ? 'FACEBOOK_PUBLISH' : 'FACEBOOK_UPLOAD';
+      const message = err instanceof Error ? err.message : String(err);
+
       await this.prisma.aiVisualizationMarketingReel.update({
         where: { id: reelId },
         data: {
-          status: rateLimited ? 'READY' : 'FAILED',
-          lastError: err instanceof Error ? err.message : String(err),
+          status: permanent ? 'FAILED' : 'RETRY_WAIT',
+          lastError: message.slice(0, 2000),
+          failurePhase: phase,
+          metaErrorCode: graph?.code ?? null,
+          metaErrorSubcode: graph?.error_subcode ?? null,
+          httpStatus: graph?.httpStatus ?? null,
           retryCount,
-          nextRetryAt: new Date(Date.now() + backoffMin * 60 * 1000),
-          scheduledPublishAt: new Date(Date.now() + backoffMin * 60 * 1000),
+          nextRetryAt: permanent ? null : nextRetryAt,
+          scheduledPublishAt: permanent ? reel.scheduledPublishAt : nextRetryAt,
+          lastAttemptAt: new Date(),
         },
       });
+      this.log.warn(
+        `[AI_VISUALIZATION_REEL] publish failed jobId=${reelId} attempt=${retryCount} kind=${kind} permanent=${permanent}`,
+      );
       await this.track(reel.visualizationId, 'visualization_reel_failed', reel.visualization.userId, reel.visualization.anonymousSessionId, {
         reelId,
+        kind,
         rateLimited,
       });
     }
@@ -389,7 +534,7 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
     startOfDay.setHours(0, 0, 0, 0);
     const [queued, publishedToday, publishedTotal, failed] = await Promise.all([
       this.prisma.aiVisualizationMarketingReel.count({
-        where: { status: { in: ['QUEUED', 'RENDERING', 'READY', 'SCHEDULED', 'WAITING_FOR_FACEBOOK'] } },
+        where: { status: { in: ['QUEUED', 'RENDERING', 'READY', 'SCHEDULED', 'WAITING_FOR_FACEBOOK', 'RETRY_WAIT', 'PUBLISHING'] } },
       }),
       this.prisma.aiVisualizationMarketingReel.count({
         where: { status: 'PUBLISHED', publishedAt: { gte: startOfDay } },
@@ -398,6 +543,92 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
       this.prisma.aiVisualizationMarketingReel.count({ where: { status: 'FAILED' } }),
     ]);
     return { queued, publishedToday, publishedTotal, failed };
+  }
+
+  async adminFunnelStats(days = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const [
+      seoCtaClicks,
+      uploads,
+      completed,
+      estimates,
+      leadEmails,
+      requests,
+      companiesContacted,
+    ] = await Promise.all([
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'ai_visualization_seo_cta_click' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'ai_visualization_upload' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'ai_visualization_complete' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'ai_visualization_estimate_complete' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'renovation_lead_email_entered' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'renovation_request_sent' },
+      }),
+      this.prisma.aiVisualizationEvent.count({
+        where: { createdAt: { gte: since }, eventName: 'renovation_request_sent' },
+      }),
+    ]);
+    return {
+      days,
+      seoCtaClicks,
+      uploads,
+      completedVisualizations: completed,
+      estimatesCreated: estimates,
+      leadEmails,
+      contractorRequests: requests,
+      companiesContacted,
+    };
+  }
+
+  async adminGetDetail(reelId: string) {
+    const reel = await this.prisma.aiVisualizationMarketingReel.findUnique({
+      where: { id: reelId },
+      include: {
+        visualization: {
+          select: {
+            status: true,
+            completedAt: true,
+            marketingConsent: true,
+            originalPreviewUrl: true,
+            resultPreviewUrl: true,
+          },
+        },
+      },
+    });
+    if (!reel) return null;
+    const adminStatus =
+      reel.status === 'SKIPPED_NO_CONSENT' ? 'NOT_ELIGIBLE_NO_CONSENT' : reel.status;
+    const timeline = [
+      { step: 'Visualization completed', ok: reel.visualization.status === 'COMPLETED' },
+      { step: 'Reel created', ok: true },
+      { step: 'Video rendered', ok: Boolean(reel.videoUrl && reel.renderCompletedAt) },
+      {
+        step: 'Facebook upload',
+        ok: reel.status === 'PUBLISHED' || Boolean(reel.videoUrl),
+        failed: reel.failurePhase === 'FACEBOOK_UPLOAD' && reel.status === 'FAILED',
+      },
+      {
+        step: 'Facebook publish',
+        ok: reel.status === 'PUBLISHED',
+        failed: reel.failurePhase === 'FACEBOOK_PUBLISH' && reel.status === 'FAILED',
+      },
+    ];
+    return {
+      ...reel,
+      adminStatus,
+      timeline,
+    };
   }
 
   async adminAction(reelId: string, action: 'publish_now' | 'retry' | 'skip') {
@@ -411,13 +642,24 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
     if (action === 'retry') {
       await this.prisma.aiVisualizationMarketingReel.update({
         where: { id: reelId },
-        data: { status: 'QUEUED', lastError: null, nextRetryAt: null, scheduledPublishAt: new Date() },
+        data: {
+          status: 'QUEUED',
+          lastError: null,
+          nextRetryAt: null,
+          scheduledPublishAt: new Date(),
+          failurePhase: null,
+          metaErrorCode: null,
+          metaErrorSubcode: null,
+          httpStatus: null,
+          retryCount: 0,
+        },
       });
+      void this.tick();
       return { ok: true };
     }
     await this.prisma.aiVisualizationMarketingReel.update({
       where: { id: reelId },
-      data: { status: 'READY', scheduledPublishAt: new Date() },
+      data: { status: 'READY', scheduledPublishAt: new Date(), nextRetryAt: null },
     });
     void this.tick();
     return { ok: true };
@@ -445,7 +687,7 @@ export class AiVisualizationMarketingService implements OnModuleInit, OnModuleDe
       contractorCount,
       showEstimate: cfg.marketingShowEstimateInReel,
       showContractors: cfg.marketingShowContractorsInReel,
-      ctaUrl: buildMarketingCtaUrl(resolveFrontendUrl(this.config), marketingReelId),
+      ctaUrl: buildMarketingCtaUrl(resolveFrontendUrl(this.config), marketingReelId, cfg.marketingCtaPath),
     };
   }
 

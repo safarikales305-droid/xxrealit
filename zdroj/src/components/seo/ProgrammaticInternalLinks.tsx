@@ -38,6 +38,11 @@ export function ProgrammaticInternalLinks({ data }: Props) {
 
   const portalLinks = [
     { href: `/reality?city=${cityQ}`, label: `Reality v ${location.name}` },
+    { href: '/ai-vizualizace', label: 'AI vizualizace rekonstrukce' },
+    {
+      href: `/ai-vizualizace?location=${encodeURIComponent(location.name)}&utm_source=seo`,
+      label: 'Odhad ceny rekonstrukce',
+    },
     { href: `/firmy?city=${cityQ}`, label: `Firmy v ${location.name}` },
     { href: `/profesionalove?city=${cityQ}`, label: `Profesionálové v ${location.name}` },
     { href: `/ubytovani?city=${cityQ}`, label: `Ubytování v ${location.name}` },

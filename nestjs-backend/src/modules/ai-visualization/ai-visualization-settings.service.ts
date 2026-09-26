@@ -43,6 +43,8 @@ export class AiVisualizationSettingsService {
       marketingPublishMode: row.marketingPublishMode,
       marketingMusicEnabled: row.marketingMusicEnabled,
       marketingMusicVolumePercent: row.marketingMusicVolumePercent,
+      marketingCtaPath: row.marketingCtaPath,
+      marketingBrandingEnabled: row.marketingBrandingEnabled,
       updatedAt: row.updatedAt.toISOString(),
     };
   }

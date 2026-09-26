@@ -28,6 +28,6 @@ describe('ai-visualization-marketing-copy', () => {
     const ctx = { ...base, contractorCount: 7, hasEstimate: true, estimateMin: 1, estimateMax: 2 };
     assert.equal(resolveCopyVariant(ctx), 'C');
     const caption = buildFacebookReelCaption(ctx);
-    assert.match(caption, /7 stavebních firem/);
+    assert.match(caption, /7 stavebním firmám/);
   });
 });

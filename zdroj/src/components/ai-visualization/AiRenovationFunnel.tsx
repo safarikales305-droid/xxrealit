@@ -15,6 +15,7 @@ import {
   type AiVisualizationConfig,
   type AiVisualizationView,
   type RenovationCompanyOption,
+  readAiVisualizationAttribution,
   countCompletedRoots,
 } from '@/lib/ai-visualization-client';
 
@@ -75,6 +76,15 @@ export function AiRenovationFunnel({
 
   const completedRoots = countCompletedRoots(sessionItems.length ? sessionItems : [viz]);
   const canProjectEstimate = completedRoots > 1;
+
+  useEffect(() => {
+    const attr = readAiVisualizationAttribution();
+    const seoLoc = attr?.seoLocation;
+    if (typeof seoLoc === 'string' && seoLoc.trim() && !location.trim()) {
+      setLocation(seoLoc.trim());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (openEstimateToken > 0) setStep('form');

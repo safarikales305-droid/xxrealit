@@ -29,6 +29,8 @@ export const DEFAULT_AI_VISUALIZATION_SETTINGS = {
   marketingPublishMode: 'SCHEDULED' as const,
   marketingMusicEnabled: true,
   marketingMusicVolumePercent: 12,
+  marketingCtaPath: '/ai-vizualizace',
+  marketingBrandingEnabled: true,
 };
 
 export type AiVisualizationPublicConfig = {

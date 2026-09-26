@@ -79,17 +79,22 @@ const ATTRIBUTION_KEY = 'xxrealit_ai_viz_attribution';
 export function persistAiVisualizationAttributionFromUrl() {
   if (typeof window === 'undefined') return;
   const p = new URLSearchParams(window.location.search);
-  if (p.get('utm_campaign') !== 'ai_visualization') return;
-  sessionStorage.setItem(
-    ATTRIBUTION_KEY,
-    JSON.stringify({
-      utmSource: p.get('utm_source'),
-      utmMedium: p.get('utm_medium'),
-      utmCampaign: p.get('utm_campaign'),
-      utmContent: p.get('utm_content'),
-      capturedAt: new Date().toISOString(),
-    }),
-  );
+  const location = p.get('location')?.trim();
+  const existing = readAiVisualizationAttribution() ?? {};
+  if (p.get('utm_campaign') === 'ai_visualization' || location) {
+    sessionStorage.setItem(
+      ATTRIBUTION_KEY,
+      JSON.stringify({
+        ...existing,
+        utmSource: p.get('utm_source') ?? existing.utmSource,
+        utmMedium: p.get('utm_medium') ?? existing.utmMedium,
+        utmCampaign: p.get('utm_campaign') ?? existing.utmCampaign ?? (location ? 'ai_visualization' : null),
+        utmContent: p.get('utm_content') ?? existing.utmContent,
+        seoLocation: location ?? existing.seoLocation,
+        capturedAt: new Date().toISOString(),
+      }),
+    );
+  }
 }
 
 export function readAiVisualizationAttribution(): Record<string, string | null | undefined> | null {

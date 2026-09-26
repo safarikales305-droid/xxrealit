@@ -22,6 +22,7 @@ import {
   progressStepLabel,
   readActiveVisualizationId,
   persistAiVisualizationAttributionFromUrl,
+  readAiVisualizationAttribution,
   resolveVisualizationRootId,
   trackAiVisualizationEvent,
   uploadAiVisualizationPhoto,
@@ -35,9 +36,10 @@ type Step = 'upload' | 'configure' | 'generating' | 'result' | 'error';
 type Props = {
   prefilledImageUrl?: string | null;
   initialVizId?: string | null;
+  initialLocation?: string | null;
 };
 
-export function AiVisualizationWizard({ prefilledImageUrl, initialVizId }: Props) {
+export function AiVisualizationWizard({ prefilledImageUrl, initialVizId, initialLocation }: Props) {
   const { isAuthenticated } = useAuth();
   const [config, setConfig] = useState<AiVisualizationConfig | null>(null);
   const [step, setStep] = useState<Step>('upload');
@@ -91,6 +93,18 @@ export function AiVisualizationWizard({ prefilledImageUrl, initialVizId }: Props
   useEffect(() => {
     void fetchAiVisualizationConfig().then(setConfig);
     persistAiVisualizationAttributionFromUrl();
+    if (initialLocation?.trim()) {
+      const existing = readAiVisualizationAttribution() ?? {};
+      sessionStorage.setItem(
+        'xxrealit_ai_viz_attribution',
+        JSON.stringify({
+          ...existing,
+          seoLocation: initialLocation.trim(),
+          utmCampaign: existing.utmCampaign ?? 'ai_visualization',
+          capturedAt: new Date().toISOString(),
+        }),
+      );
+    }
     trackAiVisualizationEvent({ eventName: 'ai_visualization_open' });
 
     void (async () => {
@@ -109,7 +123,7 @@ export function AiVisualizationWizard({ prefilledImageUrl, initialVizId }: Props
         if (v) applyActiveViz(v);
       }
     })();
-  }, [applyActiveViz, initialVizId, reloadSession]);
+  }, [applyActiveViz, initialVizId, initialLocation, reloadSession]);
 
   useEffect(() => {
     if (!isAuthenticated || !viz?.id) return;

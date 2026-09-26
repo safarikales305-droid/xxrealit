@@ -54,6 +54,16 @@ export class AiVisualizationAdminController {
     return this.marketing.adminStats();
   }
 
+  @Get('marketing-reels/funnel')
+  marketingFunnel() {
+    return this.marketing.adminFunnelStats(30);
+  }
+
+  @Get('marketing-reels/:id')
+  marketingReelDetail(@Param('id') id: string) {
+    return this.marketing.adminGetDetail(id);
+  }
+
   @Post('marketing-reels/:id/action')
   marketingReelAction(@Param('id') id: string, @Body('action') action: 'publish_now' | 'retry' | 'skip') {
     return this.marketing.adminAction(id, action);
