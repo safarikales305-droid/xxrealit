@@ -17,13 +17,19 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AiVisualizationEventName } from '@prisma/client';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiVisualizationService } from './ai-visualization.service';
+import { AiRenovationService } from './ai-renovation.service';
+import { AiRenovationMaterialTier, AiRenovationRecipientStatus } from '@prisma/client';
 
-type AuthedRequest = { user?: { id: string } };
+type AuthedRequest = { user?: { id: string; email?: string; name?: string } };
 
 @Controller('public/ai-visualization')
 export class AiVisualizationPublicController {
-  constructor(private readonly viz: AiVisualizationService) {}
+  constructor(
+    private readonly viz: AiVisualizationService,
+    private readonly renovation: AiRenovationService,
+  ) {}
 
   @Get('config')
   getConfig() {
@@ -126,5 +132,103 @@ export class AiVisualizationPublicController {
     @Req() req: AuthedRequest,
   ) {
     return this.viz.enableShare(id, anonymousSessionId, req.user?.id);
+  }
+
+  @Post('renovation/estimate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalJwtAuthGuard)
+  createRenovationEstimate(
+    @Body()
+    body: {
+      visualizationId: string;
+      anonymousSessionId: string;
+      location?: string;
+      areaSqm?: number;
+      scopePartial?: boolean;
+      materialTier?: AiRenovationMaterialTier;
+    },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.renovation.createEstimate({
+      ...body,
+      userId: req.user?.id,
+    });
+  }
+
+  @Get('renovation/companies')
+  @UseGuards(OptionalJwtAuthGuard)
+  listRenovationCompanies(
+    @Req() req: { query: { visualizationId?: string; location?: string; limit?: string } },
+  ) {
+    const visualizationId = req.query.visualizationId?.trim();
+    if (!visualizationId) throw new BadRequestException('Chybí visualizationId.');
+    return this.renovation.findCompanies({
+      visualizationId,
+      location: req.query.location,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+  }
+
+  @Post('renovation/request')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalJwtAuthGuard)
+  sendRenovationRequest(
+    @Body()
+    body: {
+      visualizationId: string;
+      estimateId: string;
+      anonymousSessionId: string;
+      email?: string;
+      phone?: string;
+      companyIds: string[];
+      transferConsent: boolean;
+      marketingConsent?: boolean;
+      idempotencyKey: string;
+      description?: string;
+    },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.renovation.createAndSendRequest({
+      ...body,
+      userId: req.user?.id,
+      userEmail: req.user?.email,
+      userName: req.user?.name,
+    });
+  }
+}
+
+@Controller('public/ai-renovation')
+export class AiRenovationPublicController {
+  constructor(private readonly renovation: AiRenovationService) {}
+
+  @Get('poptavka/:publicId')
+  @UseGuards(OptionalJwtAuthGuard)
+  getPoptavka(@Param('publicId') publicId: string, @Req() req: AuthedRequest) {
+    return this.renovation.getPublicRequest(publicId, req.user?.id);
+  }
+
+  @Post('poptavka/:publicId/respond')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  respond(
+    @Param('publicId') publicId: string,
+    @Body()
+    body: {
+      companyId: string;
+      status: AiRenovationRecipientStatus;
+      offerPrice?: number;
+      offerMessage?: string;
+    },
+    @Req() req: AuthedRequest & { user?: { id: string } },
+  ) {
+    if (!req.user?.id) throw new BadRequestException('Přihlaste se jako firma.');
+    return this.renovation.respondAsCompany({
+      publicId,
+      companyId: body.companyId,
+      userId: req.user.id,
+      status: body.status,
+      offerPrice: body.offerPrice,
+      offerMessage: body.offerMessage,
+    });
   }
 }

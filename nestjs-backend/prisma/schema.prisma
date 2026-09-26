@@ -6847,6 +6847,7 @@ model CompanyDirectoryEntry {
   engagementEvents       CompanyEngagementEvent[]
   engagementCampaigns    CompanyEngagementCampaign[]
   leads                  CompanyLead[]
+  renovationRequestRecipients AiRenovationRequestRecipient[]
   emailQueueItems        CompanyEmailQueueItem[]
   contentEnrichmentJobs  CompanyContentEnrichmentJob[]
   socialPublishQueueItems CompanySocialPublishQueueItem[]
@@ -8640,6 +8641,14 @@ enum AiVisualizationEventName {
   ai_visualization_download_click
   ai_visualization_login_required
   ai_visualization_download
+  ai_visualization_estimate_start
+  ai_visualization_estimate_complete
+  renovation_lead_email_entered
+  renovation_companies_viewed
+  renovation_request_created
+  renovation_request_sent
+  renovation_company_response
+  renovation_offer_received
 }
 
 enum AiVisualizationWatermarkPosition {
@@ -8697,6 +8706,8 @@ model AiVisualization {
   completedAt           DateTime?
   createdAt             DateTime                      @default(now())
   updatedAt             DateTime                      @updatedAt
+  renovationEstimates   AiRenovationEstimate[]
+  renovationRequests    AiRenovationRequest[]
 
   @@index([userId, createdAt])
   @@index([anonymousSessionId, createdAt])
@@ -8716,4 +8727,102 @@ model AiVisualizationEvent {
 
   @@index([eventName, createdAt])
   @@index([visualizationId])
+}
+
+enum AiRenovationRequestStatus {
+  NEW
+  SENT
+  COMPANIES_RESPONDING
+  OFFERS_RECEIVED
+  CLOSED
+}
+
+enum AiRenovationRecipientStatus {
+  PENDING
+  NOTIFIED
+  INTERESTED
+  NO_CAPACITY
+  OFFER_SENT
+}
+
+enum AiRenovationMaterialTier {
+  ECONOMY
+  STANDARD
+  PREMIUM
+}
+
+model AiRenovationEstimate {
+  id                 String                   @id @default(cuid())
+  visualizationId    String
+  visualization      AiVisualization          @relation(fields: [visualizationId], references: [id], onDelete: Cascade)
+  userId             String?
+  anonymousSessionId String?
+  location           String?
+  areaSqm            Float?
+  scopePartial       Boolean                  @default(false)
+  materialTier       AiRenovationMaterialTier @default(STANDARD)
+  lineItemsJson      Json
+  estimateMin        Int
+  estimateMax        Int
+  reserveMin         Int?
+  reserveMax         Int?
+  totalMinWithReserve Int?
+  totalMaxWithReserve Int?
+  pricingVersion     String
+  region             String?
+  source             String                   @default("AI_RENOVATION")
+  calculatedAt       DateTime                 @default(now())
+  createdAt          DateTime                 @default(now())
+  requests           AiRenovationRequest[]
+
+  @@unique([visualizationId])
+  @@index([createdAt])
+}
+
+model AiRenovationRequest {
+  id                    String                      @id @default(cuid())
+  publicId              String                      @unique
+  visualizationId       String
+  visualization         AiVisualization             @relation(fields: [visualizationId], references: [id], onDelete: Cascade)
+  estimateId            String
+  estimate              AiRenovationEstimate        @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  userId                String?
+  email                 String
+  name                  String?
+  phone                 String?
+  location              String?
+  description           String?                     @db.Text
+  budgetMin             Int?
+  budgetMax             Int?
+  transferConsentAt     DateTime
+  transferConsentText   String                      @db.Text
+  marketingConsent      Boolean                     @default(false)
+  marketingConsentAt    DateTime?
+  status                AiRenovationRequestStatus   @default(NEW)
+  idempotencyKey        String?                     @unique
+  source                String                      @default("AI_RENOVATION")
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  recipients            AiRenovationRequestRecipient[]
+
+  @@index([email, createdAt])
+  @@index([status, createdAt])
+  @@index([visualizationId])
+}
+
+model AiRenovationRequestRecipient {
+  id           String                      @id @default(cuid())
+  requestId    String
+  request      AiRenovationRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  companyId    String
+  company      CompanyDirectoryEntry       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  status       AiRenovationRecipientStatus @default(PENDING)
+  offerPrice   Int?
+  offerMessage String?                     @db.Text
+  notifiedAt   DateTime?
+  respondedAt  DateTime?
+  createdAt    DateTime                    @default(now())
+
+  @@unique([requestId, companyId])
+  @@index([companyId, createdAt])
 }

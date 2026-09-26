@@ -5,6 +5,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/nest-client';
 
+import { fetchAdminRenovationRequests } from '@/lib/ai-visualization-client';
+
 type Stats = {
   days: number;
   total: number;
@@ -35,21 +37,38 @@ type Settings = {
   estimatedCostCzkPerGeneration: number | null;
 };
 
+type RenovationRequestRow = {
+  id: string;
+  publicId: string;
+  email: string;
+  location: string | null;
+  propertyType: string | null;
+  status: string;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  companiesCount: number;
+  responsesCount: number;
+  createdAt: string;
+};
+
 export default function AdminAiVizualizacePage() {
   const { apiAccessToken } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [renovationRequests, setRenovationRequests] = useState<RenovationRequestRow[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!API_BASE_URL) return;
     const h = getAuthHeaders();
-    const [sRes, stRes] = await Promise.all([
+    const [sRes, stRes, ren] = await Promise.all([
       fetch(`${API_BASE_URL}/admin/ai-visualization/stats`, { headers: h }),
       fetch(`${API_BASE_URL}/admin/ai-visualization/settings`, { headers: h }),
+      fetchAdminRenovationRequests(),
     ]);
     if (sRes.ok) setStats((await sRes.json()) as Stats);
     if (stRes.ok) setSettings((await stRes.json()) as Settings);
+    if (ren?.items) setRenovationRequests(ren.items);
   }, []);
 
   useEffect(() => {
@@ -89,6 +108,45 @@ export default function AdminAiVizualizacePage() {
           />
         </div>
       ) : null}
+
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold text-zinc-900">Poptávky rekonstrukcí</h2>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-left text-xs">
+            <thead>
+              <tr className="border-b text-zinc-500">
+                <th className="py-2 pr-3">Datum</th>
+                <th className="py-2 pr-3">E-mail</th>
+                <th className="py-2 pr-3">Lokalita</th>
+                <th className="py-2 pr-3">Typ</th>
+                <th className="py-2 pr-3">AI odhad</th>
+                <th className="py-2 pr-3">Firmy</th>
+                <th className="py-2 pr-3">Reakce</th>
+                <th className="py-2">Stav</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renovationRequests.map((r) => (
+                <tr key={r.id} className="border-b border-zinc-100">
+                  <td className="py-2 pr-3 whitespace-nowrap">{new Date(r.createdAt).toLocaleDateString('cs-CZ')}</td>
+                  <td className="py-2 pr-3">{r.email}</td>
+                  <td className="py-2 pr-3">{r.location ?? '—'}</td>
+                  <td className="py-2 pr-3">{r.propertyType ?? '—'}</td>
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    {r.budgetMin != null && r.budgetMax != null ? `${r.budgetMin}–${r.budgetMax} Kč` : '—'}
+                  </td>
+                  <td className="py-2 pr-3">{r.companiesCount}</td>
+                  <td className="py-2 pr-3">{r.responsesCount}</td>
+                  <td className="py-2">{r.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {renovationRequests.length === 0 ? (
+            <p className="py-4 text-sm text-zinc-500">Zatím žádné poptávky.</p>
+          ) : null}
+        </div>
+      </div>
 
       {settings ? (
         <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4">

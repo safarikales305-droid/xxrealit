@@ -79,13 +79,19 @@ export function PublicHeader({
       { id: 'reality', label: 'Reality', emoji: '🏠', href: '/?tab=classic' },
       { id: 'accommodation', label: 'Ubytování', emoji: '🛏', href: '/ubytovani' },
       { id: 'posts', label: 'Příspěvky', emoji: '💬', href: '/?tab=posts' },
+      { id: 'ai_vizualizace', label: 'AI Vizualizace', emoji: '✨', href: '/ai-vizualizace' },
     ],
     [],
   );
 
-  const profilesActive = resolvedActive === 'profiles';
   const contentActiveId: PortalContentTabId =
-    resolvedActive === 'profiles' || resolvedActive === 'none' ? 'reality' : resolvedActive;
+    resolvedActive === 'profiles' || resolvedActive === 'none'
+      ? pathname?.startsWith('/ai-vizualizace')
+        ? 'ai_vizualizace'
+        : 'reality'
+      : resolvedActive;
+
+  const profilesActive = resolvedActive === 'profiles';
 
   const avatarSrc =
     user?.avatar && user.avatar.trim().length > 0 ? nestAbsoluteAssetUrl(user.avatar) : null;
@@ -119,15 +125,6 @@ export function PublicHeader({
         )}
 
         <div className="hidden items-center gap-2 lg:flex">
-          <Link
-            href="/ai-vizualizace"
-            className={`${TAB_BASE} ${
-              pathname?.startsWith('/ai-vizualizace') ? TAB_ACTIVE : 'border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100'
-            }`}
-          >
-            <span aria-hidden>✨</span>
-            <span>AI Vizualizace</span>
-          </Link>
           {portalTabs.map((tab) => {
             const active = tab.id === contentActiveId && !profilesActive;
             return (
@@ -214,13 +211,6 @@ export function PublicHeader({
                 </Link>
               );
             })}
-            <Link
-              href="/ai-vizualizace"
-              className={`${TAB_BASE} ${pathname?.startsWith('/ai-vizualizace') ? TAB_ACTIVE : 'border-orange-200 bg-orange-50 text-orange-800'}`}
-            >
-              <span aria-hidden>✨</span>
-              <span>AI Vizualizace</span>
-            </Link>
             <Link
               href={PROFILES_HREF}
               className={`${TAB_BASE} lg:hidden ${profilesActive ? TAB_ACTIVE : TAB_INACTIVE}`}

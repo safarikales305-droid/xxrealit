@@ -53,7 +53,7 @@ export function AppMobileMenuPanel({ open, onClose, userName, isLoading, items }
         onClick={onClose}
       />
       <div
-        className={`fixed inset-x-3 top-[max(calc(env(safe-area-inset-top)+4rem),4.25rem)] z-[101] max-h-[min(70dvh,calc(100dvh-5.5rem))] overflow-hidden ${appMobilePanel.sheet} ${appMobilePanel.sheetRoundedPanel} motion-safe:animate-[app-menu-in_0.24s_cubic-bezier(0.22,1,0.36,1)]`}
+        className={`fixed inset-x-3 top-[max(calc(env(safe-area-inset-top)+4rem),4.25rem)] z-[101] max-h-[min(85dvh,calc(100dvh-4rem))] overflow-hidden ${appMobilePanel.sheet} ${appMobilePanel.sheetRoundedPanel} motion-safe:animate-[app-menu-in_0.24s_cubic-bezier(0.22,1,0.36,1)]`}
       >
         <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5">
           <div className="min-w-0">
@@ -66,12 +66,13 @@ export function AppMobileMenuPanel({ open, onClose, userName, isLoading, items }
             <X className="size-5" strokeWidth={2.25} aria-hidden />
           </button>
         </div>
-        <div className="overflow-y-auto overscroll-contain p-3">
+        <div className="flex flex-col max-h-[min(85dvh,calc(100dvh-4rem))]">
+        <div className="overflow-y-auto overscroll-contain p-3 flex-1">
           {isLoading ? (
             <p className="px-2 py-3 text-sm text-zinc-400">Načítání…</p>
           ) : (
             <div className="flex flex-col gap-1.5">
-              {items.map((item) => {
+              {items.filter((item) => item.variant !== 'danger').map((item) => {
                 const className =
                   item.variant === 'danger' ? appMobilePanel.menuItemDanger : appMobilePanel.menuItem;
                 const content = (
@@ -118,6 +119,29 @@ export function AppMobileMenuPanel({ open, onClose, userName, isLoading, items }
               })}
             </div>
           )}
+        </div>
+        {!isLoading && items.some((item) => item.variant === 'danger') ? (
+          <div className="shrink-0 border-t border-white/10 p-3 pt-2">
+            {items
+              .filter((item) => item.variant === 'danger')
+              .map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={appMobilePanel.menuItemDanger}
+                  onClick={() => {
+                    item.onClick?.();
+                    onClose();
+                  }}
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.08] text-red-300">
+                    {item.icon}
+                  </span>
+                  <span className="min-w-0 flex-1">{item.label}</span>
+                </button>
+              ))}
+          </div>
+        ) : null}
         </div>
       </div>
     </div>

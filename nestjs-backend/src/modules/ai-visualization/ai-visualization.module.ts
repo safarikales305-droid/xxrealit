@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { EmailsModule } from '../emails/emails.module';
 import { OpenAiModule } from '../openai/openai.module';
+import { AiRenovationService } from './ai-renovation.service';
 import { AiVisualizationAdminController } from './ai-visualization-admin.controller';
 import { AiVisualizationAuthController } from './ai-visualization-auth.controller';
-import { AiVisualizationPublicController } from './ai-visualization.controller';
+import { AiVisualizationPublicController, AiRenovationPublicController } from './ai-visualization.controller';
 import { AiVisualizationService } from './ai-visualization.service';
 import { AiVisualizationSettingsService } from './ai-visualization-settings.service';
 import { AiVisualizationStorageService } from './ai-visualization-storage.service';
@@ -10,10 +12,13 @@ import { AiVisualizationWatermarkService } from './ai-visualization-watermark.se
 import { AiVisualizationWorkerService } from './ai-visualization-worker.service';
 import { OpenAiRenovationImageProvider } from './providers/openai-renovation-image.provider';
 
+import { RenovationPricingService } from './renovation-pricing.service';
+
 @Module({
-  imports: [OpenAiModule],
+  imports: [OpenAiModule, EmailsModule],
   controllers: [
     AiVisualizationPublicController,
+    AiRenovationPublicController,
     AiVisualizationAuthController,
     AiVisualizationAdminController,
   ],
@@ -24,6 +29,8 @@ import { OpenAiRenovationImageProvider } from './providers/openai-renovation-ima
     OpenAiRenovationImageProvider,
     AiVisualizationService,
     AiVisualizationWorkerService,
+    RenovationPricingService,
+    AiRenovationService,
   ],
   exports: [AiVisualizationService, AiVisualizationSettingsService],
 })

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { BeforeAfterSlider } from '@/components/ai-visualization/BeforeAfterSlider';
+import { AiRenovationFunnel } from '@/components/ai-visualization/AiRenovationFunnel';
 import {
   claimAiVisualization,
   downloadAiVisualization,
@@ -181,6 +182,15 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
 
   const progress = viz?.progress ?? 0;
 
+  const propertyTypeLabel = useMemo(() => {
+    const found = config?.propertyTypes?.find((p) => p.id === (viz?.propertyType ?? propertyType));
+    return found ? `${found.emoji} ${found.label}` : propertyType;
+  }, [config?.propertyTypes, viz?.propertyType, propertyType]);
+
+  const styleLabel = useMemo(() => {
+    return config?.styles?.find((s) => s.id === (viz?.style ?? style))?.label ?? style;
+  }, [config?.styles, viz?.style, style]);
+
   const stickyCta = useMemo(() => {
     if (step === 'configure') {
       return (
@@ -345,7 +355,15 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
       ) : null}
 
       {step === 'result' && viz?.originalPreviewUrl && viz.resultPreviewUrl ? (
-        <BeforeAfterSlider beforeUrl={viz.originalPreviewUrl} afterUrl={viz.resultPreviewUrl} />
+        <>
+          <BeforeAfterSlider beforeUrl={viz.originalPreviewUrl} afterUrl={viz.resultPreviewUrl} />
+          <AiRenovationFunnel
+            viz={viz}
+            config={config}
+            propertyTypeLabel={propertyTypeLabel}
+            styleLabel={styleLabel}
+          />
+        </>
       ) : null}
 
       {step === 'error' ? (

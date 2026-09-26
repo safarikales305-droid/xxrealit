@@ -5,12 +5,15 @@ import { AiVisualizationService } from './ai-visualization.service';
 import { AiVisualizationSettingsService } from './ai-visualization-settings.service';
 import { DEFAULT_AI_VISUALIZATION_SETTINGS } from './ai-visualization.types';
 
+import { AiRenovationService } from './ai-renovation.service';
+
 @Controller('admin/ai-visualization')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AiVisualizationAdminController {
   constructor(
     private readonly viz: AiVisualizationService,
     private readonly settings: AiVisualizationSettingsService,
+    private readonly renovation: AiRenovationService,
   ) {}
 
   @Get('stats')
@@ -32,5 +35,10 @@ export class AiVisualizationAdminController {
   @Patch('settings')
   updateSettings(@Body() body: Partial<typeof DEFAULT_AI_VISUALIZATION_SETTINGS>) {
     return this.settings.updateSettings(body);
+  }
+
+  @Get('renovation-requests')
+  listRenovationRequests() {
+    return this.renovation.listAdminRequests(100);
   }
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 
-export type PortalContentTabId = 'shorts' | 'reality' | 'accommodation' | 'posts';
+export type PortalContentTabId = 'shorts' | 'reality' | 'accommodation' | 'posts' | 'ai_vizualizace';
 
 export type PortalContentTab = {
   id: PortalContentTabId;
@@ -56,9 +56,9 @@ export function PortalContentTypeTabs({
       ref={scrollerRef}
       role="tablist"
       aria-label="Hlavní sekce portálu"
-      className={`no-scrollbar flex items-stretch gap-1.5 overflow-x-auto scroll-smooth px-2 py-1 max-md:gap-1 max-md:px-1.5 max-md:py-0.5 md:gap-2 md:px-4 md:py-2 ${
-        compactMobile ? 'max-md:min-h-[44px] max-md:items-center' : ''
-      }`}
+        className={`no-scrollbar flex items-stretch gap-1.5 overflow-x-auto scroll-smooth px-2 py-1 max-md:gap-1.5 max-md:px-1.5 max-md:py-1 md:gap-2 md:px-4 md:py-2 ${
+          compactMobile ? 'max-md:min-h-[44px] max-md:items-center max-md:snap-x max-md:snap-mandatory' : ''
+        }`}
       style={{ scrollbarWidth: 'none' }}
     >
       {tabs.map((tab) => {
@@ -71,7 +71,7 @@ export function PortalContentTypeTabs({
             <span>{tab.label}</span>
           </>
         );
-        const className = `${compactMobile ? TAB_BASE_COMPACT : TAB_BASE} ${active ? TAB_ACTIVE : TAB_INACTIVE}`;
+        const className = `${compactMobile ? TAB_BASE_COMPACT : TAB_BASE} ${active ? TAB_ACTIVE : TAB_INACTIVE} max-md:snap-start`;
 
         if (tab.href) {
           return (
@@ -130,8 +130,9 @@ export function buildPortalContentTabs(options: {
   viewMode?: 'shorts' | 'classic' | 'posts';
   onViewModeChange?: (mode: 'shorts' | 'classic' | 'posts') => void;
   accommodationActive?: boolean;
+  aiVizualizaceActive?: boolean;
 }): { tabs: PortalContentTab[]; activeId: PortalContentTabId } {
-  const { viewMode, onViewModeChange, accommodationActive } = options;
+  const { viewMode, onViewModeChange, accommodationActive, aiVizualizaceActive } = options;
 
   const tabs: PortalContentTab[] = [
     {
@@ -161,10 +162,17 @@ export function buildPortalContentTabs(options: {
       href: onViewModeChange ? undefined : '/?tab=posts',
       onSelect: onViewModeChange ? () => onViewModeChange('posts') : undefined,
     },
+    {
+      id: 'ai_vizualizace',
+      label: 'AI Vizualizace',
+      emoji: '✨',
+      href: '/ai-vizualizace',
+    },
   ];
 
   let activeId: PortalContentTabId = 'reality';
-  if (accommodationActive) activeId = 'accommodation';
+  if (options.aiVizualizaceActive) activeId = 'ai_vizualizace';
+  else if (accommodationActive) activeId = 'accommodation';
   else if (viewMode === 'shorts') activeId = 'shorts';
   else if (viewMode === 'posts') activeId = 'posts';
   else if (viewMode === 'classic') activeId = 'reality';

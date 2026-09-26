@@ -187,3 +187,203 @@ export function progressStepLabel(progress: number): string {
   if (progress >= 20) return 'Rozpoznávám prostor…';
   return 'Analyzuji fotografii…';
 }
+
+export type RenovationLineItem = {
+  id: string;
+  label: string;
+  amountMin: number;
+  amountMax: number;
+};
+
+export type AiRenovationEstimate = {
+  id: string;
+  visualizationId: string;
+  location: string | null;
+  areaSqm: number | null;
+  scopePartial: boolean;
+  materialTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM';
+  lineItems: RenovationLineItem[];
+  estimateMin: number;
+  estimateMax: number;
+  reserveMin: number | null;
+  reserveMax: number | null;
+  totalMinWithReserve: number | null;
+  totalMaxWithReserve: number | null;
+  pricingVersion: string;
+  region: string | null;
+  calculatedAt: string;
+};
+
+export type RenovationCompanyOption = {
+  id: string;
+  name: string;
+  slug: string;
+  city: string | null;
+  region: string | null;
+  categories: string[];
+};
+
+export type AiRenovationRequestResult = {
+  id: string;
+  publicId: string;
+  status: string;
+  companiesCount: number;
+  poptavkaUrl: string;
+};
+
+export function formatCzkAmount(n: number): string {
+  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(n);
+}
+
+export function formatCzkRange(min: number, max: number): string {
+  return `${formatCzkAmount(min)} – ${formatCzkAmount(max)} Kč`;
+}
+
+async function renovationFetch<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T } | { message: string }> {
+  if (!API_BASE_URL) return { message: 'API není dostupné.' };
+  try {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+        ...getAuthHeaders(),
+      },
+    });
+    if (!res.ok) {
+      try {
+        const body = (await res.json()) as { message?: string | string[] };
+        const message = Array.isArray(body.message) ? body.message[0] : body.message;
+        return { message: message ?? 'Požadavek se nepodařil.' };
+      } catch {
+        return { message: 'Požadavek se nepodařil.' };
+      }
+    }
+    return { data: (await res.json()) as T };
+  } catch {
+    return { message: 'Síťová chyba.' };
+  }
+}
+
+export async function createAiRenovationEstimate(input: {
+  visualizationId: string;
+  location?: string;
+  areaSqm?: number;
+  scopePartial?: boolean;
+  materialTier?: 'ECONOMY' | 'STANDARD' | 'PREMIUM';
+}) {
+  return renovationFetch<AiRenovationEstimate>('/public/ai-visualization/renovation/estimate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      anonymousSessionId: getAiVisualizationAnonymousSessionId(),
+    }),
+  });
+}
+
+export async function fetchRenovationCompanies(input: { visualizationId: string; location?: string }) {
+  const q = new URLSearchParams({ visualizationId: input.visualizationId });
+  if (input.location?.trim()) q.set('location', input.location.trim());
+  return renovationFetch<{ items: RenovationCompanyOption[] }>(
+    `/public/ai-visualization/renovation/companies?${q.toString()}`,
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+export async function sendAiRenovationRequest(input: {
+  visualizationId: string;
+  estimateId: string;
+  email?: string;
+  phone?: string;
+  companyIds: string[];
+  transferConsent: boolean;
+  marketingConsent?: boolean;
+  idempotencyKey: string;
+  description?: string;
+}) {
+  return renovationFetch<AiRenovationRequestResult>('/public/ai-visualization/renovation/request', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      anonymousSessionId: getAiVisualizationAnonymousSessionId(),
+    }),
+  });
+}
+
+export type PublicPoptavkaView = {
+  publicId: string;
+  status: string;
+  location: string | null;
+  description: string | null;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  areaSqm: number | null;
+  scopePartial: boolean;
+  materialTier: string;
+  propertyType: string | null;
+  style: string | null;
+  renovationLevel: string | null;
+  userPrompt: string | null;
+  originalPreviewUrl: string | null;
+  resultPreviewUrl: string | null;
+  lineItems: RenovationLineItem[];
+  pricingVersion: string;
+  calculatedAt: string;
+  contactEmail?: string;
+  recipients: Array<{
+    id: string;
+    companyId: string;
+    companyName: string;
+    status: string;
+    offerPrice: number | null;
+    canRespond: boolean;
+  }>;
+};
+
+export async function fetchPublicPoptavka(publicId: string) {
+  return renovationFetch<PublicPoptavkaView>(
+    `/public/ai-renovation/poptavka/${encodeURIComponent(publicId)}`,
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+export async function respondToRenovationPoptavka(
+  publicId: string,
+  input: {
+    companyId: string;
+    status: 'INTERESTED' | 'NO_CAPACITY' | 'OFFER_SENT';
+    offerPrice?: number;
+    offerMessage?: string;
+  },
+) {
+  return renovationFetch<{ ok: boolean }>(
+    `/public/ai-renovation/poptavka/${encodeURIComponent(publicId)}/respond`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export async function fetchAdminRenovationRequests() {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/ai-visualization/renovation-requests`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as {
+    items: Array<{
+      id: string;
+      publicId: string;
+      email: string;
+      location: string | null;
+      propertyType: string | null;
+      status: string;
+      budgetMin: number | null;
+      budgetMax: number | null;
+      companiesCount: number;
+      responsesCount: number;
+      createdAt: string;
+    }>;
+  };
+}

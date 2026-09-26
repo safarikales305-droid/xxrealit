@@ -129,8 +129,9 @@ export function Navbar({
       viewMode,
       onViewModeChange,
       accommodationActive: isAccommodationSection,
+      aiVizualizaceActive: pathname?.startsWith('/ai-vizualizace') ?? false,
     });
-  }, [viewMode, onViewModeChange, isAccommodationSection]);
+  }, [viewMode, onViewModeChange, isAccommodationSection, pathname]);
 
   const prevViewModeRef = useRef<ViewMode | undefined>(viewMode);
   useEffect(() => {
@@ -175,12 +176,6 @@ export function Navbar({
           icon: menuIcons.admin,
         });
       }
-      items.unshift({
-        key: 'ai-viz',
-        label: '✨ AI Vizualizace',
-        href: '/ai-vizualizace',
-        icon: menuIcons.profile,
-      });
       items.push({
         key: 'add',
         label: 'Přidat inzerát',
@@ -197,12 +192,6 @@ export function Navbar({
       return items;
     }
     return [
-      {
-        key: 'ai-viz',
-        label: '✨ AI Vizualizace',
-        href: '/ai-vizualizace',
-        icon: menuIcons.profile,
-      },
       {
         key: 'about',
         label: 'O portálu',
@@ -416,14 +405,6 @@ export function Navbar({
                 tabs={portalTabs.tabs}
                 activeId={portalTabs.activeId}
               />
-              <Link
-                href="/ai-vizualizace"
-                className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[14px] border border-orange-200 bg-orange-50 px-3 py-2 text-[13px] font-semibold text-orange-800 hover:bg-orange-100 lg:text-[14px]"
-              >
-                <span aria-hidden>✨</span>
-                <span className="hidden lg:inline">AI Vizualizace</span>
-                <span className="lg:hidden">AI</span>
-              </Link>
               <Link
                 href="/profesionalove"
                 className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[14px] border border-zinc-200/90 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 lg:text-[14px]"
