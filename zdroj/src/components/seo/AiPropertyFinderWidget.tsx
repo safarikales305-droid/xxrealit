@@ -13,6 +13,8 @@ import {
   type ReactNode,
 } from 'react';
 import { ArrowLeft, Bot, Loader2, X } from 'lucide-react';
+import { useFloatingUiRegister } from '@/components/floating/FloatingUiProvider';
+import { FLOATING_Z } from '@/lib/floating-ui-geometry';
 import {
   captureAiPropertyFinderLead,
   clearLegacyAiFinderModalState,
@@ -45,6 +47,8 @@ type FinderContextValue = {
   sessionId: string | null;
   openFinder: (source: 'cta' | 'auto' | 'fab' | 'reopen') => void;
   closeFinder: () => void;
+  handleHeaderClose: () => void;
+  resultsScrollRef: React.RefObject<HTMLDivElement | null>;
   query: string;
   setQuery: (q: string) => void;
   submitQuery: () => void;
@@ -163,6 +167,9 @@ export function AiPropertyFinderProvider({
   const [watchMsg, setWatchMsg] = useState<string | null>(null);
   const dismissedThisPageViewRef = useRef(false);
   const autoOpenedThisLoadRef = useRef(false);
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null);
+  const savedResultsScrollTopRef = useRef(0);
+  const pageScrollLockYRef = useRef(0);
 
   const persistConvenience = useCallback(
     (patch: Partial<{ sessionId: string | null; lastSearchQuery: string; leadEmailCaptured: boolean }>) => {
@@ -317,19 +324,77 @@ export function AiPropertyFinderProvider({
     return () => window.clearTimeout(t);
   }, [enabled, openFinder]);
 
+  useEffect(() => {
+    if (!open) return;
+    pageScrollLockYRef.current = window.scrollY;
+    const { style } = document.body;
+    const prevOverflow = style.overflow;
+    const prevPosition = style.position;
+    const prevTop = style.top;
+    const prevWidth = style.width;
+    style.overflow = 'hidden';
+    style.position = 'fixed';
+    style.top = `-${pageScrollLockYRef.current}px`;
+    style.width = '100%';
+    return () => {
+      style.overflow = prevOverflow;
+      style.position = prevPosition;
+      style.top = prevTop;
+      style.width = prevWidth;
+      window.scrollTo(0, pageScrollLockYRef.current);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (step === 'detail') {
+        setStep('results');
+        setDetail(null);
+        requestAnimationFrame(() => {
+          if (resultsScrollRef.current) {
+            resultsScrollRef.current.scrollTop = savedResultsScrollTopRef.current;
+          }
+        });
+        return;
+      }
+      dismissedThisPageViewRef.current = true;
+      setOpen(false);
+      trackAiPropertyFinderEvent({
+        eventName: 'AI_PROPERTY_FINDER_CLOSED',
+        visitorId,
+        sessionId: sessionId ?? undefined,
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, sessionId, step, visitorId]);
+
   const closeFinder = useCallback(() => {
     dismissedThisPageViewRef.current = true;
-    if (step === 'detail') {
-      setStep('results');
-      setDetail(null);
-    }
     setOpen(false);
     trackAiPropertyFinderEvent({
       eventName: 'AI_PROPERTY_FINDER_CLOSED',
       visitorId,
       sessionId: sessionId ?? undefined,
     });
-  }, [sessionId, step, visitorId]);
+  }, [sessionId, visitorId]);
+
+  const handleHeaderClose = useCallback(() => {
+    if (step === 'detail') {
+      setStep('results');
+      setDetail(null);
+      requestAnimationFrame(() => {
+        if (resultsScrollRef.current) {
+          resultsScrollRef.current.scrollTop = savedResultsScrollTopRef.current;
+        }
+      });
+      return;
+    }
+    closeFinder();
+  }, [closeFinder, step]);
 
   const submitQuery = useCallback(() => {
     const text = query.trim();
@@ -404,6 +469,9 @@ export function AiPropertyFinderProvider({
 
   const openDetail = useCallback(
     async (row: PropertySearchResult) => {
+      if (resultsScrollRef.current) {
+        savedResultsScrollTopRef.current = resultsScrollRef.current.scrollTop;
+      }
       setStep('detail');
       trackAiPropertyFinderEvent({
         eventName: 'AI_PROPERTY_FINDER_RESULT_DETAIL',
@@ -431,6 +499,11 @@ export function AiPropertyFinderProvider({
   const backToResults = useCallback(() => {
     setStep('results');
     setDetail(null);
+    requestAnimationFrame(() => {
+      if (resultsScrollRef.current) {
+        resultsScrollRef.current.scrollTop = savedResultsScrollTopRef.current;
+      }
+    });
   }, []);
 
   const runRefine = useCallback(
@@ -475,6 +548,8 @@ export function AiPropertyFinderProvider({
     sessionId,
     openFinder,
     closeFinder,
+    handleHeaderClose,
+    resultsScrollRef,
     query,
     setQuery,
     submitQuery,
@@ -591,30 +666,68 @@ function AiPropertyFinderModal() {
 
   const showResults = f.step === 'results' && f.response;
   const showDetail = f.step === 'detail';
+  const detailLayout = showDetail;
+
+  const shellClass = detailLayout
+    ? 'flex h-[min(92vh,950px)] w-[min(94vw,1450px)] min-h-[480px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl max-md:fixed max-md:inset-0 max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:w-full max-md:rounded-none'
+    : 'flex max-h-[min(92vh,950px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[88vh] sm:rounded-2xl md:w-[min(96vw,720px)]';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+    <div
+      className="fixed inset-0 flex items-end justify-center bg-black/40 p-0 max-md:p-0 sm:items-center sm:p-6 md:p-8"
+      style={{ zIndex: FLOATING_Z.modal }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="AI hledač nemovitostí"
-        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[88vh] sm:rounded-2xl"
+        className={shellClass}
       >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">🤖 AI hledač nemovitostí</p>
-            <h2 className="text-lg font-bold text-zinc-900">
-              {f.step === 'query' ? 'Co hledáte?' : f.step === 'email' ? 'Ještě e-mail' : 'Hledání na míru'}
+        <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2.5 max-md:pt-[max(0.5rem,env(safe-area-inset-top))] md:px-4">
+          {showDetail ? (
+            <button
+              type="button"
+              onClick={f.backToResults}
+              className="flex shrink-0 items-center gap-1 rounded-lg p-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 md:hidden"
+              aria-label="Zpět na výsledky"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              <span>Zpět</span>
+            </button>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-600">🤖 AI hledač</p>
+            <h2 className="truncate text-base font-bold text-zinc-900 md:text-lg">
+              {showDetail
+                ? 'Detail nabídky'
+                : f.step === 'query'
+                  ? 'Co hledáte?'
+                  : f.step === 'email'
+                    ? 'Ještě e-mail'
+                    : 'Hledání na míru'}
             </h2>
           </div>
-          <button type="button" onClick={f.closeFinder} className="rounded-lg p-2 hover:bg-zinc-100" aria-label="Zavřít">
+          <button
+            type="button"
+            onClick={f.handleHeaderClose}
+            className="shrink-0 rounded-lg p-2 hover:bg-zinc-100"
+            aria-label={showDetail ? 'Zavřít detail' : 'Zavřít'}
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div
+          ref={detailLayout ? undefined : f.resultsScrollRef}
+          className={`flex min-h-0 flex-1 flex-col overscroll-contain ${detailLayout ? 'overflow-hidden px-0 py-0' : 'overflow-y-auto px-4 py-4'}`}
+        >
           {showDetail && f.detail ? (
-            <DetailView payload={f.detail} onBack={f.backToResults} visitorId={visitorId} sessionId={f.sessionId ?? f.response?.sessionId} />
+            <DetailView
+              payload={f.detail}
+              onBack={f.backToResults}
+              visitorId={visitorId}
+              sessionId={f.sessionId ?? f.response?.sessionId}
+            />
           ) : null}
           {showDetail && !f.detail && f.busy ? (
             <Loader2 className="mx-auto my-8 h-8 w-8 animate-spin text-orange-600" />
@@ -652,9 +765,7 @@ function AiPropertyFinderModal() {
 
           {!showDetail && f.step === 'email' ? (
             <>
-              <p className="text-base font-semibold text-zinc-900">
-                Kam vám můžeme případně poslat nové nabídky?
-              </p>
+              <p className="text-base font-semibold text-zinc-900">Kam vám můžeme případně poslat nové nabídky?</p>
               <input
                 type="email"
                 value={f.leadEmail}
@@ -802,18 +913,113 @@ function AiPropertyFinderModal() {
   );
 }
 
-function OptionalExternalIframe({ url }: { url: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed || !url.startsWith('https://')) return null;
+function ListingFallbackContent({
+  row,
+  d,
+  title,
+  images,
+  bodyOnly = false,
+}: {
+  row: PropertySearchResult;
+  d: PropertyResultDetailPayload['detail'];
+  title: string;
+  images: string[];
+  bodyOnly?: boolean;
+}) {
   return (
-    <div className="mt-4">
-      <p className="mb-2 text-xs text-zinc-500">Náhled původní stránky (pokud ji server povolí vložit):</p>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 pt-2 md:px-6">
+      {images.length > 0 ? (
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {images.map((src) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={src} src={src} alt="" className="h-48 w-auto max-w-full rounded-xl object-cover md:h-56" />
+          ))}
+        </div>
+      ) : (
+        <div className="flex h-36 items-center justify-center rounded-xl bg-orange-50 text-4xl md:h-48">
+          {placeholderIcon(title)}
+        </div>
+      )}
+      {!bodyOnly ? (
+        <>
+          <h3 className="mt-4 text-xl font-bold text-zinc-900">{title}</h3>
+          <p className="mt-1 text-lg font-semibold text-orange-600">
+            {formatPropertyPrice(d?.price ?? row.price, d?.currency ?? row.currency)}
+          </p>
+          {(d?.location ?? row.location) ? (
+            <p className="text-sm text-zinc-600">{d?.location ?? row.location}</p>
+          ) : null}
+        </>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
+        {(d?.disposition ?? row.disposition) ? <span>Dispozice: {d?.disposition ?? row.disposition}</span> : null}
+        {(d?.area ?? row.area) ? <span>Plocha: {d?.area ?? row.area} m²</span> : null}
+      </div>
+      {(d?.description ?? row.descriptionSnippet) ? (
+        <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+          {d?.description ?? row.descriptionSnippet}
+        </p>
+      ) : null}
+      {d?.contactName || d?.contactPhone ? (
+        <p className="mt-4 text-sm text-zinc-800">
+          Kontakt: {[d?.contactName, d?.contactPhone].filter(Boolean).join(' · ')}
+        </p>
+      ) : null}
+      {!bodyOnly ? (
+        <p className="mt-4 text-xs text-zinc-500">
+          {row.isInternal ? 'XXREALIT' : 'Externí nabídka'} · Zdroj: {row.source}
+        </p>
+      ) : (
+        <p className="mt-4 text-xs text-zinc-500">Náhled portálu nelze vložit — zobrazujeme dostupná data.</p>
+      )}
+    </div>
+  );
+}
+
+function ExternalListingEmbed({ url, fallback }: { url: string; fallback: ReactNode }) {
+  const [embedState, setEmbedState] = useState<'pending' | 'shown' | 'blocked'>('pending');
+  const timeoutRef = useRef<number | null>(null);
+
+  const clearEmbedTimeout = useCallback(() => {
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    setEmbedState('pending');
+    clearEmbedTimeout();
+    timeoutRef.current = window.setTimeout(() => {
+      setEmbedState((prev) => (prev === 'pending' ? 'blocked' : prev));
+    }, 5000);
+    return () => clearEmbedTimeout();
+  }, [url, clearEmbedTimeout]);
+
+  if (!url.startsWith('https://') || embedState === 'blocked') {
+    return <>{fallback}</>;
+  }
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col bg-zinc-50">
+      {embedState === 'pending' ? (
+        <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-white/80">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-600" aria-hidden />
+        </div>
+      ) : null}
       <iframe
-        title="Náhled inzerátu"
+        title="Náhled nabídky"
         src={url}
-        className="h-72 w-full rounded-xl border border-zinc-200 bg-zinc-50"
+        className="min-h-0 w-full flex-1 border-0 bg-white"
         referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
+        onLoad={() => {
+          clearEmbedTimeout();
+          setEmbedState('shown');
+        }}
+        onError={() => {
+          clearEmbedTimeout();
+          setEmbedState('blocked');
+        }}
       />
     </div>
   );
@@ -834,108 +1040,96 @@ function DetailView({
   const d = payload.detail;
   const title = d?.title ?? row.title;
   const images = d?.images?.length ? d.images : row.imageUrl && row.imageUsageAllowed ? [row.imageUrl] : [];
+  const location = d?.location ?? row.location;
+  const embedUrl = row.isExternal && row.sourceUrl.startsWith('https://') ? row.sourceUrl : null;
+
+  const fallback = (
+    <ListingFallbackContent row={row} d={d} title={title} images={images} bodyOnly={Boolean(embedUrl)} />
+  );
 
   return (
-    <div>
-      <button type="button" onClick={onBack} className="mb-4 flex items-center gap-1 text-sm font-semibold text-orange-700">
-        <ArrowLeft className="h-4 w-4" /> Zpět na výsledky
-      </button>
-      {images.length > 0 ? (
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {images.map((src) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={src} src={src} alt="" className="h-40 w-auto max-w-full rounded-xl object-cover" />
-          ))}
-        </div>
-      ) : (
-        <div className="flex h-32 items-center justify-center rounded-xl bg-orange-50 text-4xl">{placeholderIcon(title)}</div>
-      )}
-      <h3 className="mt-4 text-xl font-bold text-zinc-900">{title}</h3>
-      <p className="mt-1 text-lg font-semibold text-orange-600">
-        {formatPropertyPrice(d?.price ?? row.price, d?.currency ?? row.currency)}
-      </p>
-      {(d?.location ?? row.location) ? <p className="text-sm text-zinc-600">{d?.location ?? row.location}</p> : null}
-      <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
-        {(d?.disposition ?? row.disposition) ? <span>Dispozice: {d?.disposition ?? row.disposition}</span> : null}
-        {(d?.area ?? row.area) ? <span>Plocha: {d?.area ?? row.area} m²</span> : null}
-      </div>
-      {(d?.description ?? row.descriptionSnippet) ? (
-        <p className="mt-4 whitespace-pre-wrap text-sm text-zinc-700">{d?.description ?? row.descriptionSnippet}</p>
-      ) : null}
-      {d?.contactName || d?.contactPhone ? (
-        <p className="mt-4 text-sm text-zinc-800">
-          Kontakt: {[d?.contactName, d?.contactPhone].filter(Boolean).join(' · ')}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 border-b border-zinc-100 bg-white px-4 py-3 md:px-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-2 hidden items-center gap-1 text-sm font-semibold text-orange-700 hover:underline md:flex"
+        >
+          <ArrowLeft className="h-4 w-4" /> Zpět na výsledky
+        </button>
+        <h3 className="text-lg font-bold leading-snug text-zinc-900 md:text-xl">{title}</h3>
+        <p className="mt-1 text-base font-semibold text-orange-600 md:text-lg">
+          {formatPropertyPrice(d?.price ?? row.price, d?.currency ?? row.currency)}
         </p>
-      ) : null}
-      <p className="mt-4 text-xs text-zinc-500">
-        {row.isInternal ? 'XXREALIT' : 'Externí nabídka'} · Zdroj: {row.source}
-      </p>
-      {row.isExternal && row.sourceUrl.startsWith('https://') ? (
-        <OptionalExternalIframe url={row.sourceUrl} />
-      ) : null}
-      {row.isInternal && d?.sourceUrl ? (
-        <Link
-          href={d.sourceUrl}
-          className="mt-4 inline-block text-sm font-semibold text-orange-700 underline"
-          onClick={() =>
-            trackAiPropertyFinderEvent({
-              eventName: 'AI_RESULT_CLICKED',
-              visitorId,
-              sessionId,
-              meta: { id: row.id, intent: 'original_listing' },
-            })
-          }
-        >
-          Zobrazit inzerát na XXREALIT
-        </Link>
-      ) : null}
-      {row.isExternal && row.sourceUrl ? (
-        <a
-          href={row.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-6 inline-block text-sm font-medium text-orange-700 underline"
-          onClick={() =>
-            trackAiPropertyFinderEvent({
-              eventName: 'AI_PROPERTY_FINDER_EXTERNAL_CLICK',
-              visitorId,
-              sessionId,
-              meta: { id: row.id, source: row.source },
-            })
-          }
-        >
-          Otevřít původní inzerát ↗
-        </a>
-      ) : null}
+        {location ? <p className="mt-0.5 text-sm text-zinc-600">{location}</p> : null}
+        <p className="mt-2 text-xs text-zinc-500">
+          {row.isInternal ? 'XXREALIT' : 'Externí nabídka'} · Zdroj: {row.source}
+        </p>
+        {row.isInternal && d?.sourceUrl ? (
+          <Link
+            href={d.sourceUrl}
+            className="mt-3 inline-block text-sm font-semibold text-orange-700 underline"
+            onClick={() =>
+              trackAiPropertyFinderEvent({
+                eventName: 'AI_RESULT_CLICKED',
+                visitorId,
+                sessionId,
+                meta: { id: row.id, intent: 'original_listing' },
+              })
+            }
+          >
+            Zobrazit inzerát na XXREALIT
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {embedUrl ? (
+          <ExternalListingEmbed url={embedUrl} fallback={fallback} />
+        ) : (
+          fallback
+        )}
+      </div>
     </div>
   );
 }
 
 function AiPropertyFinderStickyCta() {
   const { open, openFinder } = useAiPropertyFinder();
+  const stackRef = useFloatingUiRegister('ai-finder-cta', 3);
   if (open) return null;
   return (
-    <>
+    <div
+      ref={stackRef}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[535]"
+      data-floating-ui
+      data-floating-ui-id="ai-finder-cta"
+      style={{ zIndex: FLOATING_Z.aiFinderCta }}
+    >
       <button
         type="button"
         onClick={() => void openFinder('reopen')}
-        className="fixed bottom-20 right-4 z-40 hidden max-w-[240px] rounded-2xl border-2 border-orange-200 bg-white px-4 py-3 text-left shadow-xl hover:border-orange-300 sm:bottom-8 sm:right-8 sm:block"
+        className="pointer-events-auto fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] hidden max-w-[260px] rounded-2xl border-2 border-orange-300 bg-white px-4 py-3 text-left shadow-2xl hover:border-orange-400 lg:block"
       >
-        <span className="text-2xl">🤖</span>
+        <span className="text-2xl" aria-hidden>
+          🤖
+        </span>
         <span className="mt-1 block text-sm font-bold text-zinc-900">Nenašli jste vhodnou nemovitost?</span>
         <span className="mt-2 block rounded-xl bg-orange-600 px-3 py-2 text-center text-xs font-bold text-white">
-          Vyhledat nabídky pomocí AI
+          Najít nemovitost pomocí AI
         </span>
       </button>
       <button
         type="button"
         onClick={() => void openFinder('reopen')}
-        className="fixed inset-x-4 bottom-4 z-40 rounded-2xl bg-orange-600 px-4 py-3 text-center text-sm font-bold text-white shadow-xl hover:bg-orange-700 sm:hidden"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        className="pointer-events-auto fixed inset-x-4 rounded-2xl bg-orange-600 px-4 py-3.5 text-center text-sm font-bold text-white shadow-2xl hover:bg-orange-700 lg:hidden"
+        style={{
+          bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+        }}
       >
-        🤖 Vyhledat nabídky pomocí AI
+        🤖 Najít nemovitost pomocí AI
       </button>
-    </>
+    </div>
   );
 }
 

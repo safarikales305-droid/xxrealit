@@ -1,9 +1,15 @@
 export const FLOATING_Z = {
   actions: 500,
-  aiBubble: 520,
+  aiBubble: 510,
+  aiFinderCta: 535,
   chatPanel: 700,
   modal: 1000,
 } as const;
+
+/** Vertikální offset chat bubliny nad AI Finder CTA na SEO stránkách (px). */
+export const AI_FINDER_STACK_GAP_PX = 16;
+export const AI_FINDER_DESKTOP_CTA_EST_HEIGHT_PX = 132;
+export const AI_FINDER_MOBILE_BAR_EST_HEIGHT_PX = 64;
 
 export const AI_BUBBLE_SIZE = 60;
 export const AI_DRAG_THRESHOLD_PX = 8;

@@ -5,6 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AI_BUBBLE_SIZE,
   AI_DRAG_THRESHOLD_PX,
+  AI_FINDER_DESKTOP_CTA_EST_HEIGHT_PX,
+  AI_FINDER_MOBILE_BAR_EST_HEIGHT_PX,
+  AI_FINDER_STACK_GAP_PX,
   clampBubbleY,
   defaultBubblePosition,
   DESKTOP_LAUNCHER_MIN_WIDTH,
@@ -27,6 +30,8 @@ type Props = {
   onOpen: () => void;
   busy?: boolean;
   hidden?: boolean;
+  /** SEO stránky s AI Finderem — pouze malá ikona, bez kolize s CTA hledače. */
+  compact?: boolean;
 };
 
 type DragState = {
@@ -38,7 +43,7 @@ type DragState = {
   dragged: boolean;
 };
 
-export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) {
+export function AiChatLauncher({ onOpen, busy = false, hidden = false, compact = false }: Props) {
   const { getObstacleRects } = useFloatingUi();
   const mobileShortsImmersive = useMobileShortsImmersive();
   const launcherHidden = hidden || mobileShortsImmersive;
@@ -188,12 +193,15 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
   if (launcherHidden) return null;
 
   if (isDesktop) {
+    const bottomOffset = compact
+      ? `calc(max(1.25rem, env(safe-area-inset-bottom)) + ${AI_FINDER_DESKTOP_CTA_EST_HEIGHT_PX + AI_FINDER_STACK_GAP_PX}px)`
+      : 'max(1.5rem, env(safe-area-inset-bottom))';
     return (
       <div
         className="group fixed hidden lg:block"
         style={{
           right: 'max(1.25rem, env(safe-area-inset-right))',
-          bottom: 'max(1.5rem, env(safe-area-inset-bottom))',
+          bottom: bottomOffset,
           zIndex: FLOATING_Z.aiBubble,
         }}
         data-floating-ui
@@ -203,16 +211,26 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
           type="button"
           onClick={onDesktopClick}
           onKeyDown={onDesktopKeyDown}
-          className="flex max-w-[220px] items-center gap-2.5 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3.5 text-left text-white shadow-[0_10px_30px_rgba(255,80,0,0.35)] transition hover:brightness-110 hover:shadow-[0_14px_36px_rgba(255,80,0,0.42)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
+          className={
+            compact
+              ? 'flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-[#ff6a00] to-[#ff3c00] text-white shadow-[0_8px_24px_rgba(255,80,0,0.35)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400'
+              : 'flex max-w-[220px] items-center gap-2.5 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3.5 text-left text-white shadow-[0_10px_30px_rgba(255,80,0,0.35)] transition hover:brightness-110 hover:shadow-[0_14px_36px_rgba(255,80,0,0.42)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400'
+          }
           aria-label="Otevřít AI podporu XXREALIT"
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15">
-            <Bot className="size-5" aria-hidden />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-bold leading-tight">AI podpora</span>
-            <span className="block text-[11px] font-medium text-white/85">Zeptejte se na reality</span>
-          </span>
+          {compact ? (
+            <Bot className="size-6" aria-hidden />
+          ) : (
+            <>
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15">
+                <Bot className="size-5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold leading-tight">AI podpora</span>
+                <span className="block text-[11px] font-medium text-white/85">Zeptejte se na reality</span>
+              </span>
+            </>
+          )}
         </button>
         <span
           role="tooltip"
@@ -229,6 +247,28 @@ export function AiChatLauncher({ onOpen, busy = false, hidden = false }: Props) 
     side === 'left'
       ? { left: `max(12px, env(safe-area-inset-left))` }
       : { right: `max(12px, env(safe-area-inset-right))` };
+
+  if (compact && ready) {
+    const mobileBottom = `calc(max(0.75rem, env(safe-area-inset-bottom)) + ${AI_FINDER_MOBILE_BAR_EST_HEIGHT_PX + AI_FINDER_STACK_GAP_PX}px)`;
+    return (
+      <button
+        type="button"
+        onClick={onDesktopClick}
+        onKeyDown={onDesktopKeyDown}
+        className="fixed flex size-[52px] items-center justify-center rounded-full bg-gradient-to-br from-[#ff6a00] to-[#ff3c00] text-white shadow-[0_8px_22px_rgba(255,80,0,0.38)] lg:hidden"
+        style={{
+          right: `max(12px, env(safe-area-inset-right))`,
+          bottom: mobileBottom,
+          zIndex: FLOATING_Z.aiBubble,
+        }}
+        data-floating-ui
+        data-floating-ui-id="ai-chat-bubble"
+        aria-label="Otevřít AI podporu XXREALIT"
+      >
+        <Bot className="size-6" strokeWidth={2.2} aria-hidden />
+      </button>
+    );
+  }
 
   return (
     <>

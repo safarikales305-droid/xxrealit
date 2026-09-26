@@ -20,6 +20,15 @@ import {
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { AiChatLauncher } from './AiChatLauncher';
 import { FLOATING_Z } from '@/lib/floating-ui-geometry';
+import { isProgrammaticSeoIntent } from '@/lib/seo/programmatic-seo';
+
+function pathnameHasAiPropertyFinder(pathname: string): boolean {
+  const path = pathname.split('?')[0] ?? pathname;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length !== 2) return false;
+  if (segments[0] === 'realitni-kancelar') return false;
+  return isProgrammaticSeoIntent(segments[0]);
+}
 
 function detectPageType(path: string): string {
   if (path === '/') return 'HOME';
@@ -162,9 +171,16 @@ export function AiChatWidget() {
 
   if (!enabled || pathname.startsWith('/admin')) return null;
 
+  const compactChatLauncher = pathnameHasAiPropertyFinder(pathname);
+
   return (
     <>
-      <AiChatLauncher onOpen={() => void handleOpen()} busy={busy} hidden={open} />
+      <AiChatLauncher
+        onOpen={() => void handleOpen()}
+        busy={busy}
+        hidden={open}
+        compact={compactChatLauncher}
+      />
 
       {open ? (
         <div
