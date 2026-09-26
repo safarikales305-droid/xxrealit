@@ -46,3 +46,20 @@ test('buildProgrammaticSeoCopy generates rich content with 1200+ words and 12+ F
   assert.ok(copy.heroSubtitle.length > 20);
   assert.ok(copy.heroImageUrl.startsWith('https://'));
 });
+
+test('programmatic SEO slugs resolve Pardubice and Šumperk for indexed URLs', () => {
+  const pardubice = findCzGeoLocation('pardubice');
+  const sumperk = findCzGeoLocation('sumperk');
+  assert.ok(pardubice, 'pardubice slug must resolve');
+  assert.ok(sumperk, 'sumperk slug must resolve');
+  assert.equal(pardubice!.name, 'Pardubice');
+  assert.equal(sumperk!.name, 'Šumperk');
+  assert.equal(buildProgrammaticSeoPath('developerske-projekty', 'pardubice'), '/developerske-projekty/pardubice');
+  assert.equal(buildProgrammaticSeoPath('prodej-chaty', 'sumperk'), '/prodej-chaty/sumperk');
+});
+
+test('developerske-projekty intent is valid programmatic category', () => {
+  const intent = getProgrammaticSeoIntent('developerske-projekty');
+  assert.ok(intent);
+  assert.equal(intent!.slug, 'developerske-projekty');
+});

@@ -1,4 +1,5 @@
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
+import { logSeoPageResolve } from '@/lib/seo/seo-page-resolve-log';
 
 export type ProgrammaticSeoListingPreview = {
   id: string;
@@ -107,17 +108,55 @@ export async function fetchProgrammaticSeoPage(
   location: string,
   limit = 24,
 ): Promise<ProgrammaticSeoPageData | null> {
+  const pathname = `/${intent}/${location}`;
   const api = getOptionalInternalApiBaseUrl();
-  if (!api || !isProgrammaticSeoIntent(intent)) return null;
+  if (!api || !isProgrammaticSeoIntent(intent)) {
+    logSeoPageResolve({
+      pathname,
+      category: intent,
+      slug: location,
+      httpStatus: 503,
+      dataSource: 'programmatic',
+      errorCode: !api ? 'NO_API_BASE' : 'INVALID_INTENT',
+    });
+    return null;
+  }
 
   try {
     const res = await fetch(
       `${api}/seo/programmatic/${encodeURIComponent(intent)}/${encodeURIComponent(location)}?limit=${limit}`,
       { next: { revalidate: 3600 } },
     );
-    if (!res.ok) return null;
-    return (await res.json()) as ProgrammaticSeoPageData;
+    if (!res.ok) {
+      logSeoPageResolve({
+        pathname,
+        category: intent,
+        slug: location,
+        httpStatus: res.status,
+        dataSource: 'programmatic',
+        errorCode: res.status === 404 ? 'NOT_FOUND' : 'API_ERROR',
+      });
+      return null;
+    }
+    const data = (await res.json()) as ProgrammaticSeoPageData;
+    logSeoPageResolve({
+      pathname,
+      category: intent,
+      slug: location,
+      resolvedLocation: data.location?.name ?? null,
+      httpStatus: 200,
+      dataSource: 'programmatic',
+    });
+    return data;
   } catch {
+    logSeoPageResolve({
+      pathname,
+      category: intent,
+      slug: location,
+      httpStatus: 500,
+      dataSource: 'programmatic',
+      errorCode: 'FETCH_EXCEPTION',
+    });
     return null;
   }
 }

@@ -12,6 +12,7 @@ import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock'
 import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import {
+  AiPropertyFinderErrorBoundary,
   AiPropertyFinderHeroBlock,
   AiPropertyFinderProvider,
 } from '@/components/seo/AiPropertyFinderWidget';
@@ -230,7 +231,9 @@ export function ProgrammaticSeoPage({ data }: Props) {
       />
 
       {!intent.isBrokerPage ? (
-        <AiPropertyFinderProvider seoContext={seoContext}>{pageInner}</AiPropertyFinderProvider>
+        <AiPropertyFinderErrorBoundary pagePath={data.path}>
+          <AiPropertyFinderProvider seoContext={seoContext}>{pageInner}</AiPropertyFinderProvider>
+        </AiPropertyFinderErrorBoundary>
       ) : (
         pageInner
       )}

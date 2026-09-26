@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Component,
   type ReactNode,
 } from 'react';
 import { ArrowLeft, Bot, Loader2, X } from 'lucide-react';
@@ -125,6 +126,32 @@ const SEARCH_STEPS = [
   'Porovnávám cenu a lokalitu',
   'Připravuji výsledky',
 ];
+
+type ErrorBoundaryProps = { children: ReactNode; pagePath?: string };
+
+type ErrorBoundaryState = { hasError: boolean };
+
+/** Izolace AI finderu — pád nesmí shodit SEO stránku. */
+export class AiPropertyFinderErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    // eslint-disable-next-line no-console
+    console.error('[AI_PROPERTY_FINDER_RENDER]', {
+      pagePath: this.props.pagePath,
+      message: error.message,
+    });
+  }
+
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
 
 export function AiPropertyFinderProvider({
   seoContext,
@@ -514,19 +541,22 @@ export function AiPropertyFinderProvider({
     searchProviderConfigured,
   };
 
-  if (!enabled) return <>{children}</>;
-
   return (
     <FinderContext.Provider value={value}>
       {children}
-      <AiPropertyFinderModal />
-      <AiPropertyFinderStickyCta />
+      {enabled ? (
+        <>
+          <AiPropertyFinderModal />
+          <AiPropertyFinderStickyCta />
+        </>
+      ) : null}
     </FinderContext.Provider>
   );
 }
 
 export function AiPropertyFinderHeroBlock() {
-  const { openFinder, setQuery, seoContext } = useAiPropertyFinder();
+  const { openFinder, setQuery, seoContext, enabled } = useAiPropertyFinder();
+  if (!enabled) return null;
   const example = `„Hledám dům v ${seoContext.locationName} do 5 mil. Kč se zahradou“`;
 
   return (

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { isPropertyPubliclyListed } from '../properties/property-public-visibility';
@@ -78,6 +78,8 @@ export type ProgrammaticSeoPagePayload = ProgrammaticSeoCopy & {
 
 @Injectable()
 export class ProgrammaticSeoService {
+  private readonly log = new Logger(ProgrammaticSeoService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly seoLocations: SeoLocationService,
@@ -238,8 +240,41 @@ export class ProgrammaticSeoService {
     locationSlug: string,
     limit = 24,
   ): Promise<ProgrammaticSeoPagePayload> {
-    const base = await this.resolvePage(intentSlug, locationSlug);
-    return this.attachListings(base, intentSlug, locationSlug, limit);
+    const pathname = buildProgrammaticSeoPath(intentSlug, locationSlug);
+    try {
+      const base = await this.resolvePage(intentSlug, locationSlug);
+      const result = await this.attachListings(base, intentSlug, locationSlug, limit);
+      this.log.log(
+        `[SEO_PAGE_RESOLVE] ${JSON.stringify({
+          pathname,
+          category: intentSlug,
+          slug: locationSlug,
+          resolvedLocation: result.location.name,
+          pageId: buildProgrammaticSeoPageKey(intentSlug, result.location.slug),
+          httpStatus: 200,
+          dataSource: 'programmatic',
+          hasListings: result.hasListings,
+          listingCount: result.totalCount,
+        })}`,
+      );
+      return result;
+    } catch (err) {
+      const httpStatus = err instanceof NotFoundException ? 404 : 500;
+      const errorCode = err instanceof NotFoundException ? 'NOT_FOUND' : 'RESOLVE_ERROR';
+      this.log.warn(
+        `[SEO_PAGE_RESOLVE] ${JSON.stringify({
+          pathname,
+          category: intentSlug,
+          slug: locationSlug,
+          resolvedLocation: null,
+          httpStatus,
+          dataSource: 'programmatic',
+          errorCode,
+          message: err instanceof Error ? err.message : 'unknown',
+        })}`,
+      );
+      throw err;
+    }
   }
 
   /** Admin náhled — načte stránku včetně DRAFT obsahu z DB. */
