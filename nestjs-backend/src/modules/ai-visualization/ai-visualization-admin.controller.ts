@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiVisualizationService } from './ai-visualization.service';
@@ -6,6 +6,7 @@ import { AiVisualizationSettingsService } from './ai-visualization-settings.serv
 import { DEFAULT_AI_VISUALIZATION_SETTINGS } from './ai-visualization.types';
 
 import { AiRenovationService } from './ai-renovation.service';
+import { AiVisualizationMarketingService } from './ai-visualization-marketing.service';
 
 @Controller('admin/ai-visualization')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -14,6 +15,7 @@ export class AiVisualizationAdminController {
     private readonly viz: AiVisualizationService,
     private readonly settings: AiVisualizationSettingsService,
     private readonly renovation: AiRenovationService,
+    private readonly marketing: AiVisualizationMarketingService,
   ) {}
 
   @Get('stats')
@@ -40,5 +42,20 @@ export class AiVisualizationAdminController {
   @Get('renovation-requests')
   listRenovationRequests() {
     return this.renovation.listAdminRequests(100);
+  }
+
+  @Get('marketing-reels')
+  listMarketingReels() {
+    return this.marketing.listAdmin(100);
+  }
+
+  @Get('marketing-reels/stats')
+  marketingReelStats() {
+    return this.marketing.adminStats();
+  }
+
+  @Post('marketing-reels/:id/action')
+  marketingReelAction(@Param('id') id: string, @Body('action') action: 'publish_now' | 'retry' | 'skip') {
+    return this.marketing.adminAction(id, action);
   }
 }

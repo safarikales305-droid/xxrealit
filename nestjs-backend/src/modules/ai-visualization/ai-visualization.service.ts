@@ -21,6 +21,8 @@ import { AiVisualizationStorageService } from './ai-visualization-storage.servic
 import { AiVisualizationWatermarkService } from './ai-visualization-watermark.service';
 import { OpenAiRenovationImageProvider } from './providers/openai-renovation-image.provider';
 import type { VisualizationPublicView } from './ai-visualization.types';
+import { AI_VIZ_MARKETING_CONSENT_VERSION } from './ai-visualization-marketing.constants';
+import { AiVisualizationMarketingService } from './ai-visualization-marketing.service';
 
 const IP_HASH_SALT = process.env.AI_VISUALIZATION_IP_SALT ?? 'xxrealit-ai-viz';
 
@@ -35,6 +37,7 @@ export class AiVisualizationService {
     private readonly storage: AiVisualizationStorageService,
     private readonly watermark: AiVisualizationWatermarkService,
     private readonly openAiProvider: OpenAiRenovationImageProvider,
+    private readonly marketing: AiVisualizationMarketingService,
   ) {}
 
   async getPublicConfig() {
@@ -189,6 +192,7 @@ export class AiVisualizationService {
     idempotencyKey: string;
     parentId?: string;
     ip: string;
+    marketingConsent?: boolean;
   }) {
     if (this.inFlightGenerations.has(input.idempotencyKey)) {
       const existing = await this.prisma.aiVisualization.findUnique({
@@ -212,7 +216,7 @@ export class AiVisualizationService {
       if (parent.anonymousSessionId !== input.anonymousSessionId && parent.userId !== input.userId) {
         throw new ForbiddenException('Nemáte přístup k původní vizualizaci.');
       }
-      row = await this.prisma.aiVisualization.create({
+          row = await this.prisma.aiVisualization.create({
         data: {
           userId: input.userId ?? parent.userId,
           anonymousSessionId: input.anonymousSessionId,
@@ -221,6 +225,9 @@ export class AiVisualizationService {
           originalCloudinaryId: parent.originalCloudinaryId,
           originalPreviewUrl: parent.originalPreviewUrl,
           ipHash: hashClientIp(input.ip, IP_HASH_SALT),
+          marketingConsent: parent.marketingConsent,
+          marketingConsentAt: parent.marketingConsentAt,
+          marketingConsentVersion: parent.marketingConsentVersion,
         },
       });
     }
@@ -259,6 +266,13 @@ export class AiVisualizationService {
           errorMessage: null,
           errorCode: null,
           generationStartedAt: null,
+          ...(input.marketingConsent === true
+            ? {
+                marketingConsent: true,
+                marketingConsentAt: new Date(),
+                marketingConsentVersion: AI_VIZ_MARKETING_CONSENT_VERSION,
+              }
+            : {}),
         },
       });
 
@@ -481,6 +495,8 @@ export class AiVisualizationService {
         userId: job.userId,
         anonymousSessionId: job.anonymousSessionId,
       });
+
+      void this.marketing.onVisualizationCompleted(job.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generování selhalo';
       this.log.warn(`[process] ${job.id}: ${message}`);

@@ -15,6 +15,7 @@ import {
   pollAiVisualizationStatus,
   progressStepLabel,
   readActiveVisualizationId,
+  persistAiVisualizationAttributionFromUrl,
   trackAiVisualizationEvent,
   uploadAiVisualizationPhoto,
   type AiVisualizationConfig,
@@ -36,6 +37,7 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
   const [style, setStyle] = useState('modern');
   const [renovationLevel, setRenovationLevel] = useState<'LIGHT' | 'RENOVATION' | 'MAJOR'>('RENOVATION');
   const [userPrompt, setUserPrompt] = useState('');
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const [loginModal, setLoginModal] = useState(false);
@@ -45,6 +47,7 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
 
   useEffect(() => {
     void fetchAiVisualizationConfig().then(setConfig);
+    persistAiVisualizationAttributionFromUrl();
     trackAiVisualizationEvent({ eventName: 'ai_visualization_open' });
     const restored = readActiveVisualizationId();
     if (restored) {
@@ -138,6 +141,7 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
       userPrompt,
       idempotencyKey,
       parentId: variantParentId,
+      marketingConsent: marketingConsent || undefined,
     });
     if (!res || 'message' in res) {
       generatingRef.current = false;
@@ -323,6 +327,18 @@ export function AiVisualizationWizard({ prefilledImageUrl }: Props) {
               className="mt-3 w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm"
             />
           </div>
+          <label className="mt-3 flex gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={marketingConsent}
+              onChange={(e) => setMarketingConsent(e.target.checked)}
+            />
+            <span>
+              Souhlasím, že anonymizovaná fotografie před/po může být použita pro prezentaci služby XXREALIT na
+              sociálních sítích (volitelné).
+            </span>
+          </label>
           <div className="rounded-2xl border border-zinc-200 bg-white p-4">
             <p className="text-sm font-semibold text-zinc-900">Rozsah rekonstrukce</p>
             <div className="mt-3 space-y-2">

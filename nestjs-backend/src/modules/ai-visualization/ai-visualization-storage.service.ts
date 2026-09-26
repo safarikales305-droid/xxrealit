@@ -26,6 +26,27 @@ export class AiVisualizationStorageService {
     return this.uploadBuffer(pngOrJpeg, 'ai-visualization/results', ext);
   }
 
+  async uploadMarketingReelVideo(mp4: Buffer): Promise<StoredVisualizationAsset> {
+    this.ensureCloudinary();
+    return new Promise((resolve, reject) => {
+      const upload = cloudinary.uploader.upload_stream(
+        {
+          folder: 'ai-visualization/marketing-reels',
+          resource_type: 'video',
+          format: 'mp4',
+        },
+        (error, result) => {
+          if (error || !result?.public_id || !result.secure_url) {
+            reject(error ?? new Error('Cloudinary video upload failed'));
+            return;
+          }
+          resolve({ publicId: result.public_id, secureUrl: result.secure_url });
+        },
+      );
+      upload.end(mp4);
+    });
+  }
+
   private uploadBuffer(buffer: Buffer, folder: string, ext: string): Promise<StoredVisualizationAsset> {
     return new Promise((resolve, reject) => {
       const upload = cloudinary.uploader.upload_stream(

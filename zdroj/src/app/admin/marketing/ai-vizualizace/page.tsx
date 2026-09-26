@@ -35,6 +35,17 @@ type Settings = {
   watermarkPosition: string;
   watermarkOnDownload: boolean;
   estimatedCostCzkPerGeneration: number | null;
+  marketingReelsEnabled: boolean;
+  marketingPublishFacebook: boolean;
+  marketingPublishInstagram: boolean;
+  marketingShowEstimateInReel: boolean;
+  marketingShowContractorsInReel: boolean;
+  marketingPublishEachVariant: boolean;
+  marketingMaxReelsPerDay: number;
+  marketingMinIntervalMinutes: number;
+  marketingPublishMode: 'IMMEDIATE' | 'SCHEDULED';
+  marketingMusicEnabled: boolean;
+  marketingMusicVolumePercent: number;
 };
 
 type RenovationRequestRow = {
@@ -56,19 +67,43 @@ export default function AdminAiVizualizacePage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [renovationRequests, setRenovationRequests] = useState<RenovationRequestRow[]>([]);
+  const [marketingStats, setMarketingStats] = useState<{
+    queued: number;
+    publishedToday: number;
+    publishedTotal: number;
+    failed: number;
+  } | null>(null);
+  const [marketingReels, setMarketingReels] = useState<
+    Array<{
+      id: string;
+      status: string;
+      scheduledPublishAt: string | null;
+      publishedAt: string | null;
+      contractorCount: number | null;
+      estimateMin: number | null;
+      visualization: { originalPreviewUrl: string | null; resultPreviewUrl: string | null };
+    }>
+  >([]);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!API_BASE_URL) return;
     const h = getAuthHeaders();
-    const [sRes, stRes, ren] = await Promise.all([
+    const [sRes, stRes, ren, mStats, mList] = await Promise.all([
       fetch(`${API_BASE_URL}/admin/ai-visualization/stats`, { headers: h }),
       fetch(`${API_BASE_URL}/admin/ai-visualization/settings`, { headers: h }),
       fetchAdminRenovationRequests(),
+      fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels/stats`, { headers: h }),
+      fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels`, { headers: h }),
     ]);
     if (sRes.ok) setStats((await sRes.json()) as Stats);
     if (stRes.ok) setSettings((await stRes.json()) as Settings);
     if (ren?.items) setRenovationRequests(ren.items);
+    if (mStats.ok) setMarketingStats((await mStats.json()) as typeof marketingStats);
+    if (mList.ok) {
+      const body = (await mList.json()) as { items: typeof marketingReels };
+      setMarketingReels(body.items ?? []);
+    }
   }, []);
 
   useEffect(() => {
@@ -83,6 +118,16 @@ export default function AdminAiVizualizacePage() {
       body: JSON.stringify(settings),
     });
     setMsg(res.ok ? 'Uloženo.' : 'Uložení se nepodařilo.');
+    void load();
+  }
+
+  async function reelAction(id: string, action: 'publish_now' | 'retry' | 'skip') {
+    if (!API_BASE_URL) return;
+    await fetch(`${API_BASE_URL}/admin/ai-visualization/marketing-reels/${encodeURIComponent(id)}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ action }),
+    });
     void load();
   }
 
@@ -106,6 +151,69 @@ export default function AdminAiVizualizacePage() {
             label="Odhad nákladů (součet / ks)"
             value={`${stats.estimatedCostCzkSum ?? '—'} Kč · ${stats.estimatedCostCzkConfigured ?? '—'} Kč/ks`}
           />
+        </div>
+      ) : null}
+
+      {marketingStats ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold text-zinc-900">Marketing Reels (Facebook)</h2>
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            <Stat label="Ve frontě" value={String(marketingStats.queued)} />
+            <Stat label="Dnes publikováno" value={String(marketingStats.publishedToday)} />
+            <Stat label="Celkem publikováno" value={String(marketingStats.publishedTotal)} />
+            <Stat label="Chyby" value={String(marketingStats.failed)} />
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="border-b text-zinc-500">
+                  <th className="py-2 pr-2">Před</th>
+                  <th className="py-2 pr-2">Po</th>
+                  <th className="py-2 pr-2">Stav</th>
+                  <th className="py-2 pr-2">Rozpočet</th>
+                  <th className="py-2 pr-2">Firmy</th>
+                  <th className="py-2">Akce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {marketingReels.slice(0, 20).map((r) => (
+                  <tr key={r.id} className="border-b border-zinc-100">
+                    <td className="py-2 pr-2">
+                      {r.visualization.originalPreviewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={r.visualization.originalPreviewUrl} alt="" className="h-12 w-8 rounded object-cover" />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="py-2 pr-2">
+                      {r.visualization.resultPreviewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={r.visualization.resultPreviewUrl} alt="" className="h-12 w-8 rounded object-cover" />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="py-2 pr-2">{r.status}</td>
+                    <td className="py-2 pr-2">{r.estimateMin != null ? 'ANO' : 'NE'}</td>
+                    <td className="py-2 pr-2">{r.contractorCount ?? 0}</td>
+                    <td className="py-2">
+                      <button
+                        type="button"
+                        className="mr-2 text-orange-700 underline"
+                        onClick={() => void reelAction(r.id, 'publish_now')}
+                      >
+                        Publikovat
+                      </button>
+                      <button type="button" className="text-zinc-600 underline" onClick={() => void reelAction(r.id, 'retry')}>
+                        Retry
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 
@@ -172,6 +280,53 @@ export default function AdminAiVizualizacePage() {
             label="Odhad Kč / generování"
             value={settings.estimatedCostCzkPerGeneration ?? 0}
             onChange={(v) => setSettings({ ...settings, estimatedCostCzkPerGeneration: v })}
+          />
+          <h3 className="pt-2 text-sm font-bold text-zinc-900">Automatický marketing AI vizualizací</h3>
+          <Toggle
+            label="Automaticky vytvářet Reels"
+            checked={settings.marketingReelsEnabled}
+            onChange={(v) => setSettings({ ...settings, marketingReelsEnabled: v })}
+          />
+          <Toggle
+            label="Publikovat na Facebook"
+            checked={settings.marketingPublishFacebook}
+            onChange={(v) => setSettings({ ...settings, marketingPublishFacebook: v })}
+          />
+          <Toggle
+            label="Instagram (připraveno)"
+            checked={settings.marketingPublishInstagram}
+            onChange={(v) => setSettings({ ...settings, marketingPublishInstagram: v })}
+          />
+          <Toggle
+            label="Zobrazovat cenu rekonstrukce ve videu"
+            checked={settings.marketingShowEstimateInReel}
+            onChange={(v) => setSettings({ ...settings, marketingShowEstimateInReel: v })}
+          />
+          <Toggle
+            label="Zobrazovat počet oslovených firem"
+            checked={settings.marketingShowContractorsInReel}
+            onChange={(v) => setSettings({ ...settings, marketingShowContractorsInReel: v })}
+          />
+          <Toggle
+            label="Publikovat každou novou variantu"
+            checked={settings.marketingPublishEachVariant}
+            onChange={(v) => setSettings({ ...settings, marketingPublishEachVariant: v })}
+          />
+          <Field
+            label="Max Reels za den"
+            value={settings.marketingMaxReelsPerDay}
+            onChange={(v) => setSettings({ ...settings, marketingMaxReelsPerDay: v })}
+          />
+          <Field
+            label="Minimální rozestup (min)"
+            value={settings.marketingMinIntervalMinutes}
+            onChange={(v) => setSettings({ ...settings, marketingMinIntervalMinutes: v })}
+          />
+          <Toggle label="Hudba automaticky" checked={settings.marketingMusicEnabled} onChange={(v) => setSettings({ ...settings, marketingMusicEnabled: v })} />
+          <Field
+            label="Hlasitost hudby (%)"
+            value={settings.marketingMusicVolumePercent}
+            onChange={(v) => setSettings({ ...settings, marketingMusicVolumePercent: v })}
           />
           <Toggle label="Watermark preview" checked={settings.watermarkEnabled} onChange={(v) => setSettings({ ...settings, watermarkEnabled: v })} />
           <button type="button" onClick={() => void saveSettings()} className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white">

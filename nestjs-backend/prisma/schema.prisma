@@ -8649,6 +8649,14 @@ enum AiVisualizationEventName {
   renovation_request_sent
   renovation_company_response
   renovation_offer_received
+  visualization_marketing_eligible
+  visualization_reel_queued
+  visualization_reel_rendered
+  visualization_reel_published
+  visualization_reel_failed
+  visualization_reel_click
+  visualization_reel_new_visualization
+  visualization_reel_lead
 }
 
 enum AiVisualizationWatermarkPosition {
@@ -8672,6 +8680,17 @@ model AiVisualizationSettings {
   watermarkPosition           AiVisualizationWatermarkPosition  @default(BOTTOM_RIGHT)
   watermarkOnDownload         Boolean                         @default(false)
   estimatedCostCzkPerGeneration Float?
+  marketingReelsEnabled           Boolean                         @default(true)
+  marketingPublishFacebook        Boolean                         @default(true)
+  marketingPublishInstagram       Boolean                         @default(false)
+  marketingShowEstimateInReel     Boolean                         @default(true)
+  marketingShowContractorsInReel    Boolean                         @default(true)
+  marketingPublishEachVariant       Boolean                         @default(false)
+  marketingMaxReelsPerDay           Int                             @default(5)
+  marketingMinIntervalMinutes       Int                             @default(120)
+  marketingPublishMode              AiVisualizationMarketingPublishMode @default(SCHEDULED)
+  marketingMusicEnabled             Boolean                         @default(true)
+  marketingMusicVolumePercent       Int                             @default(12)
   updatedAt                   DateTime                        @updatedAt
 }
 
@@ -8704,10 +8723,14 @@ model AiVisualization {
   usageMeta             Json?
   generationStartedAt   DateTime?
   completedAt           DateTime?
+  marketingConsent      Boolean                       @default(false)
+  marketingConsentAt    DateTime?
+  marketingConsentVersion String?
   createdAt             DateTime                      @default(now())
   updatedAt             DateTime                      @updatedAt
   renovationEstimates   AiRenovationEstimate[]
   renovationRequests    AiRenovationRequest[]
+  marketingReel         AiVisualizationMarketingReel?
 
   @@index([userId, createdAt])
   @@index([anonymousSessionId, createdAt])
@@ -8825,4 +8848,53 @@ model AiRenovationRequestRecipient {
 
   @@unique([requestId, companyId])
   @@index([companyId, createdAt])
+}
+
+enum AiVisualizationMarketingPublishMode {
+  IMMEDIATE
+  SCHEDULED
+}
+
+enum AiVisualizationMarketingReelStatus {
+  QUEUED
+  RENDERING
+  READY
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  SKIPPED
+  SKIPPED_NO_CONSENT
+  WAITING_FOR_FACEBOOK
+  CANCELLED
+}
+
+model AiVisualizationMarketingReel {
+  id                 String                             @id @default(cuid())
+  visualizationId    String                             @unique
+  visualization      AiVisualization                    @relation(fields: [visualizationId], references: [id], onDelete: Cascade)
+  rootSessionId      String
+  status             AiVisualizationMarketingReelStatus @default(QUEUED)
+  scheduledPublishAt DateTime?
+  publishedAt        DateTime?
+  videoCloudinaryId  String?
+  videoUrl           String?
+  facebookPostId     String?
+  facebookPermalink  String?
+  facebookCaption    String?                            @db.Text
+  copyVariant        String?
+  estimateMin        Int?
+  estimateMax        Int?
+  contractorCount    Int?
+  lastError          String?                            @db.Text
+  retryCount         Int                                @default(0)
+  nextRetryAt        DateTime?
+  renderStartedAt    DateTime?
+  renderCompletedAt  DateTime?
+  createdAt          DateTime                           @default(now())
+  updatedAt          DateTime                           @updatedAt
+
+  @@index([status, scheduledPublishAt])
+  @@index([rootSessionId])
+  @@index([publishedAt])
 }

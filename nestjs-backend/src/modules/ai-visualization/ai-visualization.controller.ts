@@ -96,6 +96,7 @@ export class AiVisualizationPublicController {
       userPrompt?: string;
       idempotencyKey: string;
       parentId?: string;
+      marketingConsent?: boolean;
     },
     @Req() req: AuthedRequest,
     @Ip() ip: string,

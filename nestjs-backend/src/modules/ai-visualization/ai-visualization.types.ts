@@ -18,6 +18,17 @@ export const DEFAULT_AI_VISUALIZATION_SETTINGS = {
   watermarkPosition: 'BOTTOM_RIGHT' as const,
   watermarkOnDownload: false,
   estimatedCostCzkPerGeneration: null as number | null,
+  marketingReelsEnabled: true,
+  marketingPublishFacebook: true,
+  marketingPublishInstagram: false,
+  marketingShowEstimateInReel: true,
+  marketingShowContractorsInReel: true,
+  marketingPublishEachVariant: false,
+  marketingMaxReelsPerDay: 5,
+  marketingMinIntervalMinutes: 120,
+  marketingPublishMode: 'SCHEDULED' as const,
+  marketingMusicEnabled: true,
+  marketingMusicVolumePercent: 12,
 };
 
 export type AiVisualizationPublicConfig = {

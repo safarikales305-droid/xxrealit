@@ -32,6 +32,17 @@ export class AiVisualizationSettingsService {
       watermarkPosition: row.watermarkPosition,
       watermarkOnDownload: row.watermarkOnDownload,
       estimatedCostCzkPerGeneration: row.estimatedCostCzkPerGeneration,
+      marketingReelsEnabled: row.marketingReelsEnabled,
+      marketingPublishFacebook: row.marketingPublishFacebook,
+      marketingPublishInstagram: row.marketingPublishInstagram,
+      marketingShowEstimateInReel: row.marketingShowEstimateInReel,
+      marketingShowContractorsInReel: row.marketingShowContractorsInReel,
+      marketingPublishEachVariant: row.marketingPublishEachVariant,
+      marketingMaxReelsPerDay: row.marketingMaxReelsPerDay,
+      marketingMinIntervalMinutes: row.marketingMinIntervalMinutes,
+      marketingPublishMode: row.marketingPublishMode,
+      marketingMusicEnabled: row.marketingMusicEnabled,
+      marketingMusicVolumePercent: row.marketingMusicVolumePercent,
       updatedAt: row.updatedAt.toISOString(),
     };
   }

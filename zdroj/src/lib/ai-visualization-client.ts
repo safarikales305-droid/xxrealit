@@ -70,6 +70,37 @@ export function fetchAiVisualizationConfig() {
   return vizFetch<AiVisualizationConfig>('/public/ai-visualization/config');
 }
 
+export const AI_VIZ_MARKETING_CONSENT_LABEL =
+  'Souhlasím, že anonymizovaná fotografie před/po může být použita pro prezentaci služby XXREALIT na sociálních sítích.';
+
+const ATTRIBUTION_KEY = 'xxrealit_ai_viz_attribution';
+
+export function persistAiVisualizationAttributionFromUrl() {
+  if (typeof window === 'undefined') return;
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('utm_campaign') !== 'ai_visualization') return;
+  sessionStorage.setItem(
+    ATTRIBUTION_KEY,
+    JSON.stringify({
+      utmSource: p.get('utm_source'),
+      utmMedium: p.get('utm_medium'),
+      utmCampaign: p.get('utm_campaign'),
+      utmContent: p.get('utm_content'),
+      capturedAt: new Date().toISOString(),
+    }),
+  );
+}
+
+export function readAiVisualizationAttribution(): Record<string, string | null | undefined> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(ATTRIBUTION_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string | null | undefined>) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function trackAiVisualizationEvent(input: {
   eventName: string;
   visualizationId?: string;
@@ -82,6 +113,7 @@ export function trackAiVisualizationEvent(input: {
     body: JSON.stringify({
       ...input,
       anonymousSessionId: input.anonymousSessionId ?? getAiVisualizationAnonymousSessionId(),
+      meta: { ...(readAiVisualizationAttribution() ?? {}), ...(input.meta ?? {}) },
     }),
   });
 }
@@ -116,6 +148,7 @@ export async function generateAiVisualization(input: {
   userPrompt?: string;
   idempotencyKey: string;
   parentId?: string;
+  marketingConsent?: boolean;
 }): Promise<AiVisualizationView | { message: string } | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(`${API_BASE_URL}/public/ai-visualization/generate`, {
