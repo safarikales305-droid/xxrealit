@@ -11,6 +11,7 @@ import { SeoLatestPostsBlock } from '@/components/seo/SeoLatestPostsBlock';
 import { SeoDiscoverPortalBlock } from '@/components/seo/SeoDiscoverPortalBlock';
 import { LocationMapSection } from '@/components/maps/LocationMapSection';
 import { ShareButtons } from '@/components/share/ShareButtons';
+import { AiPropertyFinderWidget } from '@/components/seo/AiPropertyFinderWidget';
 
 type Props = {
   data: ProgrammaticSeoPageData;
@@ -208,6 +209,18 @@ export function ProgrammaticSeoPage({ data }: Props) {
       ) : null}
 
       <ProgrammaticInternalLinks data={data} />
+
+      {!intent.isBrokerPage ? (
+        <AiPropertyFinderWidget
+          seoContext={{
+            intentSlug: intent.slug,
+            locationSlug: location.slug,
+            locationName: location.name,
+            intentLabel: intent.label,
+            path: data.path,
+          }}
+        />
+      ) : null}
 
       <SeoDiscoverPortalBlock />
     </div>

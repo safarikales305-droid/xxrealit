@@ -333,6 +333,10 @@ export default function AdminAiCentrumPage() {
         <a href="/admin/marketing/ai-sales" className="font-semibold text-orange-600 underline">
           AI obchodník →
         </a>
+        {' · '}
+        <a href="/admin/marketing/ai-hledac-nemovitosti" className="font-semibold text-orange-600 underline">
+          AI Hledač nemovitostí →
+        </a>
       </p>
       <p className="mb-6 text-sm text-zinc-600">
         Centrální správa OpenAI pro portál XXREALIT. Requesty jdou na NestJS backend (

@@ -8493,3 +8493,73 @@ model ProviderGeneration {
   @@unique([type, contentHash, provider])
   @@index([status, createdAt])
 }
+
+enum AiPropertyFinderEventName {
+  AI_FINDER_SHOWN
+  AI_FINDER_OPENED
+  AI_SEARCH_STARTED
+  AI_SEARCH_COMPLETED
+  AI_RESULT_CLICKED
+  AI_EXTERNAL_RESULT_CLICKED
+  AI_QUERY_REFINED
+  AI_WATCH_CREATED
+  AI_FINDER_DISMISSED
+}
+
+model AiPropertyFinderSettings {
+  id                         String   @id @default("default")
+  enabled                    Boolean  @default(true)
+  popupDelaySec              Int      @default(8)
+  popupScrollPercent         Int      @default(30)
+  popupOnInteraction         Boolean  @default(true)
+  popupAsCtaOnly             Boolean  @default(false)
+  externalDiscoveryEnabled   Boolean  @default(true)
+  cacheTtlMinutes            Int      @default(20)
+  minMatchScore              Int      @default(40)
+  updatedAt                  DateTime @updatedAt
+}
+
+model AiPropertyFinderEvent {
+  id        String                    @id @default(cuid())
+  eventName AiPropertyFinderEventName
+  visitorId String?
+  sessionId String?
+  meta      Json?
+  createdAt DateTime                  @default(now())
+
+  @@index([eventName, createdAt])
+  @@index([sessionId])
+}
+
+model AiPropertySearchSession {
+  id                 String   @id @default(cuid())
+  visitorId          String?
+  sourcePage         String?
+  sourceSeoIntent    String?
+  sourceSeoLocation  String?
+  initialQuery       String?  @db.Text
+  parsedCriteriaJson Json?
+  messagesJson       Json?
+  resultsCount       Int      @default(0)
+  createdAt          DateTime @default(now())
+  lastActivityAt     DateTime @default(now())
+
+  watches AiPropertySearchWatch[]
+
+  @@index([createdAt])
+  @@index([visitorId])
+}
+
+model AiPropertySearchWatch {
+  id                  String   @id @default(cuid())
+  email               String
+  criteriaJson        Json
+  consent             Boolean  @default(false)
+  notificationEnabled Boolean  @default(true)
+  sourceSessionId     String?
+  sourceSession       AiPropertySearchSession? @relation(fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  createdAt           DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+}
